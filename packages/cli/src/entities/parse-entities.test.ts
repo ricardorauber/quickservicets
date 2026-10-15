@@ -105,3 +105,7 @@ test("models are JSON-serializable", () => {
   const models = parse({ "entities/User.ts": `export type User = ${userBody}` });
   expect(JSON.parse(JSON.stringify(models))).toEqual(models);
 });
+
+test("syntax errors fail naming the file and position", () => {
+  expect(failure({ "entities/User.ts": "export type User = { email: string" })).toMatch(/^entities\/User\.ts:1:\d+: /);
+});

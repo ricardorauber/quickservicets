@@ -96,6 +96,12 @@ function parseEntity(program: ts.Program, context: ParseContext): EntityModel {
   const { source } = context;
   const sourceFile = program.getSourceFile(source.file);
   if (!sourceFile) throw new EntityParseError(`${source.relativeFile}: file could not be read`);
+  const [syntaxError] = program.getSyntacticDiagnostics(sourceFile);
+  if (syntaxError) {
+    const { line, character } = sourceFile.getLineAndCharacterOfPosition(syntaxError.start ?? 0);
+    const message = ts.flattenDiagnosticMessageText(syntaxError.messageText, " ");
+    throw new EntityParseError(`${source.relativeFile}:${line + 1}:${character + 1}: ${message}`);
+  }
 
   const declaration = findEntityDeclaration(sourceFile, source);
   const name = resolveCollectionName(declaration, source);

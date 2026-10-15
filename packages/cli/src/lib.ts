@@ -19,3 +19,5 @@ export { listMigrationStatus, removeLatestMigration } from "./migrations/list-re
 export type { MigrationList, MigrationListEntry, MigrationStatus } from "./migrations/list-remove.ts";
 export { migrationScript } from "./migrations/script.ts";
 export type { ScriptOptions } from "./migrations/script.ts";
+export { DEBOUNCE_MS, handleSignals, startDev, WATCHED_PATHS } from "./dev/dev.ts";
+export type { DevDependencies, DevSession } from "./dev/dev.ts";

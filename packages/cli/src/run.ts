@@ -21,6 +21,12 @@ export async function run(args: string[], output: Output = consoleOutput, cwd = 
       for (const warning of summary.warnings) output.error(`Warning: ${warning}`);
       return 0;
     }
+    if (command === "dev") {
+      const { handleSignals, startDev } = await import("./dev/dev.ts");
+      const session = await startDev(cwd, { log: output.log, error: output.error });
+      handleSignals(session);
+      await new Promise(() => {});
+    }
     if (command === "migrate") {
       const { migrate } = await import("./migrations/migrate.ts");
       const positional = args.slice(1).filter((arg) => !arg.startsWith("--"));

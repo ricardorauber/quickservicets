@@ -15,6 +15,10 @@ export interface ServiceConfig {
   logger?: Logger;
   /** Default database schema for entities without an explicit one; `DATABASE_SCHEMA` overrides it. */
   schema?: string;
+  migrations?: {
+    /** Whether `quickservice dev` creates migrations automatically for model changes (default true). */
+    autoInDev?: boolean;
+  };
 }
 
 /** The configuration with every default applied. */

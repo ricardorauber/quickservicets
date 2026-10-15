@@ -1,16 +1,34 @@
 import { readdirSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join, relative, resolve } from "node:path";
 import ts from "typescript";
-import { SYSTEM_FIELDS, type EntityModel, type FieldModel, type NestedFieldModel, type TypeDescriptor } from "@quickservice/core";
+import {
+  SYSTEM_FIELDS,
+  type EntityModel,
+  type FieldModel,
+  type NestedFieldModel,
+  type OnDeleteAction,
+  type TypeDescriptor,
+} from "@quickservice/core";
 import { EntityParseError } from "./errors.ts";
+import { findTag } from "./jsdoc.ts";
 import { deriveCollectionName, isValidCollectionName, toCamelCase, toSnakeCase } from "./naming.ts";
 
 const ENTITY_FILE = /^[A-Z][A-Za-z0-9]*\.ts$/;
+const ON_DELETE_ACTIONS: readonly OnDeleteAction[] = ["restrict", "cascade", "setNull"];
 
 interface EntitySource {
   file: string;
   relativeFile: string;
+  key: string;
   entityName: string;
+}
+
+type EntityDeclaration = ts.InterfaceDeclaration | ts.TypeAliasDeclaration;
+
+interface ParseContext {
+  checker: ts.TypeChecker;
+  source: EntitySource;
+  sourcesByFile: Map<string, EntitySource>;
 }
 
 export function parseEntities(projectRoot: string): EntityModel[] {
@@ -18,12 +36,23 @@ export function parseEntities(projectRoot: string): EntityModel[] {
   const sources = listEntitySources(projectRoot, entitiesDir);
   const program = ts.createProgram(
     sources.map((source) => source.file),
-    { strict: true, noEmit: true, noLib: true, types: [], skipLibCheck: true, target: ts.ScriptTarget.ESNext },
+    {
+      strict: true,
+      noEmit: true,
+      noLib: true,
+      types: [],
+      skipLibCheck: true,
+      target: ts.ScriptTarget.ESNext,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      allowImportingTsExtensions: true,
+    },
   );
   // Creating the checker binds every source file, which sets the parent pointers the parser relies on.
-  program.getTypeChecker();
+  const checker = program.getTypeChecker();
+  const sourcesByFile = new Map(sources.map((source) => [source.file, source]));
 
-  const models = sources.map((source) => parseEntity(program, source));
+  const models = sources.map((source) => parseEntity(program, { checker, source, sourcesByFile }));
   assertUniqueCollectionNames(models, sources);
   return models;
 }
@@ -36,41 +65,46 @@ function listEntitySources(projectRoot: string, entitiesDir: string): EntitySour
     return [];
   }
   return entries.map((entry) => {
-    const file = join(entitiesDir, entry);
+    const file = resolve(entitiesDir, entry);
     const relativeFile = relative(projectRoot, file);
     if (!ENTITY_FILE.test(entry)) {
       throw new EntityParseError(`${relativeFile}: entity file names must be PascalCase (e.g. User.ts)`);
     }
-    return { file, relativeFile, entityName: entry.slice(0, -3) };
+    const entityName = entry.slice(0, -3);
+    return { file, relativeFile, key: entityName, entityName };
   });
 }
 
-function parseEntity(program: ts.Program, source: EntitySource): EntityModel {
+function parseEntity(program: ts.Program, context: ParseContext): EntityModel {
+  const { source } = context;
   const sourceFile = program.getSourceFile(source.file);
   if (!sourceFile) throw new EntityParseError(`${source.relativeFile}: file could not be read`);
 
   const declaration = findEntityDeclaration(sourceFile, source);
   const name = resolveCollectionName(declaration, source);
   return {
+    key: source.key,
     entityName: source.entityName,
     name,
     repoKey: toCamelCase(name),
     tableName: toSnakeCase(name),
-    fields: parseFields(declarationMembers(declaration, source), source),
+    fields: parseFields(declarationMembers(declaration, source), context),
   };
 }
-
-type EntityDeclaration = ts.InterfaceDeclaration | ts.TypeAliasDeclaration;
 
 function isExported(node: ts.Node): boolean {
   return ts.canHaveModifiers(node) && (ts.getModifiers(node)?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false);
 }
 
-function findEntityDeclaration(sourceFile: ts.SourceFile, source: EntitySource): EntityDeclaration {
-  const exportedTypes = sourceFile.statements.filter(
+function exportedTypeDeclarations(sourceFile: ts.SourceFile): EntityDeclaration[] {
+  return sourceFile.statements.filter(
     (statement): statement is EntityDeclaration =>
       (ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) && isExported(statement),
   );
+}
+
+function findEntityDeclaration(sourceFile: ts.SourceFile, source: EntitySource): EntityDeclaration {
+  const exportedTypes = exportedTypeDeclarations(sourceFile);
   if (exportedTypes.length !== 1) {
     throw new EntityParseError(
       `${source.relativeFile}: must export exactly one entity type named ${source.entityName} (found ${exportedTypes.length})`,
@@ -91,28 +125,20 @@ function declarationMembers(declaration: EntityDeclaration, source: EntitySource
   throw new EntityParseError(`${source.relativeFile}: type ${source.entityName} must be an object literal type`);
 }
 
-function jsDocTags(node: ts.Node): readonly ts.JSDocTag[] {
-  return ts.getJSDocTags(node);
-}
-
-function tagText(tag: ts.JSDocTag): string {
-  return (ts.getTextOfJSDocComment(tag.comment) ?? "").trim();
-}
-
 function resolveCollectionName(declaration: EntityDeclaration, source: EntitySource): string {
-  const tag = jsDocTags(declaration).find((candidate) => candidate.tagName.text === "collection");
+  const tag = findTag(declaration, "collection");
   if (!tag) return deriveCollectionName(source.entityName);
-  const name = tagText(tag);
+  const name = tag.text;
   if (!isValidCollectionName(name)) {
-    throw new EntityParseError(
-      `${source.relativeFile}: @collection "${name}" must match ^[a-z][a-z0-9-]*$`,
-    );
+    throw new EntityParseError(`${source.relativeFile}: @collection "${name}" must match ^[a-z][a-z0-9-]*$`);
   }
   return name;
 }
 
-function parseFields(members: ts.NodeArray<ts.TypeElement>, source: EntitySource): FieldModel[] {
-  return parseMembers(members, "", source).map((field) => {
+function parseFields(members: ts.NodeArray<ts.TypeElement>, context: ParseContext): FieldModel[] {
+  const { source } = context;
+  return members.map((member) => {
+    const field = parseMember(member, "", true, context);
     if ((SYSTEM_FIELDS as readonly string[]).includes(field.name)) {
       throw new EntityParseError(
         `${source.relativeFile}: field "${field.name}" is a system field added to every entity and cannot be declared`,
@@ -123,22 +149,42 @@ function parseFields(members: ts.NodeArray<ts.TypeElement>, source: EntitySource
   });
 }
 
-function parseMembers(members: ts.NodeArray<ts.TypeElement>, prefix: string, source: EntitySource): NestedFieldModel[] {
-  return members.map((member) => {
-    if (!ts.isPropertySignature(member) || !member.type) {
-      throw new EntityParseError(`${source.relativeFile}: only typed properties are supported in ${source.entityName}`);
-    }
-    const name = member.name.getText();
-    const descriptor = mapType(member.type, `${prefix}${name}`, source);
-    return { name, ...descriptor, optional: member.questionToken !== undefined };
-  });
+function parseMember(member: ts.TypeElement, prefix: string, topLevel: boolean, context: ParseContext): NestedFieldModel {
+  const { source } = context;
+  if (!ts.isPropertySignature(member) || !member.type) {
+    throw new EntityParseError(`${source.relativeFile}: only typed properties are supported in ${source.entityName}`);
+  }
+  const name = member.name.getText();
+  const path = `${prefix}${name}`;
+  const optional = member.questionToken !== undefined;
+  const descriptor = mapType(member.type, path, topLevel, context);
+  if (descriptor.type === "ref") {
+    descriptor.onDelete = parseOnDelete(member, path, optional, source);
+  }
+  return { name, ...descriptor, optional };
+}
+
+function parseOnDelete(member: ts.PropertySignature, path: string, optional: boolean, source: EntitySource): OnDeleteAction {
+  const tag = findTag(member, "onDelete");
+  if (!tag) return "restrict";
+  const value = tag.text;
+  if (!(ON_DELETE_ACTIONS as readonly string[]).includes(value)) {
+    throw new EntityParseError(
+      `${source.relativeFile}: field "${path}" has invalid @onDelete "${value}" (use restrict, cascade or setNull)`,
+    );
+  }
+  if (value === "setNull" && !optional) {
+    throw new EntityParseError(`${source.relativeFile}: field "${path}" must be optional to use @onDelete setNull`);
+  }
+  return value as OnDeleteAction;
 }
 
 function unsupported(typeNode: ts.TypeNode, path: string, source: EntitySource): EntityParseError {
   return new EntityParseError(`${source.relativeFile}: field "${path}" has unsupported type "${typeNode.getText()}"`);
 }
 
-function mapType(typeNode: ts.TypeNode, path: string, source: EntitySource): TypeDescriptor {
+function mapType(typeNode: ts.TypeNode, path: string, topLevel: boolean, context: ParseContext): TypeDescriptor {
+  const { source } = context;
   switch (typeNode.kind) {
     case ts.SyntaxKind.StringKeyword:
       return { type: "string" };
@@ -147,17 +193,41 @@ function mapType(typeNode: ts.TypeNode, path: string, source: EntitySource): Typ
     case ts.SyntaxKind.BooleanKeyword:
       return { type: "boolean" };
   }
-  if (ts.isParenthesizedTypeNode(typeNode)) return mapType(typeNode.type, path, source);
+  if (ts.isParenthesizedTypeNode(typeNode)) return mapType(typeNode.type, path, topLevel, context);
   if (ts.isUnionTypeNode(typeNode)) return mapEnum(typeNode, path, source);
-  if (ts.isArrayTypeNode(typeNode)) return { type: "array", items: mapType(typeNode.elementType, path, source) };
-  if (ts.isTypeLiteralNode(typeNode)) return { type: "object", fields: parseMembers(typeNode.members, `${path}.`, source) };
+  if (ts.isArrayTypeNode(typeNode)) {
+    return { type: "array", items: mapType(typeNode.elementType, path, false, context) };
+  }
+  if (ts.isTypeLiteralNode(typeNode)) {
+    return { type: "object", fields: typeNode.members.map((member) => parseMember(member, `${path}.`, false, context)) };
+  }
   if (ts.isTypeReferenceNode(typeNode)) {
     const name = typeNode.typeName.getText();
     const args = typeNode.typeArguments ?? [];
     if (name === "Date" && args.length === 0) return { type: "date" };
-    if (name === "Array" && args.length === 1) return { type: "array", items: mapType(args[0]!, path, source) };
+    if (name === "Array" && args.length === 1) return { type: "array", items: mapType(args[0]!, path, false, context) };
+    const target = resolveEntityReference(typeNode, context);
+    if (target) {
+      if (!topLevel) {
+        throw new EntityParseError(
+          `${source.relativeFile}: field "${path}" references an entity, which is only supported in top-level fields`,
+        );
+      }
+      return { type: "ref", target: target.key, onDelete: "restrict" };
+    }
   }
   throw unsupported(typeNode, path, source);
+}
+
+function resolveEntityReference(typeNode: ts.TypeReferenceNode, context: ParseContext): EntitySource | undefined {
+  if (typeNode.typeArguments?.length) return undefined;
+  let symbol = context.checker.getSymbolAtLocation(typeNode.typeName);
+  if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = context.checker.getAliasedSymbol(symbol);
+  const declaration = symbol?.declarations?.[0];
+  if (!declaration || !(ts.isInterfaceDeclaration(declaration) || ts.isTypeAliasDeclaration(declaration))) return undefined;
+  const target = context.sourcesByFile.get(resolve(declaration.getSourceFile().fileName));
+  if (!target || declaration.name.text !== target.entityName || !isExported(declaration)) return undefined;
+  return target;
 }
 
 function mapEnum(typeNode: ts.UnionTypeNode, path: string, source: EntitySource): TypeDescriptor {

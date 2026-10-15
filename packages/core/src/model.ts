@@ -1,7 +1,10 @@
 export type PrimitiveFieldType = "string" | "number" | "boolean" | "date";
 
+export type OnDeleteAction = "restrict" | "cascade" | "setNull";
+
 export type TypeDescriptor =
   | { type: PrimitiveFieldType }
+  | { type: "ref"; target: string; onDelete: OnDeleteAction }
   | { type: "enum"; values: string[] }
   | { type: "array"; items: TypeDescriptor }
   | { type: "object"; fields: NestedFieldModel[] };
@@ -20,6 +23,8 @@ export type FieldModel = NestedFieldModel & {
 };
 
 export interface EntityModel {
+  /** Path of the entity file inside `/entities`, without extension (e.g. `Organization`). */
+  key: string;
   entityName: string;
   name: string;
   repoKey: string;

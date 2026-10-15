@@ -23,6 +23,7 @@ describe("type and interface declarations", () => {
     expect(fromInterface).toEqual(fromType);
     expect(fromType).toEqual([
       {
+        key: "User",
         entityName: "User",
         name: "users",
         repoKey: "users",

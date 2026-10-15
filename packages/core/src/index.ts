@@ -11,3 +11,5 @@ export type { DatabaseAdapter, FindManyOptions, FindManyResult, StoredRecord } f
 export { memoryAdapter } from "./adapters/memory.ts";
 export { CONFIG_FILE, ConfigError, DEFAULT_PORT, defineConfig, loadConfig, resolveConfig } from "./config.ts";
 export type { ResolvedConfig, ServiceConfig } from "./config.ts";
+export { createRepositories, createRepository } from "./repository.ts";
+export type { EntityRecord, ListResult, ReadOptions, Repository, RepositoryRegistry } from "./repository.ts";

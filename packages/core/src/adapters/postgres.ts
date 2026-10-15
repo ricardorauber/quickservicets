@@ -75,6 +75,7 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
     }
   };
   const withRelations = (entity: EntityModel, rows: StoredRecord[]) => loadRelations(executor(), schema!, entity, rows);
+  const relationContext = (entity: EntityModel) => ({ entity, schema: schema! });
   const transaction = async <T>(fn: () => Promise<T>): Promise<T> => {
     if (transactions.getStore()) return fn();
     if (!db) throw new Error("The PostgreSQL adapter is not connected");
@@ -122,11 +123,11 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
     },
     async findOne(entity, where) {
       const table = tableFor(entity);
-      return first(entity, await executor().select().from(table).where(toWhere(table, where, "postgres")).limit(1));
+      return first(entity, await executor().select().from(table).where(toWhere(table, where, "postgres", relationContext(entity))).limit(1));
     },
     async findMany(entity, { where, sort, limit, offset }) {
       const table = tableFor(entity);
-      const condition = toWhere(table, where, "postgres");
+      const condition = toWhere(table, where, "postgres", relationContext(entity));
       const data = (await executor()
         .select()
         .from(table)
@@ -162,7 +163,7 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
     },
     async count(entity, where) {
       const table = tableFor(entity);
-      const [row] = await executor().select({ total: count() }).from(table).where(toWhere(table, where, "postgres"));
+      const [row] = await executor().select({ total: count() }).from(table).where(toWhere(table, where, "postgres", relationContext(entity)));
       return Number(row?.total ?? 0);
     },
     transaction,

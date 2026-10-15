@@ -3,22 +3,25 @@ import { HttpError, type FieldErrorDetail } from "./errors.ts";
 import type { EntityModel, FieldModel } from "./model.ts";
 
 type RefField = Extract<FieldModel, { type: "ref" }>;
+type RefArrayField = Extract<FieldModel, { type: "refArray" }>;
 
 interface Reference {
   model: EntityModel;
-  field: RefField;
+  field: RefField | RefArrayField;
 }
 
 const isRef = (field: FieldModel): field is RefField => field.type === "ref";
+const isReference = (field: FieldModel): field is RefField | RefArrayField => field.type === "ref" || field.type === "refArray";
 
 export function referencesTo(target: EntityModel, models: EntityModel[]): Reference[] {
   return models.flatMap((model) =>
-    model.fields.filter(isRef).filter((field) => field.target === target.key).map((field) => ({ model, field })),
+    model.fields.filter(isReference).filter((field) => field.target === target.key).map((field) => ({ model, field })),
   );
 }
 
 async function findReferencing(adapter: DatabaseAdapter, reference: Reference, id: string): Promise<StoredRecord[]> {
-  const where = [{ field: reference.field.name, op: "eq" as const, value: id }];
+  const op = reference.field.type === "refArray" ? ("contains" as const) : ("eq" as const);
+  const where = [{ field: reference.field.name, op, value: id }];
   const total = await adapter.count(reference.model, where);
   if (total === 0) return [];
   const { data } = await adapter.findMany(reference.model, {
@@ -77,7 +80,8 @@ interface PlannedRecord {
 
 interface DeletePlan {
   deletions: PlannedRecord[];
-  nullifications: { model: EntityModel; record: StoredRecord; field: string }[];
+  /** Records that keep existing but lose the reference: set to null, or pulled from a reference array. */
+  updates: { model: EntityModel; record: StoredRecord; changes: Record<string, unknown> }[];
 }
 
 const recordKey = (model: EntityModel, id: string) => `${model.key}\u0000${id}`;
@@ -109,21 +113,27 @@ export async function planDelete(
   };
   await collect(model, id);
 
-  const nullifications: DeletePlan["nullifications"] = [];
+  const updates = new Map<string, DeletePlan["updates"][number]>();
+  const deletedIds = new Set(deletions.map((deletion) => recordKey(deletion.model, deletion.id)));
   for (const deletion of deletions) {
     for (const reference of referencesTo(deletion.model, models)) {
       for (const record of await findReferencing(adapter, reference, deletion.id)) {
-        if (scheduled.has(recordKey(reference.model, record.id))) continue;
+        const key = recordKey(reference.model, record.id);
+        if (scheduled.has(key)) continue;
         if (reference.field.onDelete === "restrict") {
           throw new HttpError(409, `Cannot delete: referenced by ${reference.model.name}`);
         }
-        if (reference.field.onDelete === "setNull") {
-          nullifications.push({ model: reference.model, record, field: reference.field.name });
+        const update = updates.get(key) ?? { model: reference.model, record, changes: {} };
+        if (reference.field.onDelete === "setNull") update.changes[reference.field.name] = null;
+        if (reference.field.onDelete === "pull") {
+          const current = (update.changes[reference.field.name] ?? record[reference.field.name] ?? []) as string[];
+          update.changes[reference.field.name] = current.filter((id) => !deletedIds.has(recordKey(deletion.model, id)));
         }
+        updates.set(key, update);
       }
     }
   }
-  return { deletions, nullifications };
+  return { deletions, updates: [...updates.values()] };
 }
 
 export async function executeDeletePlan(
@@ -132,8 +142,8 @@ export async function executeDeletePlan(
   nextTimestamp: (previous: Date) => Date,
 ): Promise<void> {
   await adapter.transaction(async () => {
-    for (const { model, record, field } of plan.nullifications) {
-      await adapter.updateById(model, record.id, { [field]: null, updatedAt: nextTimestamp(record.updatedAt) });
+    for (const { model, record, changes } of plan.updates) {
+      await adapter.updateById(model, record.id, { ...changes, updatedAt: nextTimestamp(record.updatedAt) });
     }
     // Dependents were collected after the records they reference, so deleting in reverse keeps foreign keys valid.
     for (const { model, id } of [...plan.deletions].reverse()) {

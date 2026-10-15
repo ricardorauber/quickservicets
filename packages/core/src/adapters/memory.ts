@@ -15,9 +15,13 @@ function compareValues(left: unknown, right: unknown): number {
   return (a as number | string) < (b as number | string) ? -1 : 1;
 }
 
-function matches(record: StoredRecord, condition: Condition): boolean {
+function matches(record: StoredRecord, condition: Condition, entity: EntityModel): boolean {
   const actual = record[condition.field];
   const { op, value } = condition;
+  if (entity.fields.some((field) => field.name === condition.field && field.type === "refArray")) {
+    if (op !== "contains") throw new Error(`Operator ${op} is not supported on reference arrays`);
+    return Array.isArray(actual) && actual.includes(value);
+  }
   if (op === "exists") return isNullish(actual) !== value;
   if (op === "isNull") return isNullish(actual) === value;
   // Like SQL, comparisons against a missing value never match.
@@ -76,7 +80,7 @@ export function memoryAdapter(): DatabaseAdapter {
   };
 
   const select = (entity: EntityModel, where: Condition[]): StoredRecord[] =>
-    [...tableFor(entity).values()].filter((record) => where.every((condition) => matches(record, condition)));
+    [...tableFor(entity).values()].filter((record) => where.every((condition) => matches(record, condition, entity)));
 
   const assertUnique = (entity: EntityModel, record: StoredRecord): void => {
     for (const field of entity.fields) {

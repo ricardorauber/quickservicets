@@ -60,9 +60,17 @@ function translate({ field, op, value }: Condition): Document {
 }
 
 /** Translates list conditions (combined with AND) into a MongoDB filter. */
-export function toFilter(conditions: Condition[]): Filter<Document> {
+export function toFilter(conditions: Condition[], entity?: EntityModel): Filter<Document> {
   if (conditions.length === 0) return {};
-  return { $and: conditions.map(translate) };
+  const isRelation = (condition: Condition) =>
+    entity?.fields.some((field) => field.name === condition.field && field.type === "refArray") ?? false;
+  return {
+    $and: conditions.map((condition) => {
+      if (!isRelation(condition)) return translate(condition);
+      if (condition.op !== "contains") throw new Error(`Operator ${condition.op} is not supported on reference arrays`);
+      return { [condition.field]: condition.value };
+    }),
+  };
 }
 
 export function toSort(sort: SortField[]): Sort {
@@ -209,10 +217,10 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
       return toRecord(entity, await collection(entity).findOne({ _id: id as never }, session()));
     },
     async findOne(entity, where) {
-      return toRecord(entity, await collection(entity).findOne(toFilter(where), session()));
+      return toRecord(entity, await collection(entity).findOne(toFilter(where, entity), session()));
     },
     async findMany(entity, { where, sort, limit, offset }) {
-      const filter = toFilter(where);
+      const filter = toFilter(where, entity);
       const documents = await collection(entity).find(filter, session()).sort(toSort(sort)).skip(offset).limit(limit).toArray();
       const total = await collection(entity).countDocuments(filter, session());
       return { data: documents.map((document) => toRecord(entity, document)!), total };
@@ -227,7 +235,7 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
       return (await collection(entity).deleteOne({ _id: id as never }, session())).deletedCount > 0;
     },
     async count(entity, where) {
-      return collection(entity).countDocuments(toFilter(where), session());
+      return collection(entity).countDocuments(toFilter(where, entity), session());
     },
     async transaction(fn) {
       if (sessions.getStore() || !supportsTransactions || !client) return fn();

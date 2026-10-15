@@ -74,6 +74,7 @@ export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
     commit: () => void ready().db.run(sql`commit`),
     rollback: () => void ready().db.run(sql`rollback`),
   };
+  const relationContext = (entity: EntityModel) => ({ entity, schema: ready().schema });
   const atomically = <T>(fn: () => Promise<T>) => scope.transaction(fn, transactionHooks);
 
   return {
@@ -109,14 +110,14 @@ export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
     findOne(entity, where) {
       return scope.run(async () => {
         const table = tableFor(entity);
-        const row = ready().db.select().from(table).where(toWhere(table, where, "sqlite")).limit(1).get() as StoredRecord | undefined;
+        const row = ready().db.select().from(table).where(toWhere(table, where, "sqlite", relationContext(entity))).limit(1).get() as StoredRecord | undefined;
         return row ? (await withRelations(entity, [row]))[0]! : null;
       });
     },
     findMany(entity, { where, sort, limit, offset }) {
       return scope.run(async () => {
         const table = tableFor(entity);
-        const condition = toWhere(table, where, "sqlite");
+        const condition = toWhere(table, where, "sqlite", relationContext(entity));
         const data = ready()
           .db.select()
           .from(table)
@@ -152,7 +153,7 @@ export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
     count(entity, where) {
       return scope.run(() => {
         const table = tableFor(entity);
-        return ready().db.select({ total: count() }).from(table).where(toWhere(table, where, "sqlite")).get()?.total ?? 0;
+        return ready().db.select({ total: count() }).from(table).where(toWhere(table, where, "sqlite", relationContext(entity))).get()?.total ?? 0;
       });
     },
     transaction(fn) {

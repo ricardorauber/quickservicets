@@ -71,23 +71,26 @@ async function recordMongoStatements(migration: MigrationFile, direction: "up" |
     markedCustom = true;
     statements.push(`// custom code in ${migration.id}, not scriptable`);
   };
-  const collection = (name: string) =>
-    new Proxy(
-      {
-        createIndex: async (keys: unknown, options: unknown) => {
-          statements.push(`db.${name}.createIndex(${JSON.stringify(keys)}, ${JSON.stringify(options)});`);
-        },
-        dropIndex: async (index: unknown) => {
-          statements.push(`db.${name}.dropIndex(${JSON.stringify(index)});`);
-        },
-      } as Record<string | symbol, unknown>,
-      { get: (target, key) => (key in target ? target[key] : customCodeMarker(markCustom)) },
-    );
-  const db = new Proxy({ collection } as Record<string | symbol, unknown>, {
-    get: (target, key) => (key === "collection" ? target.collection : key === "then" ? undefined : customCodeMarker(markCustom)),
-  });
+  const databaseFor = (schema?: string) => {
+    const target = schema ? `db.getSiblingDB(${JSON.stringify(schema.replaceAll("-", "_"))})` : "db";
+    const collection = (name: string) =>
+      new Proxy(
+        {
+          createIndex: async (keys: unknown, options: unknown) => {
+            statements.push(`${target}.${name}.createIndex(${JSON.stringify(keys)}, ${JSON.stringify(options)});`);
+          },
+          dropIndex: async (index: unknown) => {
+            statements.push(`${target}.${name}.dropIndex(${JSON.stringify(index)});`);
+          },
+        } as Record<string | symbol, unknown>,
+        { get: (target, key) => (key in target ? target[key] : customCodeMarker(markCustom)) },
+      );
+    return new Proxy({ collection } as Record<string | symbol, unknown>, {
+      get: (target, key) => (key === "collection" ? target.collection : key === "then" ? undefined : customCodeMarker(markCustom)),
+    });
+  };
   const module = (await import(migration.file)) as Record<"up" | "down", (context: unknown) => Promise<void>>;
-  await module[direction]({ db: () => db, client: customCodeMarker(markCustom), repos: customCodeMarker(markCustom) });
+  await module[direction]({ db: databaseFor, client: customCodeMarker(markCustom), repos: customCodeMarker(markCustom) });
   return statements;
 }
 

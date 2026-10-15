@@ -13,8 +13,8 @@ export interface MigrationContext {
 
 /** What a MongoDB migration's `up` and `down` functions receive. */
 export interface MongoMigrationContext {
-  /** The native database of the default schema. */
-  db(): Db;
+  /** The native database of a schema, or of the default schema when omitted. */
+  db(schema?: string): Db;
   client: MongoClient;
   /** Repositories of the current model; they reflect the latest model, not the model at that migration. */
   repos: Repositories;

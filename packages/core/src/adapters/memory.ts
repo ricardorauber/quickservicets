@@ -64,11 +64,13 @@ function sortRecords(records: StoredRecord[], sort: SortField[]): StoredRecord[]
 export function memoryAdapter(): DatabaseAdapter {
   const tables = new Map<string, Table>();
 
+  // Each schema is its own namespace, so `users` and `auth/users` never share records.
   const tableFor = (entity: EntityModel): Table => {
-    let table = tables.get(entity.tableName);
+    const key = `${entity.schema ?? ""}\u0000${entity.tableName}`;
+    let table = tables.get(key);
     if (!table) {
       table = new Map();
-      tables.set(entity.tableName, table);
+      tables.set(key, table);
     }
     return table;
   };

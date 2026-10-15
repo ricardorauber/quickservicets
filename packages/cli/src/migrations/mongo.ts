@@ -11,12 +11,14 @@ export interface MongoMigrationPlan {
   down: string[];
 }
 
+const database = (spec: MongoIndexSpec) => (spec.schema ? `ctx.db(${JSON.stringify(spec.schema)})` : "ctx.db()");
 const createIndex = (spec: MongoIndexSpec) =>
-  `await ctx.db().collection(${JSON.stringify(spec.collection)}).createIndex(${JSON.stringify(spec.keys)}, ${JSON.stringify({ name: spec.name, ...spec.options })});`;
+  `await ${database(spec)}.collection(${JSON.stringify(spec.collection)}).createIndex(${JSON.stringify(spec.keys)}, ${JSON.stringify({ name: spec.name, ...spec.options })});`;
 const dropIndex = (spec: MongoIndexSpec) =>
-  `await ctx.db().collection(${JSON.stringify(spec.collection)}).dropIndex(${JSON.stringify(spec.name)});`;
+  `await ${database(spec)}.collection(${JSON.stringify(spec.collection)}).dropIndex(${JSON.stringify(spec.name)});`;
 
-const key = (spec: MongoIndexSpec) => `${spec.collection}\u0000${spec.name}\u0000${JSON.stringify([spec.keys, spec.options])}`;
+const key = (spec: MongoIndexSpec) =>
+  `${spec.schema ?? ""}\u0000${spec.collection}\u0000${spec.name}\u0000${JSON.stringify([spec.keys, spec.options])}`;
 
 /** Index changes between the latest snapshot and the current models, as `up` and `down` statements. */
 export function planMongoMigration(projectRoot: string, models: EntityModel[]): MongoMigrationPlan {
@@ -29,7 +31,8 @@ export function planMongoMigration(projectRoot: string, models: EntityModel[]): 
   const added = after.filter((spec) => !beforeKeys.has(key(spec)));
   const removed = before.filter((spec) => !afterKeys.has(key(spec)));
 
-  const kept = (model: EntityModel) => models.some((current) => current.tableName === model.tableName);
+  const kept = (model: EntityModel) =>
+    models.some((current) => current.tableName === model.tableName && current.schema === model.schema);
   const todos = previousModels
     .filter((model) => !kept(model))
     .map((model) => `// TODO: data in collection ${model.tableName} is kept; drop it here if intended`);

@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { MongoClient, type ClientSession, type Db, type Document, type Filter, type Sort } from "mongodb";
 import { UniqueViolationError, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
 import type { EntityModel, FieldModel } from "../model.ts";
+import { schemaIdentifier } from "../sql/schema.ts";
 import type { Condition, SortField } from "../query.ts";
 
 export interface MongodbAdapterOptions {
@@ -11,7 +12,10 @@ export interface MongodbAdapterOptions {
 
 export interface MongodbAdapter extends DatabaseAdapter {
   readonly client: MongoClient | undefined;
+  /** The default database: the resolved default schema's database, or the configured one. */
   readonly db: Db | undefined;
+  /** The database of an explicit schema, or the default database. */
+  databaseFor(schema?: string | null): Db;
   createIndexes(model: EntityModel): Promise<void>;
   dropIndexes(model: EntityModel): Promise<void>;
 }
@@ -96,6 +100,8 @@ const BSON_TYPES: Record<FieldModel["type"], string> = {
 };
 
 export interface MongoIndexSpec {
+  /** Explicit schema of the entity (its own database), or null for the default database. */
+  schema: string | null;
   collection: string;
   name: string;
   keys: Record<string, 1>;
@@ -105,17 +111,19 @@ export interface MongoIndexSpec {
 /** The indexes an entity needs: createdAt, plus one per `@unique` (partial on non-null values) and `@index` field. */
 export function mongoIndexSpecs(model: EntityModel): MongoIndexSpec[] {
   const collection = model.tableName;
-  const specs: MongoIndexSpec[] = [{ collection, name: `${collection}_created_at_idx`, keys: { createdAt: 1 }, options: {} }];
+  const schema = model.schema;
+  const specs: MongoIndexSpec[] = [{ schema, collection, name: `${collection}_created_at_idx`, keys: { createdAt: 1 }, options: {} }];
   for (const field of model.fields) {
     if (field.unique) {
       specs.push({
+        schema,
         collection,
         name: `${collection}_${field.name}_uq`,
         keys: { [field.name]: 1 },
         options: { unique: true, partialFilterExpression: { [field.name]: { $type: BSON_TYPES[field.type] } } },
       });
     }
-    if (field.index) specs.push({ collection, name: `${collection}_${field.name}_idx`, keys: { [field.name]: 1 }, options: {} });
+    if (field.index) specs.push({ schema, collection, name: `${collection}_${field.name}_idx`, keys: { [field.name]: 1 }, options: {} });
   }
   return specs;
 }
@@ -134,10 +142,11 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
   let supportsTransactions = false;
   const sessions = new AsyncLocalStorage<ClientSession>();
 
-  const collection = (entity: EntityModel) => {
-    if (!db) throw new Error("The MongoDB adapter is not connected");
-    return db.collection(entity.tableName);
+  const databaseFor = (schema?: string | null): Db => {
+    if (!client || !db) throw new Error("The MongoDB adapter is not connected");
+    return schema ? client.db(schemaIdentifier(schema)) : db;
   };
+  const collection = (entity: EntityModel) => databaseFor(entity.schema).collection(entity.tableName);
   const session = () => {
     const current = sessions.getStore();
     return current ? { session: current } : {};
@@ -160,10 +169,11 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
     get db() {
       return db;
     },
-    async connect() {
+    databaseFor,
+    async connect(_, connectOptions = {}) {
       client = new MongoClient(options.url);
       await client.connect();
-      db = client.db(options.database);
+      db = client.db(connectOptions.defaultSchema ? schemaIdentifier(connectOptions.defaultSchema) : options.database);
       const hello = await db.admin().command({ hello: 1 });
       supportsTransactions = Boolean(hello.setName) || hello.msg === "isdbgrid";
     },

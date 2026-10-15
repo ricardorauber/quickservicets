@@ -123,10 +123,7 @@ function postgresDriver(client: SQL): MigrationDriver {
 }
 
 function mongoDriver(adapter: MongodbAdapter): MigrationDriver {
-  const db = () => {
-    if (!adapter.db) throw new Error("The MongoDB adapter is not connected");
-    return adapter.db;
-  };
+  const db = (schema?: string) => adapter.databaseFor(schema);
   const history = () => db().collection<{ _id: string; name: string; appliedAt: Date }>(MONGO_HISTORY_COLLECTION);
   const driver: MigrationDriver = {
     warnings: [],

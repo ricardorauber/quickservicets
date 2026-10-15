@@ -8,6 +8,7 @@
   "dependencies": {
     "@quickservice/core": "workspace:*",
     "typescript": "5.9.2",
-    "drizzle-kit": "0.31.11"
+    "drizzle-kit": "0.31.11",
+    "drizzle-orm": "0.45.4"
   }
 }

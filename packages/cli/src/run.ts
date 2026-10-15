@@ -21,6 +21,13 @@ export async function run(args: string[], output: Output = consoleOutput, cwd = 
       for (const warning of summary.warnings) output.error(`Warning: ${warning}`);
       return 0;
     }
+    if (command === "migrate") {
+      const { migrate } = await import("./migrations/migrate.ts");
+      const positional = args.slice(1).filter((arg) => !arg.startsWith("--"));
+      const result = await migrate(cwd, { target: positional[0], force: args.includes("--force") });
+      for (const message of result.messages) output.log(message);
+      return 0;
+    }
     if (command === "migration" && args[1] === "add") {
       if (!args[2]) throw new Error("Usage: quickservice migration add <Name>");
       const { addMigration } = await import("./migrations/add.ts");

@@ -13,3 +13,5 @@ export type { BuildSummary } from "./build/build.ts";
 export { addAutomaticMigration, addMigration, hasPendingChanges, planMigration } from "./migrations/add.ts";
 export { suggestMigrationName } from "./migrations/naming.ts";
 export { listMigrations, MIGRATIONS_DIR } from "./migrations/snapshot.ts";
+export { HISTORY_TABLE, migrate } from "./migrations/migrate.ts";
+export type { MigrateOptions, MigrateResult } from "./migrations/migrate.ts";

@@ -18,6 +18,11 @@ export type RouteMatch<T> =
   | { kind: "methodNotAllowed"; allow: string[] }
   | { kind: "notFound" };
 
+/** Normalizes a route path to a pattern where every dynamic segment is `:`, e.g. `/users/[id]` → `/users/:`. */
+export function patternOf(path: string): string {
+  return `/${splitPath(path).map((segment) => (/^\[.+\]$/.test(segment) ? ":" : segment)).join("/")}`;
+}
+
 export function splitPath(path: string): string[] {
   return path.split("/").filter((segment) => segment !== "");
 }

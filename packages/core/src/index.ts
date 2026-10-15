@@ -38,3 +38,6 @@ export { jsonLogger, safeLog } from "./logger.ts";
 export type { LogEntry, Logger } from "./logger.ts";
 export { buildDrizzleSchema, columnName } from "./sql/schema.ts";
 export type { DrizzleSchema, SqlDialect } from "./sql/schema.ts";
+export { sqliteAdapter } from "./adapters/sqlite.ts";
+export type { SqliteAdapter, SqliteAdapterOptions } from "./adapters/sqlite.ts";
+export { escapeLike, toOrderBy, toWhere } from "./sql/conditions.ts";

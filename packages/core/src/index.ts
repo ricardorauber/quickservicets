@@ -13,3 +13,14 @@ export { CONFIG_FILE, ConfigError, DEFAULT_PORT, defineConfig, loadConfig, resol
 export type { ResolvedConfig, ServiceConfig } from "./config.ts";
 export { createRepositories, createRepository } from "./repository.ts";
 export type { EntityRecord, ListResult, ReadOptions, Repository, RepositoryRegistry } from "./repository.ts";
+export { definePostHook, definePreHook, isHookDefinition } from "./hooks.ts";
+export type {
+  HookCall,
+  HookDefinition,
+  HookPhase,
+  PostHookFn,
+  PreHookFn,
+  Repositories,
+  ServiceRequest,
+  ServiceResponse,
+} from "./hooks.ts";

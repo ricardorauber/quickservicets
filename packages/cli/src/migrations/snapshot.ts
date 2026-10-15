@@ -1,4 +1,4 @@
-import { buildDrizzleSchema, type EntityModel, type MongoIndexSpec, type SqlDialect } from "@quickservice/core";
+import { buildDrizzleSchema, SQLITE_DEFAULT_SCHEMA_TOKEN, type EntityModel, type MongoIndexSpec, type SqlDialect } from "@quickservice/core";
 import { generateDrizzleJson, generateSQLiteDrizzleJson } from "drizzle-kit/api";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -39,8 +39,10 @@ export interface MigrationFile {
 }
 
 export async function drizzleSnapshot(models: EntityModel[], dialect: SqlDialect): Promise<DrizzleSnapshot> {
-  const { tables } = buildDrizzleSchema(models, dialect);
-  return (dialect === "sqlite" ? await generateSQLiteDrizzleJson(tables) : generateDrizzleJson(tables)) as unknown as DrizzleSnapshot;
+  // Default-schema SQLite tables carry a placeholder prefix that is resolved when migrations run.
+  const { tables, schemas } = buildDrizzleSchema(models, dialect, { sqliteDefaultPrefix: SQLITE_DEFAULT_SCHEMA_TOKEN });
+  const definitions = { ...tables, ...Object.fromEntries(Object.entries(schemas).map(([name, schema]) => [`schema:${name}`, schema])) };
+  return (dialect === "sqlite" ? await generateSQLiteDrizzleJson(tables) : generateDrizzleJson(definitions)) as unknown as DrizzleSnapshot;
 }
 
 export function listMigrations(projectRoot: string): MigrationFile[] {

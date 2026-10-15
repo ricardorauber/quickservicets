@@ -4,7 +4,7 @@ import { drizzle, type BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import { UniqueViolationError, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
 import type { EntityModel } from "../model.ts";
 import { toOrderBy, toWhere } from "../sql/conditions.ts";
-import { buildDrizzleSchema, columnName, type DrizzleSchema } from "../sql/schema.ts";
+import { buildDrizzleSchema, columnName, sqliteDefaultPrefix, type DrizzleSchema } from "../sql/schema.ts";
 import { TransactionScope } from "../sql/transaction-scope.ts";
 
 export interface SqliteAdapterOptions {
@@ -28,7 +28,7 @@ export function uniqueViolationField(error: unknown, models: EntityModel[]): str
     const match = /UNIQUE constraint failed: ([\w.]+)/.exec(current.message);
     if (match) {
       const [tableName, column] = match[1]!.split(".");
-      const model = models.find((candidate) => candidate.tableName === tableName);
+      const model = models.find((candidate) => tableName === candidate.tableName || tableName!.endsWith(`__${candidate.tableName}`));
       return model?.fields.find((field) => columnName(field.name) === column)?.name ?? column;
     }
     current = current.cause;
@@ -72,12 +72,12 @@ export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
     get client() {
       return client;
     },
-    async connect(entityModels) {
+    async connect(entityModels, connectOptions = {}) {
       models = entityModels;
       client = new Database(options.path, { create: true });
       client.run("PRAGMA foreign_keys = ON");
       db = drizzle(client);
-      schema = buildDrizzleSchema(entityModels, "sqlite");
+      schema = buildDrizzleSchema(entityModels, "sqlite", { sqliteDefaultPrefix: sqliteDefaultPrefix(connectOptions.defaultSchema) });
     },
     async disconnect() {
       client?.close();

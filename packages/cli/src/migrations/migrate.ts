@@ -3,6 +3,8 @@ import type { SQL } from "bun";
 import {
   createRepositories,
   loadConfig,
+  SQLITE_DEFAULT_SCHEMA_TOKEN,
+  sqliteDefaultPrefix,
   type MigrationContext,
   type MongodbAdapter,
   type Repositories,
@@ -15,6 +17,7 @@ import { BuildError } from "../errors.ts";
 import { listMigrations, type MigrationFile } from "./snapshot.ts";
 
 export const HISTORY_TABLE = "__quickservice_migrations";
+const HISTORY_TABLE_NAME = HISTORY_TABLE;
 export const MONGO_HISTORY_COLLECTION = "_migrations";
 export const MONGO_NO_TRANSACTION_WARNING =
   "MongoDB migrations run without transactions: index changes cannot run inside one";
@@ -54,10 +57,12 @@ function toQuery(query: TemplateStringsArray | string, values: unknown[], placeh
   return { text: query.reduce((text, part, index) => text + (index > 0 ? placeholder(index) : "") + part, ""), values };
 }
 
-function sqliteDriver(client: Database): MigrationDriver {
+function sqliteDriver(client: Database, defaultSchema: string | null): MigrationDriver {
+  const prefix = sqliteDefaultPrefix(defaultSchema);
+  const HISTORY_TABLE = `${prefix}${HISTORY_TABLE_NAME}`;
   const sql = (async (query: TemplateStringsArray | string, ...values: unknown[]) => {
     const { text, values: params } = toQuery(query, values, () => "?");
-    return client.run(text, params as never[]);
+    return client.run(text.replaceAll(SQLITE_DEFAULT_SCHEMA_TOKEN, prefix), params as never[]);
   }) as MigrationContext["sql"];
   const db = drizzleSqlite(client);
   return {
@@ -142,7 +147,7 @@ function mongoDriver(adapter: MongodbAdapter): MigrationDriver {
 
 function driverFor(config: ResolvedConfig): MigrationDriver {
   const adapter = config.database as { kind?: string; client?: unknown };
-  if (adapter.kind === "sqlite") return sqliteDriver(adapter.client as Database);
+  if (adapter.kind === "sqlite") return sqliteDriver(adapter.client as Database, config.schema);
   if (adapter.kind === "postgres") return postgresDriver(adapter.client as SQL);
   if (adapter.kind === "mongodb") return mongoDriver(config.database as MongodbAdapter);
   throw new BuildError(`Migrations are not supported for the ${adapter.kind ?? "configured"} adapter`);
@@ -182,7 +187,7 @@ async function withDriver<T>(projectRoot: string, work: (driver: MigrationDriver
   const config = await loadConfig(projectRoot);
   if (config.database.kind === "memory") throw new BuildError("Migrations are not used with the memory adapter");
   const models = parseEntities(projectRoot);
-  await config.database.connect(models);
+  await config.database.connect(models, { defaultSchema: config.schema });
   try {
     return await work(driverFor(config), config);
   } finally {

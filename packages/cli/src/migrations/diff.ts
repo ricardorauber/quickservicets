@@ -43,10 +43,18 @@ function tablesByName(snapshot: DrizzleSnapshot): Record<string, true> {
   return Object.fromEntries(Object.values(snapshot.tables).map((table) => [table.name, true as const]));
 }
 
+/**
+ * Default-schema PostgreSQL tables stay unqualified so the search path decides where they live, and explicit
+ * schemas are created only when missing.
+ */
+function adaptPostgres(statement: string): string {
+  return statement.replaceAll('"public".', "").replace(/^CREATE SCHEMA "/, 'CREATE SCHEMA IF NOT EXISTS "');
+}
+
 async function generate(dialect: SqlDialect, from: DrizzleSnapshot, to: DrizzleSnapshot): Promise<string[]> {
   return dialect === "sqlite"
     ? generateSQLiteMigration(from as never, to as never)
-    : generateMigration(from as never, to as never);
+    : (await generateMigration(from as never, to as never)).map(adaptPostgres);
 }
 
 /**

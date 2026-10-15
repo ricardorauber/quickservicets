@@ -1,5 +1,6 @@
 import { sql, type SQL } from "drizzle-orm";
 import {
+  pgSchema,
   boolean as pgBoolean,
   check as pgCheck,
   doublePrecision,
@@ -31,6 +32,28 @@ export interface DrizzleSchema {
   dialect: SqlDialect;
   /** Drizzle tables keyed by entity key. Column properties use the field names. */
   tables: Record<string, AnyTable>;
+  /** PostgreSQL schema objects keyed by schema name, so migrations can create them. */
+  schemas: Record<string, unknown>;
+}
+
+/**
+ * Stands for the default schema prefix of SQLite tables in migrations; `migrate` and the adapter replace it with
+ * `<default schema>__`, or remove it when there is no default schema.
+ */
+export const SQLITE_DEFAULT_SCHEMA_TOKEN = "{{default_schema}}";
+
+export interface DrizzleSchemaOptions {
+  /** Prefix of default-schema SQLite tables and their index names: `""`, `"<schema>__"` or the token. */
+  sqliteDefaultPrefix?: string;
+}
+
+export function schemaIdentifier(schema: string): string {
+  return schema.replaceAll("-", "_");
+}
+
+/** The SQLite prefix for a resolved default schema. */
+export function sqliteDefaultPrefix(defaultSchema: string | null | undefined): string {
+  return defaultSchema ? `${schemaIdentifier(defaultSchema)}__` : "";
 }
 
 export function columnName(fieldName: string): string {
@@ -81,7 +104,7 @@ function postgresColumn(field: FieldModel): ColumnBuilder {
 }
 
 /** Builds Drizzle table definitions for every entity, so developers never write Drizzle code. */
-export function buildDrizzleSchema(models: EntityModel[], dialect: SqlDialect): DrizzleSchema {
+export function buildDrizzleSchema(models: EntityModel[], dialect: SqlDialect, options: DrizzleSchemaOptions = {}): DrizzleSchema {
   const tables: Record<string, AnyTable> = {};
   const isSqlite = dialect === "sqlite";
   const text = (name: string): ColumnBuilder => (isSqlite ? sqliteText(name) : pgText(name));
@@ -90,11 +113,29 @@ export function buildDrizzleSchema(models: EntityModel[], dialect: SqlDialect): 
   const index = (name: string): ColumnBuilder => (isSqlite ? sqliteIndex(name) : pgIndex(name));
   const uniqueIndex = (name: string): ColumnBuilder => (isSqlite ? sqliteUniqueIndex(name) : pgUniqueIndex(name));
   const check = (name: string, condition: SQL): unknown => (isSqlite ? sqliteCheck(name, condition) : pgCheck(name, condition));
-  const tableFactory = (isSqlite ? sqliteTable : pgTable) as (
+  type TableFactory = (
     name: string,
     columns: Record<string, ColumnBuilder>,
     extra: (table: Record<string, unknown>) => unknown[],
   ) => AnyTable;
+  const pgSchemas = new Map<string, { table: TableFactory }>();
+  const factoryFor = (model: EntityModel): TableFactory => {
+    if (isSqlite || !model.schema) return (isSqlite ? sqliteTable : pgTable) as TableFactory;
+    const name = schemaIdentifier(model.schema);
+    if (!pgSchemas.has(name)) pgSchemas.set(name, pgSchema(name) as unknown as { table: TableFactory });
+    const schema = pgSchemas.get(name)!;
+    return schema.table.bind(schema);
+  };
+  /** Table name in the database, including the SQLite schema prefix. */
+  const physicalName = (model: EntityModel) => {
+    if (!isSqlite) return model.tableName;
+    return model.schema ? `${schemaIdentifier(model.schema)}__${model.tableName}` : `${options.sqliteDefaultPrefix ?? ""}${model.tableName}`;
+  };
+  /** Prefix of index and constraint names, so they stay unique across schemas. */
+  const namePrefix = (model: EntityModel) => {
+    if (model.schema) return `${schemaIdentifier(model.schema)}_${model.tableName}`;
+    return isSqlite ? `${options.sqliteDefaultPrefix ?? ""}${model.tableName}` : model.tableName;
+  };
 
   for (const model of models) {
     const columns: Record<string, ColumnBuilder> = {
@@ -114,18 +155,19 @@ export function buildDrizzleSchema(models: EntityModel[], dialect: SqlDialect): 
       columns[field.name] = column;
     }
 
-    tables[model.key] = tableFactory(model.tableName, columns, (table) => {
-      const extras: unknown[] = [index(`${model.tableName}_created_at_idx`).on(table.createdAt as never)];
+    const prefix = namePrefix(model);
+    tables[model.key] = factoryFor(model)(physicalName(model), columns, (table) => {
+      const extras: unknown[] = [index(`${prefix}_created_at_idx`).on(table.createdAt as never)];
       for (const field of model.fields) {
         const column = columnName(field.name);
-        if (field.unique) extras.push(uniqueIndex(`${model.tableName}_${column}_uq`).on(table[field.name] as never));
-        if (field.index) extras.push(index(`${model.tableName}_${column}_idx`).on(table[field.name] as never));
+        if (field.unique) extras.push(uniqueIndex(`${prefix}_${column}_uq`).on(table[field.name] as never));
+        if (field.index) extras.push(index(`${prefix}_${column}_idx`).on(table[field.name] as never));
         if (field.type === "enum") {
-          extras.push(check(`${model.tableName}_${column}_check`, enumCheck(table[field.name], field.values)));
+          extras.push(check(`${prefix}_${column}_check`, enumCheck(table[field.name], field.values)));
         }
       }
       return extras;
     });
   }
-  return { dialect, tables };
+  return { dialect, tables, schemas: Object.fromEntries(pgSchemas) };
 }

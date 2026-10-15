@@ -22,10 +22,15 @@ export interface FindManyResult {
 
 export type AdapterKind = "memory" | "sqlite" | "postgres" | "mongodb";
 
+export interface ConnectOptions {
+  /** The resolved default schema (see `loadConfig`), or null for the database's own default. */
+  defaultSchema?: string | null;
+}
+
 export interface DatabaseAdapter {
   /** Identifies built-in adapters, so tools such as migrations know the database dialect. */
   readonly kind?: AdapterKind;
-  connect(models: EntityModel[]): Promise<void>;
+  connect(models: EntityModel[], options?: ConnectOptions): Promise<void>;
   disconnect(): Promise<void>;
   insert(entity: EntityModel, record: StoredRecord): Promise<StoredRecord>;
   findById(entity: EntityModel, id: string): Promise<StoredRecord | null>;

@@ -30,8 +30,8 @@ describe.each(["sqlite", "postgres"] as const)("%s", (adapter) => {
     expect(existsSync(join(root, "migrations/meta/20261015120000_Initial.snapshot.json"))).toBe(true);
     const source = read(root, created.file);
     expect(source).toContain("export async function up(ctx: MigrationContext)");
-    expect(source).toMatch(/CREATE TABLE \\?[`"]users/);
-    expect(source).toMatch(/DROP TABLE \\?[`"]users/);
+    expect(source).toMatch(/CREATE TABLE \\?[`"](\{\{default_schema\}\})?users/);
+    expect(source).toMatch(/DROP TABLE \\?[`"](\{\{default_schema\}\})?users/);
   });
 });
 
@@ -43,7 +43,8 @@ describe("up and down SQL", () => {
     const source = read(root, (await addMigration(root, "AddAge", at(1))).file);
     const [up, down] = source.split("export async function down");
     expect(up).toContain("ADD `age` real");
-    expect(down).toContain("// WARNING: possible data loss\n  await ctx.sql(\"ALTER TABLE `users` DROP COLUMN `age`;\");");
+    expect(up).toContain("ALTER TABLE `{{default_schema}}users`");
+    expect(down).toContain("// WARNING: possible data loss\n  await ctx.sql(\"ALTER TABLE `{{default_schema}}users` DROP COLUMN `age`;\");");
   });
 
   test("dropping a column warns in up", async () => {
@@ -155,5 +156,5 @@ test("migration files are valid TypeScript modules", async () => {
   const module = await import(join(root, "migrations", file));
   const statements: string[] = [];
   await module.up({ sql: async (query: string) => statements.push(query), db: undefined, repos: {} });
-  expect(statements.join("\n")).toContain("CREATE TABLE `users`");
+  expect(statements.join("\n")).toContain("CREATE TABLE `{{default_schema}}users`");
 });

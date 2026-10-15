@@ -5,7 +5,7 @@ import { drizzle, type BunSQLDatabase } from "drizzle-orm/bun-sql";
 import { UniqueViolationError, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
 import type { EntityModel } from "../model.ts";
 import { toOrderBy, toWhere } from "../sql/conditions.ts";
-import { buildDrizzleSchema, columnName, type DrizzleSchema } from "../sql/schema.ts";
+import { buildDrizzleSchema, columnName, schemaIdentifier, type DrizzleSchema } from "../sql/schema.ts";
 
 export interface PostgresAdapterOptions {
   url: string;
@@ -36,7 +36,8 @@ export function uniqueViolationField(error: unknown, models: EntityModel[]): str
       const constraint = current.constraint ?? /unique constraint "([^"]+)"/.exec(current.message ?? "")?.[1];
       for (const model of models) {
         for (const field of model.fields) {
-          if (constraint === `${model.tableName}_${columnName(field.name)}_uq`) return field.name;
+          const prefix = model.schema ? `${schemaIdentifier(model.schema)}_${model.tableName}` : model.tableName;
+          if (constraint === `${prefix}_${columnName(field.name)}_uq`) return field.name;
         }
       }
       return constraint ?? "unknown";
@@ -79,9 +80,16 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
     get client() {
       return client;
     },
-    async connect(entityModels) {
+    async connect(entityModels, connectOptions = {}) {
       models = entityModels;
-      client = new SQL(options.url);
+      const defaultSchema = connectOptions.defaultSchema ? schemaIdentifier(connectOptions.defaultSchema) : undefined;
+      if (defaultSchema) {
+        const admin = new SQL(options.url);
+        await admin.unsafe(`create schema if not exists "${defaultSchema}"`);
+        await admin.close();
+      }
+      // The search path is a connection parameter, so every pooled connection uses the default schema.
+      client = defaultSchema ? new SQL({ url: options.url, connection: { search_path: defaultSchema } } as never) : new SQL(options.url);
       db = drizzle({ client });
       schema = buildDrizzleSchema(entityModels, "postgres");
     },

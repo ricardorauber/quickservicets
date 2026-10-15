@@ -106,7 +106,7 @@ import { models } from "./models.ts";
 import { crudRoutes, endpoints, hooks } from "./routes.ts";
 
 const config = resolveConfig(projectConfig);
-await config.database.connect(models);
+await config.database.connect(models, { defaultSchema: config.schema });
 const { server } = createApp({ models, crudRoutes, endpoints, hooks, config });
 const listening = server.listen();
 console.log(\`quickservice listening on http://localhost:\${listening.port}\`);

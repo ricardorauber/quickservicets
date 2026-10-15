@@ -1,4 +1,4 @@
-import { loadConfig, type MigrationContext, type Repositories, type SqlDialect } from "@quickservice/core";
+import { loadConfig, SQLITE_DEFAULT_SCHEMA_TOKEN, sqliteDefaultPrefix, type MigrationContext, type Repositories, type SqlDialect } from "@quickservice/core";
 import { BuildError } from "../errors.ts";
 import { sqlDialectOf } from "./add.ts";
 import { HISTORY_TABLE, MONGO_HISTORY_COLLECTION } from "./migrate.ts";
@@ -135,8 +135,13 @@ export async function migrationScript(projectRoot: string, options: ScriptOption
       blocks.push([`// ${migration.id} (${direction})`, ...statements, mongoHistoryStatement(migration, direction)].join("\n"));
       continue;
     }
-    const statements = await recordStatements(migration, direction);
-    blocks.push([`-- ${migration.id} (${direction})`, ...statements, historyStatement(dialect, migration, direction)].join("\n"));
+    const prefix = dialect === "sqlite" ? sqliteDefaultPrefix(config.schema) : "";
+    const statements = (await recordStatements(migration, direction)).map((statement) =>
+      statement.replaceAll(SQLITE_DEFAULT_SCHEMA_TOKEN, prefix),
+    );
+    blocks.push(
+      [`-- ${migration.id} (${direction})`, ...statements, historyStatement(dialect, migration, direction).replace(HISTORY_TABLE, `${prefix}${HISTORY_TABLE}`)].join("\n"),
+    );
   }
   return blocks.length > 0 ? `${blocks.join("\n\n")}\n` : "";
 }

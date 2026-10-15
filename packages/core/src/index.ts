@@ -36,3 +36,5 @@ export { createApp } from "./app.ts";
 export type { App, AppEndpoint, AppOptions, CrudRouteEntry } from "./app.ts";
 export { jsonLogger, safeLog } from "./logger.ts";
 export type { LogEntry, Logger } from "./logger.ts";
+export { buildDrizzleSchema, columnName } from "./sql/schema.ts";
+export type { DrizzleSchema, SqlDialect } from "./sql/schema.ts";

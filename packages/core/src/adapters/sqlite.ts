@@ -6,6 +6,7 @@ import type { EntityModel } from "../model.ts";
 import { toOrderBy, toWhere } from "../sql/conditions.ts";
 import { buildDrizzleSchema, columnName, sqliteDefaultPrefix, type DrizzleSchema } from "../sql/schema.ts";
 import { TransactionScope } from "../sql/transaction-scope.ts";
+import { loadRelations, splitRelations, writeRelations } from "../sql/relations.ts";
 
 export interface SqliteAdapterOptions {
   /** File path of the database, or `:memory:`. */
@@ -61,11 +62,19 @@ export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
       throw error;
     }
   };
-  const findById = (entity: EntityModel, id: string) => {
+  const withRelations = async (entity: EntityModel, rows: StoredRecord[]) =>
+    loadRelations(ready().db, ready().schema, entity, rows);
+  const findById = async (entity: EntityModel, id: string) => {
     const table = tableFor(entity);
-    const row = ready().db.select().from(table).where(eq(table.id, id)).get();
-    return (row as StoredRecord | undefined) ?? null;
+    const row = ready().db.select().from(table).where(eq(table.id, id)).get() as StoredRecord | undefined;
+    return row ? (await withRelations(entity, [row]))[0]! : null;
   };
+  const transactionHooks = {
+    begin: () => void ready().db.run(sql`begin`),
+    commit: () => void ready().db.run(sql`commit`),
+    rollback: () => void ready().db.run(sql`rollback`),
+  };
+  const atomically = <T>(fn: () => Promise<T>) => scope.transaction(fn, transactionHooks);
 
   return {
     kind: "sqlite",
@@ -85,10 +94,12 @@ export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
       db = undefined;
     },
     insert(entity, record) {
-      return scope.run(() =>
-        translateErrors(() => {
-          ready().db.insert(tableFor(entity)).values(record).run();
-          return findById(entity, record.id)!;
+      return translateErrors(() =>
+        atomically(async () => {
+          const { columns, relations } = splitRelations(entity, record);
+          ready().db.insert(tableFor(entity)).values(columns).run();
+          await writeRelations(ready().db, ready().schema, entity, record.id, relations);
+          return (await findById(entity, record.id))!;
         }),
       );
     },
@@ -96,14 +107,14 @@ export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
       return scope.run(() => findById(entity, id));
     },
     findOne(entity, where) {
-      return scope.run(() => {
+      return scope.run(async () => {
         const table = tableFor(entity);
-        const row = ready().db.select().from(table).where(toWhere(table, where, "sqlite")).limit(1).get();
-        return (row as StoredRecord | undefined) ?? null;
+        const row = ready().db.select().from(table).where(toWhere(table, where, "sqlite")).limit(1).get() as StoredRecord | undefined;
+        return row ? (await withRelations(entity, [row]))[0]! : null;
       });
     },
     findMany(entity, { where, sort, limit, offset }) {
-      return scope.run(() => {
+      return scope.run(async () => {
         const table = tableFor(entity);
         const condition = toWhere(table, where, "sqlite");
         const data = ready()
@@ -115,15 +126,20 @@ export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
           .offset(offset)
           .all() as StoredRecord[];
         const total = ready().db.select({ total: count() }).from(table).where(condition).get()?.total ?? 0;
-        return { data, total };
+        return { data: await withRelations(entity, data), total };
       });
     },
     updateById(entity, id, changes) {
-      return scope.run(() =>
-        translateErrors(() => {
+      return translateErrors(() =>
+        atomically(async () => {
           const table = tableFor(entity);
-          const result = ready().db.update(table).set(changes).where(eq(table.id, id)).run() as unknown as RunResult;
-          return result.changes > 0;
+          const { columns, relations } = splitRelations(entity, changes);
+          const exists =
+            Object.keys(columns).length > 0
+              ? (ready().db.update(table).set(columns).where(eq(table.id, id)).run() as unknown as RunResult).changes > 0
+              : ready().db.select({ id: table.id }).from(table).where(eq(table.id, id)).get() !== undefined;
+          if (exists) await writeRelations(ready().db, ready().schema, entity, id, relations);
+          return exists;
         }),
       );
     },
@@ -140,11 +156,7 @@ export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
       });
     },
     transaction(fn) {
-      return scope.transaction(fn, {
-        begin: () => void ready().db.run(sql`begin`),
-        commit: () => void ready().db.run(sql`commit`),
-        rollback: () => void ready().db.run(sql`rollback`),
-      });
+      return atomically(fn);
     },
   };
 }

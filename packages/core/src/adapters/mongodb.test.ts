@@ -39,7 +39,7 @@ if (url) {
       const adapter = freshAdapter();
       await adapter.connect(contractModels);
       const names = async () => (await adapter.db!.collection("items").indexes()).map((index) => index.name).sort();
-      expect(await names()).toEqual(["_id_", "items_code_uq", "items_created_at_idx"]);
+      expect(await names()).toEqual(["_id_", "items_code_uq", "items_created_at_idx", "items_partners_idx"]);
       await adapter.dropIndexes(contractItem);
       expect(await names()).toEqual(["_id_"]);
       await adapter.disconnect();

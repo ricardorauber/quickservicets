@@ -109,3 +109,29 @@ test("foreign keys are enabled on connect", async () => {
   const adapter = await connected();
   expect(adapter.client!.query("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
 });
+
+test("a page of records loads each reference array with one junction query", async () => {
+  const adapter = await connected();
+  const { contractOrganization } = await import("../testing/adapter-contract.ts");
+  const partner = await adapter.insert(contractOrganization, contractRecord({ name: "p" }));
+  for (let index = 0; index < 20; index++) {
+    await adapter.insert(contractItem, contractRecord({ title: `t${index}`, partners: [partner.id] }));
+  }
+  const client = adapter.client!;
+  const statements: string[] = [];
+  const prepare = client.prepare.bind(client);
+  client.prepare = ((query: string, ...rest: unknown[]) => {
+    statements.push(query);
+    return (prepare as (...args: unknown[]) => unknown)(query, ...rest);
+  }) as typeof client.prepare;
+  const { data } = await adapter.findMany(contractItem, { where: [], sort: [{ field: "title", direction: "asc" }], limit: 20, offset: 0 });
+  expect(data).toHaveLength(20);
+  expect(statements.filter((statement) => statement.includes("items__partners"))).toHaveLength(1);
+});
+
+test("a failed junction write rolls back the owner write", async () => {
+  const adapter = await connected();
+  const record = contractRecord({ title: "x", partners: [Bun.randomUUIDv7()] });
+  await expect(adapter.insert(contractItem, record)).rejects.toThrow();
+  expect(await adapter.findById(contractItem, record.id)).toBeNull();
+});

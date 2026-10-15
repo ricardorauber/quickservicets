@@ -5,7 +5,8 @@ import { buildDrizzleSchema } from "../sql/schema.ts";
 
 /** DDL statements that create the tables of `models` on an empty PostgreSQL schema. */
 export async function postgresDdl(models: EntityModel[]): Promise<string[]> {
-  return generateMigration(generateDrizzleJson({}), generateDrizzleJson(buildDrizzleSchema(models, "postgres").tables));
+  const schema = buildDrizzleSchema(models, "postgres");
+  return generateMigration(generateDrizzleJson({}), generateDrizzleJson({ ...schema.tables, ...schema.junctions }));
 }
 
 /** Drops everything in the public schema and creates the tables of `models`, for tests that skip migrations. */

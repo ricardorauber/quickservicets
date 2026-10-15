@@ -6,6 +6,7 @@ import { UniqueViolationError, type DatabaseAdapter, type StoredRecord } from ".
 import type { EntityModel } from "../model.ts";
 import { toOrderBy, toWhere } from "../sql/conditions.ts";
 import { buildDrizzleSchema, columnName, schemaIdentifier, type DrizzleSchema } from "../sql/schema.ts";
+import { loadRelations, splitRelations, writeRelations } from "../sql/relations.ts";
 
 export interface PostgresAdapterOptions {
   url: string;
@@ -73,7 +74,14 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
       throw error;
     }
   };
-  const first = <T>(rows: T[]): T | null => rows[0] ?? null;
+  const withRelations = (entity: EntityModel, rows: StoredRecord[]) => loadRelations(executor(), schema!, entity, rows);
+  const transaction = async <T>(fn: () => Promise<T>): Promise<T> => {
+    if (transactions.getStore()) return fn();
+    if (!db) throw new Error("The PostgreSQL adapter is not connected");
+    return db.transaction((tx) => transactions.run(tx as unknown as Executor, fn));
+  };
+  const first = async (entity: EntityModel, rows: unknown[]): Promise<StoredRecord | null> =>
+    rows[0] ? (await withRelations(entity, [rows[0] as StoredRecord]))[0]! : null;
 
   return {
     kind: "postgres",
@@ -99,18 +107,22 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
       db = undefined;
     },
     insert(entity, record) {
-      return translateErrors(async () => {
-        const rows = await executor().insert(tableFor(entity)).values(record).returning();
-        return rows[0] as StoredRecord;
-      });
+      return translateErrors(() =>
+        transaction(async () => {
+          const { columns, relations } = splitRelations(entity, record);
+          const rows = await executor().insert(tableFor(entity)).values(columns).returning();
+          await writeRelations(executor(), schema!, entity, record.id, relations);
+          return (await first(entity, rows))!;
+        }),
+      );
     },
     async findById(entity, id) {
       const table = tableFor(entity);
-      return first(await executor().select().from(table).where(eq(table.id, id)).limit(1)) as StoredRecord | null;
+      return first(entity, await executor().select().from(table).where(eq(table.id, id)).limit(1));
     },
     async findOne(entity, where) {
       const table = tableFor(entity);
-      return first(await executor().select().from(table).where(toWhere(table, where, "postgres")).limit(1)) as StoredRecord | null;
+      return first(entity, await executor().select().from(table).where(toWhere(table, where, "postgres")).limit(1));
     },
     async findMany(entity, { where, sort, limit, offset }) {
       const table = tableFor(entity);
@@ -123,14 +135,21 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
         .limit(limit)
         .offset(offset)) as StoredRecord[];
       const [row] = await executor().select({ total: count() }).from(table).where(condition);
-      return { data, total: Number(row?.total ?? 0) };
+      return { data: await withRelations(entity, data), total: Number(row?.total ?? 0) };
     },
     updateById(entity, id, changes) {
-      return translateErrors(async () => {
-        const table = tableFor(entity);
-        const rows = await executor().update(table).set(changes).where(eq(table.id, id)).returning({ id: table.id });
-        return rows.length > 0;
-      });
+      return translateErrors(() =>
+        transaction(async () => {
+          const table = tableFor(entity);
+          const { columns, relations } = splitRelations(entity, changes);
+          const rows =
+            Object.keys(columns).length > 0
+              ? await executor().update(table).set(columns).where(eq(table.id, id)).returning({ id: table.id })
+              : await executor().select({ id: table.id }).from(table).where(eq(table.id, id));
+          if (rows.length > 0) await writeRelations(executor(), schema!, entity, id, relations);
+          return rows.length > 0;
+        }),
+      );
     },
     async deleteById(entity, id) {
       const table = tableFor(entity);
@@ -142,10 +161,6 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
       const [row] = await executor().select({ total: count() }).from(table).where(toWhere(table, where, "postgres"));
       return Number(row?.total ?? 0);
     },
-    async transaction(fn) {
-      if (transactions.getStore()) return fn();
-      if (!db) throw new Error("The PostgreSQL adapter is not connected");
-      return db.transaction((tx) => transactions.run(tx as unknown as Executor, fn));
-    },
+    transaction,
   };
 }

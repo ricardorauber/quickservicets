@@ -1,5 +1,7 @@
 import { sql, type SQL } from "drizzle-orm";
 import {
+  integer as pgInteger,
+  primaryKey as pgPrimaryKey,
   pgSchema,
   boolean as pgBoolean,
   check as pgCheck,
@@ -16,6 +18,7 @@ import {
   check as sqliteCheck,
   index as sqliteIndex,
   integer,
+  primaryKey as sqlitePrimaryKey,
   real,
   sqliteTable,
   text as sqliteText,
@@ -34,7 +37,11 @@ export interface DrizzleSchema {
   tables: Record<string, AnyTable>;
   /** PostgreSQL schema objects keyed by schema name, so migrations can create them. */
   schemas: Record<string, unknown>;
+  /** Junction tables of reference arrays, keyed by `<entity key>.<field name>`. */
+  junctions: Record<string, AnyTable>;
 }
+
+export const junctionKey = (entityKey: string, field: string) => `${entityKey}.${field}`;
 
 /**
  * Stands for the default schema prefix of SQLite tables in migrations; `migrate` and the adapter replace it with
@@ -171,5 +178,29 @@ export function buildDrizzleSchema(models: EntityModel[], dialect: SqlDialect, o
       return extras;
     });
   }
-  return { dialect, tables, schemas: Object.fromEntries(pgSchemas) };
+  const junctions: Record<string, AnyTable> = {};
+  for (const model of models) {
+    for (const field of model.fields) {
+      if (field.type !== "refArray") continue;
+      const target = models.find((candidate) => candidate.key === field.target);
+      if (!target) continue;
+      const name = `${physicalName(model)}__${columnName(field.name)}`;
+      const prefix = `${namePrefix(model)}__${columnName(field.name)}`;
+      const targetOnDelete = field.onDelete === "pull" ? "cascade" : "restrict";
+      const integerColumn = (column: string): ColumnBuilder => (isSqlite ? integer(column) : pgInteger(column));
+      junctions[junctionKey(model.key, field.name)] = factoryFor(model)(
+        name,
+        {
+          ownerId: text("owner_id").notNull().references(() => (tables[model.key] as Record<string, unknown>).id, { onDelete: "cascade" }),
+          targetId: text("target_id").notNull().references(() => (tables[target.key] as Record<string, unknown>).id, { onDelete: targetOnDelete }),
+          position: integerColumn("position").notNull(),
+        },
+        (table) => [
+          (isSqlite ? sqlitePrimaryKey : pgPrimaryKey)({ name: `${prefix}_pk`, columns: [table.ownerId as never, table.targetId as never] }),
+          index(`${prefix}_target_idx`).on(table.targetId as never),
+        ],
+      );
+    }
+  }
+  return { dialect, tables, schemas: Object.fromEntries(pgSchemas), junctions };
 }

@@ -40,9 +40,10 @@ export interface MigrationFile {
 
 export async function drizzleSnapshot(models: EntityModel[], dialect: SqlDialect): Promise<DrizzleSnapshot> {
   // Default-schema SQLite tables carry a placeholder prefix that is resolved when migrations run.
-  const { tables, schemas } = buildDrizzleSchema(models, dialect, { sqliteDefaultPrefix: SQLITE_DEFAULT_SCHEMA_TOKEN });
-  const definitions = { ...tables, ...Object.fromEntries(Object.entries(schemas).map(([name, schema]) => [`schema:${name}`, schema])) };
-  return (dialect === "sqlite" ? await generateSQLiteDrizzleJson(tables) : generateDrizzleJson(definitions)) as unknown as DrizzleSnapshot;
+  const { tables, schemas, junctions } = buildDrizzleSchema(models, dialect, { sqliteDefaultPrefix: SQLITE_DEFAULT_SCHEMA_TOKEN });
+  const allTables = { ...tables, ...junctions };
+  const definitions = { ...allTables, ...Object.fromEntries(Object.entries(schemas).map(([name, schema]) => [`schema:${name}`, schema])) };
+  return (dialect === "sqlite" ? await generateSQLiteDrizzleJson(allTables) : generateDrizzleJson(definitions)) as unknown as DrizzleSnapshot;
 }
 
 export function listMigrations(projectRoot: string): MigrationFile[] {

@@ -92,7 +92,9 @@ export function memoryAdapter(): DatabaseAdapter {
   const normalize = (entity: EntityModel, record: StoredRecord): StoredRecord => {
     const normalized: StoredRecord = { ...record };
     for (const field of entity.fields) {
-      if (normalized[field.name] === undefined) normalized[field.name] = null;
+      if (normalized[field.name] === undefined || (field.type === "refArray" && normalized[field.name] === null)) {
+        normalized[field.name] = field.type === "refArray" ? [] : null;
+      }
     }
     return structuredClone(normalized);
   };

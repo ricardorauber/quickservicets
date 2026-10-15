@@ -73,7 +73,9 @@ function toDocument(entity: EntityModel, record: StoredRecord): Document {
   const { id, ...rest } = record;
   const document: Document = { _id: id, ...rest };
   for (const field of entity.fields) {
-    if (document[field.name] === undefined) document[field.name] = null;
+    if (document[field.name] === undefined || (field.type === "refArray" && document[field.name] === null)) {
+      document[field.name] = field.type === "refArray" ? [] : null;
+    }
   }
   return document;
 }
@@ -83,7 +85,7 @@ function toRecord(entity: EntityModel, document: Document | null): StoredRecord 
   const { _id, ...rest } = document;
   const record = { id: _id, ...rest } as StoredRecord;
   for (const field of entity.fields) {
-    if (record[field.name] === undefined) record[field.name] = null;
+    if (record[field.name] === undefined) record[field.name] = field.type === "refArray" ? [] : null;
   }
   return record;
 }
@@ -124,7 +126,10 @@ export function mongoIndexSpecs(model: EntityModel): MongoIndexSpec[] {
         options: { unique: true, partialFilterExpression: { [field.name]: { $type: BSON_TYPES[field.type] } } },
       });
     }
-    if (field.index) specs.push({ schema, collection, name: `${collection}_${field.name}_idx`, keys: { [field.name]: 1 }, options: {} });
+    // Reference arrays get a multikey index so lookups by referenced id stay fast.
+    if (field.index || field.type === "refArray") {
+      specs.push({ schema, collection, name: `${collection}_${field.name}_idx`, keys: { [field.name]: 1 }, options: {} });
+    }
   }
   return specs;
 }

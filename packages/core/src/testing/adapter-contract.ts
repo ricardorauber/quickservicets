@@ -14,6 +14,7 @@ export const contractItem = entity("Item", [
   field({ name: "publishedAt", type: "date", optional: true }),
   field({ name: "status", type: "enum", values: ["draft", "published"], optional: true }),
   field({ name: "organization", type: "ref", target: "Organization", onDelete: "restrict", optional: true }),
+  field({ name: "partners", type: "refArray", target: "Organization", onDelete: "pull", optional: true }),
   field({ name: "tags", type: "array", items: { type: "string" }, optional: true }),
   field({
     name: "meta",
@@ -80,6 +81,7 @@ export function runAdapterContract(name: string, factory: AdapterFactory): void 
         publishedAt: new Date("2026-02-03T04:05:06.789Z"),
         status: "published",
         organization: organization.id,
+        partners: [organization.id],
         tags: ["a", "b"],
         meta: { views: 3, lines: [{ qty: 1 }, { qty: 2 }] },
       };
@@ -97,6 +99,7 @@ export function runAdapterContract(name: string, factory: AdapterFactory): void 
       for (const name of ["code", "score", "active", "publishedAt", "status", "organization", "tags", "meta"]) {
         expect(found![name]).toBeNull();
       }
+      expect(found!.partners).toEqual([]);
     });
 
     test("findById and findOne return null when nothing matches", async () => {
@@ -232,6 +235,38 @@ export function runAdapterContract(name: string, factory: AdapterFactory): void 
       await insertItems({ title: "A", score: 1 }, { title: "B", score: 2 }, { title: "C", score: 3 });
       expect(await adapter.count(contractItem, [])).toBe(3);
       expect(await adapter.count(contractItem, [{ field: "score", op: "gte", value: 2 }])).toBe(2);
+    });
+
+    describe("reference arrays", () => {
+      const organizations = async (...names: string[]) => {
+        const ids: string[] = [];
+        for (const name of names) ids.push((await adapter.insert(contractOrganization, contractRecord({ name }))).id);
+        return ids;
+      };
+
+      test("keep their order on insert and find", async () => {
+        const [a, b, c] = await organizations("a", "b", "c");
+        const [item] = await insertItems({ title: "A", partners: [c, a, b] });
+        expect((await adapter.findById(contractItem, item!.id))!.partners).toEqual([c, a, b]);
+        expect((await adapter.findOne(contractItem, [{ field: "title", op: "eq", value: "A" }]))!.partners).toEqual([c, a, b]);
+      });
+
+      test("are loaded for every record of a page", async () => {
+        const [a, b] = await organizations("a", "b");
+        await insertItems({ title: "A", partners: [a] }, { title: "B", partners: [b, a] }, { title: "C" });
+        const { data } = await adapter.findMany(contractItem, page());
+        expect(data.map((record) => record.partners)).toEqual([[a], [b, a], []]);
+      });
+
+      test("are replaced on update, and other fields stay", async () => {
+        const [a, b] = await organizations("a", "b");
+        const [item] = await insertItems({ title: "A", partners: [a] });
+        expect(await adapter.updateById(contractItem, item!.id, { partners: [b, a] })).toBe(true);
+        expect(await adapter.findById(contractItem, item!.id)).toMatchObject({ title: "A", partners: [b, a] });
+        await adapter.updateById(contractItem, item!.id, { title: "A2", partners: [] });
+        expect(await adapter.findById(contractItem, item!.id)).toMatchObject({ title: "A2", partners: [] });
+        expect(await adapter.updateById(contractItem, newId(), { partners: [a] })).toBe(false);
+      });
     });
 
     test("transaction runs the function and returns its value", async () => {

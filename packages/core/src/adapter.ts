@@ -41,6 +41,8 @@ export interface DatabaseAdapter {
   count(entity: EntityModel, where: Condition[]): Promise<number>;
   /** Runs `fn` atomically when the database supports transactions, or directly otherwise. */
   transaction<T>(fn: () => Promise<T>): Promise<T>;
+  /** Locks a record until the current transaction ends, for read-modify-write updates (optional). */
+  lockForUpdate?(entity: EntityModel, id: string): Promise<void>;
 }
 
 export class UniqueViolationError extends Error {

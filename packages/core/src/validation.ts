@@ -5,6 +5,20 @@ type ValueSpec = TypeDescriptor & FieldConstraints;
 
 export type ValidationMode = "create" | "replace" | "patch";
 
+/** A PATCH of a reference array given as ids to add and remove, resolved against the stored list. */
+export class ReferenceArrayChange {
+  constructor(
+    readonly add: string[],
+    readonly remove: string[],
+  ) {}
+
+  /** Removes first, keeps present ids in place, and appends new ids in the order sent. */
+  applyTo(current: string[]): string[] {
+    const removed = current.filter((id) => !this.remove.includes(id));
+    return [...removed, ...this.add.filter((id) => !removed.includes(id))];
+  }
+}
+
 export type ValidationResult =
   | { ok: true; value: Record<string, unknown> }
   | { ok: false; details: FieldErrorDetail[] };
@@ -33,6 +47,42 @@ class Collector {
 
 const joinPath = (prefix: string, name: string) => (prefix ? `${prefix}.${name}` : name);
 
+function validateIdList(raw: unknown[], path: string, errors: Collector): string[] | undefined {
+  const seen = new Set<string>();
+  let valid = true;
+  raw.forEach((item, index) => {
+    const itemPath = `${path}[${index}]`;
+    if (typeof item !== "string" || item === "") {
+      valid = false;
+      errors.add(itemPath, "Must be a string");
+    } else if (seen.has(item)) {
+      valid = false;
+      errors.add(itemPath, "Duplicate item");
+    } else {
+      seen.add(item);
+    }
+  });
+  return valid ? [...(raw as string[])] : undefined;
+}
+
+function validateChange(raw: Record<string, unknown>, path: string, errors: Collector): ReferenceArrayChange | undefined {
+  const before = errors.details.length;
+  for (const key of Object.keys(raw)) {
+    if (key !== "add" && key !== "remove") errors.add(`${path}.${key}`, "Unknown field");
+  }
+  const lists: Record<"add" | "remove", string[]> = { add: [], remove: [] };
+  for (const key of ["add", "remove"] as const) {
+    if (raw[key] === undefined) continue;
+    if (!Array.isArray(raw[key])) {
+      errors.add(`${path}.${key}`, "Must be an array");
+      continue;
+    }
+    lists[key] = validateIdList(raw[key], `${path}.${key}`, errors) ?? [];
+  }
+  if (lists.add.some((id) => lists.remove.includes(id))) errors.add(path, "Conflicting operations");
+  return errors.details.length > before ? undefined : new ReferenceArrayChange(lists.add, lists.remove);
+}
+
 function validateFields(
   fields: NestedFieldModel[],
   input: Record<string, unknown>,
@@ -53,6 +103,11 @@ function validateFields(
       // A cleared reference array is stored as an empty list.
       if (field.optional) output[field.name] = field.type === "refArray" ? [] : null;
       else errors.add(path, "Cannot be null");
+      continue;
+    }
+    if (field.type === "refArray" && requireAll === "none" && isPlainObject(raw)) {
+      const change = validateChange(raw, path, errors);
+      if (change) output[field.name] = change;
       continue;
     }
     const value = validateValue(field, raw, path, errors);
@@ -107,21 +162,7 @@ function validateValue(field: ValueSpec, raw: unknown, path: string, errors: Col
       if (field.maxLength !== undefined && raw.length > field.maxLength) {
         return errors.add(path, `Must have at most ${field.maxLength} items`);
       }
-      const seen = new Set<string>();
-      let valid = true;
-      raw.forEach((item, index) => {
-        const itemPath = `${path}[${index}]`;
-        if (typeof item !== "string" || item === "") {
-          valid = false;
-          errors.add(itemPath, "Must be a string");
-        } else if (seen.has(item)) {
-          valid = false;
-          errors.add(itemPath, "Duplicate item");
-        } else {
-          seen.add(item);
-        }
-      });
-      return valid ? [...raw] : undefined;
+      return validateIdList(raw, path, errors);
     }
     case "array": {
       if (!Array.isArray(raw)) return errors.add(path, "Must be an array");

@@ -5,7 +5,7 @@ import { project } from "./projection.ts";
 import { assertPopulatePaths, populateRecords } from "./populate.ts";
 import type { Condition, ListQuery } from "./query.ts";
 import { assertReferencesExist, executeDeletePlan, planDelete } from "./referential-integrity.ts";
-import { validateBody, type ValidationMode } from "./validation.ts";
+import { ReferenceArrayChange, validateBody, type ValidationMode } from "./validation.ts";
 
 export type EntityRecord = StoredRecord;
 
@@ -154,7 +154,35 @@ export function createRepository(
     },
 
     async update(id, changes, options) {
-      return write(id, await validate(changes, "patch"), options);
+      const result = validateBody(model, changes, "patch");
+      if (!result.ok) throw new HttpError(400, "Invalid body", { details: result.details });
+      const value = result.value;
+      const hasChange = Object.values(value).some((item) => item instanceof ReferenceArrayChange);
+      if (!hasChange) {
+        await assertReferencesExist(model, value, models, adapter);
+        return write(id, value, options);
+      }
+      // Add/remove operations read the stored list and write the result atomically.
+      return adapter.transaction(async () => {
+        await adapter.lockForUpdate?.(model, id);
+        const current = await existing(id);
+        const details: { field: string; message: string }[] = [];
+        for (const field of model.fields) {
+          const change = value[field.name];
+          if (!(change instanceof ReferenceArrayChange)) continue;
+          const list = change.applyTo((current[field.name] as string[] | null) ?? []);
+          if (field.minLength !== undefined && list.length < field.minLength) {
+            details.push({ field: field.name, message: `Must have at least ${field.minLength} items` });
+          }
+          if (field.maxLength !== undefined && list.length > field.maxLength) {
+            details.push({ field: field.name, message: `Must have at most ${field.maxLength} items` });
+          }
+          value[field.name] = list;
+        }
+        if (details.length > 0) throw new HttpError(400, "Invalid body", { details });
+        await assertReferencesExist(model, value, models, adapter);
+        return write(id, value, options);
+      });
     },
 
     async replace(id, data, options) {

@@ -151,6 +151,10 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
         }),
       );
     },
+    async lockForUpdate(entity, id) {
+      const table = tableFor(entity);
+      await executor().select({ id: table.id }).from(table).where(eq(table.id, id)).for("update");
+    },
     async deleteById(entity, id) {
       const table = tableFor(entity);
       const rows = await executor().delete(table).where(eq(table.id, id)).returning({ id: table.id });

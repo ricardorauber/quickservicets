@@ -14,6 +14,7 @@ import { scanEndpoints, type EndpointRoute } from "../endpoints/scan-endpoints.t
 import { parseEndpointHooks } from "../hooks/endpoint-tags.ts";
 import { scanHooks, type HookEntry } from "../hooks/scan-hooks.ts";
 import { validateHookReferences } from "../hooks/validate-hook-references.ts";
+import { hasPendingChanges, sqlDialectOf } from "../migrations/add.ts";
 import { generateTypesFile } from "./generate-types.ts";
 
 export const GENERATED_DIR = ".generated";
@@ -22,7 +23,11 @@ export interface BuildSummary {
   entities: number;
   endpoints: number;
   hooks: number;
+  warnings: string[];
 }
+
+export const PENDING_MIGRATION_WARNING =
+  'Model has changes without a migration. Run "quickservice migration add <Name>"';
 
 interface ResolvedEndpoint {
   route: EndpointRoute;
@@ -109,7 +114,7 @@ console.log(\`quickservice listening on http://localhost:\${listening.port}\`);
 
 /** Builds the project at `projectRoot` into `.generated/`, replacing the previous output only on success. */
 export async function build(projectRoot: string): Promise<BuildSummary> {
-  await loadConfig(projectRoot);
+  const config = await loadConfig(projectRoot);
   const models = parseEntities(projectRoot);
   const hooks = await scanHooks(projectRoot);
   const endpoints: ResolvedEndpoint[] = scanEndpoints(projectRoot).map((route) => ({
@@ -141,5 +146,8 @@ export async function build(projectRoot: string): Promise<BuildSummary> {
   if (existsSync(target)) rmSync(target, { recursive: true, force: true });
   renameSync(staging, target);
 
-  return { entities: models.length, endpoints: endpoints.length, hooks: hooks.size };
+  const warnings: string[] = [];
+  const dialect = sqlDialectOf(config.database.kind);
+  if (dialect && (await hasPendingChanges(projectRoot, models, dialect))) warnings.push(PENDING_MIGRATION_WARNING);
+  return { entities: models.length, endpoints: endpoints.length, hooks: hooks.size, warnings };
 }

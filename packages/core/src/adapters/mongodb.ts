@@ -128,6 +128,7 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
   };
 
   return {
+    kind: "mongodb",
     get client() {
       return client;
     },

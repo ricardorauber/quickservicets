@@ -10,3 +10,6 @@ export { validateHookReferences } from "./hooks/validate-hook-references.ts";
 export type { EndpointHooks } from "./hooks/validate-hook-references.ts";
 export { build, GENERATED_DIR } from "./build/build.ts";
 export type { BuildSummary } from "./build/build.ts";
+export { addAutomaticMigration, addMigration, hasPendingChanges, planMigration } from "./migrations/add.ts";
+export { suggestMigrationName } from "./migrations/naming.ts";
+export { listMigrations, MIGRATIONS_DIR } from "./migrations/snapshot.ts";

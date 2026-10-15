@@ -68,6 +68,7 @@ export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
   };
 
   return {
+    kind: "sqlite",
     get client() {
       return client;
     },

@@ -20,7 +20,11 @@ export interface FindManyResult {
   total: number;
 }
 
+export type AdapterKind = "memory" | "sqlite" | "postgres" | "mongodb";
+
 export interface DatabaseAdapter {
+  /** Identifies built-in adapters, so tools such as migrations know the database dialect. */
+  readonly kind?: AdapterKind;
   connect(models: EntityModel[]): Promise<void>;
   disconnect(): Promise<void>;
   insert(entity: EntityModel, record: StoredRecord): Promise<StoredRecord>;

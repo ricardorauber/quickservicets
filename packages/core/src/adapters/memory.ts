@@ -96,6 +96,7 @@ export function memoryAdapter(): DatabaseAdapter {
   };
 
   return {
+    kind: "memory",
     async connect(models) {
       for (const model of models) tableFor(model);
     },

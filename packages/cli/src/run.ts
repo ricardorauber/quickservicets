@@ -1,4 +1,3 @@
-import { build } from "./build/build.ts";
 import { version } from "./version.ts";
 
 export interface Output {
@@ -16,8 +15,17 @@ export async function run(args: string[], output: Output = consoleOutput, cwd = 
   const [command] = args;
   try {
     if (command === "build") {
+      const { build } = await import("./build/build.ts");
       const summary = await build(cwd);
       output.log(`Built ${summary.entities} entities, ${summary.endpoints} custom endpoints and ${summary.hooks} hooks.`);
+      for (const warning of summary.warnings) output.error(`Warning: ${warning}`);
+      return 0;
+    }
+    if (command === "migration" && args[1] === "add") {
+      if (!args[2]) throw new Error("Usage: quickservice migration add <Name>");
+      const { addMigration } = await import("./migrations/add.ts");
+      const created = await addMigration(cwd, args[2]);
+      output.log(`Created ${created.file}`);
       return 0;
     }
   } catch (error) {

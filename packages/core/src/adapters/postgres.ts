@@ -75,6 +75,7 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
   const first = <T>(rows: T[]): T | null => rows[0] ?? null;
 
   return {
+    kind: "postgres",
     get client() {
       return client;
     },

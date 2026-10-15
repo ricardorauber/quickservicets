@@ -48,3 +48,5 @@ export type { MongoIndexSpec, MongodbAdapter, MongodbAdapterOptions } from "./ad
 export type { MigrationContext, MongoMigrationContext } from "./migrations.ts";
 export { parseFieldPaths, project } from "./projection.ts";
 export type { FieldPathsResult, Projection } from "./projection.ts";
+export { isExposed, parseClientSelection, selectFields } from "./http/selection.ts";
+export type { ClientSelection } from "./http/selection.ts";

@@ -65,14 +65,18 @@ const OPERATORS_BY_TYPE: Record<QueryFieldType, FilterOperator[]> = {
 const ISO_8601 = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?)?$/;
 const WHERE_KEY = /^where\[([^\]]+)\]\[([^\]]+)\]$/;
 
+/** Fields that list routes can filter and sort by: system and column fields exposed by the list operation. */
 export function queryableFields(model: EntityModel): Map<string, QueryField> {
-  const fields = new Map<string, QueryField>([
-    ["id", { type: "id" }],
-    ["createdAt", { type: "date" }],
-    ["updatedAt", { type: "date" }],
-  ]);
+  const { include, exclude } = model.exposure.list;
+  const exposed = (name: string) =>
+    include.some((path) => path === name || path.startsWith(`${name}.`)) &&
+    !exclude.some((path) => path === name);
+  const fields = new Map<string, QueryField>();
+  for (const [name, type] of [["id", "id"], ["createdAt", "date"], ["updatedAt", "date"]] as const) {
+    if (exposed(name)) fields.set(name, { type });
+  }
   for (const field of model.fields) {
-    if (field.storage !== "column" || field.hidden) continue;
+    if (field.storage !== "column" || field.hidden || !exposed(field.name)) continue;
     if (field.type === "enum") fields.set(field.name, { type: "enum", values: field.values });
     else if (field.type !== "array" && field.type !== "object") fields.set(field.name, { type: field.type });
   }
@@ -197,6 +201,8 @@ export function parseListQuery(model: EntityModel, params: URLSearchParams): Lis
       if (condition) where.push(condition);
     } else if (["sort", "limit", "offset"].includes(key)) {
       single.set(key, raw);
+    } else if (key === "fields" || key === "exclude") {
+      // Field selection is validated separately (see parseClientSelection).
     } else {
       errors.add(key, "Unknown parameter");
     }

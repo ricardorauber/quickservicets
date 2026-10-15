@@ -3,6 +3,7 @@ import { entityRoutePath, type CrudOperation, type EntityModel } from "../model.
 import { parseListQuery } from "../query.ts";
 import { repositoryFor, type RepositoryRegistry } from "../repository.ts";
 import { patternOf } from "./router.ts";
+import { parseClientSelection, selectFields } from "./selection.ts";
 import type { Endpoint, Route } from "./server.ts";
 
 export interface CrudRoute extends Route {
@@ -20,15 +21,25 @@ export function createCrudRoutes(models: EntityModel[], repos: RepositoryRegistr
       const id = (params: Record<string, string>) => params.id!;
 
       const handlers: [string, string, CrudOperation, Endpoint][] = [
-        ["GET", collection, "list", (_, req) => repo.list(parseListQuery(model, req.query))],
+        [
+          "GET",
+          collection,
+          "list",
+          async (_, req) => {
+            const selection = parseClientSelection(model, "list", req.query);
+            const result = await repo.list(parseListQuery(model, req.query));
+            return { ...result, data: result.data.map((record) => selectFields(record, model.exposure.list, selection)) };
+          },
+        ],
         [
           "GET",
           item,
           "read",
           async (_, req) => {
+            const selection = parseClientSelection(model, "read", req.query);
             const record = await repo.findById(id(req.params));
             if (!record) throw new HttpError(404, `${model.entityName} not found`);
-            return record;
+            return selectFields(record, model.exposure.read, selection);
           },
         ],
         [

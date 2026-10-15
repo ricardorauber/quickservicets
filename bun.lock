@@ -24,6 +24,7 @@
       },
       "dependencies": {
         "@quickservice/core": "workspace:*",
+        "typescript": "5.9.2",
       },
     },
     "packages/core": {

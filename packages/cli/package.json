@@ -6,6 +6,7 @@
     "quickservice": "src/index.ts"
   },
   "dependencies": {
-    "@quickservice/core": "workspace:*"
+    "@quickservice/core": "workspace:*",
+    "typescript": "5.9.2"
   }
 }

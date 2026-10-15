@@ -4,9 +4,26 @@
  */
 export interface Repositories {}
 
-/** Request and response shapes passed to hooks and endpoints; the HTTP runtime provides them. */
-export interface ServiceRequest {}
-export interface ServiceResponse {}
+/** The request passed to endpoints and hooks. */
+export interface ServiceRequest<Body = unknown> {
+  readonly method: string;
+  readonly path: string;
+  readonly params: Record<string, string>;
+  readonly query: URLSearchParams;
+  readonly headers: Headers;
+  /** The native request. */
+  readonly raw: Request;
+  /** Free-form values shared by hooks and the handler during one request. */
+  readonly context: Record<string, unknown>;
+  /** The parsed JSON body, parsed once and cached. */
+  json(): Promise<Body>;
+}
+
+/** Lets endpoints and hooks set the status and headers of a data response. */
+export interface ServiceResponse {
+  status(code: number): ServiceResponse;
+  header(name: string, value: string): ServiceResponse;
+}
 
 export type HookPhase = "pre" | "post";
 

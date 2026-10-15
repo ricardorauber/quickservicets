@@ -43,3 +43,5 @@ export type { SqliteAdapter, SqliteAdapterOptions } from "./adapters/sqlite.ts";
 export { escapeLike, toOrderBy, toWhere } from "./sql/conditions.ts";
 export { postgresAdapter } from "./adapters/postgres.ts";
 export type { PostgresAdapter, PostgresAdapterOptions } from "./adapters/postgres.ts";
+export { mongodbAdapter } from "./adapters/mongodb.ts";
+export type { MongodbAdapter, MongodbAdapterOptions } from "./adapters/mongodb.ts";

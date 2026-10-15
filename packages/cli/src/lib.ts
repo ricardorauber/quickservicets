@@ -17,3 +17,5 @@ export { HISTORY_TABLE, migrate } from "./migrations/migrate.ts";
 export type { MigrateOptions, MigrateResult } from "./migrations/migrate.ts";
 export { listMigrationStatus, removeLatestMigration } from "./migrations/list-remove.ts";
 export type { MigrationList, MigrationListEntry, MigrationStatus } from "./migrations/list-remove.ts";
+export { migrationScript } from "./migrations/script.ts";
+export type { ScriptOptions } from "./migrations/script.ts";

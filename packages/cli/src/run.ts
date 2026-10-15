@@ -41,6 +41,16 @@ export async function run(args: string[], output: Output = consoleOutput, cwd = 
       for (const file of await removeLatestMigration(cwd)) output.log(`Removed ${file}`);
       return 0;
     }
+    if (command === "migration" && args[1] === "script") {
+      const { migrationScript } = await import("./migrations/script.ts");
+      const outputIndex = args.indexOf("--output");
+      const outputFile = outputIndex >= 0 ? args[outputIndex + 1] : undefined;
+      const positional = args.slice(2).filter((arg, index, list) => !arg.startsWith("--") && list[index - 1] !== "--output");
+      const script = await migrationScript(cwd, { from: positional[0], to: positional[1] });
+      if (outputFile) await Bun.write(outputFile.startsWith("/") ? outputFile : `${cwd}/${outputFile}`, script);
+      else output.log(script.trimEnd());
+      return 0;
+    }
     if (command === "migration" && args[1] === "add") {
       if (!args[2]) throw new Error("Usage: quickservice migration add <Name>");
       const { addMigration } = await import("./migrations/add.ts");

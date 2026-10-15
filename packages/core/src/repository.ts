@@ -2,6 +2,7 @@ import { UniqueViolationError, type DatabaseAdapter, type StoredRecord } from ".
 import { HttpError } from "./errors.ts";
 import type { EntityModel } from "./model.ts";
 import type { Condition, ListQuery } from "./query.ts";
+import { assertReferencesExist, executeDeletePlan, planDelete } from "./referential-integrity.ts";
 import { validateBody, type ValidationMode } from "./validation.ts";
 
 export type EntityRecord = StoredRecord;
@@ -48,7 +49,7 @@ async function mapUniqueViolation<T>(operation: () => Promise<T>): Promise<T> {
   }
 }
 
-export function createRepository(model: EntityModel, adapter: DatabaseAdapter): Repository {
+export function createRepository(model: EntityModel, adapter: DatabaseAdapter, models: EntityModel[] = [model]): Repository {
   const hiddenFields = model.fields.filter((field) => field.hidden).map((field) => field.name);
 
   const present = (record: StoredRecord, options: ReadOptions = {}): EntityRecord => {
@@ -58,9 +59,10 @@ export function createRepository(model: EntityModel, adapter: DatabaseAdapter): 
     return visible;
   };
 
-  const validate = (body: unknown, mode: ValidationMode): Record<string, unknown> => {
+  const validate = async (body: unknown, mode: ValidationMode): Promise<Record<string, unknown>> => {
     const result = validateBody(model, body, mode);
     if (!result.ok) throw new HttpError(400, "Invalid body", { details: result.details });
+    await assertReferencesExist(model, result.value, models, adapter);
     return result.value;
   };
 
@@ -83,7 +85,7 @@ export function createRepository(model: EntityModel, adapter: DatabaseAdapter): 
 
   return {
     async create(data, options) {
-      const value = validate(data, "create");
+      const value = await validate(data, "create");
       for (const field of model.fields) {
         if (value[field.name] === undefined && field.default !== undefined) {
           value[field.name] = structuredClone(field.default);
@@ -110,22 +112,23 @@ export function createRepository(model: EntityModel, adapter: DatabaseAdapter): 
     },
 
     async update(id, changes, options) {
-      return write(id, validate(changes, "patch"), options);
+      return write(id, await validate(changes, "patch"), options);
     },
 
     async replace(id, data, options) {
-      const value = validate(data, "replace");
+      const value = await validate(data, "replace");
       const changes: Record<string, unknown> = {};
       for (const field of model.fields) changes[field.name] = value[field.name] ?? null;
       return write(id, changes, options);
     },
 
     async delete(id) {
-      if (!(await adapter.deleteById(model, id))) throw notFound();
+      await existing(id);
+      await executeDeletePlan(await planDelete(model, id, models, adapter), adapter, nextTimestamp);
     },
   };
 }
 
 export function createRepositories(models: EntityModel[], adapter: DatabaseAdapter): RepositoryRegistry {
-  return Object.fromEntries(models.map((model) => [model.repoKey, createRepository(model, adapter)]));
+  return Object.fromEntries(models.map((model) => [model.repoKey, createRepository(model, adapter, models)]));
 }

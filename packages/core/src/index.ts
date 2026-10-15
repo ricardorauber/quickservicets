@@ -9,3 +9,5 @@ export type { Condition, FilterOperator, ListQuery, SortDirection, SortField } f
 export { UniqueViolationError } from "./adapter.ts";
 export type { DatabaseAdapter, FindManyOptions, FindManyResult, StoredRecord } from "./adapter.ts";
 export { memoryAdapter } from "./adapters/memory.ts";
+export { CONFIG_FILE, ConfigError, DEFAULT_PORT, defineConfig, loadConfig, resolveConfig } from "./config.ts";
+export type { ResolvedConfig, ServiceConfig } from "./config.ts";

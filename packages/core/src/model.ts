@@ -37,6 +37,17 @@ export type FieldModel = NestedFieldModel & {
   hidden?: boolean;
 };
 
+export const CRUD_OPERATIONS = ["list", "read", "create", "update", "replace", "delete"] as const;
+export type CrudOperation = (typeof CRUD_OPERATIONS)[number];
+
+export interface HookReference {
+  name: string;
+  operations: CrudOperation[];
+  args: string[];
+}
+
+export type OverrideHooksMode = "inherit" | "replace";
+
 export interface EntityModel {
   /** Path of the entity file inside `/entities`, without extension (e.g. `Organization`). */
   key: string;
@@ -45,6 +56,9 @@ export interface EntityModel {
   repoKey: string;
   tableName: string;
   fields: FieldModel[];
+  hooks: HookReference[];
+  overrideHooks: OverrideHooksMode;
+  internal: boolean;
 }
 
 export const SYSTEM_FIELDS = ["id", "createdAt", "updatedAt"] as const;

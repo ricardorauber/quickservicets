@@ -34,6 +34,9 @@ describe("type and interface declarations", () => {
           { name: "active", type: "boolean", optional: false, storage: "column" },
           { name: "birth", type: "date", optional: false, storage: "column" },
         ],
+        hooks: [],
+        overrideHooks: "inherit",
+        internal: false,
       },
     ]);
   });

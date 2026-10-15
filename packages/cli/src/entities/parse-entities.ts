@@ -10,6 +10,7 @@ import {
   type TypeDescriptor,
 } from "@quickservice/core";
 import { EntityParseError } from "./errors.ts";
+import { applyEntityTags, type EntityTagTarget } from "./entity-tags.ts";
 import { applyFieldTags } from "./field-tags.ts";
 import { findTag, readTags } from "./jsdoc.ts";
 import { deriveCollectionName, isValidCollectionName, toCamelCase, toSnakeCase } from "./naming.ts";
@@ -83,6 +84,8 @@ function parseEntity(program: ts.Program, context: ParseContext): EntityModel {
 
   const declaration = findEntityDeclaration(sourceFile, source);
   const name = resolveCollectionName(declaration, source);
+  const tagTarget: EntityTagTarget = { hooks: [], overrideHooks: "inherit", internal: false };
+  applyEntityTags(tagTarget, readTags(declaration), { relativeFile: source.relativeFile });
   return {
     key: source.key,
     entityName: source.entityName,
@@ -90,6 +93,7 @@ function parseEntity(program: ts.Program, context: ParseContext): EntityModel {
     repoKey: toCamelCase(name),
     tableName: toSnakeCase(name),
     fields: parseFields(declarationMembers(declaration, source), context),
+    ...tagTarget,
   };
 }
 

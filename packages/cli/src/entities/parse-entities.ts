@@ -10,7 +10,8 @@ import {
   type TypeDescriptor,
 } from "@quickservice/core";
 import { EntityParseError } from "./errors.ts";
-import { findTag } from "./jsdoc.ts";
+import { applyFieldTags } from "./field-tags.ts";
+import { findTag, readTags } from "./jsdoc.ts";
 import { deriveCollectionName, isValidCollectionName, toCamelCase, toSnakeCase } from "./naming.ts";
 
 const ENTITY_FILE = /^[A-Z][A-Za-z0-9]*\.ts$/;
@@ -161,7 +162,9 @@ function parseMember(member: ts.TypeElement, prefix: string, topLevel: boolean, 
   if (descriptor.type === "ref") {
     descriptor.onDelete = parseOnDelete(member, path, optional, source);
   }
-  return { name, ...descriptor, optional };
+  const field: NestedFieldModel = { name, ...descriptor, optional };
+  applyFieldTags(field, readTags(member), { relativeFile: source.relativeFile, path, topLevel });
+  return field;
 }
 
 function parseOnDelete(member: ts.PropertySignature, path: string, optional: boolean, source: EntitySource): OnDeleteAction {

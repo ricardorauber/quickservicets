@@ -11,15 +11,30 @@ export type TypeDescriptor =
 
 export type FieldType = TypeDescriptor["type"];
 
-export type NestedFieldModel = TypeDescriptor & {
-  name: string;
-  optional: boolean;
-};
+export type StringFormat = "email" | "url";
+
+export interface FieldConstraints {
+  default?: unknown;
+  minLength?: number;
+  maxLength?: number;
+  min?: number;
+  max?: number;
+  format?: StringFormat;
+}
+
+export type NestedFieldModel = TypeDescriptor &
+  FieldConstraints & {
+    name: string;
+    optional: boolean;
+  };
 
 export type FieldStorage = "column" | "json";
 
 export type FieldModel = NestedFieldModel & {
   storage: FieldStorage;
+  unique?: boolean;
+  index?: boolean;
+  hidden?: boolean;
 };
 
 export interface EntityModel {

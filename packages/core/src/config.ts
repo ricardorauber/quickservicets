@@ -15,6 +15,10 @@ export interface ServiceConfig {
   logger?: Logger;
   /** Default database schema for entities without an explicit one; `DATABASE_SCHEMA` overrides it. */
   schema?: string;
+  populate?: {
+    /** Maximum number of segments in a populate path (default 2). */
+    maxDepth?: number;
+  };
   migrations?: {
     /** Whether `quickservice dev` creates migrations automatically for model changes (default true). */
     autoInDev?: boolean;
@@ -22,8 +26,11 @@ export interface ServiceConfig {
 }
 
 /** The configuration with every default applied. */
-export interface ResolvedConfig extends Omit<ServiceConfig, "server" | "production" | "schema"> {
+export const DEFAULT_POPULATE_DEPTH = 2;
+
+export interface ResolvedConfig extends Omit<ServiceConfig, "server" | "production" | "schema" | "populate"> {
   server: { port: number };
+  populate: { maxDepth: number };
   production: boolean;
   /** The resolved default schema, or null for the database's own default. */
   schema: string | null;
@@ -71,6 +78,7 @@ export function resolveConfig(config: ServiceConfig, env: Record<string, string 
     server: { ...config.server, port: resolvePort(config, env) },
     production: config.production ?? env.NODE_ENV === "production",
     schema: resolveSchema(config, env),
+    populate: { maxDepth: config.populate?.maxDepth ?? DEFAULT_POPULATE_DEPTH },
   };
 }
 

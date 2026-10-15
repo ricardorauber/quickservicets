@@ -4,11 +4,17 @@ import { parseListQuery } from "../query.ts";
 import { repositoryFor, type RepositoryRegistry } from "../repository.ts";
 import { patternOf } from "./router.ts";
 import { parseClientSelection, selectFields } from "./selection.ts";
+import { parsePopulateParam } from "../populate.ts";
 import type { Endpoint, Route } from "./server.ts";
 
 export interface CrudRoute extends Route {
   entity: EntityModel;
   operation: CrudOperation;
+}
+
+/** Default `@populate` paths of an operation plus the request's `populate` parameter. */
+export function populatePaths(model: EntityModel, operation: "list" | "read", params: URLSearchParams): string[] {
+  return [...new Set([...(model.populate?.[operation] ?? []), ...parsePopulateParam(params)])];
 }
 
 export function createCrudRoutes(models: EntityModel[], repos: RepositoryRegistry): CrudRoute[] {
@@ -26,8 +32,9 @@ export function createCrudRoutes(models: EntityModel[], repos: RepositoryRegistr
           collection,
           "list",
           async (_, req) => {
-            const selection = parseClientSelection(model, "list", req.query);
-            const result = await repo.list(parseListQuery(model, req.query));
+            const populate = populatePaths(model, "list", req.query);
+            const selection = parseClientSelection(model, "list", req.query, { populated: populate, models });
+            const result = await repo.list(parseListQuery(model, req.query), { populate });
             return { ...result, data: result.data.map((record) => selectFields(record, model.exposure.list, selection)) };
           },
         ],
@@ -36,8 +43,9 @@ export function createCrudRoutes(models: EntityModel[], repos: RepositoryRegistr
           item,
           "read",
           async (_, req) => {
-            const selection = parseClientSelection(model, "read", req.query);
-            const record = await repo.findById(id(req.params));
+            const populate = populatePaths(model, "read", req.query);
+            const selection = parseClientSelection(model, "read", req.query, { populated: populate, models });
+            const record = await repo.findById(id(req.params), { populate });
             if (!record) throw new HttpError(404, `${model.entityName} not found`);
             return selectFields(record, model.exposure.read, selection);
           },

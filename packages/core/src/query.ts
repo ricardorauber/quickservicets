@@ -201,8 +201,8 @@ export function parseListQuery(model: EntityModel, params: URLSearchParams): Lis
       if (condition) where.push(condition);
     } else if (["sort", "limit", "offset"].includes(key)) {
       single.set(key, raw);
-    } else if (key === "fields" || key === "exclude") {
-      // Field selection is validated separately (see parseClientSelection).
+    } else if (key === "fields" || key === "exclude" || key === "populate") {
+      // Field selection and population are validated separately (see parseClientSelection and populate).
     } else {
       errors.add(key, "Unknown parameter");
     }

@@ -4,6 +4,7 @@ import ts from "typescript";
 import {
   hiddenPathsFor,
   parseFieldPaths,
+  populatePathErrors,
   SYSTEM_FIELDS,
   type EntityModel,
   type Exposure,
@@ -62,6 +63,12 @@ export function parseEntities(projectRoot: string): EntityModel[] {
 
   const models = sources.map((source) => parseEntity(program, { checker, source, sourcesByFile }));
   assertUniqueCollectionNames(models, sources);
+  models.forEach((model, index) => {
+    for (const path of new Set([...(model.populate?.list ?? []), ...(model.populate?.read ?? [])])) {
+      const [error] = populatePathErrors(model, models, path, Number.POSITIVE_INFINITY);
+      if (error) throw new EntityParseError(`${sources[index]!.relativeFile}: invalid @populate: ${error}`);
+    }
+  });
   return models;
 }
 

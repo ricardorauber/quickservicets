@@ -8,6 +8,8 @@ import { BuildError } from "../errors.ts";
 export interface EndpointMetadata {
   /** Response projection from `@fields` (include) or `@exclude`. */
   projection?: { include?: string[]; exclude?: string[] };
+  /** Reference paths from `@populate`. */
+  populate?: string[];
 }
 
 type EndpointTagHandler = (tag: DocTag, file: string, metadata: EndpointMetadata) => void;
@@ -90,5 +92,10 @@ function projectionTag(kind: "include" | "exclude"): EndpointTagHandler {
   };
 }
 
+registerEndpointTag("populate", (tag, file, metadata) => {
+  const paths = splitArgs(tag.text);
+  if (paths.length === 0) throw new BuildError(`${file}: @populate needs at least one path`);
+  metadata.populate = [...new Set([...(metadata.populate ?? []), ...paths])];
+});
 registerEndpointTag("fields", projectionTag("include"));
 registerEndpointTag("exclude", projectionTag("exclude"));

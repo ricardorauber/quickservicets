@@ -7,7 +7,7 @@ export interface FieldSelectionTag {
   paths: string;
 }
 
-export type EntityTagTarget = Pick<EntityModel, "hooks" | "overrideHooks" | "internal"> & {
+export type EntityTagTarget = Pick<EntityModel, "hooks" | "overrideHooks" | "internal" | "populate"> & {
   /** `@fields` whitelists, validated once the fields are parsed. */
   fieldSelections?: FieldSelectionTag[];
 };
@@ -101,6 +101,24 @@ registerEntityTag("fields", (entity, tag, context) => {
     }
   }
   selections.push({ operations, paths });
+});
+registerEntityTag("populate", (entity, tag, context) => {
+  let operations: ("list" | "read")[] = ["list", "read"];
+  let paths = tag.text;
+  if (paths.startsWith(":")) {
+    const [scope = "", ...rest] = paths.slice(1).split(/\s+/);
+    paths = rest.join(" ");
+    operations = splitArgs(scope).map((operation) => {
+      if (operation !== "list" && operation !== "read") {
+        throw entityTagError(context, tag, `unknown operation "${operation}" (use list or read)`);
+      }
+      return operation;
+    });
+  }
+  const list = splitArgs(paths);
+  if (list.length === 0) throw entityTagError(context, tag, "needs at least one reference path");
+  const populate = (entity.populate ??= {});
+  for (const operation of operations) populate[operation] = [...new Set([...(populate[operation] ?? []), ...list])];
 });
 registerEntityTag("internal", (entity, tag, context) => {
   if (tag.text !== "") throw entityTagError(context, tag, "takes no value");

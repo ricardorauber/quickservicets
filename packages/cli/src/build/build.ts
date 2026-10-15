@@ -2,6 +2,7 @@ import {
   entityRoutePath,
   loadConfig,
   parseFieldPaths,
+  populatePathErrors,
   type Projection,
   operationForRoute,
   resolveRouteHooks,
@@ -36,6 +37,7 @@ interface ResolvedEndpoint {
   route: EndpointRoute;
   hooks: HookCall[];
   projection?: Projection;
+  populate?: { entity: string; paths: string[] };
 }
 
 interface ScannedEndpoint {
@@ -77,20 +79,40 @@ function overriddenRoute(route: EndpointRoute, models: EntityModel[]) {
   return undefined;
 }
 
-function resolveEndpoint(endpoint: ScannedEndpoint, models: EntityModel[]): ResolvedEndpoint {
+function resolveEndpoint(endpoint: ScannedEndpoint, models: EntityModel[], maxDepth: number): ResolvedEndpoint {
   const { route, metadata } = endpoint;
   const override = overriddenRoute(route, models);
+  const readOverride = override && (override.operation === "list" || override.operation === "read") ? override : undefined;
+  if (metadata.populate && !readOverride) {
+    throw new BuildError(`${route.file}: @populate is only allowed on endpoints that override a list or read route`);
+  }
   if (!override) {
     return { route, hooks: resolveRouteHooks({ kind: "custom", endpointHooks: endpoint.hooks }), projection: metadata.projection };
   }
   const { entity, operation } = override;
   const hooks = resolveRouteHooks({ kind: "override", entity, operation, endpointHooks: endpoint.hooks });
   if (operation !== "list" && operation !== "read") return { route, hooks, projection: metadata.projection };
-  if (!metadata.projection) return { route, hooks, projection: entity.exposure[operation] };
+
+  const populatePaths = metadata.populate ?? entity.populate?.[operation] ?? [];
+  for (const path of populatePaths) {
+    const [error] = populatePathErrors(entity, models, path, maxDepth);
+    if (error) throw new BuildError(`${route.file}: invalid @populate: ${error}`);
+  }
+  const populate = populatePaths.length > 0 ? { entity: entity.key, paths: populatePaths } : undefined;
+  if (!metadata.projection) return { route, hooks, projection: entity.exposure[operation], populate };
   const paths = [...(metadata.projection.include ?? []), ...(metadata.projection.exclude ?? [])];
   const parsed = parseFieldPaths(entity, paths);
   if (!parsed.ok) throw new BuildError(`${route.file}: unknown path ${parsed.invalid.join(", ")} in @fields/@exclude`);
-  return { route, hooks, projection: metadata.projection };
+  return { route, hooks, projection: metadata.projection, populate };
+}
+
+function assertEntityPopulateDepth(models: EntityModel[], maxDepth: number): void {
+  for (const model of models) {
+    for (const path of new Set([...(model.populate?.list ?? []), ...(model.populate?.read ?? [])])) {
+      const [error] = populatePathErrors(model, models, path, maxDepth);
+      if (error) throw new BuildError(`entities/${model.key}.ts: invalid @populate: ${error}`);
+    }
+  }
 }
 
 function generateRoutesFile(
@@ -106,7 +128,7 @@ function generateRoutesFile(
   ];
   const endpointEntries = endpoints.map(
     (endpoint, index) =>
-      `  { method: ${JSON.stringify(endpoint.route.method)}, path: ${JSON.stringify(endpoint.route.path)}, hooks: ${JSON.stringify(endpoint.hooks)}, ${endpoint.projection ? `projection: ${JSON.stringify(endpoint.projection)}, ` : ""}handler: endpoint${index} as Endpoint },`,
+      `  { method: ${JSON.stringify(endpoint.route.method)}, path: ${JSON.stringify(endpoint.route.path)}, hooks: ${JSON.stringify(endpoint.hooks)}, ${endpoint.projection ? `projection: ${JSON.stringify(endpoint.projection)}, ` : ""}${endpoint.populate ? `populate: ${JSON.stringify(endpoint.populate)}, ` : ""}handler: endpoint${index} as Endpoint },`,
   );
   return [
     HEADER,
@@ -152,7 +174,8 @@ export async function build(projectRoot: string): Promise<BuildSummary> {
     endpoints.map((endpoint) => ({ file: endpoint.route.file, hooks: endpoint.hooks })),
     hooks,
   );
-  const resolved = endpoints.map((endpoint) => resolveEndpoint(endpoint, models));
+  assertEntityPopulateDepth(models, config.populate.maxDepth);
+  const resolved = endpoints.map((endpoint) => resolveEndpoint(endpoint, models, config.populate.maxDepth));
 
   const files: Record<string, string> = {
     "models.ts": `${HEADER}\nimport type { EntityModel } from "@quickservice/core";\n\nexport const models: EntityModel[] = ${JSON.stringify(models, null, 2)};\n`,

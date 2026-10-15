@@ -51,9 +51,19 @@ export function generateEntityType(model: EntityModel, models: EntityModel[] = [
   ].join("\n");
 }
 
+/** Maps reference fields to their referenced record types, so populated reads are typed. */
+function referenceMap(model: EntityModel, models: EntityModel[]): string {
+  const entries = model.fields.flatMap((field) => {
+    if (field.type !== "ref") return [];
+    const target = models.find((candidate) => candidate.key === field.target);
+    return target ? [`${field.name}: ${entityTypeName(target, models)}`] : [];
+  });
+  return entries.length > 0 ? `, { ${entries.join("; ")} }` : "";
+}
+
 function repositoryLines(models: EntityModel[]): string[] {
   const line = (model: EntityModel, indent: string) =>
-    `${indent}${model.repoKey}: Repository<${entityTypeName(model, models)}>;`;
+    `${indent}${model.repoKey}: Repository<${entityTypeName(model, models)}${referenceMap(model, models)}>;`;
   const lines = models.filter((model) => !model.schemaKey).map((model) => line(model, "  "));
   const schemaKeys = [...new Set(models.flatMap((model) => (model.schemaKey ? [model.schemaKey] : [])))];
   for (const schemaKey of schemaKeys) {

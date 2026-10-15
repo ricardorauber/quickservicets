@@ -77,6 +77,8 @@ export interface EntityModel {
   internal: boolean;
   /** Exposed paths of list and read responses. */
   exposure: Record<ReadOperation, Exposure>;
+  /** Reference paths populated by default on list and read (`@populate`). */
+  populate?: Partial<Record<ReadOperation, string[]>>;
 }
 
 /** Paths of fields (top-level or nested) that are never returned. */

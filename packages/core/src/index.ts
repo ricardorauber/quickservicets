@@ -9,10 +9,10 @@ export type { Condition, FilterOperator, ListQuery, SortDirection, SortField } f
 export { UniqueViolationError } from "./adapter.ts";
 export type { AdapterKind, ConnectOptions, DatabaseAdapter, FindManyOptions, FindManyResult, StoredRecord } from "./adapter.ts";
 export { memoryAdapter } from "./adapters/memory.ts";
-export { CONFIG_FILE, ConfigError, DEFAULT_PORT, defineConfig, loadConfig, resolveConfig } from "./config.ts";
+export { CONFIG_FILE, ConfigError, DEFAULT_PORT, DEFAULT_POPULATE_DEPTH, defineConfig, loadConfig, resolveConfig } from "./config.ts";
 export type { ResolvedConfig, ServiceConfig } from "./config.ts";
 export { createRepositories, createRepository, repositoryFor } from "./repository.ts";
-export type { EntityRecord, ListResult, ReadOptions, Repository, RepositoryRegistry } from "./repository.ts";
+export type { EntityRecord, ListResult, ReadOptions, Repository, RepositoryOptions, RepositoryRegistry } from "./repository.ts";
 export { definePostHook, definePreHook, isHookDefinition } from "./hooks.ts";
 export type {
   HookCall,
@@ -30,7 +30,7 @@ export { Router, patternOf, splitPath } from "./http/router.ts";
 export type { RouteMatch, RoutePattern } from "./http/router.ts";
 export { executedHooks, operationForRoute, resolveRouteHooks, withHooks } from "./http/pipeline.ts";
 export type { RouteHookSource } from "./http/pipeline.ts";
-export { createCrudRoutes, mergeRoutes } from "./http/crud.ts";
+export { createCrudRoutes, mergeRoutes, populatePaths } from "./http/crud.ts";
 export type { CrudRoute } from "./http/crud.ts";
 export { createApp } from "./app.ts";
 export type { App, AppEndpoint, AppOptions, CrudRouteEntry } from "./app.ts";
@@ -49,4 +49,5 @@ export type { MigrationContext, MongoMigrationContext } from "./migrations.ts";
 export { parseFieldPaths, project, projectResult } from "./projection.ts";
 export type { FieldPathsResult, Projection } from "./projection.ts";
 export { isExposed, parseClientSelection, selectFields } from "./http/selection.ts";
-export type { ClientSelection } from "./http/selection.ts";
+export type { ClientSelection, SelectionContext } from "./http/selection.ts";
+export { assertPopulatePaths, parsePopulateParam, populatePathErrors, populateRecords } from "./populate.ts";

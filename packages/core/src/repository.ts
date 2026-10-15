@@ -2,6 +2,7 @@ import { UniqueViolationError, type DatabaseAdapter, type StoredRecord } from ".
 import { HttpError } from "./errors.ts";
 import { alwaysHiddenPaths, type EntityModel } from "./model.ts";
 import { project } from "./projection.ts";
+import { assertPopulatePaths, populateRecords } from "./populate.ts";
 import type { Condition, ListQuery } from "./query.ts";
 import { assertReferencesExist, executeDeletePlan, planDelete } from "./referential-integrity.ts";
 import { validateBody, type ValidationMode } from "./validation.ts";
@@ -10,6 +11,13 @@ export type EntityRecord = StoredRecord;
 
 export interface ReadOptions {
   includeHidden?: boolean;
+  /** Reference paths to replace with the referenced records, e.g. `organization` or `organization.logo`. */
+  populate?: readonly string[];
+}
+
+export interface RepositoryOptions {
+  /** Maximum number of segments in a populate path (default 2). */
+  populateMaxDepth?: number;
 }
 
 export interface ListResult<T> {
@@ -19,14 +27,26 @@ export interface ListResult<T> {
   offset: number;
 }
 
-export interface Repository<T extends EntityRecord = EntityRecord> {
+/** `T` with the populated reference fields `K` typed as their referenced records (`R[K]`) or null. */
+export type Populated<T, R, K extends string> = [K & keyof R] extends [never]
+  ? T
+  : Omit<T, K & keyof R> & { [Field in K & keyof R]: R[Field] | null };
+
+export type PopulateOptions<P extends readonly string[]> = Omit<ReadOptions, "populate"> & { populate?: P };
+
+/**
+ * Repository of one entity. `R` maps reference fields to the referenced record types, so populated reads are typed.
+ */
+export interface Repository<T extends EntityRecord = EntityRecord, R = Record<never, never>> {
   create(data: unknown, options?: ReadOptions): Promise<T>;
-  findById(id: string, options?: ReadOptions): Promise<T | null>;
-  findOne(where: Condition[], options?: ReadOptions): Promise<T | null>;
-  list(query: ListQuery, options?: ReadOptions): Promise<ListResult<T>>;
+  findById<const P extends readonly string[] = []>(id: string, options?: PopulateOptions<P>): Promise<Populated<T, R, P[number]> | null>;
+  findOne<const P extends readonly string[] = []>(where: Condition[], options?: PopulateOptions<P>): Promise<Populated<T, R, P[number]> | null>;
+  list<const P extends readonly string[] = []>(query: ListQuery, options?: PopulateOptions<P>): Promise<ListResult<Populated<T, R, P[number]>>>;
   update(id: string, changes: unknown, options?: ReadOptions): Promise<T>;
   replace(id: string, data: unknown, options?: ReadOptions): Promise<T>;
   delete(id: string): Promise<void>;
+  /** Populates reference paths on records already loaded, e.g. results of a custom endpoint. */
+  populate(records: T[], paths: readonly string[]): Promise<T[]>;
 }
 
 /** Repositories keyed by repository key; entities with an explicit schema are nested under the schema key. */
@@ -51,7 +71,19 @@ async function mapUniqueViolation<T>(operation: () => Promise<T>): Promise<T> {
   }
 }
 
-export function createRepository(model: EntityModel, adapter: DatabaseAdapter, models: EntityModel[] = [model]): Repository {
+export function createRepository(
+  model: EntityModel,
+  adapter: DatabaseAdapter,
+  models: EntityModel[] = [model],
+  repositoryOptions: RepositoryOptions = {},
+): Repository {
+  const maxDepth = repositoryOptions.populateMaxDepth ?? 2;
+  const withReferences = async (records: StoredRecord[], options: ReadOptions = {}): Promise<StoredRecord[]> => {
+    const paths = [...(options.populate ?? [])];
+    if (paths.length === 0) return records;
+    assertPopulatePaths(model, models, paths, maxDepth);
+    return populateRecords(model, records, paths, models, adapter);
+  };
   const hiddenPaths = alwaysHiddenPaths(model.fields);
 
   const present = (record: StoredRecord, options: ReadOptions = {}): EntityRecord => {
@@ -83,7 +115,7 @@ export function createRepository(model: EntityModel, adapter: DatabaseAdapter, m
     return present(await existing(id), options);
   };
 
-  return {
+  const repository: Repository = {
     async create(data, options) {
       const value = await validate(data, "create");
       for (const field of model.fields) {
@@ -98,17 +130,26 @@ export function createRepository(model: EntityModel, adapter: DatabaseAdapter, m
 
     async findById(id, options) {
       const record = await adapter.findById(model, id);
-      return record ? present(record, options) : null;
+      if (!record) return null;
+      const [populated] = await withReferences([record], options);
+      return present(populated!, options);
     },
 
     async findOne(where, options) {
       const record = await adapter.findOne(model, where);
-      return record ? present(record, options) : null;
+      if (!record) return null;
+      const [populated] = await withReferences([record], options);
+      return present(populated!, options);
     },
 
     async list(query, options) {
       const { data, total } = await adapter.findMany(model, query);
-      return { data: data.map((record) => present(record, options)), total, limit: query.limit, offset: query.offset };
+      const populated = await withReferences(data, options);
+      return { data: populated.map((record) => present(record, options)), total, limit: query.limit, offset: query.offset };
+    },
+
+    async populate(records, paths) {
+      return (await withReferences(records as StoredRecord[], { populate: paths })).map((record) => present(record));
     },
 
     async update(id, changes, options) {
@@ -127,12 +168,17 @@ export function createRepository(model: EntityModel, adapter: DatabaseAdapter, m
       await executeDeletePlan(await planDelete(model, id, models, adapter), adapter, nextTimestamp);
     },
   };
+  return repository;
 }
 
-export function createRepositories(models: EntityModel[], adapter: DatabaseAdapter): RepositoryRegistry {
+export function createRepositories(
+  models: EntityModel[],
+  adapter: DatabaseAdapter,
+  options: RepositoryOptions = {},
+): RepositoryRegistry {
   const registry: RepositoryRegistry = {};
   for (const model of models) {
-    const repository = createRepository(model, adapter, models);
+    const repository = createRepository(model, adapter, models, options);
     if (model.schemaKey) {
       const nested = (registry[model.schemaKey] ??= {}) as Record<string, Repository>;
       nested[model.repoKey] = repository;

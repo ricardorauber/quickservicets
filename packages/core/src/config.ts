@@ -13,12 +13,30 @@ export interface ServiceConfig {
   production?: boolean;
   /** Receives one entry per request; defaults to JSON lines on stdout. */
   logger?: Logger;
+  /** Default database schema for entities without an explicit one; `DATABASE_SCHEMA` overrides it. */
+  schema?: string;
 }
 
 /** The configuration with every default applied. */
-export interface ResolvedConfig extends Omit<ServiceConfig, "server" | "production"> {
+export interface ResolvedConfig extends Omit<ServiceConfig, "server" | "production" | "schema"> {
   server: { port: number };
   production: boolean;
+  /** The resolved default schema, or null for the database's own default. */
+  schema: string | null;
+}
+
+const SCHEMA_NAME = /^[a-z][a-z0-9-]*$/;
+
+function resolveSchema(config: ServiceConfig, env: Record<string, string | undefined>): string | null {
+  if (env.DATABASE_SCHEMA !== undefined && env.DATABASE_SCHEMA !== "") {
+    if (!SCHEMA_NAME.test(env.DATABASE_SCHEMA)) {
+      throw new ConfigError(`Invalid DATABASE_SCHEMA: "${env.DATABASE_SCHEMA}" must match ^[a-z][a-z0-9-]*$`);
+    }
+    return env.DATABASE_SCHEMA;
+  }
+  if (config.schema === undefined) return null;
+  if (!SCHEMA_NAME.test(config.schema)) throw new ConfigError(`Invalid schema: "${config.schema}" must match ^[a-z][a-z0-9-]*$`);
+  return config.schema;
 }
 
 export class ConfigError extends Error {
@@ -48,6 +66,7 @@ export function resolveConfig(config: ServiceConfig, env: Record<string, string 
     ...config,
     server: { ...config.server, port: resolvePort(config, env) },
     production: config.production ?? env.NODE_ENV === "production",
+    schema: resolveSchema(config, env),
   };
 }
 

@@ -1,7 +1,7 @@
 import { loadConfig, type MigrationContext, type Repositories, type SqlDialect } from "@quickservice/core";
 import { BuildError } from "../errors.ts";
 import { sqlDialectOf } from "./add.ts";
-import { HISTORY_TABLE } from "./migrate.ts";
+import { HISTORY_TABLE, MONGO_HISTORY_COLLECTION } from "./migrate.ts";
 import { listMigrations, type MigrationFile } from "./snapshot.ts";
 
 export interface ScriptOptions {
@@ -63,6 +63,40 @@ async function recordStatements(migration: MigrationFile, direction: "up" | "dow
   return statements;
 }
 
+async function recordMongoStatements(migration: MigrationFile, direction: "up" | "down"): Promise<string[]> {
+  const statements: string[] = [];
+  let markedCustom = false;
+  const markCustom = () => {
+    if (markedCustom) return;
+    markedCustom = true;
+    statements.push(`// custom code in ${migration.id}, not scriptable`);
+  };
+  const collection = (name: string) =>
+    new Proxy(
+      {
+        createIndex: async (keys: unknown, options: unknown) => {
+          statements.push(`db.${name}.createIndex(${JSON.stringify(keys)}, ${JSON.stringify(options)});`);
+        },
+        dropIndex: async (index: unknown) => {
+          statements.push(`db.${name}.dropIndex(${JSON.stringify(index)});`);
+        },
+      } as Record<string | symbol, unknown>,
+      { get: (target, key) => (key in target ? target[key] : customCodeMarker(markCustom)) },
+    );
+  const db = new Proxy({ collection } as Record<string | symbol, unknown>, {
+    get: (target, key) => (key === "collection" ? target.collection : key === "then" ? undefined : customCodeMarker(markCustom)),
+  });
+  const module = (await import(migration.file)) as Record<"up" | "down", (context: unknown) => Promise<void>>;
+  await module[direction]({ db: () => db, client: customCodeMarker(markCustom), repos: customCodeMarker(markCustom) });
+  return statements;
+}
+
+function mongoHistoryStatement(migration: MigrationFile, direction: "up" | "down"): string {
+  return direction === "up"
+    ? `db.${MONGO_HISTORY_COLLECTION}.insertOne({ _id: ${JSON.stringify(migration.id)}, name: ${JSON.stringify(migration.name)}, appliedAt: new Date() });`
+    : `db.${MONGO_HISTORY_COLLECTION}.deleteOne({ _id: ${JSON.stringify(migration.id)} });`;
+}
+
 function historyStatement(dialect: SqlDialect, migration: MigrationFile, direction: "up" | "down"): string {
   if (direction === "down") return `delete from ${HISTORY_TABLE} where id = ${literal(migration.id)};`;
   const now = dialect === "postgres" ? "now()" : "cast(strftime('%s', 'now') as integer) * 1000";
@@ -79,7 +113,8 @@ function position(point: string, files: MigrationFile[]): number {
 /** `quickservice migration script [from] [to]`: the SQL between two migration points, without executing it. */
 export async function migrationScript(projectRoot: string, options: ScriptOptions = {}): Promise<string> {
   const config = await loadConfig(projectRoot);
-  const dialect = sqlDialectOf(config.database.kind);
+  const mongo = config.database.kind === "mongodb";
+  const dialect = mongo ? "postgres" : sqlDialectOf(config.database.kind);
   if (!dialect) throw new BuildError(`Migration scripts are not supported for the ${config.database.kind ?? "configured"} adapter`);
   const files = listMigrations(projectRoot);
   const from = position(options.from ?? "0", files);
@@ -95,6 +130,11 @@ export async function migrationScript(projectRoot: string, options: ScriptOption
 
   const blocks: string[] = [];
   for (const { migration, direction } of steps) {
+    if (mongo) {
+      const statements = await recordMongoStatements(migration, direction);
+      blocks.push([`// ${migration.id} (${direction})`, ...statements, mongoHistoryStatement(migration, direction)].join("\n"));
+      continue;
+    }
     const statements = await recordStatements(migration, direction);
     blocks.push([`-- ${migration.id} (${direction})`, ...statements, historyStatement(dialect, migration, direction)].join("\n"));
   }

@@ -4,6 +4,7 @@ import {
   createRepositories,
   loadConfig,
   type MigrationContext,
+  type MongodbAdapter,
   type Repositories,
   type ResolvedConfig,
 } from "@quickservice/core";
@@ -14,6 +15,9 @@ import { BuildError } from "../errors.ts";
 import { listMigrations, type MigrationFile } from "./snapshot.ts";
 
 export const HISTORY_TABLE = "__quickservice_migrations";
+export const MONGO_HISTORY_COLLECTION = "_migrations";
+export const MONGO_NO_TRANSACTION_WARNING =
+  "MongoDB migrations run without transactions: index changes cannot run inside one";
 
 export interface MigrateOptions {
   target?: string;
@@ -24,22 +28,25 @@ export interface MigrateResult {
   applied: string[];
   reverted: string[];
   messages: string[];
+  warnings: string[];
 }
 
-interface AppliedMigration {
+export interface AppliedMigration {
   id: string;
   name: string;
 }
 
-/** Runs SQL and history changes for one dialect, one migration per transaction. */
+type Direction = "up" | "down";
+type MigrationModule = Record<Direction, (ctx: unknown) => Promise<void>>;
+
+/** Runs migrations and keeps their history for one database. */
 interface MigrationDriver {
   ensureHistory(): Promise<void>;
-  /** Applied migrations, or an empty list when the history table does not exist yet. */
+  /** Applied migrations, or an empty list when the history does not exist yet. */
   readHistory(): Promise<AppliedMigration[]>;
-  applied(): Promise<AppliedMigration[]>;
-  inTransaction(work: (sql: MigrationContext["sql"]) => Promise<void>): Promise<void>;
-  record(sql: MigrationContext["sql"], migration: MigrationFile, applied: boolean): Promise<void>;
-  db: unknown;
+  /** Runs one migration step and records it in the history. */
+  runStep(migration: MigrationFile, direction: Direction, module: MigrationModule, repos: Repositories): Promise<void>;
+  warnings: string[];
 }
 
 function toQuery(query: TemplateStringsArray | string, values: unknown[], placeholder: (index: number) => string) {
@@ -52,70 +59,92 @@ function sqliteDriver(client: Database): MigrationDriver {
     const { text, values: params } = toQuery(query, values, () => "?");
     return client.run(text, params as never[]);
   }) as MigrationContext["sql"];
+  const db = drizzleSqlite(client);
   return {
-    db: drizzleSqlite(client),
+    warnings: [],
     async ensureHistory() {
       client.run(`create table if not exists ${HISTORY_TABLE} (id text primary key, name text not null, applied_at integer not null)`);
-    },
-    async applied() {
-      return client.query(`select id, name from ${HISTORY_TABLE} order by id`).all() as AppliedMigration[];
     },
     async readHistory() {
       const exists = client.query("select name from sqlite_master where type = 'table' and name = ?").get(HISTORY_TABLE);
       return exists ? (client.query(`select id, name from ${HISTORY_TABLE} order by id`).all() as AppliedMigration[]) : [];
     },
-    async inTransaction(work) {
+    async runStep(migration, direction, module, repos) {
       client.run("begin");
       try {
-        await work(sql);
+        await module[direction]({ sql, db, repos } satisfies MigrationContext);
+        if (direction === "up") {
+          client.run(`insert into ${HISTORY_TABLE} (id, name, applied_at) values (?, ?, ?)`, [migration.id, migration.name, Date.now()]);
+        } else {
+          client.run(`delete from ${HISTORY_TABLE} where id = ?`, [migration.id]);
+        }
         client.run("commit");
       } catch (error) {
         client.run("rollback");
         throw error;
       }
     },
-    async record(run, migration, applied) {
-      if (applied) await run(`insert into ${HISTORY_TABLE} (id, name, applied_at) values (?, ?, ?)`, migration.id, migration.name, Date.now());
-      else await run(`delete from ${HISTORY_TABLE} where id = ?`, migration.id);
-    },
   };
 }
 
 function postgresDriver(client: SQL): MigrationDriver {
+  const db = drizzlePostgres({ client });
   return {
-    db: drizzlePostgres({ client }),
+    warnings: [],
     async ensureHistory() {
       await client.unsafe(
         `create table if not exists ${HISTORY_TABLE} (id text primary key, name text not null, applied_at timestamptz not null)`,
       );
     },
-    async applied() {
-      return (await client.unsafe(`select id, name from ${HISTORY_TABLE} order by id`)) as AppliedMigration[];
-    },
     async readHistory() {
       const [row] = (await client.unsafe("select to_regclass($1) as found", [HISTORY_TABLE])) as { found: string | null }[];
       return row?.found ? ((await client.unsafe(`select id, name from ${HISTORY_TABLE} order by id`)) as AppliedMigration[]) : [];
     },
-    async inTransaction(work) {
+    async runStep(migration, direction, module, repos) {
       await client.begin(async (tx) => {
         const sql = (async (query: TemplateStringsArray | string, ...values: unknown[]) => {
           const { text, values: params } = toQuery(query, values, (index) => `$${index}`);
           return tx.unsafe(text, params);
         }) as MigrationContext["sql"];
-        await work(sql);
+        await module[direction]({ sql, db, repos } satisfies MigrationContext);
+        if (direction === "up") {
+          await tx.unsafe(`insert into ${HISTORY_TABLE} (id, name, applied_at) values ($1, $2, now())`, [migration.id, migration.name]);
+        } else {
+          await tx.unsafe(`delete from ${HISTORY_TABLE} where id = $1`, [migration.id]);
+        }
       });
     },
-    async record(run, migration, applied) {
-      if (applied) await run(`insert into ${HISTORY_TABLE} (id, name, applied_at) values ($1, $2, now())`, migration.id, migration.name);
-      else await run(`delete from ${HISTORY_TABLE} where id = $1`, migration.id);
+  };
+}
+
+function mongoDriver(adapter: MongodbAdapter): MigrationDriver {
+  const db = () => {
+    if (!adapter.db) throw new Error("The MongoDB adapter is not connected");
+    return adapter.db;
+  };
+  const history = () => db().collection<{ _id: string; name: string; appliedAt: Date }>(MONGO_HISTORY_COLLECTION);
+  const driver: MigrationDriver = {
+    warnings: [],
+    async ensureHistory() {},
+    async readHistory() {
+      const rows = await history().find().sort({ _id: 1 }).toArray();
+      return rows.map((row) => ({ id: row._id, name: row.name }));
+    },
+    async runStep(migration, direction, module, repos) {
+      if (driver.warnings.length === 0) driver.warnings.push(MONGO_NO_TRANSACTION_WARNING);
+      await module[direction]({ db, client: adapter.client!, repos });
+      if (direction === "up") await history().insertOne({ _id: migration.id, name: migration.name, appliedAt: new Date() });
+      else await history().deleteOne({ _id: migration.id });
     },
   };
+  return driver;
 }
 
 function driverFor(config: ResolvedConfig): MigrationDriver {
   const adapter = config.database as { kind?: string; client?: unknown };
   if (adapter.kind === "sqlite") return sqliteDriver(adapter.client as Database);
   if (adapter.kind === "postgres") return postgresDriver(adapter.client as SQL);
+  if (adapter.kind === "mongodb") return mongoDriver(config.database as MongodbAdapter);
   throw new BuildError(`Migrations are not supported for the ${adapter.kind ?? "configured"} adapter`);
 }
 
@@ -128,7 +157,7 @@ function resolveTarget(target: string, files: MigrationFile[]): string {
 
 interface Step {
   migration: MigrationFile;
-  direction: "up" | "down";
+  direction: Direction;
 }
 
 function planSteps(files: MigrationFile[], applied: AppliedMigration[], target: string | undefined): Step[] {
@@ -149,69 +178,58 @@ function planSteps(files: MigrationFile[], applied: AppliedMigration[], target: 
   return [...downs, ...ups];
 }
 
+async function withDriver<T>(projectRoot: string, work: (driver: MigrationDriver, config: ResolvedConfig) => Promise<T>): Promise<T> {
+  const config = await loadConfig(projectRoot);
+  if (config.database.kind === "memory") throw new BuildError("Migrations are not used with the memory adapter");
+  const models = parseEntities(projectRoot);
+  await config.database.connect(models);
+  try {
+    return await work(driverFor(config), config);
+  } finally {
+    await config.database.disconnect();
+  }
+}
+
+/** Reads the applied migrations of the configured database without changing it. */
+export function readAppliedMigrations(projectRoot: string): Promise<AppliedMigration[]> {
+  return withDriver(projectRoot, (driver) => driver.readHistory());
+}
+
 /** `quickservice migrate [target] [--force]` */
 export async function migrate(projectRoot: string, options: MigrateOptions = {}): Promise<MigrateResult> {
   const config = await loadConfig(projectRoot);
   if (config.database.kind === "memory") {
-    return { applied: [], reverted: [], messages: ["Nothing to migrate: the memory adapter keeps no schema"] };
+    return { applied: [], reverted: [], warnings: [], messages: ["Nothing to migrate: the memory adapter keeps no schema"] };
   }
-  const models = parseEntities(projectRoot);
-  await config.database.connect(models);
-  try {
-    const driver = driverFor(config);
+  return withDriver(projectRoot, async (driver, resolved) => {
     await driver.ensureHistory();
     const files = listMigrations(projectRoot);
-    const applied = await driver.applied();
+    const applied = await driver.readHistory();
     const missing = applied.filter((migration) => !files.some((file) => file.id === migration.id));
     if (missing.length > 0) {
       throw new BuildError(`Applied migrations are missing on disk: ${missing.map((migration) => migration.id).join(", ")}`);
     }
     const steps = planSteps(files, applied, options.target);
     const downs = steps.filter((step) => step.direction === "down");
-    if (config.production && downs.length > 0 && !options.force) {
+    if (resolved.production && downs.length > 0 && !options.force) {
       throw new BuildError(
         `Reverting migrations in production requires --force (would revert: ${downs.map((step) => step.migration.id).join(", ")})`,
       );
     }
 
-    const repos = createRepositories(models, config.database) as unknown as Repositories;
-    const result: MigrateResult = { applied: [], reverted: [], messages: [] };
+    const repos = createRepositories(parseEntities(projectRoot), resolved.database) as unknown as Repositories;
+    const result: MigrateResult = { applied: [], reverted: [], messages: [], warnings: driver.warnings };
     for (const { migration, direction } of steps) {
-      const module = (await import(migration.file)) as Record<"up" | "down", (ctx: MigrationContext) => Promise<void>>;
+      const module = (await import(migration.file)) as MigrationModule;
       try {
-        await driver.inTransaction(async (sql) => {
-          await module[direction]({ sql, db: driver.db, repos });
-          await driver.record(sql, migration, direction === "up");
-        });
+        await driver.runStep(migration, direction, module, repos);
       } catch (error) {
         throw new BuildError(`Migration ${migration.id} failed: ${error instanceof Error ? error.message : String(error)}`);
       }
-      if (direction === "up") {
-        result.applied.push(migration.id);
-        result.messages.push(`Applied ${migration.id}`);
-      } else {
-        result.reverted.push(migration.id);
-        result.messages.push(`Reverted ${migration.id}`);
-      }
+      (direction === "up" ? result.applied : result.reverted).push(migration.id);
+      result.messages.push(`${direction === "up" ? "Applied" : "Reverted"} ${migration.id}`);
     }
     if (steps.length === 0) result.messages.push("Database is up to date (0 migrations applied)");
     return result;
-  } finally {
-    await config.database.disconnect();
-  }
+  });
 }
-
-/** Reads the applied migrations of the configured SQL database without changing it. */
-export async function readAppliedMigrations(projectRoot: string): Promise<AppliedMigration[]> {
-  const config = await loadConfig(projectRoot);
-  if (config.database.kind === "memory") throw new BuildError("Migrations are not used with the memory adapter");
-  const driverConfig = config;
-  await config.database.connect(parseEntities(projectRoot));
-  try {
-    return await driverFor(driverConfig).readHistory();
-  } finally {
-    await config.database.disconnect();
-  }
-}
-
-export type { AppliedMigration };

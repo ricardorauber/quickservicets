@@ -1,4 +1,4 @@
-import { buildDrizzleSchema, type EntityModel, type SqlDialect } from "@quickservice/core";
+import { buildDrizzleSchema, type EntityModel, type MongoIndexSpec, type SqlDialect } from "@quickservice/core";
 import { generateDrizzleJson, generateSQLiteDrizzleJson } from "drizzle-kit/api";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -17,11 +17,19 @@ export interface TableSnapshot {
   [key: string]: unknown;
 }
 
-export interface ModelSnapshot {
+export interface SqlModelSnapshot {
   dialect: SqlDialect;
   models: EntityModel[];
   drizzle: DrizzleSnapshot;
 }
+
+export interface MongoModelSnapshot {
+  dialect: "mongodb";
+  models: EntityModel[];
+  indexes: MongoIndexSpec[];
+}
+
+export type ModelSnapshot = SqlModelSnapshot | MongoModelSnapshot;
 
 export interface MigrationFile {
   /** `<YYYYMMDDHHmmss>_<Name>` */

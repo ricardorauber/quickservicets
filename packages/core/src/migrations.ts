@@ -1,3 +1,4 @@
+import type { Db, MongoClient } from "mongodb";
 import type { Repositories } from "./hooks.ts";
 
 /** What a migration's `up` and `down` functions receive. */
@@ -6,6 +7,15 @@ export interface MigrationContext {
   sql(query: TemplateStringsArray | string, ...values: unknown[]): Promise<unknown>;
   /** The Drizzle database instance of the migration connection. */
   db: unknown;
+  /** Repositories of the current model; they reflect the latest model, not the model at that migration. */
+  repos: Repositories;
+}
+
+/** What a MongoDB migration's `up` and `down` functions receive. */
+export interface MongoMigrationContext {
+  /** The native database of the default schema. */
+  db(): Db;
+  client: MongoClient;
   /** Repositories of the current model; they reflect the latest model, not the model at that migration. */
   repos: Repositories;
 }

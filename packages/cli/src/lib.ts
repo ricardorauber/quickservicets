@@ -13,7 +13,7 @@ export type { BuildSummary } from "./build/build.ts";
 export { addAutomaticMigration, addMigration, hasPendingChanges, planMigration } from "./migrations/add.ts";
 export { suggestMigrationName } from "./migrations/naming.ts";
 export { listMigrations, MIGRATIONS_DIR } from "./migrations/snapshot.ts";
-export { HISTORY_TABLE, migrate } from "./migrations/migrate.ts";
+export { HISTORY_TABLE, migrate, MONGO_HISTORY_COLLECTION } from "./migrations/migrate.ts";
 export type { MigrateOptions, MigrateResult } from "./migrations/migrate.ts";
 export { listMigrationStatus, removeLatestMigration } from "./migrations/list-remove.ts";
 export type { MigrationList, MigrationListEntry, MigrationStatus } from "./migrations/list-remove.ts";

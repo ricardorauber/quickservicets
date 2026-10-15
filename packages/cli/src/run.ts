@@ -25,6 +25,7 @@ export async function run(args: string[], output: Output = consoleOutput, cwd = 
       const { migrate } = await import("./migrations/migrate.ts");
       const positional = args.slice(1).filter((arg) => !arg.startsWith("--"));
       const result = await migrate(cwd, { target: positional[0], force: args.includes("--force") });
+      for (const warning of result.warnings) output.error(`Warning: ${warning}`);
       for (const message of result.messages) output.log(message);
       return 0;
     }

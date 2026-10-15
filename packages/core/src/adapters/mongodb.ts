@@ -95,6 +95,31 @@ const BSON_TYPES: Record<FieldModel["type"], string> = {
   object: "object",
 };
 
+export interface MongoIndexSpec {
+  collection: string;
+  name: string;
+  keys: Record<string, 1>;
+  options: { unique?: true; partialFilterExpression?: Document };
+}
+
+/** The indexes an entity needs: createdAt, plus one per `@unique` (partial on non-null values) and `@index` field. */
+export function mongoIndexSpecs(model: EntityModel): MongoIndexSpec[] {
+  const collection = model.tableName;
+  const specs: MongoIndexSpec[] = [{ collection, name: `${collection}_created_at_idx`, keys: { createdAt: 1 }, options: {} }];
+  for (const field of model.fields) {
+    if (field.unique) {
+      specs.push({
+        collection,
+        name: `${collection}_${field.name}_uq`,
+        keys: { [field.name]: 1 },
+        options: { unique: true, partialFilterExpression: { [field.name]: { $type: BSON_TYPES[field.type] } } },
+      });
+    }
+    if (field.index) specs.push({ collection, name: `${collection}_${field.name}_idx`, keys: { [field.name]: 1 }, options: {} });
+  }
+  return specs;
+}
+
 /** Field name of a duplicate key error (code 11000), when it is one. */
 export function duplicateKeyField(error: unknown): string | undefined {
   const candidate = error as { code?: number; keyPattern?: Record<string, unknown>; message?: string } | undefined;
@@ -149,20 +174,7 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
     },
     async createIndexes(model) {
       const target = collection(model);
-      await target.createIndex({ createdAt: 1 }, { name: `${model.tableName}_created_at_idx` });
-      for (const field of model.fields) {
-        if (field.unique) {
-          await target.createIndex(
-            { [field.name]: 1 },
-            {
-              name: `${model.tableName}_${field.name}_uq`,
-              unique: true,
-              partialFilterExpression: { [field.name]: { $type: BSON_TYPES[field.type] } },
-            },
-          );
-        }
-        if (field.index) await target.createIndex({ [field.name]: 1 }, { name: `${model.tableName}_${field.name}_idx` });
-      }
+      for (const spec of mongoIndexSpecs(model)) await target.createIndex(spec.keys, { name: spec.name, ...spec.options });
     },
     async dropIndexes(model) {
       const target = collection(model);

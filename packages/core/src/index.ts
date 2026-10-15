@@ -28,3 +28,5 @@ export { createServer, toResponse } from "./http/server.ts";
 export type { Endpoint, HandlerResult, Route, Server, ServerOptions } from "./http/server.ts";
 export { Router, splitPath } from "./http/router.ts";
 export type { RouteMatch, RoutePattern } from "./http/router.ts";
+export { executedHooks, operationForRoute, resolveRouteHooks, withHooks } from "./http/pipeline.ts";
+export type { RouteHookSource } from "./http/pipeline.ts";

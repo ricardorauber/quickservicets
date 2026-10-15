@@ -44,7 +44,6 @@ describe("tags on invalid field types", () => {
     "/** @format email */ age: number",
     "/** @onDelete cascade */ name: string",
     "/** @minItems 1 */ name: string",
-    "address: { /** @hidden */ zip: string }",
   ])("%s is rejected naming file, field and tag", (declaration) => {
     const message = failure(declaration);
     expect(message).toContain("entities/Item.ts");

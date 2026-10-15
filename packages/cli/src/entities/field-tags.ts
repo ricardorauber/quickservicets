@@ -8,7 +8,7 @@ export interface FieldTagContext {
   topLevel: boolean;
 }
 
-type FieldUnderConstruction = NestedFieldModel & Partial<Pick<FieldModel, "unique" | "index" | "hidden">>;
+type FieldUnderConstruction = NestedFieldModel & Partial<Pick<FieldModel, "unique" | "index">>;
 
 type FieldTagHandler = (field: FieldUnderConstruction, tag: DocTag, context: FieldTagContext) => void;
 
@@ -161,7 +161,17 @@ registerFieldTag("onDelete", (field, tag, context) => {
   if (field.type !== "ref") throw fieldTagError(context, tag, "only applies to reference fields");
 });
 registerFieldTag("hidden", (field, tag, context) => {
-  requireNoValue(field, tag, context);
-  if (!context.topLevel) throw fieldTagError(context, tag, "only applies to top-level fields");
-  field.hidden = true;
+  if (tag.text === "") {
+    field.hidden = true;
+    return;
+  }
+  const scope = /^:(\S+)$/.exec(tag.text);
+  if (!scope) throw fieldTagError(context, tag, "takes no value, or an operation scope like @hidden:list");
+  const operations = scope[1]!.split(",");
+  for (const operation of operations) {
+    if (operation !== "list" && operation !== "read") {
+      throw fieldTagError(context, tag, `unknown operation "${operation}" (use list or read)`);
+    }
+  }
+  field.hiddenOn = [...new Set([...(field.hiddenOn ?? []), ...(operations as ("list" | "read")[])])];
 });

@@ -2,7 +2,15 @@ import { CRUD_OPERATIONS, type CrudOperation, type EntityModel, type HookReferen
 import { EntityParseError } from "./errors.ts";
 import type { DocTag } from "./jsdoc.ts";
 
-export type EntityTagTarget = Pick<EntityModel, "hooks" | "overrideHooks" | "internal">;
+export interface FieldSelectionTag {
+  operations: ("list" | "read")[];
+  paths: string;
+}
+
+export type EntityTagTarget = Pick<EntityModel, "hooks" | "overrideHooks" | "internal"> & {
+  /** `@fields` whitelists, validated once the fields are parsed. */
+  fieldSelections?: FieldSelectionTag[];
+};
 
 export interface EntityTagContext {
   relativeFile: string;
@@ -72,6 +80,27 @@ registerEntityTag("overrideHooks", (entity, tag, context) => {
     throw entityTagError(context, tag, `expects inherit or replace, got "${tag.text}"`);
   }
   entity.overrideHooks = tag.text;
+});
+registerEntityTag("fields", (entity, tag, context) => {
+  let operations: ("list" | "read")[] = ["list", "read"];
+  let paths = tag.text;
+  if (paths.startsWith(":")) {
+    const [scope = "", ...rest] = paths.slice(1).split(/\s+/);
+    paths = rest.join(" ");
+    operations = splitArgs(scope).map((operation) => {
+      if (operation !== "list" && operation !== "read") {
+        throw entityTagError(context, tag, `unknown operation "${operation}" (use list or read)`);
+      }
+      return operation;
+    });
+  }
+  const selections = (entity.fieldSelections ??= []);
+  for (const operation of operations) {
+    if (selections.some((selection) => selection.operations.includes(operation))) {
+      throw entityTagError(context, tag, `@fields is declared more than once for ${operation}`);
+    }
+  }
+  selections.push({ operations, paths });
 });
 registerEntityTag("internal", (entity, tag, context) => {
   if (tag.text !== "") throw entityTagError(context, tag, "takes no value");

@@ -22,6 +22,10 @@ export function entity(entityName: string, fields: FieldModel[], overrides: Part
     hooks: [],
     overrideHooks: "inherit",
     internal: false,
+    exposure: {
+      list: { include: ["id", "createdAt", "updatedAt", ...fields.map((item) => item.name)], exclude: [] },
+      read: { include: ["id", "createdAt", "updatedAt", ...fields.map((item) => item.name)], exclude: [] },
+    },
     ...overrides,
   };
 }

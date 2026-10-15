@@ -2,8 +2,12 @@ import { readdirSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import ts from "typescript";
 import {
+  hiddenPathsFor,
+  parseFieldPaths,
   SYSTEM_FIELDS,
   type EntityModel,
+  type Exposure,
+  type ReadOperation,
   type FieldModel,
   type NestedFieldModel,
   type OnDeleteAction,
@@ -108,7 +112,8 @@ function parseEntity(program: ts.Program, context: ParseContext): EntityModel {
   const schema = resolveSchema(declaration, source);
   const tagTarget: EntityTagTarget = { hooks: [], overrideHooks: "inherit", internal: false };
   applyEntityTags(tagTarget, readTags(declaration), { relativeFile: source.relativeFile });
-  return {
+  const { fieldSelections = [], ...tags } = tagTarget;
+  const model: EntityModel = {
     key: source.key,
     entityName: source.entityName,
     schema,
@@ -117,8 +122,14 @@ function parseEntity(program: ts.Program, context: ParseContext): EntityModel {
     repoKey: toCamelCase(name),
     tableName: toSnakeCase(name),
     fields: parseFields(declarationMembers(declaration, source), context),
-    ...tagTarget,
+    ...tags,
+    exposure: { list: { include: [], exclude: [] }, read: { include: [], exclude: [] } },
   };
+  model.exposure = {
+    list: exposureFor(model, "list", fieldSelections, source),
+    read: exposureFor(model, "read", fieldSelections, source),
+  };
+  return model;
 }
 
 function isExported(node: ts.Node): boolean {
@@ -162,6 +173,32 @@ function resolveCollectionName(declaration: EntityDeclaration, source: EntitySou
     throw new EntityParseError(`${source.relativeFile}: @collection "${name}" must match ^[a-z][a-z0-9-]*$`);
   }
   return name;
+}
+
+function exposureFor(
+  model: EntityModel,
+  operation: ReadOperation,
+  selections: NonNullable<EntityTagTarget["fieldSelections"]>,
+  source: EntitySource,
+): Exposure {
+  const hidden = hiddenPathsFor(model.fields, operation);
+  const selection = selections.find((candidate) => candidate.operations.includes(operation));
+  if (!selection) {
+    return { include: [...SYSTEM_FIELDS, ...model.fields.map((field) => field.name)], exclude: hidden };
+  }
+  const parsed = parseFieldPaths(model, selection.paths);
+  if (!parsed.ok) {
+    throw new EntityParseError(`${source.relativeFile}: invalid @fields: unknown path ${parsed.invalid.join(", ")}`);
+  }
+  for (const path of parsed.paths) {
+    const conflict = hidden.find((hiddenPath) => path === hiddenPath || path.startsWith(`${hiddenPath}.`));
+    if (conflict) {
+      throw new EntityParseError(
+        `${source.relativeFile}: entity ${model.entityName} exposes "${path}" in @fields but it is hidden on ${operation}`,
+      );
+    }
+  }
+  return { include: parsed.paths, exclude: hidden };
 }
 
 function resolveSchema(declaration: EntityDeclaration, source: EntitySource): string | null {

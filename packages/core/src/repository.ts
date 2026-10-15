@@ -1,6 +1,7 @@
 import { UniqueViolationError, type DatabaseAdapter, type StoredRecord } from "./adapter.ts";
 import { HttpError } from "./errors.ts";
-import type { EntityModel } from "./model.ts";
+import { alwaysHiddenPaths, type EntityModel } from "./model.ts";
+import { project } from "./projection.ts";
 import type { Condition, ListQuery } from "./query.ts";
 import { assertReferencesExist, executeDeletePlan, planDelete } from "./referential-integrity.ts";
 import { validateBody, type ValidationMode } from "./validation.ts";
@@ -51,13 +52,11 @@ async function mapUniqueViolation<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 export function createRepository(model: EntityModel, adapter: DatabaseAdapter, models: EntityModel[] = [model]): Repository {
-  const hiddenFields = model.fields.filter((field) => field.hidden).map((field) => field.name);
+  const hiddenPaths = alwaysHiddenPaths(model.fields);
 
   const present = (record: StoredRecord, options: ReadOptions = {}): EntityRecord => {
-    if (options.includeHidden || hiddenFields.length === 0) return record;
-    const visible = { ...record };
-    for (const name of hiddenFields) delete visible[name];
-    return visible;
+    if (options.includeHidden || hiddenPaths.length === 0) return record;
+    return project(record, { exclude: hiddenPaths }) as EntityRecord;
   };
 
   const validate = async (body: unknown, mode: ValidationMode): Promise<Record<string, unknown>> => {

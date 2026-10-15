@@ -38,6 +38,10 @@ describe("type and interface declarations", () => {
         hooks: [],
         overrideHooks: "inherit",
         internal: false,
+        exposure: {
+          list: { include: ["id", "createdAt", "updatedAt", "email", "age", "active", "birth"], exclude: [] },
+          read: { include: ["id", "createdAt", "updatedAt", "email", "age", "active", "birth"], exclude: [] },
+        },
       },
     ]);
   });

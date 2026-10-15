@@ -126,3 +126,15 @@ test("unique violations become 409 Value already exists", async () => {
   expect(error.message).toBe("Value already exists");
   expect(error.details).toEqual([{ field: "email", message: "Value already exists" }]);
 });
+
+test("nested always-hidden properties are stripped from results", async () => {
+  const account = entity("Account", [
+    field({ name: "address", type: "object", fields: [{ name: "city", type: "string", optional: false }, { name: "zip", type: "string", optional: false, hidden: true }] }),
+  ]);
+  const adapter = memoryAdapter();
+  await adapter.connect([account]);
+  const accounts = createRepositories([account], adapter).accounts as Repository;
+  const created = await accounts.create({ address: { city: "Rio", zip: "123" } });
+  expect(created.address).toEqual({ city: "Rio" });
+  expect((await accounts.findById(created.id, { includeHidden: true }))?.address).toEqual({ city: "Rio", zip: "123" });
+});

@@ -122,6 +122,7 @@ export function createRepository(
         if (value[field.name] === undefined && field.default !== undefined) {
           value[field.name] = structuredClone(field.default);
         }
+        if (value[field.name] === undefined && field.type === "refArray") value[field.name] = [];
       }
       const at = nextTimestamp();
       const record: StoredRecord = { ...value, id: Bun.randomUUIDv7(), createdAt: at, updatedAt: at };
@@ -159,7 +160,7 @@ export function createRepository(
     async replace(id, data, options) {
       const value = await validate(data, "replace");
       const changes: Record<string, unknown> = {};
-      for (const field of model.fields) changes[field.name] = value[field.name] ?? null;
+      for (const field of model.fields) changes[field.name] = value[field.name] ?? (field.type === "refArray" ? [] : null);
       return write(id, changes, options);
     },
 

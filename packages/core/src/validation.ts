@@ -50,7 +50,8 @@ function validateFields(
     }
     const raw = input[field.name];
     if (raw === null) {
-      if (field.optional) output[field.name] = null;
+      // A cleared reference array is stored as an empty list.
+      if (field.optional) output[field.name] = field.type === "refArray" ? [] : null;
       else errors.add(path, "Cannot be null");
       continue;
     }
@@ -98,6 +99,30 @@ function validateValue(field: ValueSpec, raw: unknown, path: string, errors: Col
         : errors.add(path, `Must be one of: ${field.values.join(", ")}`);
     case "ref":
       return typeof raw === "string" && raw !== "" ? raw : errors.add(path, "Must be a string");
+    case "refArray": {
+      if (!Array.isArray(raw)) return errors.add(path, "Must be an array");
+      if (field.minLength !== undefined && raw.length < field.minLength) {
+        return errors.add(path, `Must have at least ${field.minLength} items`);
+      }
+      if (field.maxLength !== undefined && raw.length > field.maxLength) {
+        return errors.add(path, `Must have at most ${field.maxLength} items`);
+      }
+      const seen = new Set<string>();
+      let valid = true;
+      raw.forEach((item, index) => {
+        const itemPath = `${path}[${index}]`;
+        if (typeof item !== "string" || item === "") {
+          valid = false;
+          errors.add(itemPath, "Must be a string");
+        } else if (seen.has(item)) {
+          valid = false;
+          errors.add(itemPath, "Duplicate item");
+        } else {
+          seen.add(item);
+        }
+      });
+      return valid ? [...raw] : undefined;
+    }
     case "array": {
       if (!Array.isArray(raw)) return errors.add(path, "Must be an array");
       if (field.minLength !== undefined && raw.length < field.minLength) {

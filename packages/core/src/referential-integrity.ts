@@ -38,6 +38,27 @@ export async function assertReferencesExist(
   adapter: DatabaseAdapter,
 ): Promise<void> {
   const details: FieldErrorDetail[] = [];
+  for (const field of model.fields) {
+    if (field.type !== "refArray") continue;
+    const ids = values[field.name];
+    if (!Array.isArray(ids) || ids.length === 0) continue;
+    const target = models.find((candidate) => candidate.key === field.target);
+    const found = target
+      ? new Set(
+          (
+            await adapter.findMany(target, {
+              where: [{ field: "id", op: "in", value: ids }],
+              sort: [{ field: "id", direction: "asc" }],
+              limit: ids.length,
+              offset: 0,
+            })
+          ).data.map((record) => record.id),
+        )
+      : new Set<string>();
+    ids.forEach((id, index) => {
+      if (!found.has(id as string)) details.push({ field: `${field.name}[${index}]`, message: "Referenced record not found" });
+    });
+  }
   for (const field of model.fields.filter(isRef)) {
     const id = values[field.name];
     if (typeof id !== "string") continue;

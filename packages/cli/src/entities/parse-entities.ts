@@ -225,7 +225,7 @@ function parseFields(members: ts.NodeArray<ts.TypeElement>, context: ParseContex
         `${source.relativeFile}: field "${field.name}" is a system field added to every entity and cannot be declared`,
       );
     }
-    const storage = field.type === "array" || field.type === "object" ? "json" : "column";
+    const storage = field.type === "refArray" ? "relation" : field.type === "array" || field.type === "object" ? "json" : "column";
     return { ...field, storage };
   });
 }
@@ -241,6 +241,9 @@ function parseMember(member: ts.TypeElement, prefix: string, topLevel: boolean, 
   const descriptor = mapType(member.type, path, topLevel, context);
   if (descriptor.type === "ref") {
     descriptor.onDelete = parseOnDelete(member, path, optional, source);
+  }
+  if (descriptor.type === "refArray") {
+    descriptor.onDelete = parseArrayOnDelete(member, path, source);
   }
   const field: NestedFieldModel = { name, ...descriptor, optional };
   applyFieldTags(field, readTags(member), { relativeFile: source.relativeFile, path, topLevel });
@@ -262,6 +265,19 @@ function parseOnDelete(member: ts.PropertySignature, path: string, optional: boo
   return value as OnDeleteAction;
 }
 
+const ARRAY_ON_DELETE_ACTIONS = ["pull", "restrict", "cascade"] as const;
+
+function parseArrayOnDelete(member: ts.PropertySignature, path: string, source: EntitySource): "pull" | "restrict" | "cascade" {
+  const tag = findTag(member, "onDelete");
+  if (!tag) return "pull";
+  if (!(ARRAY_ON_DELETE_ACTIONS as readonly string[]).includes(tag.text)) {
+    throw new EntityParseError(
+      `${source.relativeFile}: field "${path}" has invalid @onDelete "${tag.text}" (use pull, restrict or cascade)`,
+    );
+  }
+  return tag.text as "pull" | "restrict" | "cascade";
+}
+
 function unsupported(typeNode: ts.TypeNode, path: string, source: EntitySource): EntityParseError {
   return new EntityParseError(`${source.relativeFile}: field "${path}" has unsupported type "${typeNode.getText()}"`);
 }
@@ -279,6 +295,8 @@ function mapType(typeNode: ts.TypeNode, path: string, topLevel: boolean, context
   if (ts.isParenthesizedTypeNode(typeNode)) return mapType(typeNode.type, path, topLevel, context);
   if (ts.isUnionTypeNode(typeNode)) return mapEnum(typeNode, path, source);
   if (ts.isArrayTypeNode(typeNode)) {
+    const reference = topLevel ? referenceArrayOf(typeNode.elementType, context) : undefined;
+    if (reference) return reference;
     return { type: "array", items: mapType(typeNode.elementType, path, false, context) };
   }
   if (ts.isTypeLiteralNode(typeNode)) {
@@ -288,7 +306,11 @@ function mapType(typeNode: ts.TypeNode, path: string, topLevel: boolean, context
     const name = typeNode.typeName.getText();
     const args = typeNode.typeArguments ?? [];
     if (name === "Date" && args.length === 0) return { type: "date" };
-    if (name === "Array" && args.length === 1) return { type: "array", items: mapType(args[0]!, path, false, context) };
+    if (name === "Array" && args.length === 1) {
+      const reference = topLevel ? referenceArrayOf(args[0]!, context) : undefined;
+      if (reference) return reference;
+      return { type: "array", items: mapType(args[0]!, path, false, context) };
+    }
     const target = resolveEntityReference(typeNode, context);
     if (target) {
       if (!topLevel) {
@@ -300,6 +322,13 @@ function mapType(typeNode: ts.TypeNode, path: string, topLevel: boolean, context
     }
   }
   throw unsupported(typeNode, path, source);
+}
+
+function referenceArrayOf(element: ts.TypeNode, context: ParseContext): TypeDescriptor | undefined {
+  const inner = ts.isParenthesizedTypeNode(element) ? element.type : element;
+  if (!ts.isTypeReferenceNode(inner)) return undefined;
+  const target = resolveEntityReference(inner, context);
+  return target ? { type: "refArray", target: target.key, onDelete: "pull" } : undefined;
 }
 
 function resolveEntityReference(typeNode: ts.TypeReferenceNode, context: ParseContext): EntitySource | undefined {

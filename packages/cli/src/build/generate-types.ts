@@ -15,6 +15,8 @@ function typeOf(descriptor: TypeDescriptor, indent: string): string {
       return descriptor.values.map((value) => JSON.stringify(value)).join(" | ");
     case "array":
       return `Array<${typeOf(descriptor.items, indent)}>`;
+    case "refArray":
+      return "Array<string>";
     case "object":
       return objectType(descriptor.fields, indent);
   }
@@ -40,7 +42,10 @@ export function entityTypeName(model: EntityModel, models: EntityModel[] = [mode
 }
 
 export function generateEntityType(model: EntityModel, models: EntityModel[] = [model]): string {
-  const fields = model.fields.map((field: FieldModel) => property(field, field.optional || field.hidden === true, "  "));
+  // Reference arrays are always returned, as [] when empty.
+  const fields = model.fields.map((field: FieldModel) =>
+    property(field, field.type !== "refArray" && (field.optional || field.hidden === true), "  "),
+  );
   return [
     `export type ${entityTypeName(model, models)} = {`,
     "  id: string;",

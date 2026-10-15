@@ -96,6 +96,7 @@ const BSON_TYPES: Record<FieldModel["type"], string> = {
   boolean: "bool",
   date: "date",
   array: "array",
+  refArray: "array",
   object: "object",
 };
 

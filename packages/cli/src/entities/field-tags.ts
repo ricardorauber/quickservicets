@@ -54,7 +54,8 @@ function assertRange(
   }
 }
 
-const isColumnType = (field: FieldUnderConstruction) => field.type !== "array" && field.type !== "object";
+const isColumnType = (field: FieldUnderConstruction) =>
+  field.type !== "array" && field.type !== "object" && field.type !== "refArray";
 
 function requireNoValue(field: FieldUnderConstruction, tag: DocTag, context: FieldTagContext): void {
   if (tag.text !== "") throw fieldTagError(context, tag, "takes no value");
@@ -83,7 +84,7 @@ function parseNumber(tag: DocTag, context: FieldTagContext): number {
 
 function lengthTag(key: "minLength" | "maxLength", arraysOnly = false): FieldTagHandler {
   return (field, tag, context) => {
-    const applies = field.type === "array" || (!arraysOnly && field.type === "string");
+    const applies = field.type === "array" || field.type === "refArray" || (!arraysOnly && field.type === "string");
     if (!applies) {
       throw fieldTagError(context, tag, arraysOnly ? "only applies to array fields" : "only applies to string and array fields");
     }
@@ -130,6 +131,8 @@ export function matchesDescriptor(value: unknown, descriptor: TypeDescriptor): b
       );
     case "ref":
       return false;
+    case "refArray":
+      return Array.isArray(value) && value.length === 0;
   }
 }
 
@@ -158,7 +161,7 @@ registerFieldTag("format", (field, tag, context) => {
 });
 registerFieldTag("onDelete", (field, tag, context) => {
   // The value itself is parsed together with the reference; here only applicability is checked.
-  if (field.type !== "ref") throw fieldTagError(context, tag, "only applies to reference fields");
+  if (field.type !== "ref" && field.type !== "refArray") throw fieldTagError(context, tag, "only applies to reference fields");
 });
 registerFieldTag("hidden", (field, tag, context) => {
   if (tag.text === "") {

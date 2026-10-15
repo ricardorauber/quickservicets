@@ -76,7 +76,7 @@ export function queryableFields(model: EntityModel): Map<string, QueryField> {
     if (exposed(name)) fields.set(name, { type });
   }
   for (const field of model.fields) {
-    if (field.storage !== "column" || field.hidden || !exposed(field.name)) continue;
+    if (field.storage !== "column" || field.type === "refArray" || field.hidden || !exposed(field.name)) continue;
     if (field.type === "enum") fields.set(field.name, { type: "enum", values: field.values });
     else if (field.type !== "array" && field.type !== "object") fields.set(field.name, { type: field.type });
   }

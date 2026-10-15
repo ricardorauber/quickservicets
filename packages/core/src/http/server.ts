@@ -1,5 +1,7 @@
 import { HttpError, toErrorResponse } from "../errors.ts";
 import type { Repositories, ServiceRequest, ServiceResponse } from "../hooks.ts";
+import { jsonLogger, safeLog, type Logger } from "../logger.ts";
+import { executedHooks } from "./pipeline.ts";
 import { Router } from "./router.ts";
 
 export type HandlerResult<Result> = Result | Response | undefined;
@@ -21,7 +23,7 @@ export interface Route {
 export interface ServerOptions {
   routes: Route[];
   repos: Repositories;
-  config: { production: boolean; server?: { port: number } };
+  config: { production: boolean; server?: { port: number }; logger?: Logger };
 }
 
 export interface Server {
@@ -44,9 +46,28 @@ class ResponseControls implements ServiceResponse {
   }
 }
 
-function createRequest(raw: Request, url: URL, params: Record<string, string>): ServiceRequest {
+const REQUEST_ID = /^[A-Za-z0-9_-]{1,128}$/;
+
+function requestIdOf(request: Request): string {
+  const header = request.headers.get("x-request-id");
+  return header !== null && REQUEST_ID.test(header) ? header : Bun.randomUUIDv7();
+}
+
+function withHeader(response: Response, name: string, value: string): Response {
+  try {
+    response.headers.set(name, value);
+    return response;
+  } catch {
+    const copy = new Response(response.body, response);
+    copy.headers.set(name, value);
+    return copy;
+  }
+}
+
+function createRequest(raw: Request, url: URL, params: Record<string, string>, id: string): ServiceRequest {
   let body: Promise<unknown> | undefined;
   return {
+    id,
     method: raw.method,
     path: url.pathname,
     params,
@@ -80,7 +101,9 @@ export function toResponse(result: unknown, res: ResponseControls): Response {
 export function createServer({ routes, repos, config }: ServerOptions): Server {
   const router = new Router(routes.map((route) => ({ method: route.method, path: route.path, value: route })));
 
-  const fetch = async (request: Request): Promise<Response> => {
+  const logger = config.logger ?? jsonLogger;
+
+  const handle = async (request: Request, requestId: string, state: { route: string | null; req?: ServiceRequest }) => {
     try {
       const url = new URL(request.url);
       const match = router.match(request.method, url.pathname);
@@ -90,12 +113,39 @@ export function createServer({ routes, repos, config }: ServerOptions): Server {
         response.headers.set("allow", match.allow.join(", "));
         return response;
       }
+      state.route = match.route.value.path;
+      state.req = createRequest(request, url, match.params, requestId);
       const res = new ResponseControls();
-      const result = await match.route.value.handler(repos, createRequest(request, url, match.params), res);
+      const result = await match.route.value.handler(repos, state.req, res);
       return toResponse(result, res);
     } catch (error) {
+      if (!(error instanceof HttpError)) {
+        const failure = error instanceof Error ? error : new Error(String(error));
+        safeLog(logger, "error", {
+          timestamp: new Date().toISOString(),
+          requestId,
+          error: { name: failure.name, message: failure.message, stack: failure.stack },
+        });
+      }
       return toErrorResponse(error, config);
     }
+  };
+
+  const fetch = async (request: Request): Promise<Response> => {
+    const startedAt = performance.now();
+    const requestId = requestIdOf(request);
+    const state: { route: string | null; req?: ServiceRequest } = { route: null };
+    const response = withHeader(await handle(request, requestId, state), "x-request-id", requestId);
+    safeLog(logger, response.status >= 500 ? "error" : "info", {
+      timestamp: new Date().toISOString(),
+      requestId,
+      method: request.method,
+      route: state.route,
+      status: response.status,
+      durationMs: Math.round((performance.now() - startedAt) * 1000) / 1000,
+      hooks: state.req ? executedHooks(state.req) : [],
+    });
+    return response;
   };
 
   return {

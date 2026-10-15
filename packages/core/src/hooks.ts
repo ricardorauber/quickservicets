@@ -6,6 +6,8 @@ export interface Repositories {}
 
 /** The request passed to endpoints and hooks. */
 export interface ServiceRequest<Body = unknown> {
+  /** The request id, also returned in the `x-request-id` response header. */
+  readonly id: string;
   readonly method: string;
   readonly path: string;
   readonly params: Record<string, string>;

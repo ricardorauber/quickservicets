@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { DatabaseAdapter } from "./adapter.ts";
+import type { Logger } from "./logger.ts";
 
 export const CONFIG_FILE = "quickservice.config.ts";
 export const DEFAULT_PORT = 3000;
@@ -10,6 +11,8 @@ export interface ServiceConfig {
   database: DatabaseAdapter;
   server?: { port?: number };
   production?: boolean;
+  /** Receives one entry per request; defaults to JSON lines on stdout. */
+  logger?: Logger;
 }
 
 /** The configuration with every default applied. */

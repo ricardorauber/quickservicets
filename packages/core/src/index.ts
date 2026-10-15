@@ -34,3 +34,5 @@ export { createCrudRoutes, mergeRoutes } from "./http/crud.ts";
 export type { CrudRoute } from "./http/crud.ts";
 export { createApp } from "./app.ts";
 export type { App, AppEndpoint, AppOptions, CrudRouteEntry } from "./app.ts";
+export { jsonLogger, safeLog } from "./logger.ts";
+export type { LogEntry, Logger } from "./logger.ts";

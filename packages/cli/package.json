@@ -1,0 +1,11 @@
+{
+  "name": "@quickservice/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "quickservice": "src/index.ts"
+  },
+  "dependencies": {
+    "@quickservice/core": "workspace:*"
+  }
+}

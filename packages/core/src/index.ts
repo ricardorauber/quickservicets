@@ -8,3 +8,4 @@ export { DEFAULT_LIMIT, FILTER_OPERATORS, MAX_LIMIT, MAX_LIST_VALUES, parseListQ
 export type { Condition, FilterOperator, ListQuery, SortDirection, SortField } from "./query.ts";
 export { UniqueViolationError } from "./adapter.ts";
 export type { DatabaseAdapter, FindManyOptions, FindManyResult, StoredRecord } from "./adapter.ts";
+export { memoryAdapter } from "./adapters/memory.ts";

@@ -152,7 +152,7 @@ export function runAdapterContract(name: string, factory: AdapterFactory): void 
           { title: "Discount 50% off" },
           { title: "500 units" },
           { title: "snake_case" },
-          { title: "snakeXcase" },
+          { title: "snakeycase" },
           { title: "a.b (x)" },
           { title: "axb x" },
         );
@@ -172,7 +172,7 @@ export function runAdapterContract(name: string, factory: AdapterFactory): void 
       });
       test("matching ignores case", async () => {
         expect(await titles(text("contains", "DISCOUNT"))).toEqual(["Discount 50% off"]);
-        expect(await titles(text("startsWith", "SNAKE"))).toEqual(["snake_case", "snakeXcase"]);
+        expect(await titles(text("startsWith", "SNAKE"))).toEqual(["snake_case", "snakeycase"]);
       });
       test("startsWith anchors at the beginning", async () => {
         expect(await titles(text("startsWith", "units"))).toEqual([]);

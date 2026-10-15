@@ -1,6 +1,6 @@
 export { HttpError, codeForStatus, toErrorResponse } from "./errors.ts";
 export type { ErrorResponseOptions, FieldErrorDetail, HttpErrorOptions } from "./errors.ts";
-export { CRUD_OPERATIONS, SYSTEM_FIELDS } from "./model.ts";
+export { CRUD_OPERATIONS, entityRoutePath, SYSTEM_FIELDS } from "./model.ts";
 export type { CrudOperation, EntityModel, HookReference, OverrideHooksMode, FieldConstraints, FieldModel, FieldStorage, FieldType, NestedFieldModel, OnDeleteAction, PrimitiveFieldType, StringFormat, TypeDescriptor } from "./model.ts";
 export { validateBody } from "./validation.ts";
 export type { ValidationMode, ValidationResult } from "./validation.ts";
@@ -11,7 +11,7 @@ export type { DatabaseAdapter, FindManyOptions, FindManyResult, StoredRecord } f
 export { memoryAdapter } from "./adapters/memory.ts";
 export { CONFIG_FILE, ConfigError, DEFAULT_PORT, defineConfig, loadConfig, resolveConfig } from "./config.ts";
 export type { ResolvedConfig, ServiceConfig } from "./config.ts";
-export { createRepositories, createRepository } from "./repository.ts";
+export { createRepositories, createRepository, repositoryFor } from "./repository.ts";
 export type { EntityRecord, ListResult, ReadOptions, Repository, RepositoryRegistry } from "./repository.ts";
 export { definePostHook, definePreHook, isHookDefinition } from "./hooks.ts";
 export type {

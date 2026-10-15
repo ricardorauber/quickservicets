@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { memoryAdapter } from "../adapters/memory.ts";
 import type { Repositories } from "../hooks.ts";
-import { createRepositories, type RepositoryRegistry } from "../repository.ts";
+import { createRepositories, type Repository, type RepositoryRegistry } from "../repository.ts";
 import { entity, field } from "../testing/entities.ts";
 import { createCrudRoutes, mergeRoutes } from "./crud.ts";
 import { createServer, type Route } from "./server.ts";
@@ -109,5 +109,5 @@ test("internal entities get no routes but stay in repos", async () => {
     body: { error: { code: "NOT_FOUND", message: "Route not found" } },
   });
   expect(createCrudRoutes([audit], repos)).toEqual([]);
-  expect(await repos.auditLogs!.create({ message: "hi" })).toMatchObject({ message: "hi" });
+  expect(await (repos.auditLogs as Repository).create({ message: "hi" })).toMatchObject({ message: "hi" });
 });

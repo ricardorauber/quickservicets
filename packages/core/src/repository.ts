@@ -28,7 +28,8 @@ export interface Repository<T extends EntityRecord = EntityRecord> {
   delete(id: string): Promise<void>;
 }
 
-export type RepositoryRegistry = Record<string, Repository>;
+/** Repositories keyed by repository key; entities with an explicit schema are nested under the schema key. */
+export type RepositoryRegistry = Record<string, Repository | Record<string, Repository>>;
 
 /** Returns the current time, strictly after `previous` so ordering by update time is always meaningful. */
 function nextTimestamp(previous?: Date): Date {
@@ -130,5 +131,22 @@ export function createRepository(model: EntityModel, adapter: DatabaseAdapter, m
 }
 
 export function createRepositories(models: EntityModel[], adapter: DatabaseAdapter): RepositoryRegistry {
-  return Object.fromEntries(models.map((model) => [model.repoKey, createRepository(model, adapter, models)]));
+  const registry: RepositoryRegistry = {};
+  for (const model of models) {
+    const repository = createRepository(model, adapter, models);
+    if (model.schemaKey) {
+      const nested = (registry[model.schemaKey] ??= {}) as Record<string, Repository>;
+      nested[model.repoKey] = repository;
+    } else {
+      registry[model.repoKey] = repository;
+    }
+  }
+  return registry;
+}
+
+export function repositoryFor(registry: RepositoryRegistry, model: EntityModel): Repository {
+  const scope = model.schemaKey ? (registry[model.schemaKey] as Record<string, Repository> | undefined) : registry;
+  const repository = scope?.[model.repoKey] as Repository | undefined;
+  if (!repository) throw new Error(`No repository for entity ${model.entityName}`);
+  return repository;
 }

@@ -52,6 +52,10 @@ export interface EntityModel {
   /** Path of the entity file inside `/entities`, without extension (e.g. `Organization`). */
   key: string;
   entityName: string;
+  /** Explicit database schema, or null for the default schema. */
+  schema: string | null;
+  /** camelCase of the explicit schema, used to nest the repository. */
+  schemaKey?: string;
   name: string;
   repoKey: string;
   tableName: string;
@@ -62,3 +66,8 @@ export interface EntityModel {
 }
 
 export const SYSTEM_FIELDS = ["id", "createdAt", "updatedAt"] as const;
+
+/** Base route path of an entity's CRUD routes, e.g. `/users` or `/auth/users`. */
+export function entityRoutePath(model: Pick<EntityModel, "schema" | "name">): string {
+  return model.schema ? `/${model.schema}/${model.name}` : `/${model.name}`;
+}

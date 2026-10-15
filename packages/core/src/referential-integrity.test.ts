@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { memoryAdapter } from "./adapters/memory.ts";
 import { HttpError } from "./errors.ts";
 import type { EntityModel, OnDeleteAction } from "./model.ts";
-import { createRepositories } from "./repository.ts";
+import { createRepositories, type Repository } from "./repository.ts";
 import { entity, field } from "./testing/entities.ts";
 
 const organization = entity("Organization", [field({ name: "name", type: "string" })]);
@@ -15,7 +15,7 @@ const userWith = (onDelete: OnDeleteAction) =>
 async function setup(models: EntityModel[]) {
   const adapter = memoryAdapter();
   await adapter.connect(models);
-  return { adapter, repos: createRepositories(models, adapter) };
+  return { adapter, repos: createRepositories(models, adapter) as Record<string, Repository> };
 }
 
 const httpError = async (promise: Promise<unknown>) => {

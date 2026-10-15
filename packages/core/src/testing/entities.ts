@@ -14,6 +14,7 @@ export function entity(entityName: string, fields: FieldModel[], overrides: Part
   return {
     key: entityName,
     entityName,
+    schema: null,
     name,
     repoKey: name,
     tableName: name,

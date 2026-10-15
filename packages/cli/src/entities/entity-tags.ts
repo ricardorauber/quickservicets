@@ -65,6 +65,8 @@ export function applyEntityTags(entity: EntityTagTarget, tags: DocTag[], context
 
 // The collection name itself is resolved together with the entity names.
 registerEntityTag("collection");
+// The schema is resolved together with the entity file location.
+registerEntityTag("schema");
 registerEntityTag("overrideHooks", (entity, tag, context) => {
   if (tag.text !== "inherit" && tag.text !== "replace") {
     throw entityTagError(context, tag, `expects inherit or replace, got "${tag.text}"`);

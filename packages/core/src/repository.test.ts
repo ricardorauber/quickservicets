@@ -19,7 +19,7 @@ let users: Repository;
 beforeEach(async () => {
   const adapter = memoryAdapter();
   await adapter.connect([user]);
-  users = createRepositories([user], adapter).users!;
+  users = createRepositories([user], adapter).users as Repository;
 });
 
 const httpError = async (promise: Promise<unknown>) => {

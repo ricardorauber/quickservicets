@@ -1,4 +1,5 @@
 import {
+  entityRoutePath,
   loadConfig,
   operationForRoute,
   resolveRouteHooks,
@@ -44,7 +45,7 @@ function crudTable(models: EntityModel[]): CrudRouteEntry[] {
     .flatMap((model) =>
       CRUD_ROUTES.map(([method, suffix, operation]) => ({
         method,
-        path: `/${model.name}${suffix}`,
+        path: `${entityRoutePath(model)}${suffix}`,
         entity: model.key,
         operation,
         hooks: resolveRouteHooks({ kind: "generated", entity: model, operation }),

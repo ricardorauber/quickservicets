@@ -25,6 +25,7 @@ describe("type and interface declarations", () => {
       {
         key: "User",
         entityName: "User",
+        schema: null,
         name: "users",
         repoKey: "users",
         tableName: "users",

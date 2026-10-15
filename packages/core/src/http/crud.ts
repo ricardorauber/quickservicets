@@ -1,7 +1,7 @@
 import { HttpError } from "../errors.ts";
-import type { CrudOperation, EntityModel } from "../model.ts";
+import { entityRoutePath, type CrudOperation, type EntityModel } from "../model.ts";
 import { parseListQuery } from "../query.ts";
-import type { RepositoryRegistry } from "../repository.ts";
+import { repositoryFor, type RepositoryRegistry } from "../repository.ts";
 import { patternOf } from "./router.ts";
 import type { Endpoint, Route } from "./server.ts";
 
@@ -14,9 +14,8 @@ export function createCrudRoutes(models: EntityModel[], repos: RepositoryRegistr
   return models
     .filter((model) => !model.internal)
     .flatMap((model) => {
-      const repo = repos[model.repoKey];
-      if (!repo) throw new Error(`No repository for entity ${model.entityName}`);
-      const collection = `/${model.name}`;
+      const repo = repositoryFor(repos, model);
+      const collection = entityRoutePath(model);
       const item = `${collection}/[id]`;
       const id = (params: Record<string, string>) => params.id!;
 

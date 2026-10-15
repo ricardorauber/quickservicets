@@ -1,10 +1,14 @@
 import type { HookCall, HookDefinition, ServiceRequest } from "../hooks.ts";
-import type { CrudOperation, EntityModel } from "../model.ts";
+import { entityRoutePath, type CrudOperation, type EntityModel } from "../model.ts";
 import type { Endpoint } from "./server.ts";
 
 /** Derives the CRUD operation of a route on an entity, or undefined when the route is not a CRUD route. */
-export function operationForRoute(entity: Pick<EntityModel, "name">, method: string, pattern: string): CrudOperation | undefined {
-  const collection = `/${entity.name}`;
+export function operationForRoute(
+  entity: Pick<EntityModel, "name" | "schema">,
+  method: string,
+  pattern: string,
+): CrudOperation | undefined {
+  const collection = entityRoutePath(entity);
   const item = `${collection}/:`;
   const key = `${method.toUpperCase()} ${pattern}`;
   const operations: Record<string, CrudOperation> = {

@@ -1,4 +1,4 @@
-import { readdirSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import ts from "typescript";
 import {
@@ -23,6 +23,8 @@ interface EntitySource {
   relativeFile: string;
   key: string;
   entityName: string;
+  /** Folder inside `/entities`, which sets the schema unless `@schema` overrides it. */
+  folder?: string;
 }
 
 type EntityDeclaration = ts.InterfaceDeclaration | ts.TypeAliasDeclaration;
@@ -60,21 +62,34 @@ export function parseEntities(projectRoot: string): EntityModel[] {
 }
 
 function listEntitySources(projectRoot: string, entitiesDir: string): EntitySource[] {
-  let entries: string[];
-  try {
-    entries = readdirSync(entitiesDir).filter((entry) => entry.endsWith(".ts")).sort();
-  } catch {
-    return [];
-  }
-  return entries.map((entry) => {
-    const file = resolve(entitiesDir, entry);
-    const relativeFile = relative(projectRoot, file);
-    if (!ENTITY_FILE.test(entry)) {
-      throw new EntityParseError(`${relativeFile}: entity file names must be PascalCase (e.g. User.ts)`);
+  const sources: EntitySource[] = [];
+  const visit = (dir: string, folder?: string): void => {
+    let entries: string[];
+    try {
+      entries = readdirSync(dir).sort();
+    } catch {
+      return;
     }
-    const entityName = entry.slice(0, -3);
-    return { file, relativeFile, key: entityName, entityName };
-  });
+    for (const entry of entries) {
+      const file = resolve(dir, entry);
+      const relativeFile = relative(projectRoot, file);
+      if (statSync(file).isDirectory()) {
+        if (folder !== undefined) {
+          throw new EntityParseError(`${relativeFile}: entities may only be nested one folder deep`);
+        }
+        visit(file, entry);
+        continue;
+      }
+      if (!entry.endsWith(".ts")) continue;
+      if (!ENTITY_FILE.test(entry)) {
+        throw new EntityParseError(`${relativeFile}: entity file names must be PascalCase (e.g. User.ts)`);
+      }
+      const entityName = entry.slice(0, -3);
+      sources.push({ file, relativeFile, key: folder ? `${folder}/${entityName}` : entityName, entityName, folder });
+    }
+  };
+  visit(entitiesDir);
+  return sources;
 }
 
 function parseEntity(program: ts.Program, context: ParseContext): EntityModel {
@@ -84,11 +99,14 @@ function parseEntity(program: ts.Program, context: ParseContext): EntityModel {
 
   const declaration = findEntityDeclaration(sourceFile, source);
   const name = resolveCollectionName(declaration, source);
+  const schema = resolveSchema(declaration, source);
   const tagTarget: EntityTagTarget = { hooks: [], overrideHooks: "inherit", internal: false };
   applyEntityTags(tagTarget, readTags(declaration), { relativeFile: source.relativeFile });
   return {
     key: source.key,
     entityName: source.entityName,
+    schema,
+    ...(schema ? { schemaKey: toCamelCase(schema) } : {}),
     name,
     repoKey: toCamelCase(name),
     tableName: toSnakeCase(name),
@@ -138,6 +156,14 @@ function resolveCollectionName(declaration: EntityDeclaration, source: EntitySou
     throw new EntityParseError(`${source.relativeFile}: @collection "${name}" must match ^[a-z][a-z0-9-]*$`);
   }
   return name;
+}
+
+function resolveSchema(declaration: EntityDeclaration, source: EntitySource): string | null {
+  const schema = findTag(declaration, "schema")?.text ?? source.folder ?? null;
+  if (schema !== null && !isValidCollectionName(schema)) {
+    throw new EntityParseError(`${source.relativeFile}: schema "${schema}" must match ^[a-z][a-z0-9-]*$`);
+  }
+  return schema;
 }
 
 function parseFields(members: ts.NodeArray<ts.TypeElement>, context: ParseContext): FieldModel[] {
@@ -248,13 +274,31 @@ function mapEnum(typeNode: ts.UnionTypeNode, path: string, source: EntitySource)
 }
 
 function assertUniqueCollectionNames(models: EntityModel[], sources: EntitySource[]): void {
-  const seen = new Map<string, string>();
+  const fileOf = (index: number) => sources[index]!.relativeFile;
+  const collections = new Map<string, string>();
+  const typeNames = new Map<string, string>();
   models.forEach((model, index) => {
-    const file = sources[index]!.relativeFile;
-    const previous = seen.get(model.name);
-    if (previous) {
-      throw new EntityParseError(`${previous} and ${file} both use the collection name "${model.name}"`);
+    const scope = model.schema ?? "";
+    const collectionKey = `${scope}\u0000${model.name}`;
+    const previousCollection = collections.get(collectionKey);
+    if (previousCollection) {
+      throw new EntityParseError(`${previousCollection} and ${fileOf(index)} both use the collection name "${model.name}"`);
     }
-    seen.set(model.name, file);
+    collections.set(collectionKey, fileOf(index));
+    const typeKey = `${scope}\u0000${model.entityName}`;
+    const previousType = typeNames.get(typeKey);
+    if (previousType) {
+      throw new EntityParseError(`${previousType} and ${fileOf(index)} both define ${model.entityName} in the same schema`);
+    }
+    typeNames.set(typeKey, fileOf(index));
+  });
+  models.forEach((model, index) => {
+    if (model.schema !== null) return;
+    const clash = models.findIndex((other) => other.schema === model.name);
+    if (clash >= 0) {
+      throw new EntityParseError(
+        `${fileOf(index)} and ${fileOf(clash)} collide: collection "${model.name}" has the same name as schema "${model.name}"`,
+      );
+    }
   });
 }

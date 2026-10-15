@@ -28,10 +28,10 @@ describe("type and interface declarations", () => {
         repoKey: "users",
         tableName: "users",
         fields: [
-          { name: "email", type: "string", optional: false },
-          { name: "age", type: "number", optional: true },
-          { name: "active", type: "boolean", optional: false },
-          { name: "birth", type: "date", optional: false },
+          { name: "email", type: "string", optional: false, storage: "column" },
+          { name: "age", type: "number", optional: true, storage: "column" },
+          { name: "active", type: "boolean", optional: false, storage: "column" },
+          { name: "birth", type: "date", optional: false, storage: "column" },
         ],
       },
     ]);

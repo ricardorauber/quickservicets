@@ -1,7 +1,7 @@
 import { readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import ts from "typescript";
-import { SYSTEM_FIELDS, type EntityModel, type FieldModel, type PrimitiveFieldType } from "@quickservice/core";
+import { SYSTEM_FIELDS, type EntityModel, type FieldModel, type NestedFieldModel, type TypeDescriptor } from "@quickservice/core";
 import { EntityParseError } from "./errors.ts";
 import { deriveCollectionName, isValidCollectionName, toCamelCase, toSnakeCase } from "./naming.ts";
 
@@ -112,35 +112,62 @@ function resolveCollectionName(declaration: EntityDeclaration, source: EntitySou
 }
 
 function parseFields(members: ts.NodeArray<ts.TypeElement>, source: EntitySource): FieldModel[] {
+  return parseMembers(members, "", source).map((field) => {
+    if ((SYSTEM_FIELDS as readonly string[]).includes(field.name)) {
+      throw new EntityParseError(
+        `${source.relativeFile}: field "${field.name}" is a system field added to every entity and cannot be declared`,
+      );
+    }
+    const storage = field.type === "array" || field.type === "object" ? "json" : "column";
+    return { ...field, storage };
+  });
+}
+
+function parseMembers(members: ts.NodeArray<ts.TypeElement>, prefix: string, source: EntitySource): NestedFieldModel[] {
   return members.map((member) => {
     if (!ts.isPropertySignature(member) || !member.type) {
       throw new EntityParseError(`${source.relativeFile}: only typed properties are supported in ${source.entityName}`);
     }
     const name = member.name.getText();
-    if ((SYSTEM_FIELDS as readonly string[]).includes(name)) {
-      throw new EntityParseError(
-        `${source.relativeFile}: field "${name}" is a system field added to every entity and cannot be declared`,
-      );
-    }
-    return { name, type: mapPrimitiveType(member.type, name, source), optional: member.questionToken !== undefined };
+    const descriptor = mapType(member.type, `${prefix}${name}`, source);
+    return { name, ...descriptor, optional: member.questionToken !== undefined };
   });
 }
 
-function mapPrimitiveType(typeNode: ts.TypeNode, fieldName: string, source: EntitySource): PrimitiveFieldType {
+function unsupported(typeNode: ts.TypeNode, path: string, source: EntitySource): EntityParseError {
+  return new EntityParseError(`${source.relativeFile}: field "${path}" has unsupported type "${typeNode.getText()}"`);
+}
+
+function mapType(typeNode: ts.TypeNode, path: string, source: EntitySource): TypeDescriptor {
   switch (typeNode.kind) {
     case ts.SyntaxKind.StringKeyword:
-      return "string";
+      return { type: "string" };
     case ts.SyntaxKind.NumberKeyword:
-      return "number";
+      return { type: "number" };
     case ts.SyntaxKind.BooleanKeyword:
-      return "boolean";
+      return { type: "boolean" };
   }
-  if (ts.isTypeReferenceNode(typeNode) && typeNode.typeName.getText() === "Date" && !typeNode.typeArguments) {
-    return "date";
+  if (ts.isParenthesizedTypeNode(typeNode)) return mapType(typeNode.type, path, source);
+  if (ts.isUnionTypeNode(typeNode)) return mapEnum(typeNode, path, source);
+  if (ts.isArrayTypeNode(typeNode)) return { type: "array", items: mapType(typeNode.elementType, path, source) };
+  if (ts.isTypeLiteralNode(typeNode)) return { type: "object", fields: parseMembers(typeNode.members, `${path}.`, source) };
+  if (ts.isTypeReferenceNode(typeNode)) {
+    const name = typeNode.typeName.getText();
+    const args = typeNode.typeArguments ?? [];
+    if (name === "Date" && args.length === 0) return { type: "date" };
+    if (name === "Array" && args.length === 1) return { type: "array", items: mapType(args[0]!, path, source) };
   }
-  throw new EntityParseError(
-    `${source.relativeFile}: field "${fieldName}" has unsupported type "${typeNode.getText()}"`,
-  );
+  throw unsupported(typeNode, path, source);
+}
+
+function mapEnum(typeNode: ts.UnionTypeNode, path: string, source: EntitySource): TypeDescriptor {
+  const values = typeNode.types.map((member) => {
+    if (ts.isLiteralTypeNode(member) && ts.isStringLiteral(member.literal)) return member.literal.text;
+    throw new EntityParseError(
+      `${source.relativeFile}: field "${path}" must be a union of string literals only, found "${member.getText()}"`,
+    );
+  });
+  return { type: "enum", values };
 }
 
 function assertUniqueCollectionNames(models: EntityModel[], sources: EntitySource[]): void {

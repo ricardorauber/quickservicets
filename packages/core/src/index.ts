@@ -32,3 +32,5 @@ export { executedHooks, operationForRoute, resolveRouteHooks, withHooks } from "
 export type { RouteHookSource } from "./http/pipeline.ts";
 export { createCrudRoutes, mergeRoutes } from "./http/crud.ts";
 export type { CrudRoute } from "./http/crud.ts";
+export { createApp } from "./app.ts";
+export type { App, AppEndpoint, AppOptions, CrudRouteEntry } from "./app.ts";

@@ -8,3 +8,5 @@ export { isReservedHookName, scanHooks } from "./hooks/scan-hooks.ts";
 export type { HookEntry } from "./hooks/scan-hooks.ts";
 export { validateHookReferences } from "./hooks/validate-hook-references.ts";
 export type { EndpointHooks } from "./hooks/validate-hook-references.ts";
+export { build, GENERATED_DIR } from "./build/build.ts";
+export type { BuildSummary } from "./build/build.ts";

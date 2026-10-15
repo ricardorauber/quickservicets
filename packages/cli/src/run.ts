@@ -28,6 +28,19 @@ export async function run(args: string[], output: Output = consoleOutput, cwd = 
       for (const message of result.messages) output.log(message);
       return 0;
     }
+    if (command === "migration" && args[1] === "list") {
+      const { listMigrationStatus } = await import("./migrations/list-remove.ts");
+      const list = await listMigrationStatus(cwd);
+      if (list.warning) output.error(`Warning: ${list.warning}`);
+      for (const entry of list.entries) output.log(`${entry.id}  ${entry.status}`);
+      if (list.entries.length === 0) output.log("No migrations");
+      return 0;
+    }
+    if (command === "migration" && args[1] === "remove") {
+      const { removeLatestMigration } = await import("./migrations/list-remove.ts");
+      for (const file of await removeLatestMigration(cwd)) output.log(`Removed ${file}`);
+      return 0;
+    }
     if (command === "migration" && args[1] === "add") {
       if (!args[2]) throw new Error("Usage: quickservice migration add <Name>");
       const { addMigration } = await import("./migrations/add.ts");

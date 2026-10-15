@@ -34,6 +34,8 @@ interface AppliedMigration {
 /** Runs SQL and history changes for one dialect, one migration per transaction. */
 interface MigrationDriver {
   ensureHistory(): Promise<void>;
+  /** Applied migrations, or an empty list when the history table does not exist yet. */
+  readHistory(): Promise<AppliedMigration[]>;
   applied(): Promise<AppliedMigration[]>;
   inTransaction(work: (sql: MigrationContext["sql"]) => Promise<void>): Promise<void>;
   record(sql: MigrationContext["sql"], migration: MigrationFile, applied: boolean): Promise<void>;
@@ -57,6 +59,10 @@ function sqliteDriver(client: Database): MigrationDriver {
     },
     async applied() {
       return client.query(`select id, name from ${HISTORY_TABLE} order by id`).all() as AppliedMigration[];
+    },
+    async readHistory() {
+      const exists = client.query("select name from sqlite_master where type = 'table' and name = ?").get(HISTORY_TABLE);
+      return exists ? (client.query(`select id, name from ${HISTORY_TABLE} order by id`).all() as AppliedMigration[]) : [];
     },
     async inTransaction(work) {
       client.run("begin");
@@ -85,6 +91,10 @@ function postgresDriver(client: SQL): MigrationDriver {
     },
     async applied() {
       return (await client.unsafe(`select id, name from ${HISTORY_TABLE} order by id`)) as AppliedMigration[];
+    },
+    async readHistory() {
+      const [row] = (await client.unsafe("select to_regclass($1) as found", [HISTORY_TABLE])) as { found: string | null }[];
+      return row?.found ? ((await client.unsafe(`select id, name from ${HISTORY_TABLE} order by id`)) as AppliedMigration[]) : [];
     },
     async inTransaction(work) {
       await client.begin(async (tx) => {
@@ -190,3 +200,18 @@ export async function migrate(projectRoot: string, options: MigrateOptions = {})
     await config.database.disconnect();
   }
 }
+
+/** Reads the applied migrations of the configured SQL database without changing it. */
+export async function readAppliedMigrations(projectRoot: string): Promise<AppliedMigration[]> {
+  const config = await loadConfig(projectRoot);
+  if (config.database.kind === "memory") throw new BuildError("Migrations are not used with the memory adapter");
+  const driverConfig = config;
+  await config.database.connect(parseEntities(projectRoot));
+  try {
+    return await driverFor(driverConfig).readHistory();
+  } finally {
+    await config.database.disconnect();
+  }
+}
+
+export type { AppliedMigration };

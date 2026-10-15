@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { version } from "./version.ts";
 
 export interface Output {
@@ -19,6 +20,15 @@ export async function run(args: string[], output: Output = consoleOutput, cwd = 
       const summary = await build(cwd);
       output.log(`Built ${summary.entities} entities, ${summary.endpoints} custom endpoints and ${summary.hooks} hooks.`);
       for (const warning of summary.warnings) output.error(`Warning: ${warning}`);
+      return 0;
+    }
+    if (command === "init") {
+      const { initProject } = await import("./init/init.ts");
+      const dbIndex = args.indexOf("--db");
+      const db = dbIndex >= 0 ? args[dbIndex + 1] : undefined;
+      const directory = args.slice(1).find((arg, index, list) => !arg.startsWith("--") && list[index - 1] !== "--db");
+      const steps = await initProject(directory ? resolve(cwd, directory) : cwd, { db: db ?? (dbIndex >= 0 ? "" : undefined) });
+      for (const line of steps) output.log(line);
       return 0;
     }
     if (command === "dev") {

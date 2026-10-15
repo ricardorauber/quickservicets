@@ -103,7 +103,7 @@ test("custom endpoints override schema-prefixed CRUD routes", async () => {
   const root = createLinkedProject({
     "quickservice.config.ts": MEMORY_CONFIG,
     "entities/auth/User.ts": user,
-    "endpoints/auth/users/[id]/get.ts": "export default () => ({ custom: true });",
+    "endpoints/auth/users/[id]/get.ts": "export default () => ({ email: \"custom\" });",
   });
   await build(root);
   const { models } = await import(join(root, ".generated/models.ts"));
@@ -112,6 +112,6 @@ test("custom endpoints override schema-prefixed CRUD routes", async () => {
   await config.database.connect(models);
   const { server } = createApp({ models, crudRoutes, endpoints, hooks, config });
   const response = await server.fetch(new Request("http://localhost/auth/users/abc"));
-  expect(await response.json()).toEqual({ custom: true });
+  expect(await response.json()).toEqual({ email: "custom" });
   expect((await server.fetch(new Request("http://localhost/auth/users"))).status).toBe(200);
 });

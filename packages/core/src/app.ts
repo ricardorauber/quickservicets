@@ -4,6 +4,7 @@ import { createCrudRoutes, mergeRoutes } from "./http/crud.ts";
 import { withHooks } from "./http/pipeline.ts";
 import { createServer, type Endpoint, type Route, type Server } from "./http/server.ts";
 import type { CrudOperation, EntityModel } from "./model.ts";
+import { projectResult, type Projection } from "./projection.ts";
 import { createRepositories, type RepositoryRegistry } from "./repository.ts";
 
 /** A generated CRUD route with its resolved hook list. */
@@ -20,7 +21,14 @@ export interface AppEndpoint {
   method: string;
   path: string;
   hooks: HookCall[];
+  /** Applied to the handler's result before post-hooks. */
+  projection?: Projection;
   handler: Endpoint;
+}
+
+function withProjection(handler: Endpoint, projection: Projection | undefined): Endpoint {
+  if (!projection) return handler;
+  return async (repos, req, res) => projectResult(await handler(repos, req, res), projection) as never;
 }
 
 export interface AppOptions {
@@ -48,7 +56,7 @@ export function createApp({ models, crudRoutes, endpoints, hooks, config }: AppO
   const custom: Route[] = endpoints.map((endpoint) => ({
     method: endpoint.method,
     path: endpoint.path,
-    handler: withHooks(endpoint.handler, endpoint.hooks, hooks),
+    handler: withHooks(withProjection(endpoint.handler, endpoint.projection), endpoint.hooks, hooks),
   }));
   const server = createServer({ routes: mergeRoutes(generated, custom), repos: repos as unknown as Repositories, config });
   return { server, repos };

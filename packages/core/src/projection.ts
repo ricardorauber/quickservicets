@@ -89,3 +89,17 @@ export function project(value: unknown, { include, exclude }: Projection): unkno
   if (exclude) result = remove(result, toTree(exclude));
   return result;
 }
+
+/**
+ * Projects an endpoint result: each item of `data` for `{ data: [...] }` results, each item of arrays, or the
+ * value itself. `Response` and `undefined` results are left untouched.
+ */
+export function projectResult(result: unknown, projection: Projection): unknown {
+  if (result === undefined || result instanceof Response) return result;
+  if (Array.isArray(result)) return result.map((item) => project(item, projection));
+  if (typeof result === "object" && result !== null && Array.isArray((result as { data?: unknown }).data)) {
+    const container = result as { data: unknown[] };
+    return { ...container, data: container.data.map((item) => project(item, projection)) };
+  }
+  return project(result, projection);
+}

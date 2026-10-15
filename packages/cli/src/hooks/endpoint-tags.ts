@@ -4,7 +4,13 @@ import { splitArgs } from "../entities/entity-tags.ts";
 import { readTags, type DocTag } from "../entities/jsdoc.ts";
 import { BuildError } from "../errors.ts";
 
-type EndpointTagHandler = (tag: DocTag, file: string) => void;
+/** What an endpoint's JSDoc declares besides hooks; built-in endpoint tags fill it in. */
+export interface EndpointMetadata {
+  /** Response projection from `@fields` (include) or `@exclude`. */
+  projection?: { include?: string[]; exclude?: string[] };
+}
+
+type EndpointTagHandler = (tag: DocTag, file: string, metadata: EndpointMetadata) => void;
 
 const builtInEndpointTags = new Map<string, EndpointTagHandler>();
 
@@ -41,16 +47,22 @@ function defaultExportNode(sourceFile: ts.SourceFile): ts.Node | undefined {
   return undefined;
 }
 
-/** Reads the hook references written as JSDoc tags on an endpoint's default export. */
-export function parseEndpointHooks(source: string, file: string): HookCall[] {
+export interface EndpointTags {
+  hooks: HookCall[];
+  metadata: EndpointMetadata;
+}
+
+/** Reads the hook references and built-in tags written as JSDoc on an endpoint's default export. */
+export function parseEndpointTags(source: string, file: string): EndpointTags {
   const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
   const node = defaultExportNode(sourceFile);
   if (!node) throw new BuildError(`${file}: endpoints must have a default export`);
   const hooks: HookCall[] = [];
+  const metadata: EndpointMetadata = {};
   for (const tag of readTags(node)) {
     const handler = builtInEndpointTags.get(tag.name);
     if (handler) {
-      handler(tag, file);
+      handler(tag, file, metadata);
       continue;
     }
     if (tag.text.startsWith(":")) {
@@ -61,5 +73,22 @@ export function parseEndpointHooks(source: string, file: string): HookCall[] {
     }
     hooks.push({ name: tag.name, args: splitArgs(tag.text) });
   }
-  return hooks;
+  return { hooks, metadata };
 }
+
+/** Reads the hook references written as JSDoc tags on an endpoint's default export. */
+export function parseEndpointHooks(source: string, file: string): HookCall[] {
+  return parseEndpointTags(source, file).hooks;
+}
+
+function projectionTag(kind: "include" | "exclude"): EndpointTagHandler {
+  return (tag, file, metadata) => {
+    if (metadata.projection) throw new BuildError(`${file}: use either @fields or @exclude, not both`);
+    const paths = splitArgs(tag.text);
+    if (paths.length === 0) throw new BuildError(`${file}: @${tag.name} needs at least one path`);
+    metadata.projection = { [kind]: paths };
+  };
+}
+
+registerEndpointTag("fields", projectionTag("include"));
+registerEndpointTag("exclude", projectionTag("exclude"));

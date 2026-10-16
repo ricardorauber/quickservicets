@@ -1,5 +1,5 @@
-import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, notInArray, sql, type SQL } from "drizzle-orm";
-import type { Condition, SizeFilter, SortField } from "../query.ts";
+import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, notInArray, or, sql, type SQL } from "drizzle-orm";
+import { isConditionGroup, type Condition, type FieldCondition, type SizeFilter, type SortField } from "../query.ts";
 import type { EntityModel } from "../model.ts";
 import { junctionKey, type DrizzleSchema, type SqlDialect } from "./schema.ts";
 
@@ -31,7 +31,7 @@ export interface RelationContext {
 
 const SIZE_OPERATORS: Record<SizeFilter["compare"], string> = { eq: "=", ne: "<>", gt: ">", gte: ">=", lt: "<", lte: "<=" };
 
-function translateRelation(table: Columns, condition: Condition, context: RelationContext): SQL {
+function translateRelation(table: Columns, condition: FieldCondition, context: RelationContext): SQL {
   const junction = context.schema.junctions[junctionKey(context.entity.key, condition.field)] as Record<string, unknown>;
   const owned = sql`${junction.ownerId} = ${table.id}`;
   switch (condition.op) {
@@ -57,6 +57,12 @@ function translateRelation(table: Columns, condition: Condition, context: Relati
 }
 
 function translate(table: Columns, condition: Condition, dialect: SqlDialect, context?: RelationContext): SQL {
+  if (isConditionGroup(condition)) {
+    // An empty AND matches everything; an empty OR matches nothing.
+    if (condition.conditions.length === 0) return condition.group === "or" ? sql`1 = 0` : sql`1 = 1`;
+    const parts = condition.conditions.map((inner) => translate(table, inner, dialect, context));
+    return (condition.group === "or" ? or(...parts) : and(...parts))!;
+  }
   const relation = context?.entity.fields.find((field) => field.name === condition.field && field.type === "refArray");
   if (relation && context) return translateRelation(table, condition, context);
   const target = column(table, condition.field);

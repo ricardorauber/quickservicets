@@ -78,7 +78,7 @@ describe("coercion", () => {
 
 test("in accepts 100 values and rejects 101", () => {
   const values = (count: number) => Array.from({ length: count }, (_, index) => `v${index}`).join(",");
-  expect((parse(`where[name][in]=${values(100)}`).where[0]!.value as string[]).length).toBe(100);
+  expect(((parse(`where[name][in]=${values(100)}`).where[0] as { value: string[] }).value).length).toBe(100);
   expect(errorParams(`where[name][in]=${values(101)}`)).toEqual(["where[name][in]"]);
 });
 

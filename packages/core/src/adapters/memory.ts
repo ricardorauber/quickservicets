@@ -1,6 +1,6 @@
 import { UniqueViolationError, type DatabaseAdapter, type FindManyOptions, type StoredRecord } from "../adapter.ts";
 import type { EntityModel } from "../model.ts";
-import type { Condition, SizeFilter, SortField } from "../query.ts";
+import { isConditionGroup, type Condition, type FieldCondition, type SizeFilter, type SortField } from "../query.ts";
 
 type Table = Map<string, StoredRecord>;
 
@@ -16,6 +16,10 @@ function compareValues(left: unknown, right: unknown): number {
 }
 
 function matches(record: StoredRecord, condition: Condition, entity: EntityModel): boolean {
+  if (isConditionGroup(condition)) {
+    const test = (inner: Condition) => matches(record, inner, entity);
+    return condition.group === "or" ? condition.conditions.some(test) : condition.conditions.every(test);
+  }
   const actual = record[condition.field];
   const { op, value } = condition;
   if (entity.fields.some((field) => field.name === condition.field && field.type === "refArray")) {
@@ -68,7 +72,7 @@ export function compareSize(length: number, { compare, count }: SizeFilter): boo
   }
 }
 
-function matchesArray(ids: string[], { op, value }: Condition): boolean {
+function matchesArray(ids: string[], { op, value }: FieldCondition): boolean {
   switch (op) {
     case "contains":
       return ids.includes(value as string);

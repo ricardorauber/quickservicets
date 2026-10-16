@@ -7,9 +7,19 @@ import type { PopulatePath, Populated } from "./repository.ts";
 export class QueryCondition {
   constructor(readonly conditions: readonly Condition[]) {}
 
-  /** Both this condition and `other`. */
+  /** Both this condition and `other`: `a.and(b.or(c))` is `a AND (b OR c)`. */
   and(other: QueryCondition): QueryCondition {
     return new QueryCondition([...this.conditions, ...other.conditions]);
+  }
+
+  /** This condition or `other`: `a.or(b).and(c)` is `(a OR b) AND c`. */
+  or(other: QueryCondition): QueryCondition {
+    return new QueryCondition([{ group: "or", conditions: [this.single(), other.single()] }]);
+  }
+
+  /** The conditions as one: itself when there is one, an AND group otherwise. */
+  private single(): Condition {
+    return this.conditions.length === 1 ? this.conditions[0]! : { group: "and", conditions: [...this.conditions] };
   }
 }
 

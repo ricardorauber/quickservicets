@@ -30,7 +30,8 @@ export interface SizeFilter {
   count: number;
 }
 
-export interface Condition {
+/** A comparison on one field. */
+export interface FieldCondition {
   field: string;
   op: FilterOperator;
   value: unknown;
@@ -38,6 +39,17 @@ export interface Condition {
   caseInsensitive?: true;
   literal?: true;
 }
+
+/** Conditions joined by AND or OR, nested to any depth. */
+export interface ConditionGroup {
+  group: "and" | "or";
+  conditions: Condition[];
+}
+
+/** A field comparison or a group; lists of conditions mean AND. */
+export type Condition = FieldCondition | ConditionGroup;
+
+export const isConditionGroup = (condition: Condition): condition is ConditionGroup => "group" in condition;
 
 export type SortDirection = "asc" | "desc";
 

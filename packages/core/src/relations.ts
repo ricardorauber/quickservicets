@@ -1,6 +1,7 @@
 import type { DatabaseAdapter, StoredRecord } from "./adapter.ts";
 import { HttpError } from "./errors.ts";
 import type { EntityModel, FieldModel } from "./model.ts";
+import { isConditionGroup, type Condition, type FieldCondition } from "./query.ts";
 
 type Derived = FieldModel & { relation: NonNullable<FieldModel["relation"]> };
 
@@ -185,7 +186,7 @@ export async function releaseOneToOne(
 }
 
 type ConditionList = Parameters<DatabaseAdapter["findMany"]>[1]["where"];
-type OneCondition = ConditionList[number];
+type OneCondition = FieldCondition;
 
 function sizeMatches(length: number, filter: { compare: string; count: number }): boolean {
   switch (filter.compare) {
@@ -272,11 +273,17 @@ export async function resolveDerivedConditions(
   adapter: DatabaseAdapter,
 ): Promise<ConditionList> {
   const fields = new Map(derivedFields(model).map((field) => [field.name, field]));
-  if (fields.size === 0 || !where.some((condition) => fields.has(condition.field))) return where;
-  const resolved: ConditionList = [];
-  for (const condition of where) {
+  if (fields.size === 0) return where;
+  const resolve = async (condition: Condition): Promise<Condition> => {
+    if (isConditionGroup(condition)) {
+      const conditions: Condition[] = [];
+      for (const inner of condition.conditions) conditions.push(await resolve(inner));
+      return { group: condition.group, conditions };
+    }
     const field = fields.get(condition.field);
-    resolved.push(field ? await resolveCondition(model, field, condition, models, adapter) : condition);
-  }
+    return field ? resolveCondition(model, field, condition, models, adapter) : condition;
+  };
+  const resolved: ConditionList = [];
+  for (const condition of where) resolved.push(await resolve(condition));
   return resolved;
 }

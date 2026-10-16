@@ -3,7 +3,7 @@ import { MongoClient, type ClientSession, type Db, type Document, type Filter, t
 import { UniqueViolationError, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
 import type { EntityModel, FieldModel } from "../model.ts";
 import { schemaIdentifier } from "../sql/schema.ts";
-import type { Condition, SizeFilter, SortField } from "../query.ts";
+import { isConditionGroup, type Condition, type FieldCondition, type SizeFilter, type SortField } from "../query.ts";
 
 export interface MongodbAdapterOptions {
   url: string;
@@ -28,7 +28,7 @@ export function escapeRegex(value: string): string {
 
 const fieldPath = (field: string) => (field === "id" ? "_id" : field);
 
-function translate({ field, op, value }: Condition): Document {
+function translate({ field, op, value }: FieldCondition): Document {
   const path = fieldPath(field);
   switch (op) {
     case "eq":
@@ -61,7 +61,7 @@ function translate({ field, op, value }: Condition): Document {
   }
 }
 
-function translateArray({ field, op, value }: Condition): Document {
+function translateArray({ field, op, value }: FieldCondition): Document {
   const length = { $size: { $ifNull: [`$${field}`, []] } };
   switch (op) {
     case "contains":
@@ -84,13 +84,17 @@ function translateArray({ field, op, value }: Condition): Document {
 /** Translates list conditions (combined with AND) into a MongoDB filter. */
 export function toFilter(conditions: Condition[], entity?: EntityModel): Filter<Document> {
   if (conditions.length === 0) return {};
-  const isRelation = (condition: Condition) =>
+  const isRelation = (condition: FieldCondition) =>
     entity?.fields.some((field) => field.name === condition.field && field.type === "refArray") ?? false;
-  return {
-    $and: conditions.map((condition) => {
-      return isRelation(condition) ? translateArray(condition) : translate(condition);
-    }),
+  const one = (condition: Condition): Document => {
+    if (isConditionGroup(condition)) {
+      // An empty AND matches everything; an empty OR matches nothing.
+      if (condition.conditions.length === 0) return condition.group === "or" ? { _id: { $in: [] } } : {};
+      return { [condition.group === "or" ? "$or" : "$and"]: condition.conditions.map(one) };
+    }
+    return isRelation(condition) ? translateArray(condition) : translate(condition);
   };
+  return { $and: conditions.map(one) };
 }
 
 export function toSort(sort: SortField[]): Sort {

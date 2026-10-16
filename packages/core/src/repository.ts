@@ -1,6 +1,6 @@
 import { UniqueViolationError, type DatabaseAdapter, type StoredRecord } from "./adapter.ts";
 import { HttpError } from "./errors.ts";
-import { conditionsOf, type PageOptions, type Query, type QueryLambda } from "./fluent-query.ts";
+import { conditionsOf, createQuery, type Query, type QueryBackend, type QueryLambda } from "./fluent-query.ts";
 import { alwaysHiddenPaths, type EntityModel } from "./model.ts";
 import { project } from "./projection.ts";
 import { withFileUrls, type FileAccessSettings } from "./files/access.ts";
@@ -268,50 +268,21 @@ export function createRepository(
   };
 
   const findAllMax = repositoryOptions.findAllMax ?? DEFAULT_FIND_ALL_MAX;
-  const DEFAULT_SORT = [
-    { field: "createdAt", direction: "desc" as const },
-    { field: "id", direction: "desc" as const },
-  ];
-  const fluent = (where: Condition[]): Query<EntityRecord> => {
-    const resolved = () => resolveDerivedConditions(model, where, models, adapter);
-    const read = (limit: number, offset: number) => repository.list({ where, sort: DEFAULT_SORT, limit, offset });
-    const count = async () => adapter.count(model, await resolved());
-    return {
-      where: (lambda) => fluent([...where, ...conditionsOf(model, lambda as QueryLambda<unknown>)]),
-      async all() {
-        const total = await count();
-        if (total > findAllMax) {
-          throw new Error(`Query on ${model.entityName} matched ${total} records, more than repositories.findAllMax (${findAllMax})`);
-        }
-        return total === 0 ? [] : (await read(total, 0)).data;
-      },
-      async first() {
-        const [record] = (await read(1, 0)).data;
-        if (!record) throw notFound();
-        return record;
-      },
-      async firstOrDefault() {
-        return (await read(1, 0)).data[0] ?? null;
-      },
-      count,
-      async any() {
-        return (await count()) > 0;
-      },
-      async page({ limit = 20, offset = 0 }: PageOptions = {}) {
-        if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error(`page limit must be an integer from 1 to 100, got ${limit}`);
-        if (!Number.isInteger(offset) || offset < 0) throw new Error(`page offset must be a non-negative integer, got ${offset}`);
-        return read(limit, offset);
-      },
-    };
+  const backend: QueryBackend = {
+    model,
+    findAllMax,
+    list: (query) => repository.list(query),
+    count: async (where) => adapter.count(model, await resolveDerivedConditions(model, where, models, adapter)),
+    notFound,
   };
 
   const repository: Repository = {
     where(lambda) {
-      return fluent(conditionsOf(model, lambda as QueryLambda<unknown>));
+      return createQuery(backend, { where: conditionsOf(model, lambda), sort: [], skip: 0 });
     },
 
     query() {
-      return fluent([]);
+      return createQuery(backend, { where: [], sort: [], skip: 0 });
     },
 
     async create(data, options) {

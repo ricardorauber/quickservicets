@@ -7,7 +7,7 @@ export interface FieldSelectionTag {
   paths: string;
 }
 
-export type EntityTagTarget = Pick<EntityModel, "hooks" | "overrideHooks" | "internal" | "populate"> & {
+export type EntityTagTarget = Pick<EntityModel, "hooks" | "overrideHooks" | "internal" | "populate" | "storageName"> & {
   /** `@fields` whitelists, validated once the fields are parsed. */
   fieldSelections?: FieldSelectionTag[];
 };
@@ -119,6 +119,10 @@ registerEntityTag("populate", (entity, tag, context) => {
   if (list.length === 0) throw entityTagError(context, tag, "needs at least one reference path");
   const populate = (entity.populate ??= {});
   for (const operation of operations) populate[operation] = [...new Set([...(populate[operation] ?? []), ...list])];
+});
+registerEntityTag("storage", (entity, tag, context) => {
+  if (!/^[A-Za-z_$][\w$-]*$/.test(tag.text)) throw entityTagError(context, tag, "expects a storage name");
+  entity.storageName = tag.text;
 });
 registerEntityTag("internal", (entity, tag, context) => {
   if (tag.text !== "") throw entityTagError(context, tag, "takes no value");

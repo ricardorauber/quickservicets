@@ -2,6 +2,8 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { DatabaseAdapter } from "./adapter.ts";
 import type { Logger } from "./logger.ts";
+import { localStorage } from "./storage/local.ts";
+import type { StorageAdapter } from "./storage/storage.ts";
 
 export const CONFIG_FILE = "quickservice.config.ts";
 export const DEFAULT_PORT = 3000;
@@ -15,6 +17,8 @@ export interface ServiceConfig {
   logger?: Logger;
   /** Default database schema for entities without an explicit one; `DATABASE_SCHEMA` overrides it. */
   schema?: string;
+  /** Named file storages; file entities use `default` unless `@storage` names another. */
+  storage?: Record<string, StorageAdapter>;
   populate?: {
     /** Maximum number of segments in a populate path (default 2). */
     maxDepth?: number;
@@ -28,8 +32,9 @@ export interface ServiceConfig {
 /** The configuration with every default applied. */
 export const DEFAULT_POPULATE_DEPTH = 2;
 
-export interface ResolvedConfig extends Omit<ServiceConfig, "server" | "production" | "schema" | "populate"> {
+export interface ResolvedConfig extends Omit<ServiceConfig, "server" | "production" | "schema" | "populate" | "storage"> {
   server: { port: number };
+  storage: Record<string, StorageAdapter> & { default: StorageAdapter };
   populate: { maxDepth: number };
   production: boolean;
   /** The resolved default schema, or null for the database's own default. */
@@ -69,7 +74,19 @@ function resolvePort(config: ServiceConfig, env: Record<string, string | undefin
   return raw;
 }
 
-export function resolveConfig(config: ServiceConfig, env: Record<string, string | undefined> = process.env): ResolvedConfig {
+export const DEFAULT_STORAGE_DIR = "uploads";
+
+function resolveStorage(config: ServiceConfig, projectRoot: string): ResolvedConfig["storage"] {
+  if (config.storage === undefined) return { default: localStorage({ dir: join(projectRoot, DEFAULT_STORAGE_DIR) }) };
+  if (!config.storage.default) throw new ConfigError("Invalid storage.default: the storage map must contain a default storage");
+  return config.storage as ResolvedConfig["storage"];
+}
+
+export function resolveConfig(
+  config: ServiceConfig,
+  env: Record<string, string | undefined> = process.env,
+  projectRoot = process.cwd(),
+): ResolvedConfig {
   if (!config || typeof config !== "object" || !config.database) {
     throw new ConfigError("Invalid config: database is required");
   }
@@ -79,6 +96,7 @@ export function resolveConfig(config: ServiceConfig, env: Record<string, string 
     production: config.production ?? env.NODE_ENV === "production",
     schema: resolveSchema(config, env),
     populate: { maxDepth: config.populate?.maxDepth ?? DEFAULT_POPULATE_DEPTH },
+    storage: resolveStorage(config, projectRoot),
   };
 }
 
@@ -88,5 +106,5 @@ export async function loadConfig(projectRoot: string, env: Record<string, string
     throw new ConfigError(`Config file not found: ${file}`);
   }
   const module = (await import(file)) as { default?: ServiceConfig };
-  return resolveConfig(module.default as ServiceConfig, env);
+  return resolveConfig(module.default as ServiceConfig, env, projectRoot);
 }

@@ -151,6 +151,9 @@ function parseEntity(program: ts.Program, context: ParseContext): EntityModel {
   const tagTarget: EntityTagTarget = { hooks: [], overrideHooks: "inherit", internal: false };
   applyEntityTags(tagTarget, readTags(declaration), { relativeFile: source.relativeFile });
   const { fieldSelections = [], ...tags } = tagTarget;
+  if (tags.storageName && !shape.base) {
+    throw new EntityParseError(`${source.relativeFile}: invalid @storage: ${source.entityName} is not a file entity`);
+  }
   const model: EntityModel = {
     key: source.key,
     entityName: source.entityName,

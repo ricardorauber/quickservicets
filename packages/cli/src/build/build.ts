@@ -185,6 +185,11 @@ export async function build(projectRoot: string): Promise<BuildSummary> {
     hooks,
   );
   assertEntityPopulateDepth(models, config.populate.maxDepth);
+  for (const model of models) {
+    if (model.storageName && !(model.storageName in config.storage)) {
+      throw new BuildError(`entities/${model.key}.ts: entity ${model.entityName} uses storage "${model.storageName}", which is not in the config`);
+    }
+  }
   const resolved = endpoints.map((endpoint) => resolveEndpoint(endpoint, models, config.populate.maxDepth));
 
   const files: Record<string, string> = {

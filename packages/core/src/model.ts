@@ -116,6 +116,8 @@ export interface EntityModel {
   link?: { left: { entity: string; field: string }; right: { entity: string; field: string } };
   /** Set on file entities: built-in `File`/`Media` and entities extending them. */
   file?: { base: "file" | "media" };
+  /** `@storage <name>`: the configured storage of a file entity (default: `default`). */
+  storageName?: string;
 }
 
 /** Paths of fields (top-level or nested) that are never returned. */

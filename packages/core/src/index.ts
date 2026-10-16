@@ -53,3 +53,7 @@ export type { ClientSelection, SelectionContext } from "./http/selection.ts";
 export { assertPopulatePaths, parsePopulateParam, populatePathErrors, populateRecords } from "./populate.ts";
 export { builtInFileEntity, FILE_BASE_FIELDS, MEDIA_MIME_TYPES } from "./files.ts";
 export type { File, FileBase, Media } from "./files.ts";
+export { localStorage } from "./storage/local.ts";
+export type { LocalStorageOptions } from "./storage/local.ts";
+export { assertSafeKey, extensionOf, storageKeyFor, StorageKeyError } from "./storage/storage.ts";
+export type { StorageAdapter, StorageBody } from "./storage/storage.ts";

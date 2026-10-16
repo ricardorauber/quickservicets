@@ -151,7 +151,22 @@ function fieldSchema(field: NestedFieldModel, visible: (field: NestedFieldModel)
   if (field.max !== undefined) schema.maximum = field.max;
   if (field.format) schema.format = field.format === "url" ? "uri" : field.format;
   if (field.default !== undefined) schema.default = field.default;
+  if (field.type === "refArray" && mode !== "response") return referenceArrayBody(schema, field.optional, mode);
   return field.optional ? withNull(schema) : schema;
+}
+
+const ID_LIST: JsonSchema = { type: "array", items: { type: "string", format: "uuid" }, uniqueItems: true };
+
+/** A reference array in a body: unique ids, or on PATCH also `{ add, remove }`. */
+function referenceArrayBody(schema: JsonSchema, optional: boolean, mode: WriteMode): JsonSchema {
+  const list: JsonSchema = { ...schema, uniqueItems: true };
+  if (mode !== "update") return optional ? withNull(list) : list;
+  const change: JsonSchema = {
+    type: "object",
+    properties: { add: ID_LIST, remove: ID_LIST },
+    additionalProperties: false,
+  };
+  return { oneOf: [list, change, ...(optional ? [{ type: "null" }] : [])] };
 }
 
 function isRequired(field: NestedFieldModel, mode: WriteMode | "response"): boolean {
@@ -248,6 +263,8 @@ function multipartSchema(model: EntityModel, json: JsonSchema, models: EntityMod
       field.fileLimits?.maxSize !== undefined ? `Max size: ${formatSize(field.fileLimits.maxSize)}.` : "",
       field.fileLimits?.maxTotalSize !== undefined ? `Max total size: ${formatSize(field.fileLimits.maxTotalSize)}.` : "",
       field.fileLimits?.accept ? `Accepted types: ${field.fileLimits.accept.join(", ")}.` : "",
+      field.type === "refArray" && field.minLength !== undefined ? `Min items: ${field.minLength}.` : "",
+      field.type === "refArray" && field.maxLength !== undefined ? `Max items: ${field.maxLength}.` : "",
     ].filter((text) => text !== "");
     const description = ["File upload.", ...limits].join(" ");
     properties[field.name] = field.type === "refArray" ? { type: "array", items: BINARY, description } : { ...BINARY, description };

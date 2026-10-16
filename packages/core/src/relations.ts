@@ -8,8 +8,9 @@ export const isDerived = (field: FieldModel): field is Derived => field.storage 
 
 export const derivedFields = (model: EntityModel): Derived[] => model.fields.filter(isDerived);
 
+/** Values without the fields the database does not store (derived relation sides and computed fields). */
 export function withoutDerived(model: EntityModel, values: Record<string, unknown>): Record<string, unknown> {
-  const names = new Set(derivedFields(model).map((field) => field.name));
+  const names = new Set(model.fields.filter((field) => field.storage === "derived" || field.storage === "computed").map((field) => field.name));
   return Object.fromEntries(Object.entries(values).filter(([key]) => !names.has(key)));
 }
 

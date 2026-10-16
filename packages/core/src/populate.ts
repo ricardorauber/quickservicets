@@ -61,6 +61,8 @@ export async function populateRecords(
   paths: string[],
   models: EntityModel[],
   adapter: DatabaseAdapter,
+  /** Adds computed fields (e.g. file URLs) to the loaded referenced records. */
+  compute: (entity: EntityModel, records: StoredRecord[]) => Promise<StoredRecord[]> = async (_, records) => records,
 ): Promise<StoredRecord[]> {
   const fill = async (entity: EntityModel, items: StoredRecord[], tree: PathTree): Promise<StoredRecord[]> => {
     const result = items.map((item) => ({ ...item }));
@@ -85,7 +87,7 @@ export async function populateRecords(
                 offset: 0,
               })
             ).data;
-      const withDerived = await deriveRelations(target, found, models, adapter);
+      const withDerived = await compute(target, await deriveRelations(target, found, models, adapter));
       const nested = subtree.size > 0 ? await fill(target, withDerived, subtree) : withDerived;
       const byId = new Map(nested.map((record) => [record.id, presentPopulated(target, record)]));
       for (const item of result) {

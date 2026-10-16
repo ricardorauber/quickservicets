@@ -2,6 +2,7 @@ import { UniqueViolationError, type DatabaseAdapter, type StoredRecord } from ".
 import { HttpError } from "./errors.ts";
 import { alwaysHiddenPaths, type EntityModel } from "./model.ts";
 import { project } from "./projection.ts";
+import { withFileUrls, type FileAccessSettings } from "./files/access.ts";
 import { assertPopulatePaths, populateRecords } from "./populate.ts";
 import {
   deriveRelations,
@@ -27,6 +28,8 @@ export interface ReadOptions {
 export interface RepositoryOptions {
   /** Maximum number of segments in a populate path (default 2). */
   populateMaxDepth?: number;
+  /** Storages and access settings used to compute the `url` of file records. */
+  fileAccess?: FileAccessSettings;
 }
 
 export interface ListResult<T> {
@@ -95,12 +98,13 @@ export function createRepository(
   // Writes only need a transaction when they also change other records (relation sides or a moved 1-1 link).
   const syncsRelations = hasDerived || model.fields.some((field) => field.onConflict === "replace");
   const atomically = <T>(fn: () => Promise<T>) => (syncsRelations ? adapter.transaction(fn) : fn());
+  const compute = (entity: EntityModel, records: StoredRecord[]) => withFileUrls(entity, records, repositoryOptions.fileAccess);
   const withReferences = async (stored: StoredRecord[], options: ReadOptions = {}): Promise<StoredRecord[]> => {
-    const records = hasDerived ? await deriveRelations(model, stored, models, adapter) : stored;
+    const records = await compute(model, hasDerived ? await deriveRelations(model, stored, models, adapter) : stored);
     const paths = [...(options.populate ?? [])];
     if (paths.length === 0) return records;
     assertPopulatePaths(model, models, paths, maxDepth);
-    return populateRecords(model, records, paths, models, adapter);
+    return populateRecords(model, records, paths, models, adapter, compute);
   };
   const touch: Touch = async (target, record, changes) => {
     await adapter.updateById(target, record.id, { ...changes, updatedAt: nextTimestamp(record.updatedAt) });
@@ -136,7 +140,7 @@ export function createRepository(
       );
       if (!updated) throw notFound();
       if (hasDerived) await mapUniqueViolation(() => writeDerived(model, id, changes, models, adapter, touch));
-      return present(await existing(id), options);
+      return present((await compute(model, [await existing(id)]))[0]!, options);
     });
 
   const createRecord = async (id: string, managed: Record<string, unknown>, data: unknown, options?: ReadOptions) => {
@@ -153,7 +157,7 @@ export function createRepository(
         await releaseOneToOne(model, undefined, value, adapter, touch);
         await mapUniqueViolation(() => adapter.insert(model, withoutDerived(model, record) as StoredRecord));
         if (hasDerived) await mapUniqueViolation(() => writeDerived(model, record.id, value, models, adapter, touch));
-        return present(await existing(record.id), options);
+        return present((await compute(model, [await existing(record.id)]))[0]!, options);
       });
   };
 

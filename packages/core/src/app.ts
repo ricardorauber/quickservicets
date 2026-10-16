@@ -1,6 +1,6 @@
 import type { ResolvedConfig } from "./config.ts";
 import type { HookCall, HookDefinition, Repositories } from "./hooks.ts";
-import { createCrudRoutes, mergeRoutes } from "./http/crud.ts";
+import { createCrudRoutes, mergeRoutes, type CrudRoute } from "./http/crud.ts";
 import { withHooks } from "./http/pipeline.ts";
 import { createServer, type Endpoint, type Route, type Server } from "./http/server.ts";
 import type { CrudOperation, EntityModel } from "./model.ts";
@@ -59,13 +59,19 @@ export interface App {
 
 /** Assembles repositories, generated and custom routes and their hooks into a server. */
 export function createApp({ models, crudRoutes, endpoints, hooks, config }: AppOptions): App {
-  const repos = createRepositories(models, config.database, { populateMaxDepth: config.populate?.maxDepth });
+  const fileAccess = { storage: config.storage, files: config.files, publicUrl: config.server.publicUrl };
+  const repos = createRepositories(models, config.database, { populateMaxDepth: config.populate?.maxDepth, fileAccess });
   const hooksByRoute = new Map(crudRoutes.map((entry) => [`${entry.method} ${entry.path}`, entry.hooks]));
   const uploads = { storage: config.storage, files: config.files };
-  const generated: Route[] = createCrudRoutes(models, repos, { uploads }).map((route) => ({
+  // The file route runs the entity's read hooks in proxy mode; a valid signature is the only check in signed mode.
+  const hooksOf = (route: CrudRoute): HookCall[] =>
+    route.fileAccess === "signed"
+      ? []
+      : (hooksByRoute.get(`${route.method} ${route.fileAccess ? route.path.replace(/\/file$/, "") : route.path}`) ?? []);
+  const generated: Route[] = createCrudRoutes(models, repos, { uploads, fileAccess }).map((route) => ({
     method: route.method,
     path: route.path,
-    handler: withHooks(route.handler, hooksByRoute.get(`${route.method} ${route.path}`) ?? [], hooks),
+    handler: withHooks(route.handler, hooksOf(route), hooks),
   }));
   const withPopulate = (endpoint: AppEndpoint): Endpoint => {
     const populate = endpoint.populate;

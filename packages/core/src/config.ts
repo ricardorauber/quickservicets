@@ -12,7 +12,7 @@ export const DEFAULT_PORT = 3000;
 /** The project configuration written in `quickservice.config.ts`. Features add their own keys here. */
 export interface ServiceConfig {
   database: DatabaseAdapter;
-  server?: { port?: number };
+  server?: { port?: number; publicUrl?: string };
   production?: boolean;
   /** Receives one entry per request; defaults to JSON lines on stdout. */
   logger?: Logger;
@@ -25,6 +25,12 @@ export interface ServiceConfig {
     maxSize?: number | string;
     /** Accepted MIME patterns (default any). */
     accept?: string[];
+    /** How file URLs work (default: direct when the storage has a public URL, otherwise proxy). */
+    access?: "direct" | "proxy" | "signed";
+    /** Lifetime of signed URLs in seconds (default 900). */
+    signedUrlTtl?: number;
+    /** HMAC secret of signed proxy URLs (default `FILES_SIGNING_SECRET`). */
+    signingSecret?: string;
   };
   populate?: {
     /** Maximum number of segments in a populate path (default 2). */
@@ -40,8 +46,14 @@ export interface ServiceConfig {
 export const DEFAULT_POPULATE_DEPTH = 2;
 
 export interface ResolvedConfig extends Omit<ServiceConfig, "server" | "production" | "schema" | "populate" | "storage" | "files"> {
-  server: { port: number };
-  files: { maxSize: number; accept: string[] };
+  server: { port: number; publicUrl?: string };
+  files: {
+    maxSize: number;
+    accept: string[];
+    access?: "direct" | "proxy" | "signed";
+    signedUrlTtl: number;
+    signingSecret?: string;
+  };
   storage: Record<string, StorageAdapter> & { default: StorageAdapter };
   populate: { maxDepth: number };
   production: boolean;
@@ -90,10 +102,19 @@ function resolveStorage(config: ServiceConfig, projectRoot: string): ResolvedCon
   return config.storage as ResolvedConfig["storage"];
 }
 
-function resolveFiles(config: ServiceConfig): ResolvedConfig["files"] {
+export const DEFAULT_SIGNED_URL_TTL = 900;
+
+function resolveFiles(config: ServiceConfig, env: Record<string, string | undefined>): ResolvedConfig["files"] {
   const maxSize = config.files?.maxSize === undefined ? DEFAULT_MAX_FILE_SIZE : parseSize(config.files.maxSize);
   if (maxSize === undefined) throw new ConfigError(`Invalid files.maxSize: ${String(config.files?.maxSize)}`);
-  return { maxSize, accept: config.files?.accept ?? ["*/*"] };
+  const signingSecret = config.files?.signingSecret ?? (env.FILES_SIGNING_SECRET || undefined);
+  return {
+    maxSize,
+    accept: config.files?.accept ?? ["*/*"],
+    ...(config.files?.access ? { access: config.files.access } : {}),
+    signedUrlTtl: config.files?.signedUrlTtl ?? DEFAULT_SIGNED_URL_TTL,
+    ...(signingSecret ? { signingSecret } : {}),
+  };
 }
 
 export function resolveConfig(
@@ -111,7 +132,7 @@ export function resolveConfig(
     schema: resolveSchema(config, env),
     populate: { maxDepth: config.populate?.maxDepth ?? DEFAULT_POPULATE_DEPTH },
     storage: resolveStorage(config, projectRoot),
-    files: resolveFiles(config),
+    files: resolveFiles(config, env),
   };
 }
 

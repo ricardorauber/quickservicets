@@ -152,7 +152,7 @@ export function buildDrizzleSchema(models: EntityModel[], dialect: SqlDialect, o
     };
     for (const field of model.fields) {
       // Reference arrays live in junction tables, not in the entity's own columns.
-      if (field.storage === "relation" || field.storage === "derived") continue;
+      if (field.storage === "relation" || field.storage === "derived" || field.storage === "computed") continue;
       let column = isSqlite ? sqliteColumn(field) : postgresColumn(field);
       if (!field.optional) column = column.notNull();
       if (field.type === "ref") {

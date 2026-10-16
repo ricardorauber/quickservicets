@@ -43,9 +43,11 @@ export type NestedFieldModel = TypeDescriptor &
  * `relation` fields (reference arrays) are stored outside the entity's own columns; `derived` fields are the
  * non-storing side of a bidirectional relation and are computed on read.
  */
-export type FieldStorage = "column" | "json" | "relation" | "derived";
+export type FieldStorage = "column" | "json" | "relation" | "derived" | "computed";
 
 export type RelationKind = "1-1" | "1-N" | "N-N";
+
+export type FileAccessMode = "direct" | "proxy" | "signed";
 
 /** One side of a bidirectional relation between two reference fields. */
 export interface RelationSide {
@@ -120,6 +122,8 @@ export interface EntityModel {
   storageName?: string;
   /** `@maxSize` (bytes) and `@accept` (MIME patterns) of a file entity. */
   fileLimits?: { maxSize?: number; accept?: string[] };
+  /** `@access <mode> [ttlSeconds]` of a file entity. */
+  fileAccess?: { mode: FileAccessMode; ttl?: number };
 }
 
 /** Paths of fields (top-level or nested) that are never returned. */

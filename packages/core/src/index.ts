@@ -1,7 +1,7 @@
 export { HttpError, codeForStatus, toErrorResponse } from "./errors.ts";
 export type { ErrorResponseOptions, FieldErrorDetail, HttpErrorOptions } from "./errors.ts";
 export { alwaysHiddenPaths, CRUD_OPERATIONS, entityRoutePath, hiddenPathsFor, SYSTEM_FIELDS } from "./model.ts";
-export type { ArrayOnDeleteAction, RelationKind, RelationSide, CrudOperation, EntityModel, Exposure, ReadOperation, HookReference, OverrideHooksMode, FieldConstraints, FieldModel, FieldStorage, FieldType, NestedFieldModel, OnDeleteAction, PrimitiveFieldType, StringFormat, TypeDescriptor } from "./model.ts";
+export type { ArrayOnDeleteAction, FileAccessMode, RelationKind, RelationSide, CrudOperation, EntityModel, Exposure, ReadOperation, HookReference, OverrideHooksMode, FieldConstraints, FieldModel, FieldStorage, FieldType, NestedFieldModel, OnDeleteAction, PrimitiveFieldType, StringFormat, TypeDescriptor } from "./model.ts";
 export { ReferenceArrayChange, validateBody } from "./validation.ts";
 export type { ValidationMode, ValidationResult } from "./validation.ts";
 export { DEFAULT_LIMIT, FILTER_OPERATORS, MAX_LIMIT, MAX_LIST_VALUES, parseListQuery, queryableFields, SIZE_COMPARISONS } from "./query.ts";
@@ -63,3 +63,15 @@ export type { S3StorageOptions } from "./storage/s3.ts";
 export { DEFAULT_MAX_FILE_SIZE, mimeMatches, parseSize, sanitizeFilename } from "./files/limits.ts";
 export { assertFileAllowed, coerceFormValue, formFields, parseUpload, readMultipart, storageOf, storeFile } from "./files/upload.ts";
 export type { ParsedUpload, UploadSettings } from "./files/upload.ts";
+export {
+  contentDisposition,
+  fileAccessErrors,
+  fileResponse,
+  fileRoutePath,
+  fileUrlOf,
+  resolveFileAccess,
+  signFile,
+  verifyFileSignature,
+  withFileUrls,
+} from "./files/access.ts";
+export type { FileAccess, FileAccessSettings } from "./files/access.ts";

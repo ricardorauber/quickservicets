@@ -7,7 +7,7 @@ export interface FieldSelectionTag {
   paths: string;
 }
 
-export type EntityTagTarget = Pick<EntityModel, "hooks" | "overrideHooks" | "internal" | "populate" | "storageName" | "fileLimits"> & {
+export type EntityTagTarget = Pick<EntityModel, "hooks" | "overrideHooks" | "internal" | "populate" | "storageName" | "fileLimits" | "fileAccess"> & {
   /** `@fields` whitelists, validated once the fields are parsed. */
   fieldSelections?: FieldSelectionTag[];
 };
@@ -135,6 +135,16 @@ registerEntityTag("accept", (entity, tag, context) => {
     throw entityTagError(context, tag, "expects MIME patterns like image/png,image/*");
   }
   entity.fileLimits = { ...entity.fileLimits, accept: patterns };
+});
+registerEntityTag("access", (entity, tag, context) => {
+  const [mode, ttl, ...rest] = splitArgs(tag.text.replace(/\s+/g, ","));
+  if ((mode !== "direct" && mode !== "proxy" && mode !== "signed") || rest.length > 0) {
+    throw entityTagError(context, tag, "expects direct, proxy or signed [ttlSeconds]");
+  }
+  if (ttl !== undefined && (mode !== "signed" || !/^[1-9]\d*$/.test(ttl))) {
+    throw entityTagError(context, tag, "takes a ttl in seconds only in signed mode");
+  }
+  entity.fileAccess = { mode, ...(ttl !== undefined ? { ttl: Number(ttl) } : {}) };
 });
 registerEntityTag("internal", (entity, tag, context) => {
   if (tag.text !== "") throw entityTagError(context, tag, "takes no value");

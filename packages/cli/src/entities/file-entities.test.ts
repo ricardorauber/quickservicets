@@ -14,7 +14,7 @@ describe("built-in entities", () => {
     const models = parseProjectEntities(createProject({}));
     expect(byName(models, "File")).toMatchObject({ name: "files", file: { base: "file" } });
     expect(byName(models, "Media")).toMatchObject({ name: "media", file: { base: "media" } });
-    expect(byName(models, "File").fields.map((field) => field.name)).toEqual(["filename", "mimeType", "size", "storage", "storageKey"]);
+    expect(byName(models, "File").fields.map((field) => field.name)).toEqual(["filename", "mimeType", "size", "storage", "storageKey", "url"]);
   });
 
   test("a project can reference Media and serve /media", async () => {
@@ -57,7 +57,7 @@ describe("extending", () => {
     const media = models.filter((model) => model.entityName === "Media");
     expect(media).toHaveLength(1);
     expect(media[0]).toMatchObject({ name: "media", file: { base: "media" } });
-    expect(media[0]!.fields.map((field) => field.name)).toEqual(["filename", "mimeType", "size", "storage", "storageKey", "alt"]);
+    expect(media[0]!.fields.map((field) => field.name)).toEqual(["filename", "mimeType", "size", "storage", "storageKey", "url", "alt"]);
   });
 
   test("user entities extending File or Media become file entities", () => {

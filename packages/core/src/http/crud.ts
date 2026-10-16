@@ -6,11 +6,14 @@ import { patternOf } from "./router.ts";
 import { parseClientSelection, selectFields } from "./selection.ts";
 import { parsePopulateParam } from "../populate.ts";
 import { parseUpload, storeFile, type UploadSettings } from "../files/upload.ts";
+import { fileResponse, resolveFileAccess, verifyFileSignature, type FileAccessSettings } from "../files/access.ts";
 import type { Endpoint, Route } from "./server.ts";
 
 export interface CrudRoute extends Route {
   entity: EntityModel;
   operation: CrudOperation;
+  /** Set on the route that serves a file entity's bytes, with the entity's access mode. */
+  fileAccess?: "proxy" | "signed";
 }
 
 /** Default `@populate` paths of an operation plus the request's `populate` parameter. */
@@ -21,6 +24,8 @@ export function populatePaths(model: EntityModel, operation: "list" | "read", pa
 export interface CrudOptions {
   /** Storages and limits used by uploads to file entities. */
   uploads?: UploadSettings;
+  /** Access settings of file entities; without them, no file route is generated. */
+  fileAccess?: FileAccessSettings;
 }
 
 /** Runs `write` with a freshly stored file, removing the stored object when the write fails. */
@@ -113,8 +118,38 @@ export function createCrudRoutes(models: EntityModel[], repos: RepositoryRegistr
           },
         ],
       ];
-      return handlers.map(([method, path, operation, handler]) => ({ method, path, handler, entity: model, operation }));
+      const routes: CrudRoute[] = handlers.map(([method, path, operation, handler]) => ({ method, path, handler, entity: model, operation }));
+      const fileRoute = model.file && options.fileAccess ? createFileRoute(model, repo, options.fileAccess) : undefined;
+      return fileRoute ? [...routes, fileRoute] : routes;
     });
+}
+
+const invalidSignature = () => new HttpError(403, "Invalid or expired signature");
+
+/** `GET <item>/file`, streaming the object in proxy and signed modes; direct mode has no such route. */
+function createFileRoute(model: EntityModel, repo: ReturnType<typeof repositoryFor>, settings: FileAccessSettings): CrudRoute | undefined {
+  const { mode } = resolveFileAccess(model, settings);
+  if (mode === "direct") return undefined;
+  const handler: Endpoint = async (_, req) => {
+    const record = await repo.findById(req.params.id!, { includeHidden: true });
+    if (mode === "signed") {
+      const now = (settings.now ?? Date.now)();
+      const valid =
+        record !== null &&
+        verifyFileSignature(
+          settings.files.signingSecret ?? "",
+          record.id,
+          record.storageKey as string,
+          req.query.get("expires"),
+          req.query.get("signature"),
+          now,
+        );
+      if (!valid) throw invalidSignature();
+    }
+    if (!record) throw new HttpError(404, `${model.entityName} not found`);
+    return fileResponse(model, record, settings);
+  };
+  return { method: "GET", path: `${entityRoutePath(model)}/[id]/file`, handler, entity: model, operation: "read", fileAccess: mode };
 }
 
 /** Combines generated and custom routes; a custom route with the same method and pattern replaces the generated one. */

@@ -10,6 +10,7 @@ export type File = {
   size: number;
   storage: string;
   storageKey: string;
+  url: string;
 };
 
 /** A stored image, video or audio file. */
@@ -27,6 +28,8 @@ export const FILE_BASE_FIELDS: FieldModel[] = [
   { name: "size", type: "number", optional: false, storage: "column", readOnly: "always" },
   { name: "storage", type: "string", optional: false, storage: "column", readOnly: "always" },
   { name: "storageKey", type: "string", optional: false, storage: "column", readOnly: "always", hidden: true },
+  // Computed on every read from the access mode; never stored.
+  { name: "url", type: "string", optional: false, storage: "computed", readOnly: "always" },
 ];
 
 const SYSTEM = ["id", "createdAt", "updatedAt"];

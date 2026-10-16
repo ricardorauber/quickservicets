@@ -1,4 +1,5 @@
 import {
+  fileAccessErrors,
   entityRoutePath,
   loadConfig,
   parseFieldPaths,
@@ -189,6 +190,8 @@ export async function build(projectRoot: string): Promise<BuildSummary> {
     if (model.storageName && !(model.storageName in config.storage)) {
       throw new BuildError(`entities/${model.key}.ts: entity ${model.entityName} uses storage "${model.storageName}", which is not in the config`);
     }
+    const [accessError] = model.file ? fileAccessErrors(model, config) : [];
+    if (accessError) throw new BuildError(`entities/${model.key}.ts: ${accessError}`);
   }
   const resolved = endpoints.map((endpoint) => resolveEndpoint(endpoint, models, config.populate.maxDepth));
 

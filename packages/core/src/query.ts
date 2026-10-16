@@ -79,7 +79,8 @@ interface QueryField {
 }
 
 const COMMON_OPERATORS: FilterOperator[] = ["eq", "ne", "in", "nin", "exists", "isNull"];
-const OPERATORS_BY_TYPE: Record<QueryFieldType, FilterOperator[]> = {
+/** Filter operators the list routes accept, per field type. */
+export const OPERATORS_BY_TYPE: Readonly<Record<QueryFieldType, FilterOperator[]>> = {
   id: COMMON_OPERATORS,
   ref: COMMON_OPERATORS,
   boolean: COMMON_OPERATORS,

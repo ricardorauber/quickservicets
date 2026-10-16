@@ -68,3 +68,29 @@ test("the committed reference pages are up to date (run `bun run docs:reference`
     .map(([path]) => path);
   expect(stale).toEqual([]);
 });
+
+describe("http, errors and api pages", () => {
+  test("operators per type and paging limits", () => {
+    const http = pages["reference/http.mdx"]!;
+    expect(http).toMatch(/\| `string` \| [^\n]*`contains`[^\n]*`startsWith`/);
+    expect(http).toMatch(/\| `refArray` \| [^\n]*`containsAny`[^\n]*`size`/);
+    expect(http).toContain("Page size, 1–100 (default 20).");
+  });
+
+  test("error codes with their statuses", () => {
+    const errors = pages["reference/errors.mdx"]!;
+    for (const [status, code] of [["400", "VALIDATION_ERROR"], ["404", "NOT_FOUND"], ["409", "CONFLICT"], ["413", "PAYLOAD_TOO_LARGE"], ["415", "UNSUPPORTED_MEDIA_TYPE"]]) {
+      expect(errors).toContain(`| ${status} | \`${code}\` |`);
+    }
+  });
+
+  test("repository and query methods with signatures, in both locales", () => {
+    for (const path of ["reference/api.mdx", "pt-br/reference/api.mdx"]) {
+      const api = pages[path]!;
+      for (const method of ["where", "include", "findByIds", "all", "page", "create", "findById", "update", "replace", "delete"]) {
+        expect(api).toContain(`### \`${method}\``);
+      }
+      expect(api).toContain("findByIds<const P extends readonly PopulatePath<R>[] = []>(ids: readonly string[]");
+    }
+  });
+});

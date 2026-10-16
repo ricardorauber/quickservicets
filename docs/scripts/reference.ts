@@ -6,6 +6,8 @@ import { documentedEntityTags } from "../../packages/cli/src/entities/entity-tag
 import { documentedFieldTags } from "../../packages/cli/src/entities/field-tags.ts";
 import { documentedEndpointTags } from "../../packages/cli/src/hooks/endpoint-tags.ts";
 import type { DocumentedTag } from "../../packages/cli/src/tag-docs.ts";
+import { CODES_BY_STATUS } from "../../packages/core/src/errors.ts";
+import { DEFAULT_LIMIT, MAX_LIMIT, MAX_LIST_VALUES, OPERATORS_BY_TYPE } from "../../packages/core/src/query.ts";
 
 export const REPO = join(import.meta.dir, "../..");
 export const CONTENT = join(REPO, "docs/src/content/docs");
@@ -146,11 +148,139 @@ function cliPage(texts: Texts): string {
   ].join("\n");
 }
 
+interface ApiMember {
+  name: string;
+  signature: string;
+  description: string;
+}
+
+/** Members of an exported interface with their signature (without the doc comment) and doc comment. */
+export function interfaceMembers(file: string, name: string): ApiMember[] {
+  const path = join(REPO, file);
+  const source = ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.ESNext, true);
+  const declaration = source.statements.find((statement): statement is ts.InterfaceDeclaration => ts.isInterfaceDeclaration(statement) && statement.name.text === name);
+  if (!declaration) throw new Error(`${name} not found in ${file}`);
+  return declaration.members.map((member) => ({
+    name: member.name?.getText(source) ?? "",
+    signature: source.text.slice(member.getStart(source), member.end).replace(/\s+/g, " ").trim(),
+    description: ts
+      .getJSDocCommentsAndTags(member)
+      .filter(ts.isJSDoc)
+      .map((comment) => ts.getTextOfJSDocComment(comment.comment) ?? "")
+      .join(" ")
+      .trim(),
+  }));
+}
+
+const HTTP_PARAMETERS: [string, string][] = [
+  ["limit", `Page size, ${1}–${MAX_LIMIT} (default ${DEFAULT_LIMIT}).`],
+  ["offset", "Records to skip, 0 or more (default 0)."],
+  ["sort", "Comma-separated fields; prefix `-` for descending (default `-createdAt`, then `-id`)."],
+  ["where[<field>][<op>]", `Filters, combined with AND; \`in\`, \`nin\`, \`containsAny\` and \`containsAll\` take up to ${MAX_LIST_VALUES} comma-separated values.`],
+  ["fields", "Comma-separated paths to return (list and read)."],
+  ["exclude", "Comma-separated paths to leave out (list and read)."],
+  ["populate", "Comma-separated reference paths to replace with records, up to `populate.maxDepth` segments."],
+];
+
+const OPERATOR_TEXTS: Record<string, string> = {
+  eq: "equals", ne: "differs from", in: "is one of", nin: "is none of", gt: "greater than", gte: "greater than or equal",
+  lt: "less than", lte: "less than or equal", contains: "contains (case-insensitive; on reference arrays, holds the id)",
+  startsWith: "starts with (case-insensitive)", exists: "has a value (`true`/`false`)", isNull: "is null (`true`/`false`)",
+  containsAny: "holds any of the ids", containsAll: "holds all the ids", size: "has a number of items (`[size][gte]=2`)", isEmpty: "has no items (`true`/`false`)",
+};
+
+function httpPage(texts: Texts): string {
+  return [
+    frontmatter(texts.t("http.title", "HTTP query parameters"), texts.t("http.description", "Paging, sorting, filters, field selection and populate on generated routes.")),
+    texts.t("http.intro", "The generated list route (`GET /<collection>`) takes every parameter below; the read route (`GET /<collection>/<id>`) takes `fields`, `exclude` and `populate`. Unknown or repeated parameters fail with 400."),
+    "",
+    `| ${texts.t("label.parameter", "Parameter")} | ${texts.t("label.description", "Description")} |`,
+    "| --- | --- |",
+    ...HTTP_PARAMETERS.map(([name, text]) => `| ${code(name)} | ${texts.t(`http.param.${name}`, text)} |`),
+    "",
+    `## ${texts.t("http.operators.title", "Filter operators by field type")}`,
+    "",
+    `| ${texts.t("label.type", "Type")} | ${texts.t("label.operators", "Operators")} |`,
+    "| --- | --- |",
+    ...Object.entries(OPERATORS_BY_TYPE).map(([type, operators]) => `| ${code(type)} | ${operators.map((operator) => code(operator)).join(", ")} |`),
+    "",
+    `## ${texts.t("http.meaning.title", "What each operator means")}`,
+    "",
+    ...Object.entries(OPERATOR_TEXTS).map(([operator, text]) => `- ${code(operator)}: ${texts.t(`http.op.${operator}`, text)}`),
+    "",
+  ].join("\n");
+}
+
+const MESSAGES: [number, string, string][] = [
+  [400, "Invalid JSON body", "The body is not valid JSON."],
+  [400, "Invalid body", "Validation failed; `details` lists each field, e.g. `Is required`, `Unknown field`, `Field is read-only`, `Cannot be null`, `Must be a string`, `Must be one of: <values>`."],
+  [400, "Referenced record not found", "A reference or reference array item points to a record that does not exist (in `details`)."],
+  [400, "Invalid query", "A query parameter or typed query item is invalid, e.g. `Unknown parameter`, `Parameter is repeated`, `Must be an integer from 1 to 100`."],
+  [400, "Populate depth exceeds <n>", "A populate path has more segments than `populate.maxDepth`."],
+  [403, "Invalid or expired signature", "A signed file URL is wrong or expired."],
+  [404, "Route not found", "No route matches the path."],
+  [404, "<Entity> not found", "No record has the id."],
+  [405, "Method not allowed", "The path exists with other methods, listed in the `allow` header."],
+  [409, "Value already exists", "A `@unique` field already has the value."],
+  [409, "Cannot delete: referenced by <collection>", "A `restrict` reference still points to the record."],
+  [413, "File too large", "An upload is larger than the allowed size."],
+  [413, "Total upload size too large", "The files of an array field are larger than `@maxTotalSize` together."],
+  [415, "Must be multipart/form-data", "A file entity was written with JSON instead of a multipart body."],
+  [500, "Internal server error", "An unexpected error; outside production, `details.stack` has the stack trace."],
+];
+
+function errorsPage(texts: Texts): string {
+  return [
+    frontmatter(texts.t("errors.title", "Errors"), texts.t("errors.description", "Error codes, statuses and the messages clients read.")),
+    texts.t("errors.intro", "Every error response has the shape `{ \"error\": { \"code\", \"message\", \"details\"? } }`. The code depends only on the HTTP status."),
+    "",
+    `| ${texts.t("label.status", "Status")} | ${texts.t("label.code", "Code")} |`,
+    "| --- | --- |",
+    ...Object.entries(CODES_BY_STATUS).map(([status, errorCode]) => `| ${status} | ${code(errorCode)} |`),
+    "",
+    `## ${texts.t("errors.messages.title", "Messages")}`,
+    "",
+    `| ${texts.t("label.status", "Status")} | ${texts.t("label.message", "Message")} | ${texts.t("label.when", "When")} |`,
+    "| --- | --- | --- |",
+    ...MESSAGES.map(([status, message, when]) => `| ${status} | ${code(message)} | ${texts.t(`errors.message.${message}`, when)} |`),
+    "",
+  ].join("\n");
+}
+
+function apiPage(texts: Texts): string {
+  const section = (title: string, intro: string, members: ApiMember[], prefix: string) => [
+    `## ${title}`,
+    "",
+    intro,
+    "",
+    ...members.flatMap((member) => [
+      `### \`${member.name}\``,
+      "",
+      "```ts",
+      member.signature,
+      "```",
+      "",
+      texts.t(`${prefix}.${member.name}`, member.description),
+      "",
+    ]),
+  ];
+  return [
+    frontmatter(texts.t("api.title", "Repositories and queries"), texts.t("api.description", "Every method of repositories and fluent queries.")),
+    texts.t("api.intro", "Endpoints and hooks receive `repos`, with one repository per entity (`repos.users`, or `repos.<schema>.<collection>`)."),
+    "",
+    ...section(texts.t("api.repository.title", "Repository"), texts.t("api.repository.intro", "`Repository<T, R, C, U>`: `T` is the record, `R` its references, `C` and `U` the create and update inputs."), interfaceMembers("packages/core/src/repository.ts", "Repository"), "api.repository"),
+    ...section(texts.t("api.query.title", "Query"), texts.t("api.query.intro", "Returned by `where` and `query`; every method but the terminals returns a new query."), interfaceMembers("packages/core/src/fluent-query.ts", "Query"), "api.query"),
+  ].join("\n");
+}
+
 /** Page generators keyed by their path inside a locale's `reference/` folder. */
 export const REFERENCE_PAGES: Record<string, (texts: Texts) => string> = {
   "tags.mdx": tagsPage,
   "config.mdx": configPage,
   "cli.mdx": cliPage,
+  "http.mdx": httpPage,
+  "errors.mdx": errorsPage,
+  "api.mdx": apiPage,
 };
 
 /** Every generated page, keyed by its path inside the content folder; throws when Portuguese texts are missing. */

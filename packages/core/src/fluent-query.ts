@@ -156,12 +156,15 @@ export type SortLambda<T> = (fields: SortFields<T>) => SortKey;
  * for `include`.
  */
 export interface Query<T, R = Record<never, never>> {
+  /** Narrows the query with the lambda's conditions (AND with earlier calls). */
   where(lambda: QueryLambda<T>): Query<T, R>;
   /** Orders by a field, replacing earlier ordering. */
   orderBy(lambda: SortLambda<T>): Query<T, R>;
+  /** Orders by a field in descending order, replacing earlier ordering. */
   orderByDescending(lambda: SortLambda<T>): Query<T, R>;
   /** Adds a further sort field. */
   thenBy(lambda: SortLambda<T>): Query<T, R>;
+  /** Adds a further sort field in descending order. */
   thenByDescending(lambda: SortLambda<T>): Query<T, R>;
   /** Leaves out the first `count` results (not applied to `count()` and `any()`). */
   skip(count: number): Query<T, R>;
@@ -177,7 +180,9 @@ export interface Query<T, R = Record<never, never>> {
   first(): Promise<T>;
   /** The first match, or null. */
   firstOrDefault(): Promise<T | null>;
+  /** The number of matches, without loading records. */
   count(): Promise<number>;
+  /** Whether at least one record matches, without loading records. */
   any(): Promise<boolean>;
   /** `{ data, total, limit, offset }` like the generated list routes. */
   page(options?: PageOptions): Promise<{ data: T[]; total: number; limit: number; offset: number }>;

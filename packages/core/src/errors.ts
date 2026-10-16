@@ -8,7 +8,8 @@ export interface HttpErrorOptions {
   details?: unknown;
 }
 
-const CODES_BY_STATUS: Record<number, string> = {
+/** The `error.code` clients read for each HTTP status. */
+export const CODES_BY_STATUS: Readonly<Record<number, string>> = {
   400: "VALIDATION_ERROR",
   401: "UNAUTHORIZED",
   403: "FORBIDDEN",

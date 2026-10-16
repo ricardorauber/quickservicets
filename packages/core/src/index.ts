@@ -1,10 +1,10 @@
-export { HttpError, codeForStatus, toErrorResponse } from "./errors.ts";
+export { CODES_BY_STATUS, HttpError, codeForStatus, toErrorResponse } from "./errors.ts";
 export type { ErrorResponseOptions, FieldErrorDetail, HttpErrorOptions } from "./errors.ts";
 export { alwaysHiddenPaths, CRUD_OPERATIONS, entityRoutePath, hiddenPathsFor, SYSTEM_FIELDS } from "./model.ts";
 export type { ArrayOnDeleteAction, EnumDeclarationInfo, FileAccessMode, RelationKind, RelationSide, CrudOperation, EntityModel, Exposure, ReadOperation, HookReference, OverrideHooksMode, FieldConstraints, FieldModel, FieldStorage, FieldType, NestedFieldModel, OnDeleteAction, PrimitiveFieldType, StringFormat, TypeDescriptor } from "./model.ts";
 export { ReferenceArrayChange, validateBody } from "./validation.ts";
 export type { ValidationMode, ValidationResult } from "./validation.ts";
-export { DEFAULT_LIMIT, FILTER_OPERATORS, MAX_LIMIT, MAX_LIST_VALUES, convertQueryValue, listQueryFields, parseListQuery, queryableFields, SIZE_COMPARISONS } from "./query.ts";
+export { DEFAULT_LIMIT, FILTER_OPERATORS, MAX_LIMIT, MAX_LIST_VALUES, convertQueryValue, listQueryFields, OPERATORS_BY_TYPE, parseListQuery, queryableFields, SIZE_COMPARISONS } from "./query.ts";
 export type { Condition, FilterOperator, ListQuery, SizeComparison, SizeFilter, SortDirection, SortField } from "./query.ts";
 export { UniqueViolationError } from "./adapter.ts";
 export type { AdapterKind, ConnectOptions, DatabaseAdapter, FindManyOptions, FindManyResult, StoredRecord } from "./adapter.ts";

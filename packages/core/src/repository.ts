@@ -107,14 +107,21 @@ export type PopulateOptions<P extends readonly string[]> = Omit<ReadOptions, "po
  * `C` and `U` type the bodies of `create`/`replace` and `update`.
  */
 export interface Repository<T extends EntityRecord = EntityRecord, R = Record<never, never>, C = unknown, U = unknown> {
+  /** Validates and stores a new record (defaults applied, references checked) and returns it. */
   create(data: C, options?: ReadOptions): Promise<T>;
+  /** The record with this id, or null; `populate` replaces reference paths with records. */
   findById<const P extends readonly PopulatePath<R>[] = []>(id: string, options?: PopulateOptions<P>): Promise<Populated<T, R, P[number]> | null>;
+  /** The first record matching every condition, or null. */
   findOne<const P extends readonly PopulatePath<R>[] = []>(where: Condition[], options?: PopulateOptions<P>): Promise<Populated<T, R, P[number]> | null>;
+  /** A page of records for explicit conditions, sort, limit and offset, with the total. */
   list<const P extends readonly PopulatePath<R>[] = []>(query: ListQuery, options?: PopulateOptions<P>): Promise<ListResult<Populated<T, R, P[number]>>>;
   /** Records for `ids` in that order, skipping missing ids and repeating none; `include` populates like `populate`. */
   findByIds<const P extends readonly PopulatePath<R>[] = []>(ids: readonly string[], options?: { include?: P }): Promise<Populated<T, R, P[number]>[]>;
+  /** Applies a partial change (reference arrays also take `{ add, remove }`) and returns the record. */
   update(id: string, changes: U, options?: ReadOptions): Promise<T>;
+  /** Replaces every writable field and returns the record. */
   replace(id: string, data: C, options?: ReadOptions): Promise<T>;
+  /** Deletes the record, applying the `@onDelete` rules of the records that reference it. */
   delete(id: string): Promise<void>;
   /** Populates reference paths on records already loaded, e.g. results of a custom endpoint. */
   populate(records: T[], paths: readonly string[]): Promise<T[]>;

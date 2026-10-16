@@ -3,7 +3,15 @@ import { HttpError } from "./errors.ts";
 import { alwaysHiddenPaths, type EntityModel } from "./model.ts";
 import { project } from "./projection.ts";
 import { assertPopulatePaths, populateRecords } from "./populate.ts";
-import { deriveRelations, derivedFields, releaseOneToOne, withoutDerived, writeDerived, type Touch } from "./relations.ts";
+import {
+  deriveRelations,
+  derivedFields,
+  releaseOneToOne,
+  resolveDerivedConditions,
+  withoutDerived,
+  writeDerived,
+  type Touch,
+} from "./relations.ts";
 import type { Condition, ListQuery } from "./query.ts";
 import { assertReferencesExist, executeDeletePlan, planDelete } from "./referential-integrity.ts";
 import { ReferenceArrayChange, validateBody, type ValidationMode } from "./validation.ts";
@@ -154,14 +162,15 @@ export function createRepository(
     },
 
     async findOne(where, options) {
-      const record = await adapter.findOne(model, where);
+      const record = await adapter.findOne(model, await resolveDerivedConditions(model, where, models, adapter));
       if (!record) return null;
       const [populated] = await withReferences([record], options);
       return present(populated!, options);
     },
 
     async list(query, options) {
-      const { data, total } = await adapter.findMany(model, query);
+      const where = await resolveDerivedConditions(model, query.where, models, adapter);
+      const { data, total } = await adapter.findMany(model, { ...query, where });
       const populated = await withReferences(data, options);
       return { data: populated.map((record) => present(record, options)), total, limit: query.limit, offset: query.offset };
     },

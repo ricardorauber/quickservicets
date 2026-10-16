@@ -66,6 +66,15 @@ export function parseEntities(projectRoot: string): EntityModel[] {
   assertUniqueCollectionNames(models, sources);
   const links = pairRelations(models);
   models.forEach((model, index) => {
+    for (const field of model.fields) {
+      if (field.storage === "derived" && (field.unique || field.index)) {
+        throw new EntityParseError(
+          `${sources[index]!.relativeFile}: field "${field.name}" is the derived side of a relation and cannot use @unique or @index`,
+        );
+      }
+    }
+  });
+  models.forEach((model, index) => {
     for (const path of new Set([...(model.populate?.list ?? []), ...(model.populate?.read ?? [])])) {
       const [error] = populatePathErrors(model, models, path, Number.POSITIVE_INFINITY);
       if (error) throw new EntityParseError(`${sources[index]!.relativeFile}: invalid @populate: ${error}`);

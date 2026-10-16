@@ -182,3 +182,100 @@ export async function releaseOneToOne(
     }
   }
 }
+
+type ConditionList = Parameters<DatabaseAdapter["findMany"]>[1]["where"];
+type OneCondition = ConditionList[number];
+
+function sizeMatches(length: number, filter: { compare: string; count: number }): boolean {
+  switch (filter.compare) {
+    case "eq":
+      return length === filter.count;
+    case "ne":
+      return length !== filter.count;
+    case "gt":
+      return length > filter.count;
+    case "gte":
+      return length >= filter.count;
+    case "lt":
+      return length < filter.count;
+    default:
+      return length <= filter.count;
+  }
+}
+
+/** Every (owner id → related ids) pair of a derived field, read from the side that stores the relation. */
+async function derivedPairs(model: EntityModel, field: Derived, models: EntityModel[], adapter: DatabaseAdapter) {
+  const pairs = new Map<string, string[]>();
+  const add = (owner: unknown, related: unknown) => {
+    if (typeof owner !== "string" || typeof related !== "string") return;
+    pairs.set(owner, [...(pairs.get(owner) ?? []), related]);
+  };
+  if (field.relation.kind === "N-N") {
+    const { link, side } = linkFor(model, field, models);
+    for (const row of await all(adapter, link, [], [{ field: "id", direction: "asc" }])) add(row[side], row[other(side)]);
+  } else {
+    const target = byKey(models, field.relation.inverseEntity)!;
+    const inverse = field.relation.inverseField;
+    for (const row of await all(adapter, target, [{ field: inverse, op: "isNull", value: false }], [{ field: "id", direction: "asc" }])) {
+      add(row[inverse], row.id);
+    }
+  }
+  return pairs;
+}
+
+/** Rewrites one condition on a derived field as a condition on `id`. */
+async function resolveCondition(model: EntityModel, field: Derived, condition: OneCondition, models: EntityModel[], adapter: DatabaseAdapter): Promise<OneCondition> {
+  const pairs = await derivedPairs(model, field, models, adapter);
+  const owners = (test: (related: string[]) => boolean) => [...pairs].filter(([, related]) => test(related)).map(([owner]) => owner);
+  const linked = [...pairs.keys()];
+  const ids = (value: unknown) => (Array.isArray(value) ? (value as string[]) : [value as string]);
+  const inIds = (value: string[]): OneCondition => ({ field: "id", op: "in", value });
+  const notInIds = (value: string[]): OneCondition => ({ field: "id", op: "nin", value });
+  const { op, value } = condition;
+  switch (op) {
+    case "contains":
+    case "eq":
+      return inIds(owners((related) => related.includes(value as string)));
+    case "containsAny":
+    case "in":
+      return inIds(owners((related) => ids(value).some((id) => related.includes(id))));
+    case "containsAll":
+      return inIds(owners((related) => ids(value).every((id) => related.includes(id))));
+    case "ne":
+      return inIds(owners((related) => !related.includes(value as string)));
+    case "nin":
+      return inIds(owners((related) => !ids(value).some((id) => related.includes(id))));
+    case "exists":
+      return value ? inIds(linked) : notInIds(linked);
+    case "isNull":
+      return value ? notInIds(linked) : inIds(linked);
+    case "isEmpty":
+      return value ? notInIds(linked) : inIds(linked);
+    case "size": {
+      const filter = value as { compare: string; count: number };
+      // Records without links have size 0, so the condition is expressed by exclusion when 0 matches.
+      return sizeMatches(0, filter)
+        ? notInIds(owners((related) => !sizeMatches(related.length, filter)))
+        : inIds(owners((related) => sizeMatches(related.length, filter)));
+    }
+    default:
+      throw new Error(`Operator ${op} is not supported on derived relation fields`);
+  }
+}
+
+/** Replaces conditions on derived relation fields with equivalent conditions on `id`. */
+export async function resolveDerivedConditions(
+  model: EntityModel,
+  where: ConditionList,
+  models: EntityModel[],
+  adapter: DatabaseAdapter,
+): Promise<ConditionList> {
+  const fields = new Map(derivedFields(model).map((field) => [field.name, field]));
+  if (fields.size === 0 || !where.some((condition) => fields.has(condition.field))) return where;
+  const resolved: ConditionList = [];
+  for (const condition of where) {
+    const field = fields.get(condition.field);
+    resolved.push(field ? await resolveCondition(model, field, condition, models, adapter) : condition);
+  }
+  return resolved;
+}

@@ -96,6 +96,11 @@ export function queryableFields(model: EntityModel): Map<string, QueryField> {
       fields.set(field.name, { type: "refArray", sortable: false });
       continue;
     }
+    // The derived side of a 1-1 or 1-N relation filters like a reference, but is not sortable.
+    if (field.type === "ref" && field.storage === "derived" && !field.hidden && exposed(field.name)) {
+      fields.set(field.name, { type: "ref", sortable: false });
+      continue;
+    }
     if (field.storage !== "column" || field.type === "refArray" || field.hidden || !exposed(field.name)) continue;
     if (field.type === "enum") fields.set(field.name, { type: "enum", values: field.values });
     else if (field.type !== "array" && field.type !== "object") fields.set(field.name, { type: field.type });

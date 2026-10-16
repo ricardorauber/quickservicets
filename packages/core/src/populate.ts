@@ -2,6 +2,7 @@ import type { DatabaseAdapter, StoredRecord } from "./adapter.ts";
 import { HttpError, type FieldErrorDetail } from "./errors.ts";
 import { alwaysHiddenPaths, type EntityModel, type FieldModel } from "./model.ts";
 import { project } from "./projection.ts";
+import { deriveRelations } from "./relations.ts";
 
 /** Reasons a populate path is invalid, or an empty list when it is valid. */
 export function populatePathErrors(model: EntityModel, models: EntityModel[], path: string, maxDepth: number): string[] {
@@ -84,7 +85,8 @@ export async function populateRecords(
                 offset: 0,
               })
             ).data;
-      const nested = subtree.size > 0 ? await fill(target, found, subtree) : found;
+      const withDerived = await deriveRelations(target, found, models, adapter);
+      const nested = subtree.size > 0 ? await fill(target, withDerived, subtree) : withDerived;
       const byId = new Map(nested.map((record) => [record.id, presentPopulated(target, record)]));
       for (const item of result) {
         const value = item[fieldName];

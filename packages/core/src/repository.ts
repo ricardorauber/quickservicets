@@ -27,10 +27,10 @@ export interface ListResult<T> {
   offset: number;
 }
 
-/** `T` with the populated reference fields `K` typed as their referenced records (`R[K]`) or null. */
+/** `T` with the populated reference fields `K` typed as `R[K]`: the referenced record (or null), or an array of records. */
 export type Populated<T, R, K extends string> = [K & keyof R] extends [never]
   ? T
-  : Omit<T, K & keyof R> & { [Field in K & keyof R]: R[Field] | null };
+  : Omit<T, K & keyof R> & { [Field in K & keyof R]: R[Field] };
 
 export type PopulateOptions<P extends readonly string[]> = Omit<ReadOptions, "populate"> & { populate?: P };
 

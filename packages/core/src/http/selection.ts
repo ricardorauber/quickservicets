@@ -28,7 +28,7 @@ function withinPopulated(model: EntityModel, exposure: Exposure, path: string, c
     let target: EntityModel | undefined = model;
     for (const segment of populated.split(".")) {
       const field: FieldModel | undefined = target?.fields.find((candidate) => candidate.name === segment);
-      const key: string | undefined = field?.type === "ref" ? field.target : undefined;
+      const key: string | undefined = field?.type === "ref" || field?.type === "refArray" ? field.target : undefined;
       target = context.models?.find((candidate) => candidate.key === key);
     }
     if (!target) continue;

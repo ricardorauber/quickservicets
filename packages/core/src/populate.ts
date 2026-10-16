@@ -10,7 +10,7 @@ export function populatePathErrors(model: EntityModel, models: EntityModel[], pa
   let current: EntityModel | undefined = model;
   for (const segment of segments) {
     const field: FieldModel | undefined = current?.fields.find((candidate) => candidate.name === segment);
-    if (!field || field.type !== "ref") return [`Cannot populate: ${path}`];
+    if (!field || (field.type !== "ref" && field.type !== "refArray")) return [`Cannot populate: ${path}`];
     const target: string = field.target;
     current = models.find((candidate) => candidate.key === target);
   }
@@ -65,10 +65,14 @@ export async function populateRecords(
     const result = items.map((item) => ({ ...item }));
     for (const [fieldName, subtree] of tree) {
       const field = entity.fields.find((candidate) => candidate.name === fieldName);
-      if (!field || field.type !== "ref") continue;
+      if (!field || (field.type !== "ref" && field.type !== "refArray")) continue;
       const target = models.find((candidate) => candidate.key === field.target);
       if (!target) continue;
-      const ids = [...new Set(result.map((item) => item[fieldName]).filter((id): id is string => typeof id === "string"))];
+      const referenced = result.flatMap((item) => {
+        const value = item[fieldName];
+        return Array.isArray(value) ? value : [value];
+      });
+      const ids = [...new Set(referenced.filter((id): id is string => typeof id === "string"))];
       const found =
         ids.length === 0
           ? []
@@ -83,8 +87,13 @@ export async function populateRecords(
       const nested = subtree.size > 0 ? await fill(target, found, subtree) : found;
       const byId = new Map(nested.map((record) => [record.id, presentPopulated(target, record)]));
       for (const item of result) {
-        const id = item[fieldName];
-        if (typeof id === "string") item[fieldName] = byId.get(id) ?? null;
+        const value = item[fieldName];
+        if (Array.isArray(value)) {
+          // Arrays keep their stored order and drop ids whose records no longer exist.
+          item[fieldName] = value.flatMap((id) => (byId.has(id as string) ? [byId.get(id as string)] : []));
+        } else if (typeof value === "string") {
+          item[fieldName] = byId.get(value) ?? null;
+        }
       }
     }
     return result;

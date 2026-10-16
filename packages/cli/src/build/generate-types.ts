@@ -59,9 +59,11 @@ export function generateEntityType(model: EntityModel, models: EntityModel[] = [
 /** Maps reference fields to their referenced record types, so populated reads are typed. */
 function referenceMap(model: EntityModel, models: EntityModel[]): string {
   const entries = model.fields.flatMap((field) => {
-    if (field.type !== "ref") return [];
+    if (field.type !== "ref" && field.type !== "refArray") return [];
     const target = models.find((candidate) => candidate.key === field.target);
-    return target ? [`${field.name}: ${entityTypeName(target, models)}`] : [];
+    if (!target) return [];
+    const type = entityTypeName(target, models);
+    return [`${field.name}: ${field.type === "refArray" ? `Array<${type}>` : `${type} | null`}`];
   });
   return entries.length > 0 ? `, { ${entries.join("; ")} }` : "";
 }

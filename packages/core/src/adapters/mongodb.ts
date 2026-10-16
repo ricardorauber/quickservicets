@@ -155,6 +155,7 @@ export function mongoIndexSpecs(model: EntityModel): MongoIndexSpec[] {
       });
     }
     // Reference arrays get a multikey index so lookups by referenced id stay fast.
+    if (field.storage === "derived") continue;
     if (field.index || field.type === "refArray") {
       specs.push({ schema, collection, name: `${collection}_${field.name}_idx`, keys: { [field.name]: 1 }, options: {} });
     }

@@ -37,8 +37,11 @@ export type NestedFieldModel = TypeDescriptor &
     optional: boolean;
   };
 
-/** `relation` fields (reference arrays) are stored outside the entity's own columns. */
-export type FieldStorage = "column" | "json" | "relation";
+/**
+ * `relation` fields (reference arrays) are stored outside the entity's own columns; `derived` fields are the
+ * non-storing side of a bidirectional relation and are computed on read.
+ */
+export type FieldStorage = "column" | "json" | "relation" | "derived";
 
 export type RelationKind = "1-1" | "1-N" | "N-N";
 
@@ -60,6 +63,8 @@ export type FieldModel = NestedFieldModel & {
   inverse?: string;
   /** `@owner`: this side stores a 1-1 relation. */
   owner?: boolean;
+  /** `@onConflict replace`: linking a 1-1 target that is already linked moves the link instead of failing. */
+  onConflict?: "replace";
   /** Set when the field is paired with an inverse field into one relation. */
   relation?: RelationSide;
 };
@@ -100,6 +105,11 @@ export interface EntityModel {
   exposure: Record<ReadOperation, Exposure>;
   /** Reference paths populated by default on list and read (`@populate`). */
   populate?: Partial<Record<ReadOperation, string[]>>;
+  /**
+   * Set on the internal entity that stores an N-N relation: one record per linked pair, with fields `left`,
+   * `right`, `leftPosition`, `rightPosition` and `pair`.
+   */
+  link?: { left: { entity: string; field: string }; right: { entity: string; field: string } };
 }
 
 /** Paths of fields (top-level or nested) that are never returned. */

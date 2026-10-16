@@ -1,4 +1,5 @@
 import type { EntityModel, FieldModel, RelationKind } from "@quickservice/core";
+import { toSnakeCase } from "./naming.ts";
 import { EntityParseError } from "./errors.ts";
 
 type ReferenceField = Extract<FieldModel, { type: "ref" | "refArray" }>;
@@ -44,11 +45,49 @@ function pair(a: Side, b: Side): void {
     [b, a],
   ] as const) {
     self.field.relation = { kind, inverseEntity: other.model.key, inverseField: other.field.name, storing: self === storing };
+    // Only foreign keys keep their own column; every other side is computed from the stored one.
+    const keepsColumn = self === storing && kind !== "N-N";
+    if (!keepsColumn) self.field.storage = "derived";
   }
+  if (kind === "1-1") storing.field.unique = true;
 }
 
-/** Pairs reference fields of two entities that point to each other into bidirectional relations. */
-export function pairRelations(models: EntityModel[]): void {
+const SYSTEM = ["id", "createdAt", "updatedAt"];
+
+/** The internal entity that stores the links of an N-N relation, named after its storing side. */
+export function linkEntity(left: Side, right: Side): EntityModel {
+  const tableName = `${left.model.tableName}__${toSnakeCase(left.field.name.replace(/[A-Z]/g, (char) => `_${char.toLowerCase()}`))}`;
+  const name = tableName.replaceAll("_", "-");
+  const fields: FieldModel[] = [
+    { name: "left", type: "ref", target: left.model.key, onDelete: "cascade", optional: false, storage: "column" },
+    { name: "right", type: "ref", target: right.model.key, onDelete: "cascade", optional: false, storage: "column" },
+    { name: "leftPosition", type: "number", optional: false, storage: "column" },
+    { name: "rightPosition", type: "number", optional: false, storage: "column" },
+    { name: "pair", type: "string", optional: false, storage: "column", unique: true },
+  ];
+  const include = [...SYSTEM, ...fields.map((field) => field.name)];
+  return {
+    key: `${left.model.key}#${left.field.name}`,
+    entityName: `${left.model.entityName}${left.field.name[0]!.toUpperCase()}${left.field.name.slice(1)}Link`,
+    schema: left.model.schema,
+    ...(left.model.schemaKey ? { schemaKey: left.model.schemaKey } : {}),
+    name,
+    repoKey: name.replace(/-([a-z0-9])/g, (_, char: string) => char.toUpperCase()),
+    tableName,
+    fields,
+    hooks: [],
+    overrideHooks: "inherit",
+    internal: true,
+    exposure: { list: { include, exclude: [] }, read: { include, exclude: [] } },
+    link: { left: { entity: left.model.key, field: left.field.name }, right: { entity: right.model.key, field: right.field.name } },
+  };
+}
+
+/**
+ * Pairs reference fields of two entities that point to each other into bidirectional relations, and returns the
+ * internal link entities that store N-N relations.
+ */
+export function pairRelations(models: EntityModel[]): EntityModel[] {
   const sides: Side[] = models.flatMap((model) => model.fields.filter(isReference).map((field) => ({ model, field })));
   const paired = new Set<ReferenceField>();
   const find = (entityKey: string, fieldName: string) =>
@@ -100,4 +139,8 @@ export function pairRelations(models: EntityModel[]): void {
       );
     }
   }
+
+  return sides
+    .filter((side) => side.field.relation?.kind === "N-N" && side.field.relation.storing)
+    .map((left) => linkEntity(left, find(left.field.relation!.inverseEntity, left.field.relation!.inverseField)!));
 }

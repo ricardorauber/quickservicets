@@ -8,7 +8,7 @@ type Executor = any;
 
 const run = async (query: any, dialect: DrizzleSchema["dialect"]) => (dialect === "sqlite" ? query.all() : await query);
 
-export const relationFields = (entity: EntityModel) => entity.fields.filter((field) => field.type === "refArray");
+export const relationFields = (entity: EntityModel) => entity.fields.filter((field) => field.storage === "relation");
 
 /** Splits a record into the entity's own columns and its reference arrays. */
 export function splitRelations(entity: EntityModel, values: Record<string, unknown>) {

@@ -152,7 +152,7 @@ export function buildDrizzleSchema(models: EntityModel[], dialect: SqlDialect, o
     };
     for (const field of model.fields) {
       // Reference arrays live in junction tables, not in the entity's own columns.
-      if (field.storage === "relation") continue;
+      if (field.storage === "relation" || field.storage === "derived") continue;
       let column = isSqlite ? sqliteColumn(field) : postgresColumn(field);
       if (!field.optional) column = column.notNull();
       if (field.type === "ref") {
@@ -181,7 +181,7 @@ export function buildDrizzleSchema(models: EntityModel[], dialect: SqlDialect, o
   const junctions: Record<string, AnyTable> = {};
   for (const model of models) {
     for (const field of model.fields) {
-      if (field.type !== "refArray") continue;
+      if (field.type !== "refArray" || field.storage !== "relation") continue;
       const target = models.find((candidate) => candidate.key === field.target);
       if (!target) continue;
       const name = `${physicalName(model)}__${columnName(field.name)}`;

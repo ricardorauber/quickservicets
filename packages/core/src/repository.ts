@@ -3,6 +3,7 @@ import { HttpError } from "./errors.ts";
 import { alwaysHiddenPaths, type EntityModel } from "./model.ts";
 import { project } from "./projection.ts";
 import { assertPopulatePaths, populateRecords } from "./populate.ts";
+import { deriveRelations, derivedFields, releaseOneToOne, withoutDerived, writeDerived, type Touch } from "./relations.ts";
 import type { Condition, ListQuery } from "./query.ts";
 import { assertReferencesExist, executeDeletePlan, planDelete } from "./referential-integrity.ts";
 import { ReferenceArrayChange, validateBody, type ValidationMode } from "./validation.ts";
@@ -78,11 +79,19 @@ export function createRepository(
   repositoryOptions: RepositoryOptions = {},
 ): Repository {
   const maxDepth = repositoryOptions.populateMaxDepth ?? 2;
-  const withReferences = async (records: StoredRecord[], options: ReadOptions = {}): Promise<StoredRecord[]> => {
+  const hasDerived = derivedFields(model).length > 0;
+  // Writes only need a transaction when they also change other records (relation sides or a moved 1-1 link).
+  const syncsRelations = hasDerived || model.fields.some((field) => field.onConflict === "replace");
+  const atomically = <T>(fn: () => Promise<T>) => (syncsRelations ? adapter.transaction(fn) : fn());
+  const withReferences = async (stored: StoredRecord[], options: ReadOptions = {}): Promise<StoredRecord[]> => {
+    const records = hasDerived ? await deriveRelations(model, stored, models, adapter) : stored;
     const paths = [...(options.populate ?? [])];
     if (paths.length === 0) return records;
     assertPopulatePaths(model, models, paths, maxDepth);
     return populateRecords(model, records, paths, models, adapter);
+  };
+  const touch: Touch = async (target, record, changes) => {
+    await adapter.updateById(target, record.id, { ...changes, updatedAt: nextTimestamp(record.updatedAt) });
   };
   const hiddenPaths = alwaysHiddenPaths(model.fields);
 
@@ -103,17 +112,20 @@ export function createRepository(
   const existing = async (id: string): Promise<StoredRecord> => {
     const record = await adapter.findById(model, id);
     if (!record) throw notFound();
-    return record;
+    return hasDerived ? (await deriveRelations(model, [record], models, adapter))[0]! : record;
   };
 
-  const write = async (id: string, changes: Record<string, unknown>, options?: ReadOptions): Promise<EntityRecord> => {
-    const current = await existing(id);
-    const updated = await mapUniqueViolation(() =>
-      adapter.updateById(model, id, { ...changes, updatedAt: nextTimestamp(current.updatedAt) }),
-    );
-    if (!updated) throw notFound();
-    return present(await existing(id), options);
-  };
+  const write = (id: string, changes: Record<string, unknown>, options?: ReadOptions): Promise<EntityRecord> =>
+    atomically(async () => {
+      const current = await existing(id);
+      await releaseOneToOne(model, id, changes, adapter, touch);
+      const updated = await mapUniqueViolation(() =>
+        adapter.updateById(model, id, { ...withoutDerived(model, changes), updatedAt: nextTimestamp(current.updatedAt) }),
+      );
+      if (!updated) throw notFound();
+      if (hasDerived) await mapUniqueViolation(() => writeDerived(model, id, changes, models, adapter, touch));
+      return present(await existing(id), options);
+    });
 
   const repository: Repository = {
     async create(data, options) {
@@ -126,7 +138,12 @@ export function createRepository(
       }
       const at = nextTimestamp();
       const record: StoredRecord = { ...value, id: Bun.randomUUIDv7(), createdAt: at, updatedAt: at };
-      return present(await mapUniqueViolation(() => adapter.insert(model, record)), options);
+      return atomically(async () => {
+        await releaseOneToOne(model, undefined, value, adapter, touch);
+        await mapUniqueViolation(() => adapter.insert(model, withoutDerived(model, record) as StoredRecord));
+        if (hasDerived) await mapUniqueViolation(() => writeDerived(model, record.id, value, models, adapter, touch));
+        return present(await existing(record.id), options);
+      });
     },
 
     async findById(id, options) {
@@ -207,6 +224,8 @@ export function createRepositories(
 ): RepositoryRegistry {
   const registry: RepositoryRegistry = {};
   for (const model of models) {
+    // Link entities store N-N relations internally and have no repository of their own.
+    if (model.link) continue;
     const repository = createRepository(model, adapter, models, options);
     if (model.schemaKey) {
       const nested = (registry[model.schemaKey] ??= {}) as Record<string, Repository>;

@@ -5,7 +5,7 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K>
 type FieldInput = DistributiveOmit<FieldModel, "storage" | "optional"> & { optional?: boolean };
 
 export function field(input: FieldInput): FieldModel {
-  const storage = input.type === "array" || input.type === "object" ? "json" : "column";
+  const storage = input.type === "refArray" ? "relation" : input.type === "array" || input.type === "object" ? "json" : "column";
   return { optional: false, ...input, storage } as FieldModel;
 }
 

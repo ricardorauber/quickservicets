@@ -13,10 +13,16 @@ interface Reference {
 const isRef = (field: FieldModel): field is RefField => field.type === "ref";
 const isReference = (field: FieldModel): field is RefField | RefArrayField => field.type === "ref" || field.type === "refArray";
 
+/** Stored references to `target`: derived relation sides and link entities are planned separately. */
 export function referencesTo(target: EntityModel, models: EntityModel[]): Reference[] {
-  return models.flatMap((model) =>
-    model.fields.filter(isReference).filter((field) => field.target === target.key).map((field) => ({ model, field })),
-  );
+  return models
+    .filter((model) => !model.link)
+    .flatMap((model) =>
+      model.fields
+        .filter(isReference)
+        .filter((field) => field.target === target.key && field.storage !== "derived")
+        .map((field) => ({ model, field })),
+    );
 }
 
 async function findReferencing(adapter: DatabaseAdapter, reference: Reference, id: string): Promise<StoredRecord[]> {
@@ -99,6 +105,7 @@ export async function planDelete(
   const deletions: PlannedRecord[] = [];
   const scheduled = new Set<string>();
 
+  const restrictions: { name: string; key: string }[] = [];
   const collect = async (current: EntityModel, currentId: string): Promise<void> => {
     const key = recordKey(current, currentId);
     if (scheduled.has(key)) return;
@@ -110,8 +117,38 @@ export async function planDelete(
         await collect(reference.model, record.id);
       }
     }
+    // N-N links: the rule of the field pointing to the deleted record decides; links always go away.
+    for (const link of models) {
+      if (!link.link) continue;
+      for (const [side, otherSide] of [["left", "right"], ["right", "left"]] as const) {
+        if (link.link[side].entity !== current.key) continue;
+        const owner = models.find((candidate) => candidate.key === link.link![otherSide].entity)!;
+        const pointing = owner.fields.find((field) => field.name === link.link![otherSide].field) as RefArrayField;
+        const rows = await findReferencing(adapter, { model: link, field: link.fields.find((field) => field.name === side) as RefField }, currentId);
+        for (const row of rows) {
+          deletions.push({ model: link, id: row.id });
+          const ownerId = row[otherSide] as string;
+          if (pointing.onDelete === "restrict") restrictions.push({ name: owner.name, key: recordKey(owner, ownerId) });
+          if (pointing.onDelete === "cascade") await collect(owner, ownerId);
+        }
+      }
+    }
+    // Derived 1-1/1-N sides pointing to the deleted record: their own rule applies.
+    for (const owner of models) {
+      for (const field of owner.fields.filter(isReference)) {
+        if (field.storage !== "derived" || !field.relation || field.relation.kind === "N-N" || field.relation.inverseEntity !== current.key) continue;
+        if (field.target !== current.key) continue;
+        const record = await adapter.findById(current, currentId);
+        const ownerId = record?.[field.relation.inverseField];
+        if (typeof ownerId !== "string") continue;
+        if (field.onDelete === "restrict") restrictions.push({ name: owner.name, key: recordKey(owner, ownerId) });
+        if (field.onDelete === "cascade") await collect(owner, ownerId);
+      }
+    }
   };
   await collect(model, id);
+  const blocking = restrictions.find((restriction) => !scheduled.has(restriction.key));
+  if (blocking) throw new HttpError(409, `Cannot delete: referenced by ${blocking.name}`);
 
   const updates = new Map<string, DeletePlan["updates"][number]>();
   const deletedIds = new Set(deletions.map((deletion) => recordKey(deletion.model, deletion.id)));

@@ -8,7 +8,7 @@ export interface FieldTagContext {
   topLevel: boolean;
 }
 
-type FieldUnderConstruction = NestedFieldModel & Partial<Pick<FieldModel, "unique" | "index" | "inverse" | "owner">>;
+type FieldUnderConstruction = NestedFieldModel & Partial<Pick<FieldModel, "unique" | "index" | "inverse" | "owner" | "onConflict">>;
 
 type FieldTagHandler = (field: FieldUnderConstruction, tag: DocTag, context: FieldTagContext) => void;
 
@@ -172,6 +172,11 @@ registerFieldTag("owner", (field, tag, context) => {
   requireNoValue(field, tag, context);
   if (field.type !== "ref") throw fieldTagError(context, tag, "only applies to single reference fields");
   field.owner = true;
+});
+registerFieldTag("onConflict", (field, tag, context) => {
+  if (field.type !== "ref") throw fieldTagError(context, tag, "only applies to single reference fields");
+  if (tag.text !== "replace") throw fieldTagError(context, tag, "expects replace");
+  field.onConflict = "replace";
 });
 registerFieldTag("hidden", (field, tag, context) => {
   if (tag.text === "") {

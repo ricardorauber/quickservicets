@@ -3,6 +3,7 @@ import { HttpError } from "./errors.ts";
 import { alwaysHiddenPaths, type EntityModel } from "./model.ts";
 import { project } from "./projection.ts";
 import { withFileUrls, type FileAccessSettings } from "./files/access.ts";
+import { assertReferencedFilesAllowed } from "./files/field-limits.ts";
 import { assertPopulatePaths, populateRecords } from "./populate.ts";
 import {
   deriveRelations,
@@ -116,10 +117,15 @@ export function createRepository(
     return project(record, { exclude: hiddenPaths }) as EntityRecord;
   };
 
+  const checkReferences = async (value: Record<string, unknown>) => {
+    await assertReferencesExist(model, value, models, adapter);
+    await assertReferencedFilesAllowed(model, value, models, adapter);
+  };
+
   const validate = async (body: unknown, mode: ValidationMode): Promise<Record<string, unknown>> => {
     const result = validateBody(model, body, mode);
     if (!result.ok) throw new HttpError(400, "Invalid body", { details: result.details });
-    await assertReferencesExist(model, result.value, models, adapter);
+    await checkReferences(result.value);
     return result.value;
   };
 
@@ -215,7 +221,7 @@ export function createRepository(
       const value = result.value;
       const hasChange = Object.values(value).some((item) => item instanceof ReferenceArrayChange);
       if (!hasChange) {
-        await assertReferencesExist(model, value, models, adapter);
+        await checkReferences(value);
         return write(id, value, options);
       }
       // Add/remove operations read the stored list and write the result atomically.
@@ -236,7 +242,7 @@ export function createRepository(
           value[field.name] = list;
         }
         if (details.length > 0) throw new HttpError(400, "Invalid body", { details });
-        await assertReferencesExist(model, value, models, adapter);
+        await checkReferences(value);
         return write(id, value, options);
       });
     },

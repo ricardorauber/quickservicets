@@ -73,6 +73,8 @@ export type FieldModel = NestedFieldModel & {
   joinTable?: string;
   /** Set when the field is paired with an inverse field into one relation. */
   relation?: RelationSide;
+  /** `@maxSize` (bytes) and `@accept` (MIME patterns) of a reference to a file entity, on top of the entity's limits. */
+  fileLimits?: { maxSize?: number; accept?: string[] };
 };
 
 /** The paths a read operation returns: keep `include`, then remove `exclude` (see `project`). */

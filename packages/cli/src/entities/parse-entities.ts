@@ -77,6 +77,17 @@ export function parseEntities(projectRoot: string): EntityModel[] {
       }
     }
   });
+  const known = withBuiltInEntities(models);
+  models.forEach((model, index) => {
+    for (const field of model.fields) {
+      if (!field.fileLimits) continue;
+      if (field.type === "ref" && known.find((candidate) => candidate.key === field.target)?.file) continue;
+      const tag = field.fileLimits.maxSize !== undefined ? "@maxSize" : "@accept";
+      throw new EntityParseError(
+        `${sources[index]!.relativeFile}: field "${field.name}" has invalid ${tag}: only applies to references to file entities`,
+      );
+    }
+  });
   models.forEach((model, index) => {
     for (const path of new Set([...(model.populate?.list ?? []), ...(model.populate?.read ?? [])])) {
       const [error] = populatePathErrors(model, withBuiltInEntities(models), path, Number.POSITIVE_INFINITY);

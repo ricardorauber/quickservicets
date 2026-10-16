@@ -1,4 +1,4 @@
-import type { FieldModel, NestedFieldModel, StringFormat, TypeDescriptor } from "@quickservice/core";
+import { parseSize, type FieldModel, type NestedFieldModel, type StringFormat, type TypeDescriptor } from "@quickservice/core";
 import { EntityParseError } from "./errors.ts";
 import type { DocTag } from "./jsdoc.ts";
 
@@ -8,7 +8,7 @@ export interface FieldTagContext {
   topLevel: boolean;
 }
 
-type FieldUnderConstruction = NestedFieldModel & Partial<Pick<FieldModel, "unique" | "index" | "inverse" | "owner" | "onConflict" | "joinTable">>;
+type FieldUnderConstruction = NestedFieldModel & Partial<Pick<FieldModel, "unique" | "index" | "inverse" | "owner" | "onConflict" | "joinTable" | "fileLimits">>;
 
 type FieldTagHandler = (field: FieldUnderConstruction, tag: DocTag, context: FieldTagContext) => void;
 
@@ -158,6 +158,24 @@ registerFieldTag("format", (field, tag, context) => {
   if (field.type !== "string") throw fieldTagError(context, tag, "only applies to string fields");
   if (tag.text !== "email" && tag.text !== "url") throw fieldTagError(context, tag, "expects email or url");
   field.format = tag.text as StringFormat;
+});
+function requireFileReference(field: FieldUnderConstruction, tag: DocTag, context: FieldTagContext): void {
+  // Whether the target is a file entity is checked once every entity is parsed.
+  if (field.type !== "ref" || !context.topLevel) throw fieldTagError(context, tag, "only applies to references to file entities");
+}
+registerFieldTag("maxSize", (field, tag, context) => {
+  requireFileReference(field, tag, context);
+  const size = parseSize(tag.text);
+  if (size === undefined) throw fieldTagError(context, tag, "expects a size like 512KB or 10MB");
+  field.fileLimits = { ...field.fileLimits, maxSize: size };
+});
+registerFieldTag("accept", (field, tag, context) => {
+  requireFileReference(field, tag, context);
+  const patterns = tag.text.split(",").map((pattern) => pattern.trim()).filter((pattern) => pattern !== "");
+  if (patterns.length === 0 || !patterns.every((pattern) => /^[\w*.+-]+\/[\w*.+-]+$/.test(pattern))) {
+    throw fieldTagError(context, tag, "expects MIME patterns like image/png,image/*");
+  }
+  field.fileLimits = { ...field.fileLimits, accept: patterns };
 });
 registerFieldTag("onDelete", (field, tag, context) => {
   // The value itself is parsed together with the reference; here only applicability is checked.

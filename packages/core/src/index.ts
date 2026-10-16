@@ -75,3 +75,6 @@ export {
   withFileUrls,
 } from "./files/access.ts";
 export type { FileAccess, FileAccessSettings } from "./files/access.ts";
+export { assertReferencedFilesAllowed, fileTargetOf } from "./files/field-limits.ts";
+export { isMultipart, parseEntityUpload, withUploadedFiles } from "./files/references.ts";
+export type { EntityUpload } from "./files/references.ts";

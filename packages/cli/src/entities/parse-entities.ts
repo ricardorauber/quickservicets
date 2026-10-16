@@ -33,6 +33,8 @@ interface EntitySource {
   entityName: string;
   /** Folder inside `/entities`, which sets the schema unless `@schema` overrides it. */
   folder?: string;
+  /** Set when the file name is not PascalCase, which only shared enum files may use. */
+  invalidName?: true;
 }
 
 type EntityDeclaration = ts.InterfaceDeclaration | ts.TypeAliasDeclaration;
@@ -64,6 +66,8 @@ export function parseEntities(projectRoot: string): EntityModel[] {
   const checker = program.getTypeChecker();
   // Files that only export enums or string unions are shared by entities, not entities themselves.
   const sources = files.filter((source) => !declaresOnlyEnums(program.getSourceFile(source.file)));
+  const misnamed = sources.find((source) => source.invalidName);
+  if (misnamed) throw new EntityParseError(`${misnamed.relativeFile}: entity file names must be PascalCase (e.g. User.ts)`);
   const sourcesByFile = new Map(sources.map((source) => [source.file, source]));
 
   const models = sources.map((source) => parseEntity(program, { checker, source, sourcesByFile }));
@@ -139,11 +143,15 @@ function listEntitySources(projectRoot: string, entitiesDir: string): EntitySour
         continue;
       }
       if (!entry.endsWith(".ts")) continue;
-      if (!ENTITY_FILE.test(entry)) {
-        throw new EntityParseError(`${relativeFile}: entity file names must be PascalCase (e.g. User.ts)`);
-      }
       const entityName = entry.slice(0, -3);
-      sources.push({ file, relativeFile, key: folder ? `${folder}/${entityName}` : entityName, entityName, folder });
+      sources.push({
+        file,
+        relativeFile,
+        key: folder ? `${folder}/${entityName}` : entityName,
+        entityName,
+        folder,
+        ...(ENTITY_FILE.test(entry) ? {} : { invalidName: true as const }),
+      });
     }
   };
   visit(entitiesDir);

@@ -112,7 +112,41 @@ export function entityTag(model: EntityModel): string {
   return model.schema ? `${model.schema}/${model.name}` : model.name;
 }
 
+/** Component names of enum fields that use a shared schema for their named enum or alias. */
+const sharedEnumNames = new WeakMap<TypeDescriptor, string>();
+
+function enumDescriptorsOf(descriptor: TypeDescriptor): Extract<TypeDescriptor, { type: "enum" }>[] {
+  if (descriptor.type === "enum") return descriptor.declaration ? [descriptor] : [];
+  if (descriptor.type === "array") return enumDescriptorsOf(descriptor.items);
+  if (descriptor.type === "object") return descriptor.fields.flatMap(enumDescriptorsOf);
+  return [];
+}
+
+/**
+ * Adds `components.schemas.<Name>` for each named enum or alias and points its fields at it; a name that is also an
+ * entity schema, a generated schema or another declaration's name keeps its fields inline.
+ */
+function registerSharedEnums(entities: EntityModel[], names: Map<string, string>, schemas: Record<string, JsonSchema>): void {
+  const taken = new Set(["Error"]);
+  for (const name of names.values()) for (const suffix of ["", "Create", "Replace", "Update", "ListItem", "Read"]) taken.add(`${name}${suffix}`);
+  const descriptors = entities.flatMap((model) => model.fields.flatMap(enumDescriptorsOf));
+  const filesByName = new Map<string, Set<string>>();
+  for (const { declaration } of descriptors) {
+    (filesByName.get(declaration!.name) ?? filesByName.set(declaration!.name, new Set()).get(declaration!.name)!).add(declaration!.file);
+  }
+  for (const descriptor of descriptors) {
+    const { name } = descriptor.declaration!;
+    if (taken.has(name) || filesByName.get(name)!.size > 1) {
+      sharedEnumNames.delete(descriptor);
+      continue;
+    }
+    schemas[name] = { type: "string", enum: [...descriptor.values] };
+    sharedEnumNames.set(descriptor, name);
+  }
+}
+
 function withNull(schema: JsonSchema): JsonSchema {
+  if (typeof schema.$ref === "string") return { oneOf: [schema, { type: "null" }] };
   const type = schema.type as string;
   const result: JsonSchema = { ...schema, type: [type, "null"] };
   if (Array.isArray(schema.enum)) result.enum = [...(schema.enum as unknown[]), null];
@@ -129,8 +163,10 @@ function descriptorSchema(descriptor: TypeDescriptor, visible: (field: NestedFie
       return { type: "boolean" };
     case "date":
       return { type: "string", format: "date-time" };
-    case "enum":
-      return { type: "string", enum: [...descriptor.values] };
+    case "enum": {
+      const shared = sharedEnumNames.get(descriptor);
+      return shared ? ref(shared) : { type: "string", enum: [...descriptor.values] };
+    }
     case "ref":
       return { type: "string", format: "uuid" };
     case "refArray":
@@ -687,6 +723,7 @@ export function generateOpenApi({
   const entities = models.filter((model) => !model.link);
   const names = componentNames(entities);
   const schemas: Record<string, JsonSchema> = { Error: ERROR_SCHEMA };
+  registerSharedEnums(entities, names, schemas);
   // Which entities need projected read schemas does not depend on how references are shown, so it is decided first.
   const readNames = new Map<string, string>();
   for (const model of entities) {

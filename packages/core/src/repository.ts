@@ -59,15 +59,16 @@ export type Populated<T, R, K extends string> = [K & keyof R] extends [never]
 export type PopulateOptions<P extends readonly string[]> = Omit<ReadOptions, "populate"> & { populate?: P };
 
 /**
- * Repository of one entity. `R` maps reference fields to the referenced record types, so populated reads are typed.
+ * Repository of one entity. `R` maps reference fields to the referenced record types, so populated reads are typed;
+ * `C` and `U` type the bodies of `create`/`replace` and `update`.
  */
-export interface Repository<T extends EntityRecord = EntityRecord, R = Record<never, never>> {
-  create(data: unknown, options?: ReadOptions): Promise<T>;
+export interface Repository<T extends EntityRecord = EntityRecord, R = Record<never, never>, C = unknown, U = unknown> {
+  create(data: C, options?: ReadOptions): Promise<T>;
   findById<const P extends readonly string[] = []>(id: string, options?: PopulateOptions<P>): Promise<Populated<T, R, P[number]> | null>;
   findOne<const P extends readonly string[] = []>(where: Condition[], options?: PopulateOptions<P>): Promise<Populated<T, R, P[number]> | null>;
   list<const P extends readonly string[] = []>(query: ListQuery, options?: PopulateOptions<P>): Promise<ListResult<Populated<T, R, P[number]>>>;
-  update(id: string, changes: unknown, options?: ReadOptions): Promise<T>;
-  replace(id: string, data: unknown, options?: ReadOptions): Promise<T>;
+  update(id: string, changes: U, options?: ReadOptions): Promise<T>;
+  replace(id: string, data: C, options?: ReadOptions): Promise<T>;
   delete(id: string): Promise<void>;
   /** Populates reference paths on records already loaded, e.g. results of a custom endpoint. */
   populate(records: T[], paths: readonly string[]): Promise<T[]>;

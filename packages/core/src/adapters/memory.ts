@@ -1,6 +1,6 @@
 import { UniqueViolationError, type DatabaseAdapter, type FindManyOptions, type StoredRecord } from "../adapter.ts";
 import type { EntityModel } from "../model.ts";
-import type { Condition, SortField } from "../query.ts";
+import type { Condition, SizeFilter, SortField } from "../query.ts";
 
 type Table = Map<string, StoredRecord>;
 
@@ -19,8 +19,7 @@ function matches(record: StoredRecord, condition: Condition, entity: EntityModel
   const actual = record[condition.field];
   const { op, value } = condition;
   if (entity.fields.some((field) => field.name === condition.field && field.type === "refArray")) {
-    if (op !== "contains") throw new Error(`Operator ${op} is not supported on reference arrays`);
-    return Array.isArray(actual) && actual.includes(value);
+    return matchesArray(Array.isArray(actual) ? (actual as string[]) : [], condition);
   }
   if (op === "exists") return isNullish(actual) !== value;
   if (op === "isNull") return isNullish(actual) === value;
@@ -47,6 +46,42 @@ function matches(record: StoredRecord, condition: Condition, entity: EntityModel
       return String(actual).toLowerCase().includes(String(value).toLowerCase());
     case "startsWith":
       return String(actual).toLowerCase().startsWith(String(value).toLowerCase());
+    default:
+      throw new Error(`Operator ${op} only applies to reference arrays`);
+  }
+}
+
+export function compareSize(length: number, { compare, count }: SizeFilter): boolean {
+  switch (compare) {
+    case "eq":
+      return length === count;
+    case "ne":
+      return length !== count;
+    case "gt":
+      return length > count;
+    case "gte":
+      return length >= count;
+    case "lt":
+      return length < count;
+    case "lte":
+      return length <= count;
+  }
+}
+
+function matchesArray(ids: string[], { op, value }: Condition): boolean {
+  switch (op) {
+    case "contains":
+      return ids.includes(value as string);
+    case "containsAny":
+      return (value as string[]).some((id) => ids.includes(id));
+    case "containsAll":
+      return (value as string[]).every((id) => ids.includes(id));
+    case "size":
+      return compareSize(ids.length, value as SizeFilter);
+    case "isEmpty":
+      return (ids.length === 0) === value;
+    default:
+      throw new Error(`Operator ${op} is not supported on reference arrays`);
   }
 }
 

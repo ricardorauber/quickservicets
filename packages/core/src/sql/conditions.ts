@@ -1,5 +1,5 @@
 import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, notInArray, sql, type SQL } from "drizzle-orm";
-import type { Condition, SortField } from "../query.ts";
+import type { Condition, SizeFilter, SortField } from "../query.ts";
 import type { EntityModel } from "../model.ts";
 import { junctionKey, type DrizzleSchema, type SqlDialect } from "./schema.ts";
 
@@ -29,10 +29,31 @@ export interface RelationContext {
   schema: DrizzleSchema;
 }
 
+const SIZE_OPERATORS: Record<SizeFilter["compare"], string> = { eq: "=", ne: "<>", gt: ">", gte: ">=", lt: "<", lte: "<=" };
+
 function translateRelation(table: Columns, condition: Condition, context: RelationContext): SQL {
   const junction = context.schema.junctions[junctionKey(context.entity.key, condition.field)] as Record<string, unknown>;
-  if (condition.op !== "contains") throw new Error(`Operator ${condition.op} is not supported on reference arrays`);
-  return sql`exists (select 1 from ${junction} where ${junction.ownerId} = ${table.id} and ${junction.targetId} = ${condition.value})`;
+  const owned = sql`${junction.ownerId} = ${table.id}`;
+  switch (condition.op) {
+    case "contains":
+      return sql`exists (select 1 from ${junction} where ${owned} and ${junction.targetId} = ${condition.value})`;
+    case "containsAny":
+      return sql`exists (select 1 from ${junction} where ${owned} and ${inArray(junction.targetId as never, condition.value as string[])})`;
+    case "containsAll": {
+      const ids = condition.value as string[];
+      return sql`(select count(*) from ${junction} where ${owned} and ${inArray(junction.targetId as never, ids)}) = ${ids.length}`;
+    }
+    case "size": {
+      const { compare, count } = condition.value as SizeFilter;
+      return sql`(select count(*) from ${junction} where ${owned}) ${sql.raw(SIZE_OPERATORS[compare])} ${count}`;
+    }
+    case "isEmpty":
+      return condition.value
+        ? sql`not exists (select 1 from ${junction} where ${owned})`
+        : sql`exists (select 1 from ${junction} where ${owned})`;
+    default:
+      throw new Error(`Operator ${condition.op} is not supported on reference arrays`);
+  }
 }
 
 function translate(table: Columns, condition: Condition, dialect: SqlDialect, context?: RelationContext): SQL {
@@ -65,6 +86,8 @@ function translate(table: Columns, condition: Condition, dialect: SqlDialect, co
       return value ? isNotNull(target) : isNull(target);
     case "isNull":
       return value ? isNull(target) : isNotNull(target);
+    default:
+      throw new Error(`Operator ${condition.op} only applies to reference arrays`);
   }
 }
 

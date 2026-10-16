@@ -14,8 +14,21 @@ export const FILTER_OPERATORS = [
   "startsWith",
   "exists",
   "isNull",
+  "containsAny",
+  "containsAll",
+  "size",
+  "isEmpty",
 ] as const;
 export type FilterOperator = (typeof FILTER_OPERATORS)[number];
+
+export const SIZE_COMPARISONS = ["eq", "ne", "gt", "gte", "lt", "lte"] as const;
+export type SizeComparison = (typeof SIZE_COMPARISONS)[number];
+
+/** Value of a `size` condition on a reference array: compares the array length with `count`. */
+export interface SizeFilter {
+  compare: SizeComparison;
+  count: number;
+}
 
 export interface Condition {
   field: string;
@@ -44,11 +57,13 @@ export const DEFAULT_LIMIT = 20;
 export const MAX_LIMIT = 100;
 export const MAX_LIST_VALUES = 100;
 
-type QueryFieldType = "id" | "string" | "number" | "boolean" | "date" | "enum" | "ref";
+type QueryFieldType = "id" | "string" | "number" | "boolean" | "date" | "enum" | "ref" | "refArray";
 
 interface QueryField {
   type: QueryFieldType;
   values?: string[];
+  /** Reference arrays can be filtered but not sorted. */
+  sortable?: false;
 }
 
 const COMMON_OPERATORS: FilterOperator[] = ["eq", "ne", "in", "nin", "exists", "isNull"];
@@ -60,10 +75,11 @@ const OPERATORS_BY_TYPE: Record<QueryFieldType, FilterOperator[]> = {
   string: [...COMMON_OPERATORS, "contains", "startsWith"],
   number: [...COMMON_OPERATORS, "gt", "gte", "lt", "lte"],
   date: [...COMMON_OPERATORS, "gt", "gte", "lt", "lte"],
+  refArray: ["contains", "containsAny", "containsAll", "size", "isEmpty"],
 };
 
 const ISO_8601 = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?)?$/;
-const WHERE_KEY = /^where\[([^\]]+)\]\[([^\]]+)\]$/;
+const WHERE_KEY = /^where\[([^\]]+)\]\[([^\]]+)\](?:\[([^\]]+)\])?$/;
 
 /** Fields that list routes can filter and sort by: system and column fields exposed by the list operation. */
 export function queryableFields(model: EntityModel): Map<string, QueryField> {
@@ -76,6 +92,10 @@ export function queryableFields(model: EntityModel): Map<string, QueryField> {
     if (exposed(name)) fields.set(name, { type });
   }
   for (const field of model.fields) {
+    if (field.type === "refArray" && !field.hidden && exposed(field.name)) {
+      fields.set(field.name, { type: "refArray", sortable: false });
+      continue;
+    }
     if (field.storage !== "column" || field.type === "refArray" || field.hidden || !exposed(field.name)) continue;
     if (field.type === "enum") fields.set(field.name, { type: "enum", values: field.values });
     else if (field.type !== "array" && field.type !== "object") fields.set(field.name, { type: field.type });
@@ -119,6 +139,7 @@ function parseCondition(
   param: string,
   fields: Map<string, QueryField>,
   errors: QueryErrors,
+  comparison?: string,
 ): Condition | undefined {
   const field = fields.get(name);
   if (!field) return errors.add(param, `Field "${name}" cannot be filtered`);
@@ -126,6 +147,29 @@ function parseCondition(
   const operator = op as FilterOperator;
   if (!OPERATORS_BY_TYPE[field.type].includes(operator)) {
     return errors.add(param, `Operator "${op}" is not allowed for this field`);
+  }
+  if ((operator === "size") !== (comparison !== undefined)) {
+    return errors.add(param, operator === "size" ? "Use where[field][size][eq|ne|gt|gte|lt|lte]" : `Unknown operator "${op}"`);
+  }
+  if (operator === "size") {
+    if (!(SIZE_COMPARISONS as readonly string[]).includes(comparison!)) return errors.add(param, `Unknown operator "${comparison}"`);
+    if (!/^\d+$/.test(raw)) return errors.add(param, "Must be a non-negative integer");
+    const value: SizeFilter = { compare: comparison as SizeComparison, count: Number(raw) };
+    return { field: name, op: "size", value };
+  }
+  if (operator === "isEmpty") {
+    if (raw !== "true" && raw !== "false") return errors.add(param, "Must be true or false");
+    return { field: name, op: operator, value: raw === "true" };
+  }
+  if (operator === "containsAny" || operator === "containsAll") {
+    const items = raw.split(",").map((item) => item.trim()).filter((item) => item !== "");
+    if (items.length === 0) return errors.add(param, "Must list at least one value");
+    if (items.length > MAX_LIST_VALUES) return errors.add(param, `Must list at most ${MAX_LIST_VALUES} values`);
+    return { field: name, op: operator, value: [...new Set(items)] };
+  }
+  if (field.type === "refArray") {
+    if (raw.trim() === "") return errors.add(param, "Must not be empty");
+    return { field: name, op: operator, value: raw };
   }
 
   if (operator === "exists" || operator === "isNull") {
@@ -157,7 +201,7 @@ function parseSort(raw: string | undefined, fields: Map<string, QueryField>, err
     for (const part of raw.split(",").map((item) => item.trim())) {
       const descending = part.startsWith("-");
       const name = descending ? part.slice(1) : part;
-      if (!fields.has(name)) {
+      if (!fields.has(name) || fields.get(name)?.sortable === false) {
         errors.add("sort", `Field "${name}" cannot be sorted`);
         continue;
       }
@@ -197,7 +241,7 @@ export function parseListQuery(model: EntityModel, params: URLSearchParams): Lis
     seen.add(key);
     const match = WHERE_KEY.exec(key);
     if (match) {
-      const condition = parseCondition(match[1]!, match[2]!, raw, key, fields, errors);
+      const condition = parseCondition(match[1]!, match[2]!, raw, key, fields, errors, match[3]);
       if (condition) where.push(condition);
     } else if (["sort", "limit", "offset"].includes(key)) {
       single.set(key, raw);

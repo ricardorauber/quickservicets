@@ -3,7 +3,7 @@ import { MongoClient, type ClientSession, type Db, type Document, type Filter, t
 import { UniqueViolationError, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
 import type { EntityModel, FieldModel } from "../model.ts";
 import { schemaIdentifier } from "../sql/schema.ts";
-import type { Condition, SortField } from "../query.ts";
+import type { Condition, SizeFilter, SortField } from "../query.ts";
 
 export interface MongodbAdapterOptions {
   url: string;
@@ -56,6 +56,28 @@ function translate({ field, op, value }: Condition): Document {
       return value ? { [path]: { $ne: null } } : { [path]: { $eq: null } };
     case "isNull":
       return value ? { [path]: { $eq: null } } : { [path]: { $ne: null } };
+    default:
+      throw new Error(`Operator ${op} only applies to reference arrays`);
+  }
+}
+
+function translateArray({ field, op, value }: Condition): Document {
+  const length = { $size: { $ifNull: [`$${field}`, []] } };
+  switch (op) {
+    case "contains":
+      return { [field]: value };
+    case "containsAny":
+      return { [field]: { $in: value } };
+    case "containsAll":
+      return { [field]: { $all: value } };
+    case "size": {
+      const { compare, count } = value as SizeFilter;
+      return { $expr: { [`$${compare}`]: [length, count] } };
+    }
+    case "isEmpty":
+      return { $expr: { [value ? "$eq" : "$gt"]: [length, 0] } };
+    default:
+      throw new Error(`Operator ${op} is not supported on reference arrays`);
   }
 }
 
@@ -66,9 +88,7 @@ export function toFilter(conditions: Condition[], entity?: EntityModel): Filter<
     entity?.fields.some((field) => field.name === condition.field && field.type === "refArray") ?? false;
   return {
     $and: conditions.map((condition) => {
-      if (!isRelation(condition)) return translate(condition);
-      if (condition.op !== "contains") throw new Error(`Operator ${condition.op} is not supported on reference arrays`);
-      return { [condition.field]: condition.value };
+      return isRelation(condition) ? translateArray(condition) : translate(condition);
     }),
   };
 }

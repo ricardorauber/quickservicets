@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { UniqueViolationError, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
 import type { EntityModel } from "../model.ts";
-import type { Condition, SortField } from "../query.ts";
+import type { Condition, SizeFilter, SortField } from "../query.ts";
 import { entity, field } from "./entities.ts";
 
 export const contractOrganization = entity("Organization", [field({ name: "name", type: "string", unique: true })]);
@@ -256,6 +256,54 @@ export function runAdapterContract(name: string, factory: AdapterFactory): void 
         await insertItems({ title: "A", partners: [a] }, { title: "B", partners: [b, a] }, { title: "C" });
         const { data } = await adapter.findMany(contractItem, page());
         expect(data.map((record) => record.partners)).toEqual([[a], [b, a], []]);
+      });
+
+      describe("filters", () => {
+        const setupFilters = async () => {
+          const [a, b, c] = await organizations("a", "b", "c");
+          await insertItems(
+            { title: "none" },
+            { title: "one", partners: [a] },
+            { title: "two", partners: [a, b] },
+            { title: "three", partners: [c, b, a] },
+          );
+          return { a: a!, b: b!, c: c! };
+        };
+        const titlesWhere = async (where: Condition[]) => (await titles(where)).sort();
+
+        test("contains", async () => {
+          const { b } = await setupFilters();
+          expect(await titlesWhere([{ field: "partners", op: "contains", value: b }])).toEqual(["three", "two"]);
+        });
+        test("containsAny and containsAll", async () => {
+          const { a, b, c } = await setupFilters();
+          expect(await titlesWhere([{ field: "partners", op: "containsAny", value: [b, c] }])).toEqual(["three", "two"]);
+          expect(await titlesWhere([{ field: "partners", op: "containsAll", value: [a, b] }])).toEqual(["three", "two"]);
+          expect(await titlesWhere([{ field: "partners", op: "containsAll", value: [a, c] }])).toEqual(["three"]);
+        });
+        test("size comparisons, including zero", async () => {
+          await setupFilters();
+          const size = (compare: SizeFilter["compare"], count: number): Condition[] => [
+            { field: "partners", op: "size", value: { compare, count } },
+          ];
+          expect(await titlesWhere(size("eq", 0))).toEqual(["none"]);
+          expect(await titlesWhere(size("gte", 2))).toEqual(["three", "two"]);
+          expect(await titlesWhere(size("lt", 2))).toEqual(["none", "one"]);
+          expect(await titlesWhere(size("ne", 1))).toEqual(["none", "three", "two"]);
+          expect(await titlesWhere(size("gt", 2))).toEqual(["three"]);
+          expect(await titlesWhere(size("lte", 1))).toEqual(["none", "one"]);
+        });
+        test("isEmpty", async () => {
+          await setupFilters();
+          expect(await titlesWhere([{ field: "partners", op: "isEmpty", value: true }])).toEqual(["none"]);
+          expect(await titlesWhere([{ field: "partners", op: "isEmpty", value: false }])).toEqual(["one", "three", "two"]);
+        });
+        test("count and total use the same filters", async () => {
+          const { b } = await setupFilters();
+          const where: Condition[] = [{ field: "partners", op: "contains", value: b }];
+          expect(await adapter.count(contractItem, where)).toBe(2);
+          expect((await adapter.findMany(contractItem, page(where, undefined, 1, 0))).total).toBe(2);
+        });
       });
 
       test("are replaced on update, and other fields stay", async () => {

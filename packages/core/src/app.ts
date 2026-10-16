@@ -4,6 +4,7 @@ import type { HookCall, HookDefinition, Repositories } from "./hooks.ts";
 import { createCrudRoutes, mergeRoutes, type CrudRoute } from "./http/crud.ts";
 import { withHooks } from "./http/pipeline.ts";
 import { docsRoutes } from "./http/docs.ts";
+import { withQueryItems, type QueryItem } from "./http/query-items.ts";
 import { createServer, type Endpoint, type Route, type Server } from "./http/server.ts";
 import type { CrudOperation, EntityModel } from "./model.ts";
 import { projectResult, type Projection } from "./projection.ts";
@@ -27,6 +28,8 @@ export interface AppEndpoint {
   projection?: Projection;
   /** Reference paths populated on the handler's result (entity key and paths), before the projection. */
   populate?: { entity: string; paths: string[] };
+  /** Typed query items, converted into `req.queryItems` after the pre-hooks. */
+  query?: QueryItem[];
   handler: Endpoint;
 }
 
@@ -86,11 +89,12 @@ export function createApp({ models, crudRoutes, endpoints, hooks, config, openAp
   }));
   const withPopulate = (endpoint: AppEndpoint): Endpoint => {
     const populate = endpoint.populate;
+    const handler = withQueryItems(endpoint.handler, endpoint.query);
     const model = populate && models.find((candidate) => candidate.key === populate.entity);
-    if (!populate || !model || populate.paths.length === 0) return endpoint.handler;
+    if (!populate || !model || populate.paths.length === 0) return handler;
     const repository = repositoryFor(repos, model);
     return async (repos, req, res) =>
-      populateResult(await endpoint.handler(repos, req, res), (records) => repository.populate(records, populate.paths)) as never;
+      populateResult(await handler(repos, req, res), (records) => repository.populate(records, populate.paths)) as never;
   };
   const custom: Route[] = endpoints.map((endpoint) => ({
     method: endpoint.method,

@@ -75,6 +75,7 @@ function createRequest(raw: Request, url: URL, params: Record<string, string>, i
     headers: raw.headers,
     raw,
     context: {},
+    queryItems: {},
     json() {
       body ??= raw.text().then((text) => {
         try {

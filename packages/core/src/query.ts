@@ -125,25 +125,29 @@ class QueryErrors {
   }
 }
 
-function coerce(raw: string, field: QueryField, param: string, errors: QueryErrors): unknown {
-  switch (field.type) {
+/** Converts one query string value to its type, or returns the error message clients read. */
+export function convertQueryValue(raw: string, type: string, values?: string[]): { value: unknown } | { error: string } {
+  switch (type) {
     case "number": {
       const value = raw.trim() === "" ? Number.NaN : Number(raw);
-      return Number.isFinite(value) ? value : errors.add(param, "Must be a number");
+      return Number.isFinite(value) ? { value } : { error: "Must be a number" };
     }
     case "boolean":
-      if (raw === "true") return true;
-      if (raw === "false") return false;
-      return errors.add(param, "Must be true or false");
+      if (raw === "true") return { value: true };
+      if (raw === "false") return { value: false };
+      return { error: "Must be true or false" };
     case "date":
-      return ISO_8601.test(raw) && !Number.isNaN(Date.parse(raw))
-        ? new Date(raw)
-        : errors.add(param, "Must be an ISO 8601 date");
+      return ISO_8601.test(raw) && !Number.isNaN(Date.parse(raw)) ? { value: new Date(raw) } : { error: "Must be an ISO 8601 date" };
     case "enum":
-      return field.values?.includes(raw) ? raw : errors.add(param, `Must be one of: ${field.values?.join(", ")}`);
+      return values?.includes(raw) ? { value: raw } : { error: `Must be one of: ${values?.join(", ")}` };
     default:
-      return raw;
+      return { value: raw };
   }
+}
+
+function coerce(raw: string, field: QueryField, param: string, errors: QueryErrors): unknown {
+  const result = convertQueryValue(raw, field.type, field.values);
+  return "error" in result ? errors.add(param, result.error) : result.value;
 }
 
 function parseCondition(

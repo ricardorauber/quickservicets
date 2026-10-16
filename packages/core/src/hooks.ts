@@ -19,6 +19,11 @@ export interface ServiceRequest<Body = unknown> {
   readonly context: Record<string, unknown>;
   /** The parsed JSON body, parsed once and cached. */
   json(): Promise<Body>;
+  /**
+   * The typed query items of a GET or DELETE endpoint, converted and validated from the query string;
+   * `{}` for endpoints without them.
+   */
+  readonly queryItems: Body extends object ? Body : Record<string, unknown>;
 }
 
 /** Lets endpoints and hooks set the status and headers of a data response. */

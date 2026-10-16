@@ -12,6 +12,7 @@ import {
   type CrudRouteEntry,
   type EntityModel,
   type HookCall,
+  type QueryItem,
 } from "@quickservice/core";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -24,6 +25,7 @@ import { scanHooks, type HookEntry } from "../hooks/scan-hooks.ts";
 import { validateHookReferences } from "../hooks/validate-hook-references.ts";
 import { hasPendingChanges, sqlDialectOf } from "../migrations/add.ts";
 import { generateTypesFile } from "./generate-types.ts";
+import { extractQueryItems } from "../endpoints/query-items.ts";
 import { describeEndpoints } from "../openapi/endpoint-docs.ts";
 import { generateOpenApi } from "../openapi/generate-openapi.ts";
 
@@ -44,6 +46,8 @@ interface ResolvedEndpoint {
   /** The generated CRUD route the endpoint replaces. */
   override?: { entity: string; operation: CrudRouteEntry["operation"] };
   hooks: HookCall[];
+  /** Typed query items of a GET or DELETE endpoint. */
+  query?: QueryItem[];
   projection?: Projection;
   populate?: { entity: string; paths: string[] };
 }
@@ -165,7 +169,7 @@ function generateRoutesFile(
   ];
   const endpointEntries = endpoints.map(
     (endpoint, index) =>
-      `  { method: ${JSON.stringify(endpoint.route.method)}, path: ${JSON.stringify(endpoint.route.path)}, hooks: ${JSON.stringify(endpoint.hooks)}, ${endpoint.projection ? `projection: ${JSON.stringify(endpoint.projection)}, ` : ""}${endpoint.populate ? `populate: ${JSON.stringify(endpoint.populate)}, ` : ""}handler: endpoint${index} as Endpoint },`,
+      `  { method: ${JSON.stringify(endpoint.route.method)}, path: ${JSON.stringify(endpoint.route.path)}, hooks: ${JSON.stringify(endpoint.hooks)}, ${endpoint.projection ? `projection: ${JSON.stringify(endpoint.projection)}, ` : ""}${endpoint.populate ? `populate: ${JSON.stringify(endpoint.populate)}, ` : ""}${endpoint.query ? `query: ${JSON.stringify(endpoint.query)}, ` : ""}handler: endpoint${index} as Endpoint },`,
   );
   return [
     HEADER,
@@ -231,7 +235,12 @@ export async function build(projectRoot: string): Promise<BuildSummary> {
     if (accessError) throw new BuildError(`entities/${model.key}.ts: ${accessError}`);
   }
   assertNoDocsConflicts(models, endpoints.map((endpoint) => endpoint.route));
-  const resolved = endpoints.map((endpoint) => resolveEndpoint(endpoint, models, config.populate.maxDepth));
+  const queryItems = extractQueryItems(projectRoot, endpoints.map((endpoint) => endpoint.route));
+  const resolved = endpoints.map((endpoint) => {
+    const result = resolveEndpoint(endpoint, models, config.populate.maxDepth);
+    const query = queryItems.get(endpoint.route.file);
+    return query ? { ...result, query } : result;
+  });
   const endpointDocs = describeEndpoints(
     projectRoot,
     models,

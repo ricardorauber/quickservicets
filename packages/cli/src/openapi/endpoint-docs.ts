@@ -40,7 +40,7 @@ const unsupported = (node: ts.Node): never => {
 };
 
 /** The `Endpoint<Body, Result>` type node the default export is declared with, if any. */
-function endpointTypeOf(sourceFile: ts.SourceFile): ts.TypeReferenceNode | undefined {
+export function endpointTypeOf(sourceFile: ts.SourceFile): ts.TypeReferenceNode | undefined {
   const isEndpointType = (node: ts.TypeNode | undefined): node is ts.TypeReferenceNode =>
     node !== undefined &&
     ts.isTypeReferenceNode(node) &&

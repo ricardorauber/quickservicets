@@ -31,6 +31,7 @@ export type { Endpoint, HandlerResult, Route, Server, ServerOptions } from "./ht
 export { Router, patternOf, splitPath } from "./http/router.ts";
 export type { RouteMatch, RoutePattern } from "./http/router.ts";
 export { executedHooks, operationForRoute, resolveRouteHooks, withHooks } from "./http/pipeline.ts";
+export { DOCS_PATH, docsPage, docsRoutes, OPENAPI_PATH, SCALAR_URL, SCALAR_VERSION } from "./http/docs.ts";
 export type { RouteHookSource } from "./http/pipeline.ts";
 export { createCrudRoutes, mergeRoutes, populatePaths } from "./http/crud.ts";
 export type { CrudOptions } from "./http/crud.ts";

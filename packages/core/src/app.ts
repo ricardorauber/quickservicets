@@ -3,6 +3,7 @@ import { jsonLogger } from "./logger.ts";
 import type { HookCall, HookDefinition, Repositories } from "./hooks.ts";
 import { createCrudRoutes, mergeRoutes, type CrudRoute } from "./http/crud.ts";
 import { withHooks } from "./http/pipeline.ts";
+import { docsRoutes } from "./http/docs.ts";
 import { createServer, type Endpoint, type Route, type Server } from "./http/server.ts";
 import type { CrudOperation, EntityModel } from "./model.ts";
 import { projectResult, type Projection } from "./projection.ts";
@@ -51,6 +52,8 @@ export interface AppOptions {
   endpoints: AppEndpoint[];
   hooks: ReadonlyMap<string, HookDefinition>;
   config: ResolvedConfig;
+  /** The OpenAPI document served at `/openapi.json` and `/docs` when `config.docs.enabled`. */
+  openApi?: { info?: { title?: string } };
 }
 
 export interface App {
@@ -59,7 +62,7 @@ export interface App {
 }
 
 /** Assembles repositories, generated and custom routes and their hooks into a server. */
-export function createApp({ models, crudRoutes, endpoints, hooks, config }: AppOptions): App {
+export function createApp({ models, crudRoutes, endpoints, hooks, config, openApi }: AppOptions): App {
   const fileAccess = { storage: config.storage, files: config.files, publicUrl: config.server.publicUrl };
   const fileCleanup = {
     storage: config.storage,
@@ -94,6 +97,7 @@ export function createApp({ models, crudRoutes, endpoints, hooks, config }: AppO
     path: endpoint.path,
     handler: withHooks(withProjection(withPopulate(endpoint), endpoint.projection), endpoint.hooks, hooks),
   }));
-  const server = createServer({ routes: mergeRoutes(generated, custom), repos: repos as unknown as Repositories, config });
+  const docs = openApi && config.docs?.enabled ? docsRoutes(openApi) : [];
+  const server = createServer({ routes: [...mergeRoutes(generated, custom), ...docs], repos: repos as unknown as Repositories, config });
   return { server, repos };
 }

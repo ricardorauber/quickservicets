@@ -14,6 +14,8 @@ export interface ServiceConfig {
   database: DatabaseAdapter;
   server?: { port?: number; publicUrl?: string };
   production?: boolean;
+  /** API docs at `GET /docs` and `GET /openapi.json` (default: enabled unless `production`). */
+  docs?: { enabled?: boolean };
   /** Receives one entry per request; defaults to JSON lines on stdout. */
   logger?: Logger;
   /** Default database schema for entities without an explicit one; `DATABASE_SCHEMA` overrides it. */
@@ -51,7 +53,9 @@ export interface ServiceConfig {
 /** The configuration with every default applied. */
 export const DEFAULT_POPULATE_DEPTH = 2;
 
-export interface ResolvedConfig extends Omit<ServiceConfig, "server" | "production" | "schema" | "populate" | "storage" | "files"> {
+export interface ResolvedConfig
+  extends Omit<ServiceConfig, "server" | "production" | "schema" | "populate" | "storage" | "files" | "docs"> {
+  docs: { enabled: boolean };
   server: { port: number; publicUrl?: string };
   files: {
     maxSize: number;
@@ -137,10 +141,12 @@ export function resolveConfig(
   if (!config || typeof config !== "object" || !config.database) {
     throw new ConfigError("Invalid config: database is required");
   }
+  const production = config.production ?? env.NODE_ENV === "production";
   return {
     ...config,
     server: { ...config.server, port: resolvePort(config, env) },
-    production: config.production ?? env.NODE_ENV === "production",
+    production,
+    docs: { enabled: config.docs?.enabled ?? !production },
     schema: resolveSchema(config, env),
     populate: { maxDepth: config.populate?.maxDepth ?? DEFAULT_POPULATE_DEPTH },
     storage: resolveStorage(config, projectRoot),

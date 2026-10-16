@@ -1,4 +1,6 @@
 import {
+  DOCS_PATH,
+  OPENAPI_PATH,
   fileAccessErrors,
   entityRoutePath,
   loadConfig,
@@ -22,6 +24,7 @@ import { validateHookReferences } from "../hooks/validate-hook-references.ts";
 import { hasPendingChanges, sqlDialectOf } from "../migrations/add.ts";
 import { generateTypesFile } from "./generate-types.ts";
 import { describeEndpoints } from "../openapi/endpoint-docs.ts";
+import { generateOpenApi } from "../openapi/generate-openapi.ts";
 
 export const GENERATED_DIR = ".generated";
 
@@ -112,6 +115,21 @@ function resolveEndpoint(endpoint: ScannedEndpoint, models: EntityModel[], maxDe
   return { route, override: replaced, hooks, projection: metadata.projection, populate };
 }
 
+/** Fails when an entity route or a custom endpoint takes a path the API docs reserve. */
+function assertNoDocsConflicts(models: EntityModel[], routes: EndpointRoute[]): void {
+  for (const model of models) {
+    if (model.internal || model.link) continue;
+    if (entityRoutePath(model).split("/").includes(DOCS_PATH.slice(1))) {
+      throw new BuildError(`entities/${model.key}.ts: route ${entityRoutePath(model)} uses ${DOCS_PATH}, which is reserved for the API docs`);
+    }
+  }
+  for (const route of routes) {
+    if (route.method === "GET" && (route.path === DOCS_PATH || route.path === OPENAPI_PATH)) {
+      throw new BuildError(`${route.file}: GET ${route.path} is reserved for the API docs`);
+    }
+  }
+}
+
 function assertEntityPopulateDepth(models: EntityModel[], maxDepth: number): void {
   for (const model of models) {
     for (const path of new Set([...(model.populate?.list ?? []), ...(model.populate?.read ?? [])])) {
@@ -158,10 +176,11 @@ import { createApp, resolveConfig } from "@quickservice/core";
 import projectConfig from "../quickservice.config.ts";
 import { models } from "./models.ts";
 import { crudRoutes, endpoints, hooks } from "./routes.ts";
+import openApi from "./openapi.json";
 
 const config = resolveConfig(projectConfig);
 await config.database.connect(models, { defaultSchema: config.schema });
-const { server } = createApp({ models, crudRoutes, endpoints, hooks, config });
+const { server } = createApp({ models, crudRoutes, endpoints, hooks, config, openApi });
 const listening = server.listen();
 console.log(\`quickservice listening on http://localhost:\${listening.port}\`);
 `;
@@ -198,13 +217,28 @@ export async function build(projectRoot: string): Promise<BuildSummary> {
     const [accessError] = model.file ? fileAccessErrors(model, config) : [];
     if (accessError) throw new BuildError(`entities/${model.key}.ts: ${accessError}`);
   }
+  assertNoDocsConflicts(models, endpoints.map((endpoint) => endpoint.route));
   const resolved = endpoints.map((endpoint) => resolveEndpoint(endpoint, models, config.populate.maxDepth));
+  const endpointDocs = describeEndpoints(
+    projectRoot,
+    models,
+    resolved.map((endpoint, index) => ({
+      route: endpoint.route,
+      metadata: endpoints[index]!.metadata,
+      override: endpoint.override,
+      hooks: endpoint.hooks,
+    })),
+  );
+  const packageFile = join(projectRoot, "package.json");
+  const packageJson = existsSync(packageFile) ? (JSON.parse(readFileSync(packageFile, "utf8")) as { name?: string; version?: string }) : {};
+  const openApi = generateOpenApi({ models, routes: crudTable(models), hooks, packageJson, endpoints: endpointDocs.docs });
 
   const files: Record<string, string> = {
     "models.ts": `${HEADER}\nimport type { EntityModel } from "@quickservice/core";\n\nexport const models: EntityModel[] = ${JSON.stringify(models, null, 2)};\n`,
     "types.ts": generateTypesFile(models),
     "routes.ts": generateRoutesFile(models, resolved, hooks),
     "server.ts": SERVER_FILE,
+    "openapi.json": `${JSON.stringify(openApi, null, 2)}\n`,
   };
 
   const target = join(projectRoot, GENERATED_DIR);
@@ -216,16 +250,6 @@ export async function build(projectRoot: string): Promise<BuildSummary> {
   renameSync(staging, target);
 
   const warnings: string[] = joinTableWarnings(models, config.database.kind);
-  const endpointDocs = describeEndpoints(
-    projectRoot,
-    models,
-    resolved.map((endpoint, index) => ({
-      route: endpoint.route,
-      metadata: endpoints[index]!.metadata,
-      override: endpoint.override,
-      hooks: endpoint.hooks,
-    })),
-  );
   warnings.push(...endpointDocs.warnings);
   const dialect = sqlDialectOf(config.database.kind);
   if (dialect && (await hasPendingChanges(projectRoot, models, dialect))) warnings.push(PENDING_MIGRATION_WARNING);

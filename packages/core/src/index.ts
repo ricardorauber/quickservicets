@@ -57,3 +57,5 @@ export { localStorage } from "./storage/local.ts";
 export type { LocalStorageOptions } from "./storage/local.ts";
 export { assertSafeKey, extensionOf, storageKeyFor, StorageKeyError } from "./storage/storage.ts";
 export type { StorageAdapter, StorageBody } from "./storage/storage.ts";
+export { s3Storage } from "./storage/s3.ts";
+export type { S3StorageOptions } from "./storage/s3.ts";

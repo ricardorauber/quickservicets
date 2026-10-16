@@ -209,6 +209,8 @@ function referenceArrayBody(schema: JsonSchema, optional: boolean, mode: WriteMo
 
 function isRequired(field: NestedFieldModel, mode: WriteMode | "response"): boolean {
   if (field.optional || mode === "update") return false;
+  // Bodies may leave reference arrays out; they are stored as empty lists.
+  if (field.type === "refArray" && mode !== "response") return false;
   return mode !== "create" || field.default === undefined;
 }
 

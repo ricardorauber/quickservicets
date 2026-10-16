@@ -42,7 +42,7 @@ describe("schemas", () => {
     const list = { type: "array", items: UUID, minItems: 1, maxItems: 50, uniqueItems: true };
     expect(schemas.OrganizationCreate.properties.members).toEqual(list);
     expect(schemas.OrganizationReplace.properties.members).toEqual(list);
-    expect(schemas.OrganizationCreate.required).toContain("members");
+    expect(schemas.OrganizationCreate.required).not.toContain("members");
   });
 
   test("PATCH bodies take the full list or add/remove changes", () => {

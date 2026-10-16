@@ -81,7 +81,9 @@ export function generateInputTypes(model: EntityModel, models: EntityModel[] = [
   const name = entityTypeName(model, models);
   const create = model.fields
     .filter((field) => !field.readOnly)
-    .map((field) => property(field, field.optional, "  ", imports, "create", field.optional || field.default !== undefined));
+    .map((field) =>
+      property(field, field.optional, "  ", imports, "create", field.optional || field.default !== undefined || field.type === "refArray"),
+    );
   const update = model.fields
     .filter((field) => !field.readOnly || field.readOnly === "unlessPatch")
     .map((field) => property(field, field.optional, "  ", imports, "update", true));

@@ -99,7 +99,11 @@ function validateFields(
       continue;
     }
     if (!(field.name in input) || input[field.name] === undefined) {
-      const required = !field.optional && (requireAll === "replace" || (requireAll === "create" && field.default === undefined));
+      // An omitted reference array is stored as an empty list, so it is never required.
+      const required =
+        !field.optional &&
+        field.type !== "refArray" &&
+        (requireAll === "replace" || (requireAll === "create" && field.default === undefined));
       if (required) errors.add(path, "Is required");
       continue;
     }

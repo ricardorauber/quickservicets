@@ -3,7 +3,7 @@ import { getTableConfig as pgTableConfig } from "drizzle-orm/pg-core";
 import { getTableConfig as sqliteTableConfig } from "drizzle-orm/sqlite-core";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { parseEntities } from "../entities/parse-entities.ts";
+import { parseProjectEntities as parseEntities } from "../entities/parse-entities.ts";
 import { BuildError } from "../errors.ts";
 import { diffSnapshots, losesData } from "./diff.ts";
 import { planMongoMigration, type MongoMigrationPlan } from "./mongo.ts";

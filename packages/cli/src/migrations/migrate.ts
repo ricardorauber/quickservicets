@@ -12,7 +12,7 @@ import {
 } from "@quickservice/core";
 import { drizzle as drizzleSqlite } from "drizzle-orm/bun-sqlite";
 import { drizzle as drizzlePostgres } from "drizzle-orm/bun-sql";
-import { parseEntities } from "../entities/parse-entities.ts";
+import { parseProjectEntities as parseEntities } from "../entities/parse-entities.ts";
 import { BuildError } from "../errors.ts";
 import { listMigrations, type MigrationFile } from "./snapshot.ts";
 

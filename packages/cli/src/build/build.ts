@@ -12,7 +12,7 @@ import {
 } from "@quickservice/core";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseEntities } from "../entities/parse-entities.ts";
+import { parseProjectEntities as parseEntities } from "../entities/parse-entities.ts";
 import { BuildError } from "../errors.ts";
 import { scanEndpoints, type EndpointRoute } from "../endpoints/scan-endpoints.ts";
 import { parseEndpointTags, type EndpointMetadata } from "../hooks/endpoint-tags.ts";

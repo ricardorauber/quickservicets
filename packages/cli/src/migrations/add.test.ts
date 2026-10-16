@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createLinkedProject, MEMORY_CONFIG } from "../testing/project.ts";
-import { parseEntities } from "../entities/parse-entities.ts";
+import { parseEntities, parseProjectEntities } from "../entities/parse-entities.ts";
 import { run } from "../run.ts";
 import { build } from "../build/build.ts";
 import { addAutomaticMigration, addMigration, hasPendingChanges } from "./add.ts";
@@ -115,11 +115,11 @@ describe("name suggestions and pending changes", () => {
 
   test("pending changes follow the latest snapshot", async () => {
     const root = project();
-    expect(await hasPendingChanges(root, parseEntities(root), "sqlite")).toBe(true);
+    expect(await hasPendingChanges(root, parseProjectEntities(root), "sqlite")).toBe(true);
     await addMigration(root, "Initial", at(0));
-    expect(await hasPendingChanges(root, parseEntities(root), "sqlite")).toBe(false);
+    expect(await hasPendingChanges(root, parseProjectEntities(root), "sqlite")).toBe(false);
     setUser(root, "{ email: string; age?: number }");
-    expect(await hasPendingChanges(root, parseEntities(root), "sqlite")).toBe(true);
+    expect(await hasPendingChanges(root, parseProjectEntities(root), "sqlite")).toBe(true);
   });
 
   test("automatic migrations are named after the change", async () => {

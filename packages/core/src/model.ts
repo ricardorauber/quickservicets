@@ -21,6 +21,8 @@ export type ReadOperation = "list" | "read";
 export interface FieldConstraints {
   /** Never returned in any response. */
   hidden?: boolean;
+  /** Not writable through JSON bodies (`unlessPatch`: writable only by PATCH). */
+  readOnly?: "always" | "unlessPatch";
   /** Not returned by these read operations. */
   hiddenOn?: ReadOperation[];
   default?: unknown;
@@ -112,6 +114,8 @@ export interface EntityModel {
    * `right`, `leftPosition`, `rightPosition` and `pair`.
    */
   link?: { left: { entity: string; field: string }; right: { entity: string; field: string } };
+  /** Set on file entities: built-in `File`/`Media` and entities extending them. */
+  file?: { base: "file" | "media" };
 }
 
 /** Paths of fields (top-level or nested) that are never returned. */

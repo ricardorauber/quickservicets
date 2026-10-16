@@ -2,6 +2,8 @@ import { readdirSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import ts from "typescript";
 import {
+  builtInFileEntity,
+  FILE_BASE_FIELDS,
   hiddenPathsFor,
   parseFieldPaths,
   populatePathErrors,
@@ -77,11 +79,24 @@ export function parseEntities(projectRoot: string): EntityModel[] {
   });
   models.forEach((model, index) => {
     for (const path of new Set([...(model.populate?.list ?? []), ...(model.populate?.read ?? [])])) {
-      const [error] = populatePathErrors(model, models, path, Number.POSITIVE_INFINITY);
+      const [error] = populatePathErrors(model, withBuiltInEntities(models), path, Number.POSITIVE_INFINITY);
       if (error) throw new EntityParseError(`${sources[index]!.relativeFile}: invalid @populate: ${error}`);
     }
   });
   return [...models, ...links];
+}
+
+/** Adds the built-in `File` and `Media` entities unless `/entities` defines them. */
+export function withBuiltInEntities(models: EntityModel[]): EntityModel[] {
+  const builtIns = (["file", "media"] as const)
+    .map((base) => builtInFileEntity(base))
+    .filter((builtIn) => !models.some((model) => model.key === builtIn.key));
+  return [...models, ...builtIns];
+}
+
+/** Every entity of the project: the ones in `/entities`, their link entities and the built-in file entities. */
+export function parseProjectEntities(projectRoot: string): EntityModel[] {
+  return withBuiltInEntities(parseEntities(projectRoot));
 }
 
 function listEntitySources(projectRoot: string, entitiesDir: string): EntitySource[] {
@@ -127,7 +142,11 @@ function parseEntity(program: ts.Program, context: ParseContext): EntityModel {
   }
 
   const declaration = findEntityDeclaration(sourceFile, source);
-  const name = resolveCollectionName(declaration, source);
+  const shape = declarationShape(declaration, source);
+  const name =
+    shape.base === "media" && source.entityName === "Media" && !findTag(declaration, "collection")
+      ? "media"
+      : resolveCollectionName(declaration, source);
   const schema = resolveSchema(declaration, source);
   const tagTarget: EntityTagTarget = { hooks: [], overrideHooks: "inherit", internal: false };
   applyEntityTags(tagTarget, readTags(declaration), { relativeFile: source.relativeFile });
@@ -140,7 +159,8 @@ function parseEntity(program: ts.Program, context: ParseContext): EntityModel {
     name,
     repoKey: toCamelCase(name),
     tableName: toSnakeCase(name),
-    fields: parseFields(declarationMembers(declaration, source), context),
+    fields: withFileBase(parseFields(shape.members, context), shape.base, source),
+    ...(shape.base ? { file: { base: shape.base } } : {}),
     ...tags,
     exposure: { list: { include: [], exclude: [] }, read: { include: [], exclude: [] } },
   };
@@ -178,10 +198,68 @@ function findEntityDeclaration(sourceFile: ts.SourceFile, source: EntitySource):
   return declaration;
 }
 
-function declarationMembers(declaration: EntityDeclaration, source: EntitySource): ts.NodeArray<ts.TypeElement> {
-  if (ts.isInterfaceDeclaration(declaration)) return declaration.members;
-  if (ts.isTypeLiteralNode(declaration.type)) return declaration.type.members;
+type FileBaseKind = "file" | "media";
+
+/** Whether `name` refers to `File` or `Media` imported from @quickservice/core in this file. */
+function coreFileBase(name: string, sourceFile: ts.SourceFile): FileBaseKind | undefined {
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
+    if (statement.moduleSpecifier.text !== "@quickservice/core") continue;
+    const bindings = statement.importClause?.namedBindings;
+    if (!bindings || !ts.isNamedImports(bindings)) continue;
+    for (const element of bindings.elements) {
+      if (element.name.text !== name) continue;
+      const imported = (element.propertyName ?? element.name).text;
+      if (imported === "File") return "file";
+      if (imported === "Media") return "media";
+    }
+  }
+  return undefined;
+}
+
+interface DeclarationShape {
+  members: ts.TypeElement[];
+  base?: FileBaseKind;
+}
+
+function declarationShape(declaration: EntityDeclaration, source: EntitySource): DeclarationShape {
+  const sourceFile = declaration.getSourceFile();
+  if (ts.isInterfaceDeclaration(declaration)) {
+    let base: FileBaseKind | undefined;
+    for (const clause of declaration.heritageClauses ?? []) {
+      for (const type of clause.types) {
+        const found = ts.isIdentifier(type.expression) ? coreFileBase(type.expression.text, sourceFile) : undefined;
+        if (!found) throw new EntityParseError(`${source.relativeFile}: ${source.entityName} can only extend File or Media`);
+        base = found;
+      }
+    }
+    return { members: [...declaration.members], base };
+  }
+  if (ts.isTypeLiteralNode(declaration.type)) return { members: [...declaration.type.members] };
+  if (ts.isIntersectionTypeNode(declaration.type)) {
+    const shape: DeclarationShape = { members: [] };
+    for (const part of declaration.type.types) {
+      if (ts.isTypeLiteralNode(part)) shape.members.push(...part.members);
+      else if (ts.isTypeReferenceNode(part) && ts.isIdentifier(part.typeName) && coreFileBase(part.typeName.text, sourceFile)) {
+        shape.base = coreFileBase(part.typeName.text, sourceFile);
+      } else {
+        throw new EntityParseError(`${source.relativeFile}: type ${source.entityName} can only combine File or Media with an object literal type`);
+      }
+    }
+    return shape;
+  }
   throw new EntityParseError(`${source.relativeFile}: type ${source.entityName} must be an object literal type`);
+}
+
+/** File entities get the base fields first; redeclaring one of them is an error. */
+function withFileBase(fields: FieldModel[], base: FileBaseKind | undefined, source: EntitySource): FieldModel[] {
+  if (!base) return fields;
+  const baseNames = new Set(FILE_BASE_FIELDS.map((field) => field.name));
+  const redeclared = fields.find((field) => baseNames.has(field.name));
+  if (redeclared) {
+    throw new EntityParseError(`${source.relativeFile}: field "${redeclared.name}" is a base field of ${base === "file" ? "File" : "Media"} and cannot be redeclared`);
+  }
+  return [...FILE_BASE_FIELDS.map((field) => ({ ...field })), ...fields];
 }
 
 function resolveCollectionName(declaration: EntityDeclaration, source: EntitySource): string {
@@ -228,7 +306,7 @@ function resolveSchema(declaration: EntityDeclaration, source: EntitySource): st
   return schema;
 }
 
-function parseFields(members: ts.NodeArray<ts.TypeElement>, context: ParseContext): FieldModel[] {
+function parseFields(members: readonly ts.TypeElement[], context: ParseContext): FieldModel[] {
   const { source } = context;
   return members.map((member) => {
     const field = parseMember(member, "", true, context);
@@ -345,6 +423,14 @@ function referenceArrayOf(element: ts.TypeNode, context: ParseContext): TypeDesc
 
 function resolveEntityReference(typeNode: ts.TypeReferenceNode, context: ParseContext): EntitySource | undefined {
   if (typeNode.typeArguments?.length) return undefined;
+  if (ts.isIdentifier(typeNode.typeName)) {
+    const base = coreFileBase(typeNode.typeName.text, typeNode.getSourceFile());
+    if (base) {
+      // References to core File/Media target the built-in entity, or the project's own File.ts/Media.ts.
+      const key = base === "file" ? "File" : "Media";
+      return { file: "", relativeFile: "", key, entityName: key };
+    }
+  }
   let symbol = context.checker.getSymbolAtLocation(typeNode.typeName);
   if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = context.checker.getAliasedSymbol(symbol);
   const declaration = symbol?.declarations?.[0];

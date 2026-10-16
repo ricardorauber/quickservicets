@@ -93,6 +93,11 @@ function validateFields(
   const output: Record<string, unknown> = {};
   for (const field of fields) {
     const path = joinPath(prefix, field.name);
+    if (field.readOnly && (field.readOnly === "always" || requireAll !== "none")) {
+      // Set by the framework (e.g. uploads), never required from or written by a JSON body.
+      if (field.name in input) errors.add(path, "Field is read-only");
+      continue;
+    }
     if (!(field.name in input) || input[field.name] === undefined) {
       const required = !field.optional && (requireAll === "replace" || (requireAll === "create" && field.default === undefined));
       if (required) errors.add(path, "Is required");

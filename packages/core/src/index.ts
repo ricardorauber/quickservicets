@@ -51,3 +51,5 @@ export type { FieldPathsResult, Projection } from "./projection.ts";
 export { isExposed, parseClientSelection, selectFields } from "./http/selection.ts";
 export type { ClientSelection, SelectionContext } from "./http/selection.ts";
 export { assertPopulatePaths, parsePopulateParam, populatePathErrors, populateRecords } from "./populate.ts";
+export { builtInFileEntity, FILE_BASE_FIELDS, MEDIA_MIME_TYPES } from "./files.ts";
+export type { File, FileBase, Media } from "./files.ts";

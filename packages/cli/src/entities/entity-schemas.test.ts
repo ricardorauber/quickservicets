@@ -67,8 +67,8 @@ describe("same names across schemas", () => {
     const types = generateTypesFile(models);
     expect(types).toContain("export type User = {");
     expect(types).toContain("export type AuthUser = {");
-    expect(types).toContain("  users: Repository<User, Record<never, never>, UserCreate, UserUpdate>;");
-    expect(types).toContain("  auth: {\n    users: Repository<AuthUser, Record<never, never>, AuthUserCreate, AuthUserUpdate>;\n  };");
+    expect(types).toContain("  users: Repository<User, UserReferences, UserCreate, UserUpdate>;");
+    expect(types).toContain("  auth: {\n    users: Repository<AuthUser, AuthUserReferences, AuthUserCreate, AuthUserUpdate>;\n  };");
   });
   test("but not within one schema", () => {
     const message = failure({

@@ -48,6 +48,7 @@ export interface RepositoryOptions {
 }
 
 export const DEFAULT_FIND_ALL_MAX = 10000;
+const FIND_BY_IDS_BATCH = 100;
 
 export interface ListResult<T> {
   data: T[];
@@ -56,10 +57,48 @@ export interface ListResult<T> {
   offset: number;
 }
 
-/** `T` with the populated reference fields `K` typed as `R[K]`: the referenced record (or null), or an array of records. */
-export type Populated<T, R, K extends string> = [K & keyof R] extends [never]
+declare const reference: unique symbol;
+
+/** In a references map: a reference to one `T` record, whose own references are `R` (lets populate paths go deeper). */
+export interface One<T, R = Record<never, never>> {
+  readonly [reference]: { kind: "one"; record: T; refs: R };
+}
+
+/** In a references map: a reference array of `T` records, whose own references are `R`. */
+export interface Many<T, R = Record<never, never>> {
+  readonly [reference]: { kind: "many"; record: T; refs: R };
+}
+
+type Head<P extends string> = P extends `${infer H}.${string}` ? H : P;
+type Tail<P extends string, H extends string> = P extends `${H}.${infer Rest}` ? Rest : never;
+type Expand<V, P extends string> = V extends { readonly [reference]: { kind: "one"; record: infer X; refs: infer XR } }
+  ? Populated<X, XR, P> | null
+  : V extends { readonly [reference]: { kind: "many"; record: infer X; refs: infer XR } }
+    ? Array<Populated<X, XR, P>>
+    : V;
+
+/**
+ * `T` with the populated paths `P` (e.g. `"profiles.permissions.module"`) replaced by the referenced records, at
+ * every level. `R` maps reference fields to `One`/`Many` markers, or directly to the referenced record types.
+ */
+export type Populated<T, R, P extends string> = [P] extends [never]
   ? T
-  : Omit<T, K & keyof R> & { [Field in K & keyof R]: R[Field] };
+  : [Head<P> & keyof R] extends [never]
+    ? T
+    : Omit<T, Head<P> & keyof R> & { [H in Head<P> & keyof R]: Expand<R[H], Tail<P, H & string>> };
+
+type RefsOf<V> = V extends { readonly [reference]: { refs: infer XR } } ? XR : never;
+type PreviousDepth = [never, 0, 1, 2, 3, 4];
+
+/** Every reference path of a references map, up to five segments. */
+export type ReferencePath<R, D extends number = 5> = [D] extends [never]
+  ? never
+  : {
+      [K in keyof R & string]: K | ([RefsOf<R[K]>] extends [never] ? never : `${K}.${ReferencePath<RefsOf<R[K]>, PreviousDepth[D]>}`);
+    }[keyof R & string];
+
+/** Paths a repository can populate: its reference paths, or any string when it has no typed references. */
+export type PopulatePath<R> = [keyof R] extends [never] ? string : ReferencePath<R>;
 
 export type PopulateOptions<P extends readonly string[]> = Omit<ReadOptions, "populate"> & { populate?: P };
 
@@ -69,9 +108,11 @@ export type PopulateOptions<P extends readonly string[]> = Omit<ReadOptions, "po
  */
 export interface Repository<T extends EntityRecord = EntityRecord, R = Record<never, never>, C = unknown, U = unknown> {
   create(data: C, options?: ReadOptions): Promise<T>;
-  findById<const P extends readonly string[] = []>(id: string, options?: PopulateOptions<P>): Promise<Populated<T, R, P[number]> | null>;
-  findOne<const P extends readonly string[] = []>(where: Condition[], options?: PopulateOptions<P>): Promise<Populated<T, R, P[number]> | null>;
-  list<const P extends readonly string[] = []>(query: ListQuery, options?: PopulateOptions<P>): Promise<ListResult<Populated<T, R, P[number]>>>;
+  findById<const P extends readonly PopulatePath<R>[] = []>(id: string, options?: PopulateOptions<P>): Promise<Populated<T, R, P[number]> | null>;
+  findOne<const P extends readonly PopulatePath<R>[] = []>(where: Condition[], options?: PopulateOptions<P>): Promise<Populated<T, R, P[number]> | null>;
+  list<const P extends readonly PopulatePath<R>[] = []>(query: ListQuery, options?: PopulateOptions<P>): Promise<ListResult<Populated<T, R, P[number]>>>;
+  /** Records for `ids` in that order, skipping missing ids and repeating none; `include` populates like `populate`. */
+  findByIds<const P extends readonly PopulatePath<R>[] = []>(ids: readonly string[], options?: { include?: P }): Promise<Populated<T, R, P[number]>[]>;
   update(id: string, changes: U, options?: ReadOptions): Promise<T>;
   replace(id: string, data: C, options?: ReadOptions): Promise<T>;
   delete(id: string): Promise<void>;
@@ -82,9 +123,9 @@ export interface Repository<T extends EntityRecord = EntityRecord, R = Record<ne
   /** Replaces a record like `replace`, also setting framework-managed fields. */
   replaceWith(id: string, managed: Record<string, unknown>, data: unknown): Promise<T>;
   /** A fluent query filtered by the lambda's conditions. */
-  where(lambda: QueryLambda<T>): Query<T>;
+  where(lambda: QueryLambda<T>): Query<T, R>;
   /** A fluent query over every record. */
-  query(): Query<T>;
+  query(): Query<T, R>;
 }
 
 /** Repositories keyed by repository key; entities with an explicit schema are nested under the schema key. */
@@ -271,7 +312,7 @@ export function createRepository(
   const backend: QueryBackend = {
     model,
     findAllMax,
-    list: (query) => repository.list(query),
+    list: (query, populate) => repository.list(query, { populate }),
     count: async (where) => adapter.count(model, await resolveDerivedConditions(model, where, models, adapter)),
     notFound,
   };
@@ -283,6 +324,20 @@ export function createRepository(
 
     query() {
       return createQuery(backend, { where: [], sort: [], skip: 0 });
+    },
+
+    async findByIds(ids, options = {}) {
+      const unique = [...new Set(ids)];
+      const found = new Map<string, EntityRecord>();
+      for (let start = 0; start < unique.length; start += FIND_BY_IDS_BATCH) {
+        const batch = unique.slice(start, start + FIND_BY_IDS_BATCH);
+        const { data } = await repository.list(
+          { where: [{ field: "id", op: "in", value: batch }], sort: [{ field: "id", direction: "asc" }], limit: batch.length, offset: 0 },
+          { populate: options.include ?? [] },
+        );
+        for (const record of data) found.set(record.id, record);
+      }
+      return unique.flatMap((id) => (found.has(id) ? [found.get(id)!] : []));
     },
 
     async create(data, options) {

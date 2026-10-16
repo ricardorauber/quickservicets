@@ -12,7 +12,7 @@ export { memoryAdapter } from "./adapters/memory.ts";
 export { CONFIG_FILE, ConfigError, DEFAULT_PORT, DEFAULT_POPULATE_DEPTH, defineConfig, loadConfig, resolveConfig } from "./config.ts";
 export type { ResolvedConfig, ServiceConfig } from "./config.ts";
 export { createRepositories, createRepository, repositoryFor } from "./repository.ts";
-export type { EntityRecord, ListResult, ReadOptions, Repository, RepositoryOptions, RepositoryRegistry } from "./repository.ts";
+export type { EntityRecord, ListResult, Many, One, Populated, PopulatePath, ReadOptions, ReferencePath, Repository, RepositoryOptions, RepositoryRegistry } from "./repository.ts";
 export { definePostHook, definePreHook, isHookDefinition } from "./hooks.ts";
 export type {
   HookCall,

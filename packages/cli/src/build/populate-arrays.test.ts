@@ -97,6 +97,7 @@ test("array segments count towards the depth limit", async () => {
 
 test("generated types type populated arrays as record arrays", () => {
   const types = generateTypesFile(parseEntities(createProject(files)));
-  expect(types).toContain("organizations: Repository<Organization, { members: Array<User> }, OrganizationCreate, OrganizationUpdate>;");
-  expect(types).toContain("users: Repository<User, { team: Team | null }, UserCreate, UserUpdate>;");
+  expect(types).toContain("organizations: Repository<Organization, OrganizationReferences, OrganizationCreate, OrganizationUpdate>;");
+  expect(types).toContain("export type OrganizationReferences = {\n  members: Many<User, UserReferences>;\n};");
+  expect(types).toContain("users: Repository<User, UserReferences, UserCreate, UserUpdate>;");
 });

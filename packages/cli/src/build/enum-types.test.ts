@@ -98,7 +98,7 @@ void repos.members.create({ profile: Profile.brandEditor, role: "admin" });
   });
   const diagnostics = ts.getPreEmitDiagnostics(program, program.getSourceFile(check));
   expect(diagnostics.map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, " "))).toEqual([]);
-  expect(readFileSync(join(root, ".generated/types.ts"), "utf8")).toContain("Repository<Post, Record<never, never>, PostCreate, PostUpdate>");
+  expect(readFileSync(join(root, ".generated/types.ts"), "utf8")).toContain("Repository<Post, PostReferences, PostCreate, PostUpdate>");
 });
 
 describe("OpenAPI", () => {

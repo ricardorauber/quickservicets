@@ -1,6 +1,7 @@
 import { SYSTEM_FIELDS, type EntityModel, type FieldModel } from "./model.ts";
 import { project } from "./projection.ts";
 import type { Condition, FilterOperator, ListQuery, SortField } from "./query.ts";
+import type { PopulatePath, Populated } from "./repository.ts";
 
 /** One or more conditions combined with AND, built by the field handles of a query lambda. */
 export class QueryCondition {
@@ -140,21 +141,26 @@ export type SortFields<T> = {
 
 export type SortLambda<T> = (fields: SortFields<T>) => SortKey;
 
-/** A LINQ-like query on one entity; each `where` narrows it, and a terminal method runs it. */
-export interface Query<T> {
-  where(lambda: QueryLambda<T>): Query<T>;
+/**
+ * A LINQ-like query on one entity; each `where` narrows it, and a terminal method runs it. `R` maps reference fields
+ * for `include`.
+ */
+export interface Query<T, R = Record<never, never>> {
+  where(lambda: QueryLambda<T>): Query<T, R>;
   /** Orders by a field, replacing earlier ordering. */
-  orderBy(lambda: SortLambda<T>): Query<T>;
-  orderByDescending(lambda: SortLambda<T>): Query<T>;
+  orderBy(lambda: SortLambda<T>): Query<T, R>;
+  orderByDescending(lambda: SortLambda<T>): Query<T, R>;
   /** Adds a further sort field. */
-  thenBy(lambda: SortLambda<T>): Query<T>;
-  thenByDescending(lambda: SortLambda<T>): Query<T>;
+  thenBy(lambda: SortLambda<T>): Query<T, R>;
+  thenByDescending(lambda: SortLambda<T>): Query<T, R>;
   /** Leaves out the first `count` results (not applied to `count()` and `any()`). */
-  skip(count: number): Query<T>;
+  skip(count: number): Query<T, R>;
   /** Returns at most `count` results (not applied to `count()` and `any()`). */
-  take(count: number): Query<T>;
+  take(count: number): Query<T, R>;
   /** Returns only these fields plus `id`. */
-  select<K extends keyof T & string>(...fields: K[]): Query<Pick<T, K | ("id" & keyof T)>>;
+  select<K extends keyof T & string>(...fields: K[]): Query<Pick<T, K | ("id" & keyof T)>, R>;
+  /** Replaces reference paths with the referenced records, e.g. `include("profiles.permissions.module")`. */
+  include<const P extends readonly PopulatePath<R>[]>(...paths: P): Query<Populated<T, R, P[number]>>;
   /** Every match; throws when there are more than `repositories.findAllMax`. */
   all(): Promise<T[]>;
   /** The first match, or 404 `<Entity> not found`. */
@@ -171,7 +177,7 @@ export interface Query<T> {
 export interface QueryBackend {
   model: EntityModel;
   findAllMax: number;
-  list(query: ListQuery): Promise<{ data: Record<string, unknown>[]; total: number }>;
+  list(query: ListQuery, populate: string[]): Promise<{ data: Record<string, unknown>[]; total: number }>;
   count(where: Condition[]): Promise<number>;
   notFound(): Error;
 }
@@ -182,6 +188,7 @@ interface QueryState {
   skip: number;
   take?: number;
   select?: string[];
+  include?: string[];
 }
 
 const DEFAULT_SORT: SortField[] = [
@@ -211,9 +218,9 @@ function nonNegative(method: string, count: number): number {
 }
 
 /** A query over the backend's records with the given state; every method returns a new query. */
-export function createQuery<T>(backend: QueryBackend, state: QueryState): Query<T> {
+export function createQuery<T, R = Record<never, never>>(backend: QueryBackend, state: QueryState): Query<T, R> {
   const { model, findAllMax } = backend;
-  const next = (changes: Partial<QueryState>) => createQuery<T>(backend, { ...state, ...changes });
+  const next = (changes: Partial<QueryState>) => createQuery<T, R>(backend, { ...state, ...changes });
   const keyOf = (lambda: SortLambda<T>) => {
     const key = lambda(sortKeys(model) as unknown as SortFields<T>);
     if (!(key instanceof SortKey)) throw new Error(`An order lambda on ${model.entityName} must return a field`);
@@ -223,7 +230,10 @@ export function createQuery<T>(backend: QueryBackend, state: QueryState): Query<
   const shape = (records: Record<string, unknown>[]) =>
     (state.select ? records.map((record) => project(record, { include: ["id", ...state.select!] })) : records) as T[];
   const read = async (limit: number, offset: number) => {
-    const result = await backend.list({ where: state.where, sort: state.sort.length > 0 ? sorted(state.sort) : DEFAULT_SORT, limit, offset });
+    const result = await backend.list(
+      { where: state.where, sort: state.sort.length > 0 ? sorted(state.sort) : DEFAULT_SORT, limit, offset },
+      state.include ?? [],
+    );
     return { ...result, data: shape(result.data) };
   };
   const count = () => backend.count(state.where);
@@ -238,6 +248,7 @@ export function createQuery<T>(backend: QueryBackend, state: QueryState): Query<
     skip: (value) => next({ skip: nonNegative("skip", value) }),
     take: (value) => next({ take: nonNegative("take", value) }),
     select: (...fields) => createQuery(backend, { ...state, select: fields }) as never,
+    include: (...paths) => createQuery(backend, { ...state, include: [...new Set([...(state.include ?? []), ...paths])] }) as never,
     async all() {
       const size = sliceSize(await count());
       if (size > findAllMax) {

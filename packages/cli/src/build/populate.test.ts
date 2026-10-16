@@ -150,6 +150,7 @@ test("generated types map references for populated reads", async () => {
   const root = createLinkedProject({ "quickservice.config.ts": MEMORY_CONFIG, ...entities() });
   await build(root);
   const types = await Bun.file(join(root, ".generated/types.ts")).text();
-  expect(types).toContain("users: Repository<User, { organization: Organization | null }, UserCreate, UserUpdate>;");
-  expect(types).toContain("countries: Repository<Country, Record<never, never>, CountryCreate, CountryUpdate>;");
+  expect(types).toContain("users: Repository<User, UserReferences, UserCreate, UserUpdate>;");
+  expect(types).toContain("export type UserReferences = {\n  organization: One<Organization, OrganizationReferences>;\n};");
+  expect(types).toContain("countries: Repository<Country, CountryReferences, CountryCreate, CountryUpdate>;");
 });

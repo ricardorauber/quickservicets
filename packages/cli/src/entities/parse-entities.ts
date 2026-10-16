@@ -1,5 +1,5 @@
 import { readdirSync, statSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import ts from "typescript";
 import {
   builtInFileEntity,
@@ -19,7 +19,7 @@ import {
 import { EntityParseError } from "./errors.ts";
 import { applyEntityTags, type EntityTagTarget } from "./entity-tags.ts";
 import { applyFieldTags } from "./field-tags.ts";
-import { findTag, readTags } from "./jsdoc.ts";
+import { findTag, readTags, type DocTag } from "./jsdoc.ts";
 import { pairRelations } from "./relations.ts";
 import { deriveCollectionName, isValidCollectionName, toCamelCase, toSnakeCase } from "./naming.ts";
 
@@ -45,9 +45,9 @@ interface ParseContext {
 
 export function parseEntities(projectRoot: string): EntityModel[] {
   const entitiesDir = join(projectRoot, "entities");
-  const sources = listEntitySources(projectRoot, entitiesDir);
+  const files = listEntitySources(projectRoot, entitiesDir);
   const program = ts.createProgram(
-    sources.map((source) => source.file),
+    files.map((source) => source.file),
     {
       strict: true,
       noEmit: true,
@@ -62,6 +62,8 @@ export function parseEntities(projectRoot: string): EntityModel[] {
   );
   // Creating the checker binds every source file, which sets the parent pointers the parser relies on.
   const checker = program.getTypeChecker();
+  // Files that only export enums or string unions are shared by entities, not entities themselves.
+  const sources = files.filter((source) => !declaresOnlyEnums(program.getSourceFile(source.file)));
   const sourcesByFile = new Map(sources.map((source) => [source.file, source]));
 
   const models = sources.map((source) => parseEntity(program, { checker, source, sourcesByFile }));
@@ -197,6 +199,22 @@ function parseEntity(program: ts.Program, context: ParseContext): EntityModel {
     read: exposureFor(model, "read", fieldSelections, source),
   };
   return model;
+}
+
+/** Whether a file exports enums or string-literal union aliases and nothing else. */
+function declaresOnlyEnums(sourceFile: ts.SourceFile | undefined): boolean {
+  if (!sourceFile) return false;
+  const exported = sourceFile.statements.filter((statement) => isExported(statement) || ts.isExportAssignment(statement));
+  return (
+    exported.length > 0 &&
+    exported.every(
+      (statement) =>
+        ts.isEnumDeclaration(statement) ||
+        (ts.isTypeAliasDeclaration(statement) &&
+          ts.isUnionTypeNode(statement.type) &&
+          statement.type.types.every((member) => ts.isLiteralTypeNode(member) && ts.isStringLiteral(member.literal))),
+    )
+  );
 }
 
 function isExported(node: ts.Node): boolean {
@@ -364,7 +382,7 @@ function parseMember(member: ts.TypeElement, prefix: string, topLevel: boolean, 
     descriptor.onDelete = parseArrayOnDelete(member, path, source);
   }
   const field: NestedFieldModel = { name, ...descriptor, optional };
-  applyFieldTags(field, readTags(member), { relativeFile: source.relativeFile, path, topLevel });
+  applyFieldTags(field, withEnumDefaults(descriptor, readTags(member)), { relativeFile: source.relativeFile, path, topLevel });
   return field;
 }
 
@@ -429,6 +447,8 @@ function mapType(typeNode: ts.TypeNode, path: string, topLevel: boolean, context
       if (reference) return reference;
       return { type: "array", items: mapType(args[0]!, path, false, context) };
     }
+    const named = args.length === 0 ? namedEnumOf(typeNode, path, context) : undefined;
+    if (named) return named;
     const target = resolveEntityReference(typeNode, context);
     if (target) {
       if (!topLevel) {
@@ -466,6 +486,64 @@ function resolveEntityReference(typeNode: ts.TypeReferenceNode, context: ParseCo
   const target = context.sourcesByFile.get(resolve(declaration.getSourceFile().fileName));
   if (!target || declaration.name.text !== target.entityName || !isExported(declaration)) return undefined;
   return target;
+}
+
+/** Member names and values of named enums, used to read `@default <Enum>.<member>`. */
+const enumMembers = new WeakMap<TypeDescriptor, { names: string[]; values: Map<string, string> }>();
+
+const stringLiteralsOf = (union: ts.UnionTypeNode): string[] | undefined => {
+  const values = union.types.map((member) =>
+    ts.isLiteralTypeNode(member) && ts.isStringLiteral(member.literal) ? member.literal.text : undefined,
+  );
+  return values.every((value) => value !== undefined) ? (values as string[]) : undefined;
+};
+
+/** Maps a reference to an exported string `enum` or string-literal union alias to an enum field. */
+function namedEnumOf(typeNode: ts.TypeReferenceNode, path: string, context: ParseContext): TypeDescriptor | undefined {
+  const { source } = context;
+  let symbol = context.checker.getSymbolAtLocation(typeNode.typeName);
+  if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = context.checker.getAliasedSymbol(symbol);
+  const declaration = symbol?.declarations?.[0];
+  if (!declaration) return undefined;
+  const isUnionAlias =
+    ts.isTypeAliasDeclaration(declaration) &&
+    !declaration.typeParameters &&
+    ts.isUnionTypeNode(declaration.type) &&
+    stringLiteralsOf(declaration.type) !== undefined;
+  if (!ts.isEnumDeclaration(declaration) && !isUnionAlias) return undefined;
+  const name = (declaration as ts.EnumDeclaration | ts.TypeAliasDeclaration).name.text;
+  const fail = (reason: string) => new EntityParseError(`${source.relativeFile}: field "${path}" uses ${reason}`);
+  if (!isExported(declaration)) throw fail(`${name}, which must be exported`);
+  const root = source.file.slice(0, source.file.length - source.relativeFile.length);
+  const file = relative(root, declaration.getSourceFile().fileName).split(sep).join("/");
+  if (!ts.isEnumDeclaration(declaration)) {
+    return { type: "enum", values: stringLiteralsOf((declaration as ts.TypeAliasDeclaration).type as ts.UnionTypeNode)!, declaration: { name, file } };
+  }
+  const members = declaration.members.map((member) => ({ name: member.name.getText(), initializer: member.initializer }));
+  const implicit = members.every((member) => member.initializer === undefined);
+  if (!implicit && !members.every((member) => member.initializer && ts.isStringLiteralLike(member.initializer))) {
+    throw fail(`enum ${name}, whose members must all have string values or all have none`);
+  }
+  const values = members.map((member) => (implicit ? member.name : (member.initializer as ts.StringLiteralLike).text));
+  const repeated = values.find((value, index) => values.indexOf(value) !== index);
+  if (repeated !== undefined) throw fail(`enum ${name}, which repeats the value "${repeated}"`);
+  const descriptor: TypeDescriptor = { type: "enum", values, declaration: { name, file, ...(implicit ? { implicit: true as const } : {}) } };
+  enumMembers.set(descriptor, {
+    names: [name, typeNode.typeName.getText()],
+    values: new Map(members.map((member, index) => [member.name, values[index]!])),
+  });
+  return descriptor;
+}
+
+/** Rewrites `@default <Enum>.<member>` of a named enum field to the member's value; anything else is left as written. */
+function withEnumDefaults(descriptor: TypeDescriptor, tags: DocTag[]): DocTag[] {
+  const members = enumMembers.get(descriptor);
+  if (!members) return tags;
+  return tags.map((tag) => {
+    const match = tag.name === "default" ? /^([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)$/.exec(tag.text) : null;
+    const value = match && members.names.includes(match[1]!) ? members.values.get(match[2]!) : undefined;
+    return value === undefined ? tag : { ...tag, text: JSON.stringify(value) };
+  });
 }
 
 function mapEnum(typeNode: ts.UnionTypeNode, path: string, source: EntitySource): TypeDescriptor {

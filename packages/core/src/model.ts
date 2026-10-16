@@ -3,11 +3,21 @@ export type PrimitiveFieldType = "string" | "number" | "boolean" | "date";
 export type OnDeleteAction = "restrict" | "cascade" | "setNull";
 export type ArrayOnDeleteAction = "pull" | "restrict" | "cascade";
 
+/**
+ * The named `enum` or union type alias an enum field uses, with its file relative to the project root.
+ * `implicit` marks an enum without initializers, whose member names are its values.
+ */
+export interface EnumDeclarationInfo {
+  name: string;
+  file: string;
+  implicit?: true;
+}
+
 export type TypeDescriptor =
   | { type: PrimitiveFieldType }
   | { type: "ref"; target: string; onDelete: OnDeleteAction }
   | { type: "refArray"; target: string; onDelete: ArrayOnDeleteAction }
-  | { type: "enum"; values: string[] }
+  | { type: "enum"; values: string[]; declaration?: EnumDeclarationInfo }
   | { type: "array"; items: TypeDescriptor }
   | { type: "object"; fields: NestedFieldModel[] };
 

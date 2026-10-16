@@ -8,7 +8,7 @@ export interface FieldTagContext {
   topLevel: boolean;
 }
 
-type FieldUnderConstruction = NestedFieldModel & Partial<Pick<FieldModel, "unique" | "index">>;
+type FieldUnderConstruction = NestedFieldModel & Partial<Pick<FieldModel, "unique" | "index" | "inverse" | "owner">>;
 
 type FieldTagHandler = (field: FieldUnderConstruction, tag: DocTag, context: FieldTagContext) => void;
 
@@ -162,6 +162,16 @@ registerFieldTag("format", (field, tag, context) => {
 registerFieldTag("onDelete", (field, tag, context) => {
   // The value itself is parsed together with the reference; here only applicability is checked.
   if (field.type !== "ref" && field.type !== "refArray") throw fieldTagError(context, tag, "only applies to reference fields");
+});
+registerFieldTag("inverse", (field, tag, context) => {
+  if (field.type !== "ref" && field.type !== "refArray") throw fieldTagError(context, tag, "only applies to reference fields");
+  if (!/^[A-Za-z_$][\w$]*$/.test(tag.text)) throw fieldTagError(context, tag, "expects a field name or none");
+  field.inverse = tag.text;
+});
+registerFieldTag("owner", (field, tag, context) => {
+  requireNoValue(field, tag, context);
+  if (field.type !== "ref") throw fieldTagError(context, tag, "only applies to single reference fields");
+  field.owner = true;
 });
 registerFieldTag("hidden", (field, tag, context) => {
   if (tag.text === "") {

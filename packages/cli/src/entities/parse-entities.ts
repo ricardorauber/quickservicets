@@ -18,6 +18,7 @@ import { EntityParseError } from "./errors.ts";
 import { applyEntityTags, type EntityTagTarget } from "./entity-tags.ts";
 import { applyFieldTags } from "./field-tags.ts";
 import { findTag, readTags } from "./jsdoc.ts";
+import { pairRelations } from "./relations.ts";
 import { deriveCollectionName, isValidCollectionName, toCamelCase, toSnakeCase } from "./naming.ts";
 
 const ENTITY_FILE = /^[A-Z][A-Za-z0-9]*\.ts$/;
@@ -63,6 +64,7 @@ export function parseEntities(projectRoot: string): EntityModel[] {
 
   const models = sources.map((source) => parseEntity(program, { checker, source, sourcesByFile }));
   assertUniqueCollectionNames(models, sources);
+  pairRelations(models);
   models.forEach((model, index) => {
     for (const path of new Set([...(model.populate?.list ?? []), ...(model.populate?.read ?? [])])) {
       const [error] = populatePathErrors(model, models, path, Number.POSITIVE_INFINITY);

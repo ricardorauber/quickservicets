@@ -40,10 +40,28 @@ export type NestedFieldModel = TypeDescriptor &
 /** `relation` fields (reference arrays) are stored outside the entity's own columns. */
 export type FieldStorage = "column" | "json" | "relation";
 
+export type RelationKind = "1-1" | "1-N" | "N-N";
+
+/** One side of a bidirectional relation between two reference fields. */
+export interface RelationSide {
+  kind: RelationKind;
+  /** Entity key and field name of the other side. */
+  inverseEntity: string;
+  inverseField: string;
+  /** True on the side that holds the data (foreign key or junction); the other side is derived. */
+  storing: boolean;
+}
+
 export type FieldModel = NestedFieldModel & {
   storage: FieldStorage;
   unique?: boolean;
   index?: boolean;
+  /** `@inverse <field>` or `@inverse none`, as written. */
+  inverse?: string;
+  /** `@owner`: this side stores a 1-1 relation. */
+  owner?: boolean;
+  /** Set when the field is paired with an inverse field into one relation. */
+  relation?: RelationSide;
 };
 
 /** The paths a read operation returns: keep `include`, then remove `exclude` (see `project`). */

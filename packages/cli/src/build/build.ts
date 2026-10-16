@@ -14,7 +14,7 @@ import {
   type HookCall,
   type QueryItem,
 } from "@quickservice/core";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import ts from "typescript";
 import { parseProjectEntities as parseEntities } from "../entities/parse-entities.ts";
@@ -30,6 +30,22 @@ import { describeEndpoints } from "../openapi/endpoint-docs.ts";
 import { generateOpenApi } from "../openapi/generate-openapi.ts";
 
 export const GENERATED_DIR = ".generated";
+
+/**
+ * Updates the generated folder in place, so editors watching it see ordinary file changes: writes only files whose
+ * content changed and removes files that are no longer generated, never replacing the folder itself.
+ */
+export function writeGeneratedFiles(dir: string, files: Record<string, string>): void {
+  mkdirSync(dir, { recursive: true });
+  for (const entry of readdirSync(dir)) {
+    if (!(entry in files)) rmSync(join(dir, entry), { recursive: true, force: true });
+  }
+  for (const [name, content] of Object.entries(files)) {
+    const file = join(dir, name);
+    if (existsSync(file) && readFileSync(file, "utf8") === content) continue;
+    writeFileSync(file, content);
+  }
+}
 
 export interface BuildSummary {
   entities: number;
@@ -272,13 +288,9 @@ export async function build(projectRoot: string): Promise<BuildSummary> {
     "openapi.json": `${JSON.stringify(openApi, null, 2)}\n`,
   };
 
-  const target = join(projectRoot, GENERATED_DIR);
-  const staging = join(projectRoot, `${GENERATED_DIR}.staging`);
-  rmSync(staging, { recursive: true, force: true });
-  mkdirSync(staging, { recursive: true });
-  for (const [name, content] of Object.entries(files)) writeFileSync(join(staging, name), content);
-  if (existsSync(target)) rmSync(target, { recursive: true, force: true });
-  renameSync(staging, target);
+  writeGeneratedFiles(join(projectRoot, GENERATED_DIR), files);
+  // Earlier versions wrote through a staging folder.
+  rmSync(join(projectRoot, `${GENERATED_DIR}.staging`), { recursive: true, force: true });
 
   const warnings: string[] = joinTableWarnings(models, config.database.kind);
   const tsconfigWarning = generatedIncludeWarning(projectRoot);

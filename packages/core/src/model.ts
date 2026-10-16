@@ -75,6 +75,8 @@ export type FieldModel = NestedFieldModel & {
   relation?: RelationSide;
   /** `@maxSize` (bytes) and `@accept` (MIME patterns) of a reference to a file entity, on top of the entity's limits. */
   fileLimits?: { maxSize?: number; accept?: string[] };
+  /** `@keepFile`: the referenced file is never removed when replaced or when this record is deleted. */
+  keepFile?: boolean;
 };
 
 /** The paths a read operation returns: keep `include`, then remove `exclude` (see `project`). */

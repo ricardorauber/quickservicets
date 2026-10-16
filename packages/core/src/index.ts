@@ -78,3 +78,5 @@ export type { FileAccess, FileAccessSettings } from "./files/access.ts";
 export { assertReferencedFilesAllowed, fileTargetOf } from "./files/field-limits.ts";
 export { isMultipart, parseEntityUpload, withUploadedFiles } from "./files/references.ts";
 export type { EntityUpload } from "./files/references.ts";
+export { deleteObjects, isFileReferenced, objectOf, ownedFileFields } from "./files/cleanup.ts";
+export type { FileCleanupSettings, StoredObject } from "./files/cleanup.ts";

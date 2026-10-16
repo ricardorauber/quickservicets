@@ -31,6 +31,12 @@ export interface ServiceConfig {
     signedUrlTtl?: number;
     /** HMAC secret of signed proxy URLs (default `FILES_SIGNING_SECRET`). */
     signingSecret?: string;
+    /** Delete a file record's object when the record is deleted (default true). */
+    deleteOnRemove?: boolean;
+    /** Delete replaced content and files no longer referenced after a reference changes (default true). */
+    deleteReplaced?: boolean;
+    /** Delete the files a record references when the record is deleted (default true). */
+    deleteWithOwner?: boolean;
   };
   populate?: {
     /** Maximum number of segments in a populate path (default 2). */
@@ -53,6 +59,9 @@ export interface ResolvedConfig extends Omit<ServiceConfig, "server" | "producti
     access?: "direct" | "proxy" | "signed";
     signedUrlTtl: number;
     signingSecret?: string;
+    deleteOnRemove: boolean;
+    deleteReplaced: boolean;
+    deleteWithOwner: boolean;
   };
   storage: Record<string, StorageAdapter> & { default: StorageAdapter };
   populate: { maxDepth: number };
@@ -114,6 +123,9 @@ function resolveFiles(config: ServiceConfig, env: Record<string, string | undefi
     ...(config.files?.access ? { access: config.files.access } : {}),
     signedUrlTtl: config.files?.signedUrlTtl ?? DEFAULT_SIGNED_URL_TTL,
     ...(signingSecret ? { signingSecret } : {}),
+    deleteOnRemove: config.files?.deleteOnRemove ?? true,
+    deleteReplaced: config.files?.deleteReplaced ?? true,
+    deleteWithOwner: config.files?.deleteWithOwner ?? true,
   };
 }
 

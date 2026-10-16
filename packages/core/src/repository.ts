@@ -4,6 +4,14 @@ import { alwaysHiddenPaths, type EntityModel } from "./model.ts";
 import { project } from "./projection.ts";
 import { withFileUrls, type FileAccessSettings } from "./files/access.ts";
 import { assertReferencedFilesAllowed } from "./files/field-limits.ts";
+import {
+  deleteObjects,
+  isFileReferenced,
+  objectOf,
+  ownedFileFields,
+  type FileCleanupSettings,
+  type StoredObject,
+} from "./files/cleanup.ts";
 import { assertPopulatePaths, populateRecords } from "./populate.ts";
 import {
   deriveRelations,
@@ -31,6 +39,8 @@ export interface RepositoryOptions {
   populateMaxDepth?: number;
   /** Storages and access settings used to compute the `url` of file records. */
   fileAccess?: FileAccessSettings;
+  /** When set, objects and file records that are no longer used are deleted. */
+  fileCleanup?: FileCleanupSettings;
 }
 
 export interface ListResult<T> {
@@ -99,6 +109,17 @@ export function createRepository(
   // Writes only need a transaction when they also change other records (relation sides or a moved 1-1 link).
   const syncsRelations = hasDerived || model.fields.some((field) => field.onConflict === "replace");
   const atomically = <T>(fn: () => Promise<T>) => (syncsRelations ? adapter.transaction(fn) : fn());
+  const cleanup = repositoryOptions.fileCleanup;
+  const ownedFiles = ownedFileFields(model, models);
+  // Updates that may remove replaced files do so in the same transaction as the change.
+  const cleansReplaced = Boolean(cleanup?.deleteReplaced) && (ownedFiles.length > 0 || model.file !== undefined);
+  /** Runs a change, then deletes the objects it queued; nothing is deleted when the change fails. */
+  const settle = async <T>(fn: (queue: StoredObject[]) => Promise<T>): Promise<T> => {
+    const queue: StoredObject[] = [];
+    const result = await fn(queue);
+    if (cleanup && queue.length > 0) await deleteObjects(queue, cleanup);
+    return result;
+  };
   const compute = (entity: EntityModel, records: StoredRecord[]) => withFileUrls(entity, records, repositoryOptions.fileAccess);
   const withReferences = async (stored: StoredRecord[], options: ReadOptions = {}): Promise<StoredRecord[]> => {
     const records = await compute(model, hasDerived ? await deriveRelations(model, stored, models, adapter) : stored);
@@ -137,8 +158,31 @@ export function createRepository(
     return hasDerived ? (await deriveRelations(model, [record], models, adapter))[0]! : record;
   };
 
-  const write = (id: string, changes: Record<string, unknown>, options?: ReadOptions): Promise<EntityRecord> =>
-    atomically(async () => {
+  /** Deletes a file record that nothing references any more, queueing its object. */
+  const removeUnreferencedFile = async (target: EntityModel, id: string, queue: StoredObject[]) => {
+    if (await isFileReferenced(target, id, models, adapter)) return;
+    const record = await adapter.findById(target, id);
+    if (!record) return;
+    await executeDeletePlan(await planDelete(target, id, models, adapter), adapter, nextTimestamp);
+    const object = objectOf(target, record);
+    if (object) queue.push(object);
+  };
+
+  const removeReplaced = async (current: StoredRecord, changes: Record<string, unknown>, queue: StoredObject[]) => {
+    if (!cleanup?.deleteReplaced) return;
+    if (model.file && typeof changes.storageKey === "string" && changes.storageKey !== current.storageKey) {
+      const object = objectOf(model, current);
+      if (object) queue.push(object);
+    }
+    for (const { field, target } of ownedFiles) {
+      const previous = current[field.name];
+      if (!(field.name in changes) || typeof previous !== "string" || previous === changes[field.name]) continue;
+      await removeUnreferencedFile(target, previous, queue);
+    }
+  };
+
+  const write = (id: string, changes: Record<string, unknown>, options?: ReadOptions, queue: StoredObject[] = []): Promise<EntityRecord> =>
+    (cleansReplaced ? <T>(fn: () => Promise<T>) => adapter.transaction(fn) : atomically)(async () => {
       const current = await existing(id);
       await releaseOneToOne(model, id, changes, adapter, touch);
       const updated = await mapUniqueViolation(() =>
@@ -146,6 +190,7 @@ export function createRepository(
       );
       if (!updated) throw notFound();
       if (hasDerived) await mapUniqueViolation(() => writeDerived(model, id, changes, models, adapter, touch));
+      await removeReplaced(current, changes, queue);
       return present((await compute(model, [await existing(id)]))[0]!, options);
     });
 
@@ -174,7 +219,39 @@ export function createRepository(
       if (field.readOnly) continue;
       changes[field.name] = value[field.name] ?? (field.type === "refArray" ? [] : null);
     }
-    return write(id, { ...changes, ...managed }, options);
+    return settle((queue) => write(id, { ...changes, ...managed }, options, queue));
+  };
+
+  const updateRecord = async (id: string, changes: unknown, options: ReadOptions | undefined, queue: StoredObject[]) => {
+    const result = validateBody(model, changes, "patch");
+    if (!result.ok) throw new HttpError(400, "Invalid body", { details: result.details });
+    const value = result.value;
+    const hasChange = Object.values(value).some((item) => item instanceof ReferenceArrayChange);
+    if (!hasChange) {
+      await checkReferences(value);
+      return write(id, value, options, queue);
+    }
+    // Add/remove operations read the stored list and write the result atomically.
+    return adapter.transaction(async () => {
+      await adapter.lockForUpdate?.(model, id);
+      const current = await existing(id);
+      const details: { field: string; message: string }[] = [];
+      for (const field of model.fields) {
+        const change = value[field.name];
+        if (!(change instanceof ReferenceArrayChange)) continue;
+        const list = change.applyTo((current[field.name] as string[] | null) ?? []);
+        if (field.minLength !== undefined && list.length < field.minLength) {
+          details.push({ field: field.name, message: `Must have at least ${field.minLength} items` });
+        }
+        if (field.maxLength !== undefined && list.length > field.maxLength) {
+          details.push({ field: field.name, message: `Must have at most ${field.maxLength} items` });
+        }
+        value[field.name] = list;
+      }
+      if (details.length > 0) throw new HttpError(400, "Invalid body", { details });
+      await checkReferences(value);
+      return write(id, value, options, queue);
+    });
   };
 
   const repository: Repository = {
@@ -216,35 +293,7 @@ export function createRepository(
     },
 
     async update(id, changes, options) {
-      const result = validateBody(model, changes, "patch");
-      if (!result.ok) throw new HttpError(400, "Invalid body", { details: result.details });
-      const value = result.value;
-      const hasChange = Object.values(value).some((item) => item instanceof ReferenceArrayChange);
-      if (!hasChange) {
-        await checkReferences(value);
-        return write(id, value, options);
-      }
-      // Add/remove operations read the stored list and write the result atomically.
-      return adapter.transaction(async () => {
-        await adapter.lockForUpdate?.(model, id);
-        const current = await existing(id);
-        const details: { field: string; message: string }[] = [];
-        for (const field of model.fields) {
-          const change = value[field.name];
-          if (!(change instanceof ReferenceArrayChange)) continue;
-          const list = change.applyTo((current[field.name] as string[] | null) ?? []);
-          if (field.minLength !== undefined && list.length < field.minLength) {
-            details.push({ field: field.name, message: `Must have at least ${field.minLength} items` });
-          }
-          if (field.maxLength !== undefined && list.length > field.maxLength) {
-            details.push({ field: field.name, message: `Must have at most ${field.maxLength} items` });
-          }
-          value[field.name] = list;
-        }
-        if (details.length > 0) throw new HttpError(400, "Invalid body", { details });
-        await checkReferences(value);
-        return write(id, value, options);
-      });
+      return settle((queue) => updateRecord(id, changes, options, queue));
     },
 
     async replace(id, data, options) {
@@ -253,9 +302,32 @@ export function createRepository(
 
     async delete(id) {
       await existing(id);
-      await executeDeletePlan(await planDelete(model, id, models, adapter), adapter, nextTimestamp);
+      if (!cleanup) {
+        await executeDeletePlan(await planDelete(model, id, models, adapter), adapter, nextTimestamp);
+        return;
+      }
+      await settle((queue) =>
+        adapter.transaction(async () => {
+          const plan = await planDelete(model, id, models, adapter);
+          const owned: { target: EntityModel; id: string }[] = [];
+          for (const deleted of plan.deletions) {
+            const record = await adapter.findById(deleted.model, deleted.id);
+            if (!record) continue;
+            const object = deleted.model.file && cleanup.deleteOnRemove ? objectOf(deleted.model, record) : undefined;
+            if (object) queue.push(object);
+            if (!cleanup.deleteWithOwner) continue;
+            for (const { field, target } of ownedFileFields(deleted.model, models)) {
+              const fileId = record[field.name];
+              if (typeof fileId === "string") owned.push({ target, id: fileId });
+            }
+          }
+          await executeDeletePlan(plan, adapter, nextTimestamp);
+          for (const file of owned) await removeUnreferencedFile(file.target, file.id, queue);
+        }),
+      );
     },
   };
+
   return repository;
 }
 

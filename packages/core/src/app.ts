@@ -1,4 +1,5 @@
 import type { ResolvedConfig } from "./config.ts";
+import { jsonLogger } from "./logger.ts";
 import type { HookCall, HookDefinition, Repositories } from "./hooks.ts";
 import { createCrudRoutes, mergeRoutes, type CrudRoute } from "./http/crud.ts";
 import { withHooks } from "./http/pipeline.ts";
@@ -60,7 +61,14 @@ export interface App {
 /** Assembles repositories, generated and custom routes and their hooks into a server. */
 export function createApp({ models, crudRoutes, endpoints, hooks, config }: AppOptions): App {
   const fileAccess = { storage: config.storage, files: config.files, publicUrl: config.server.publicUrl };
-  const repos = createRepositories(models, config.database, { populateMaxDepth: config.populate?.maxDepth, fileAccess });
+  const fileCleanup = {
+    storage: config.storage,
+    deleteOnRemove: config.files.deleteOnRemove,
+    deleteReplaced: config.files.deleteReplaced,
+    deleteWithOwner: config.files.deleteWithOwner,
+    logger: config.logger ?? jsonLogger,
+  };
+  const repos = createRepositories(models, config.database, { populateMaxDepth: config.populate?.maxDepth, fileAccess, fileCleanup });
   const hooksByRoute = new Map(crudRoutes.map((entry) => [`${entry.method} ${entry.path}`, entry.hooks]));
   const uploads = { storage: config.storage, files: config.files };
   // The file route runs the entity's read hooks in proxy mode; a valid signature is the only check in signed mode.

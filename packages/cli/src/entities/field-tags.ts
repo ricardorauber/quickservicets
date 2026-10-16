@@ -8,7 +8,7 @@ export interface FieldTagContext {
   topLevel: boolean;
 }
 
-type FieldUnderConstruction = NestedFieldModel & Partial<Pick<FieldModel, "unique" | "index" | "inverse" | "owner" | "onConflict" | "joinTable" | "fileLimits">>;
+type FieldUnderConstruction = NestedFieldModel & Partial<Pick<FieldModel, "unique" | "index" | "inverse" | "owner" | "onConflict" | "joinTable" | "fileLimits" | "keepFile">>;
 
 type FieldTagHandler = (field: FieldUnderConstruction, tag: DocTag, context: FieldTagContext) => void;
 
@@ -176,6 +176,11 @@ registerFieldTag("accept", (field, tag, context) => {
     throw fieldTagError(context, tag, "expects MIME patterns like image/png,image/*");
   }
   field.fileLimits = { ...field.fileLimits, accept: patterns };
+});
+registerFieldTag("keepFile", (field, tag, context) => {
+  requireNoValue(field, tag, context);
+  requireFileReference(field, tag, context);
+  field.keepFile = true;
 });
 registerFieldTag("onDelete", (field, tag, context) => {
   // The value itself is parsed together with the reference; here only applicability is checked.

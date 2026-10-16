@@ -127,7 +127,7 @@ test("PUT replaces the content and keeps the id", async () => {
   expect(replaced.status).toBe(200);
   expect(replaced.body).toMatchObject({ id: created.id, filename: "b.webp", mimeType: "image/webp", size: 5, alt: null });
   expect(new Date(replaced.body.updatedAt).getTime()).toBeGreaterThan(new Date(created.updatedAt).getTime());
-  expect(walk(dir)).toHaveLength(2);
+  expect(walk(dir)).toHaveLength(1);
 });
 
 test("size units", () => {

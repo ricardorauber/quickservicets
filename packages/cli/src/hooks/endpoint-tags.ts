@@ -10,6 +10,10 @@ export interface EndpointMetadata {
   projection?: { include?: string[]; exclude?: string[] };
   /** Reference paths from `@populate`. */
   populate?: string[];
+  /** `@summary`: one line shown as the operation summary in the API docs. */
+  summary?: string;
+  /** `@description`: free text shown as the operation description in the API docs. */
+  description?: string;
 }
 
 type EndpointTagHandler = (tag: DocTag, file: string, metadata: EndpointMetadata) => void;
@@ -96,6 +100,15 @@ registerEndpointTag("populate", (tag, file, metadata) => {
   const paths = splitArgs(tag.text);
   if (paths.length === 0) throw new BuildError(`${file}: @populate needs at least one path`);
   metadata.populate = [...new Set([...(metadata.populate ?? []), ...paths])];
+});
+registerEndpointTag("summary", (tag, file, metadata) => {
+  const [line = ""] = tag.text.split("\n");
+  if (line.trim() === "") throw new BuildError(`${file}: @summary needs a text`);
+  metadata.summary = line.trim();
+});
+registerEndpointTag("description", (tag, file, metadata) => {
+  if (tag.text === "") throw new BuildError(`${file}: @description needs a text`);
+  metadata.description = tag.text;
 });
 registerEndpointTag("fields", projectionTag("include"));
 registerEndpointTag("exclude", projectionTag("exclude"));

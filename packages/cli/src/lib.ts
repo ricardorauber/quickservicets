@@ -26,3 +26,5 @@ export { DATABASES, initProject, NEXT_STEPS } from "./init/init.ts";
 export type { DatabaseChoice, InitOptions, Prompt } from "./init/init.ts";
 export { componentNames, entityTag, generateOpenApi, openApiPath, responseSchema, writeSchema } from "./openapi/generate-openapi.ts";
 export type { GenerateOpenApiOptions, JsonSchema, OpenApiDocument } from "./openapi/generate-openapi.ts";
+export { describeEndpoints } from "./openapi/endpoint-docs.ts";
+export type { EndpointDoc, EndpointDocInput } from "./openapi/endpoint-docs.ts";

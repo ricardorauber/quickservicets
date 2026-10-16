@@ -21,6 +21,7 @@ import { scanHooks, type HookEntry } from "../hooks/scan-hooks.ts";
 import { validateHookReferences } from "../hooks/validate-hook-references.ts";
 import { hasPendingChanges, sqlDialectOf } from "../migrations/add.ts";
 import { generateTypesFile } from "./generate-types.ts";
+import { describeEndpoints } from "../openapi/endpoint-docs.ts";
 
 export const GENERATED_DIR = ".generated";
 
@@ -36,6 +37,8 @@ export const PENDING_MIGRATION_WARNING =
 
 interface ResolvedEndpoint {
   route: EndpointRoute;
+  /** The generated CRUD route the endpoint replaces. */
+  override?: { entity: string; operation: CrudRouteEntry["operation"] };
   hooks: HookCall[];
   projection?: Projection;
   populate?: { entity: string; paths: string[] };
@@ -93,7 +96,8 @@ function resolveEndpoint(endpoint: ScannedEndpoint, models: EntityModel[], maxDe
   }
   const { entity, operation } = override;
   const hooks = resolveRouteHooks({ kind: "override", entity, operation, endpointHooks: endpoint.hooks });
-  if (operation !== "list" && operation !== "read") return { route, hooks, projection: metadata.projection };
+  const replaced = { entity: entity.key, operation };
+  if (operation !== "list" && operation !== "read") return { route, override: replaced, hooks, projection: metadata.projection };
 
   const populatePaths = metadata.populate ?? entity.populate?.[operation] ?? [];
   for (const path of populatePaths) {
@@ -101,11 +105,11 @@ function resolveEndpoint(endpoint: ScannedEndpoint, models: EntityModel[], maxDe
     if (error) throw new BuildError(`${route.file}: invalid @populate: ${error}`);
   }
   const populate = populatePaths.length > 0 ? { entity: entity.key, paths: populatePaths } : undefined;
-  if (!metadata.projection) return { route, hooks, projection: entity.exposure[operation], populate };
+  if (!metadata.projection) return { route, override: replaced, hooks, projection: entity.exposure[operation], populate };
   const paths = [...(metadata.projection.include ?? []), ...(metadata.projection.exclude ?? [])];
   const parsed = parseFieldPaths(entity, paths);
   if (!parsed.ok) throw new BuildError(`${route.file}: unknown path ${parsed.invalid.join(", ")} in @fields/@exclude`);
-  return { route, hooks, projection: metadata.projection, populate };
+  return { route, override: replaced, hooks, projection: metadata.projection, populate };
 }
 
 function assertEntityPopulateDepth(models: EntityModel[], maxDepth: number): void {
@@ -212,6 +216,12 @@ export async function build(projectRoot: string): Promise<BuildSummary> {
   renameSync(staging, target);
 
   const warnings: string[] = joinTableWarnings(models, config.database.kind);
+  const endpointDocs = describeEndpoints(
+    projectRoot,
+    models,
+    resolved.map((endpoint, index) => ({ route: endpoint.route, metadata: endpoints[index]!.metadata, override: endpoint.override })),
+  );
+  warnings.push(...endpointDocs.warnings);
   const dialect = sqlDialectOf(config.database.kind);
   if (dialect && (await hasPendingChanges(projectRoot, models, dialect))) warnings.push(PENDING_MIGRATION_WARNING);
   return { entities: models.length, endpoints: endpoints.length, hooks: hooks.size, warnings };

@@ -1,3 +1,4 @@
+import type { EndpointDoc } from "./endpoint-docs.ts";
 import {
   DEFAULT_LIMIT,
   MAX_LIMIT,
@@ -26,6 +27,8 @@ export interface GenerateOpenApiOptions {
   routes: CrudRouteEntry[];
   hooks?: ReadonlyMap<string, HookDefinition>;
   packageJson: { name?: string; version?: string };
+  /** Custom endpoints from `/endpoints`, see `describeEndpoints`. */
+  endpoints?: EndpointDoc[];
 }
 
 type WriteMode = "create" | "replace" | "update";
@@ -283,13 +286,60 @@ export function openApiPath(path: string): string {
 }
 
 const METHOD_ORDER = ["get", "post", "put", "patch", "delete"];
+const BODY_METHODS = new Set(["post", "put", "patch"]);
+
+/** `/organizations/[orgId]/stats` → `OrganizationsOrgIdStats`; `/` → `Root`. */
+function pascalPath(path: string): string {
+  return pascalCase(path.replace(/[[\]]/g, "")) || "Root";
+}
+
+function pathParameters(params: string[]): unknown[] {
+  return params.map((name) => ({ name, in: "path", required: true, schema: { type: "string" } }));
+}
+
+/** Tag (first static segment, or `root`) and operation id (method plus PascalCase path) of a custom endpoint. */
+function endpointIdentity(doc: EndpointDoc): { tags: string[]; operationId: string } {
+  const tag = doc.path.split("/").find((segment) => segment !== "" && !segment.startsWith("[")) ?? "root";
+  return { tags: [tag], operationId: `${doc.method.toLowerCase()}${pascalPath(doc.path)}` };
+}
+
+function customOperation(doc: EndpointDoc): Record<string, unknown> {
+  const method = doc.method.toLowerCase();
+  const success =
+    method === "delete" && !doc.result
+      ? { "204": { description: "Success" } }
+      : { "200": { description: "Success", content: json(doc.result ?? { type: "object" }) } };
+  return {
+    ...endpointIdentity(doc),
+    ...(doc.params.length > 0 ? { parameters: pathParameters(doc.params) } : {}),
+    ...(BODY_METHODS.has(method) ? { requestBody: { required: true, content: json(doc.body ?? { type: "object" }) } } : {}),
+    responses: success,
+  };
+}
+
+/** The generated operation's schemas, parameters and responses, with the endpoint's path, types and texts taking precedence. */
+function overriddenOperation(doc: EndpointDoc, generated: Record<string, unknown>): Record<string, unknown> {
+  const operation: Record<string, any> = { ...structuredClone(generated), ...endpointIdentity(doc) };
+  const queryParameters = ((operation.parameters ?? []) as { in: string }[]).filter((parameter) => parameter.in !== "path");
+  const parameters = [...pathParameters(doc.params), ...queryParameters];
+  if (parameters.length > 0) operation.parameters = parameters;
+  if (doc.body && operation.requestBody) operation.requestBody = { required: true, content: json(doc.body) };
+  if (doc.result) {
+    const responses = operation.responses as Record<string, Record<string, unknown>>;
+    const code = Object.keys(responses).find((status) => status.startsWith("2"))!;
+    const status = code === "204" ? "200" : code;
+    delete responses[code];
+    operation.responses = { [status]: { description: "Success", content: json(doc.result) }, ...responses };
+  }
+  return operation;
+}
 
 function sortKeys<T>(record: Record<string, T>, compare?: (a: string, b: string) => number): Record<string, T> {
   return Object.fromEntries(Object.entries(record).sort(([a], [b]) => (compare ? compare(a, b) : a < b ? -1 : a > b ? 1 : 0)));
 }
 
 /** Builds the OpenAPI 3.1 document of the entities and their generated CRUD routes. */
-export function generateOpenApi({ models, routes, packageJson }: GenerateOpenApiOptions): OpenApiDocument {
+export function generateOpenApi({ models, routes, packageJson, endpoints = [] }: GenerateOpenApiOptions): OpenApiDocument {
   const entities = models.filter((model) => !model.link);
   const names = componentNames(entities);
   const schemas: Record<string, JsonSchema> = { Error: ERROR_SCHEMA };
@@ -308,6 +358,21 @@ export function generateOpenApi({ models, routes, packageJson }: GenerateOpenApi
     const path = openApiPath(route.path);
     tags.add(entityTag(model));
     (paths[path] ??= {})[route.method.toLowerCase()] = operationFor(model, route.operation, names.get(model.key)!, entities);
+  }
+  for (const doc of endpoints) {
+    const method = doc.method.toLowerCase();
+    const route = doc.override && routes.find((candidate) => candidate.entity === doc.override!.entity && candidate.operation === doc.override!.operation);
+    const generatedPath = route ? openApiPath(route.path) : undefined;
+    const generated = generatedPath ? paths[generatedPath]?.[method] : undefined;
+    if (generatedPath && generated) {
+      delete paths[generatedPath]![method];
+      if (Object.keys(paths[generatedPath]!).length === 0) delete paths[generatedPath];
+    }
+    const operation = generated ? overriddenOperation(doc, generated as Record<string, unknown>) : customOperation(doc);
+    if (doc.summary) operation.summary = doc.summary;
+    if (doc.description) operation.description = doc.description;
+    for (const tag of operation.tags as string[]) tags.add(tag);
+    (paths[openApiPath(doc.path)] ??= {})[method] = operation;
   }
   return {
     openapi: "3.1.0",

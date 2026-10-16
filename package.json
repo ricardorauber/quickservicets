@@ -2,9 +2,15 @@
   "name": "quickservice",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/*", "examples/*"],
+  "workspaces": [
+    "packages/*",
+    "examples/*",
+    "docs"
+  ],
   "scripts": {
-    "test": "bun test"
+    "test": "bun test",
+    "docs:dev": "bun run --cwd docs dev",
+    "docs:build": "bun run --cwd docs build"
   },
   "devDependencies": {
     "@types/bun": "1.2.21",

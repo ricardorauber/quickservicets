@@ -1,0 +1,12 @@
+/* Indigo accent: #4F46E5 in the light theme, a lighter indigo on dark backgrounds. */
+:root {
+  --sl-color-accent-low: #1e1b4b;
+  --sl-color-accent: #818cf8;
+  --sl-color-accent-high: #e0e7ff;
+}
+
+:root[data-theme="light"] {
+  --sl-color-accent-low: #e0e7ff;
+  --sl-color-accent: #4f46e5;
+  --sl-color-accent-high: #312e81;
+}

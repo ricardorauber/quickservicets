@@ -1,0 +1,55 @@
+---
+title: quickservice
+description: Escreva suas entidades como tipos TypeScript. Ganhe uma API REST tipada e documentada, no Bun.
+template: splash
+hero:
+  tagline: Escreva suas entidades como tipos TypeScript. Ganhe uma API REST tipada e documentada, no Bun.
+  image:
+    file: ../../../assets/logo.svg
+  actions:
+    - text: Começar
+      link: /pt-br/getting-started/
+      icon: right-arrow
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components";
+
+<CardGrid>
+  <Card title="Entidades como tipos" icon="document">
+    Descreva seus dados com declarações `type` e tags JSDoc como `@unique` e `@default`.
+  </Card>
+  <Card title="CRUD gerado" icon="rocket">
+    Rotas de listar, ler, criar, atualizar, substituir e apagar, com validação, filtros, ordenação e populate.
+  </Card>
+  <Card title="Consultas tipadas" icon="seti:typescript">
+    Uma API no estilo LINQ: `where`, `include`, `orderBy`, `all`, checada pelo TypeScript de ponta a ponta.
+  </Card>
+  <Card title="Documentação da API" icon="open-book">
+    Um documento OpenAPI 3.1 e uma página Scalar em `/docs`, gerados do mesmo modelo.
+  </Card>
+</CardGrid>
+
+## Uma API completa a partir de um arquivo
+
+```ts title="entities/User.ts"
+export type User = {
+  /** @unique @format email */
+  email: string;
+  name?: string;
+  /** @default 'member' */
+  role: "member" | "admin";
+};
+```
+
+E ela já responde:
+
+```bash
+curl -X POST localhost:3000/users -d '{"email":"ana@x.co"}'
+# {"id":"01a1…","email":"ana@x.co","name":null,"role":"member",…}
+```
+
+## Instalar
+
+```bash
+bun packages/cli/src/index.ts init examples/my-app --db sqlite
+```

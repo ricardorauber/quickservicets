@@ -1,0 +1,55 @@
+---
+title: quickservice
+description: Write your entities as TypeScript types. Get a typed, documented REST API on Bun.
+template: splash
+hero:
+  tagline: Write your entities as TypeScript types. Get a typed, documented REST API on Bun.
+  image:
+    file: ../../assets/logo.svg
+  actions:
+    - text: Get started
+      link: /getting-started/
+      icon: right-arrow
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components";
+
+<CardGrid>
+  <Card title="Entities as types" icon="document">
+    Describe your data with plain `type` declarations and JSDoc tags like `@unique` and `@default`.
+  </Card>
+  <Card title="Generated CRUD" icon="rocket">
+    List, read, create, update, replace and delete routes with validation, filters, sorting and populate.
+  </Card>
+  <Card title="Typed queries" icon="seti:typescript">
+    A LINQ-like API: `where`, `include`, `orderBy`, `all` — checked by TypeScript end to end.
+  </Card>
+  <Card title="API docs" icon="open-book">
+    An OpenAPI 3.1 document and a Scalar page at `/docs`, generated from the same model.
+  </Card>
+</CardGrid>
+
+## A complete API from one file
+
+```ts title="entities/User.ts"
+export type User = {
+  /** @unique @format email */
+  email: string;
+  name?: string;
+  /** @default 'member' */
+  role: "member" | "admin";
+};
+```
+
+And it answers right away:
+
+```bash
+curl -X POST localhost:3000/users -d '{"email":"ana@x.co"}'
+# {"id":"01a1…","email":"ana@x.co","name":null,"role":"member",…}
+```
+
+## Install
+
+```bash
+bun packages/cli/src/index.ts init examples/my-app --db sqlite
+```

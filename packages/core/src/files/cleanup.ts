@@ -29,6 +29,12 @@ export function ownedFileFields(model: EntityModel, models: EntityModel[]): { fi
   });
 }
 
+/** The file ids a reference or reference array value holds. */
+export function referencedIds(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  return Array.isArray(value) ? [...new Set(value.filter((id): id is string => typeof id === "string"))] : [];
+}
+
 /** Whether any record of any entity still references the file. */
 export async function isFileReferenced(target: EntityModel, id: string, models: EntityModel[], adapter: DatabaseAdapter): Promise<boolean> {
   for (const model of models) {

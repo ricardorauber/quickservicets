@@ -3,11 +3,11 @@ import { HttpError, type FieldErrorDetail } from "../errors.ts";
 import type { EntityModel, FieldModel } from "../model.ts";
 import { mimeMatches } from "./limits.ts";
 
-export type FileReference = Extract<FieldModel, { type: "ref" }>;
+export type FileReference = Extract<FieldModel, { type: "ref" | "refArray" }>;
 
-/** The file entity a field references, or undefined when the field is not a reference to a file entity. */
+/** The file entity a field (or array) references, or undefined when the field is not a reference to a file entity. */
 export function fileTargetOf(field: FieldModel | undefined, models: EntityModel[]): EntityModel | undefined {
-  if (field?.type !== "ref") return undefined;
+  if (field?.type !== "ref" && field?.type !== "refArray") return undefined;
   const target = models.find((model) => model.key === field.target);
   return target?.file ? target : undefined;
 }

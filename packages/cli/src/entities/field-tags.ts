@@ -161,7 +161,9 @@ registerFieldTag("format", (field, tag, context) => {
 });
 function requireFileReference(field: FieldUnderConstruction, tag: DocTag, context: FieldTagContext): void {
   // Whether the target is a file entity is checked once every entity is parsed.
-  if (field.type !== "ref" || !context.topLevel) throw fieldTagError(context, tag, "only applies to references to file entities");
+  if ((field.type !== "ref" && field.type !== "refArray") || !context.topLevel) {
+    throw fieldTagError(context, tag, "only applies to references to file entities");
+  }
 }
 registerFieldTag("maxSize", (field, tag, context) => {
   requireFileReference(field, tag, context);
@@ -176,6 +178,12 @@ registerFieldTag("accept", (field, tag, context) => {
     throw fieldTagError(context, tag, "expects MIME patterns like image/png,image/*");
   }
   field.fileLimits = { ...field.fileLimits, accept: patterns };
+});
+registerFieldTag("maxTotalSize", (field, tag, context) => {
+  if (field.type !== "refArray" || !context.topLevel) throw fieldTagError(context, tag, "only applies to arrays of files");
+  const size = parseSize(tag.text);
+  if (size === undefined) throw fieldTagError(context, tag, "expects a size like 512KB or 10MB");
+  field.fileLimits = { ...field.fileLimits, maxTotalSize: size };
 });
 registerFieldTag("keepFile", (field, tag, context) => {
   requireNoValue(field, tag, context);

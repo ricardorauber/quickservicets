@@ -81,8 +81,15 @@ export function parseEntities(projectRoot: string): EntityModel[] {
   models.forEach((model, index) => {
     for (const field of model.fields) {
       if (!field.fileLimits && !field.keepFile) continue;
-      if (field.type === "ref" && known.find((candidate) => candidate.key === field.target)?.file) continue;
-      const tag = field.keepFile ? "@keepFile" : field.fileLimits!.maxSize !== undefined ? "@maxSize" : "@accept";
+      if ((field.type === "ref" || field.type === "refArray") && known.find((candidate) => candidate.key === field.target)?.file) continue;
+      const limits = field.fileLimits ?? {};
+      const tag = field.keepFile
+        ? "@keepFile"
+        : limits.maxSize !== undefined
+          ? "@maxSize"
+          : limits.maxTotalSize !== undefined
+            ? "@maxTotalSize"
+            : "@accept";
       throw new EntityParseError(
         `${sources[index]!.relativeFile}: field "${field.name}" has invalid ${tag}: only applies to references to file entities`,
       );

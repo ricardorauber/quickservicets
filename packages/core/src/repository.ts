@@ -9,6 +9,7 @@ import {
   isFileReferenced,
   objectOf,
   ownedFileFields,
+  referencedIds,
   type FileCleanupSettings,
   type StoredObject,
 } from "./files/cleanup.ts";
@@ -175,9 +176,11 @@ export function createRepository(
       if (object) queue.push(object);
     }
     for (const { field, target } of ownedFiles) {
-      const previous = current[field.name];
-      if (!(field.name in changes) || typeof previous !== "string" || previous === changes[field.name]) continue;
-      await removeUnreferencedFile(target, previous, queue);
+      if (!(field.name in changes)) continue;
+      const kept = new Set(referencedIds(changes[field.name]));
+      for (const previous of referencedIds(current[field.name])) {
+        if (!kept.has(previous)) await removeUnreferencedFile(target, previous, queue);
+      }
     }
   };
 
@@ -317,8 +320,7 @@ export function createRepository(
             if (object) queue.push(object);
             if (!cleanup.deleteWithOwner) continue;
             for (const { field, target } of ownedFileFields(deleted.model, models)) {
-              const fileId = record[field.name];
-              if (typeof fileId === "string") owned.push({ target, id: fileId });
+              for (const fileId of referencedIds(record[field.name])) owned.push({ target, id: fileId });
             }
           }
           await executeDeletePlan(plan, adapter, nextTimestamp);

@@ -1,0 +1,201 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`schemas map every field kind and tag 1`] = `
+{
+  "properties": {
+    "active": {
+      "type": "boolean",
+    },
+    "address": {
+      "properties": {
+        "city": {
+          "type": "string",
+        },
+        "zip": {
+          "type": [
+            "string",
+            "null",
+          ],
+        },
+      },
+      "required": [
+        "city",
+      ],
+      "type": [
+        "object",
+        "null",
+      ],
+    },
+    "age": {
+      "maximum": 150,
+      "minimum": 0,
+      "type": [
+        "number",
+        "null",
+      ],
+    },
+    "birthday": {
+      "format": "date-time",
+      "type": [
+        "string",
+        "null",
+      ],
+    },
+    "createdAt": {
+      "format": "date-time",
+      "type": "string",
+    },
+    "email": {
+      "format": "email",
+      "type": "string",
+    },
+    "id": {
+      "format": "uuid",
+      "type": "string",
+    },
+    "organization": {
+      "format": "uuid",
+      "type": [
+        "string",
+        "null",
+      ],
+    },
+    "role": {
+      "default": "member",
+      "enum": [
+        "member",
+        "admin",
+      ],
+      "type": "string",
+    },
+    "tags": {
+      "items": {
+        "type": "string",
+      },
+      "maxItems": 5,
+      "minItems": 1,
+      "type": "array",
+    },
+    "updatedAt": {
+      "format": "date-time",
+      "type": "string",
+    },
+    "website": {
+      "format": "uri",
+      "minLength": 8,
+      "type": [
+        "string",
+        "null",
+      ],
+    },
+  },
+  "required": [
+    "id",
+    "createdAt",
+    "updatedAt",
+    "email",
+    "role",
+    "tags",
+    "active",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`schemas map every field kind and tag 2`] = `
+{
+  "additionalProperties": false,
+  "properties": {
+    "active": {
+      "type": "boolean",
+    },
+    "address": {
+      "additionalProperties": false,
+      "properties": {
+        "city": {
+          "type": "string",
+        },
+        "note": {
+          "type": [
+            "string",
+            "null",
+          ],
+        },
+        "zip": {
+          "type": [
+            "string",
+            "null",
+          ],
+        },
+      },
+      "required": [
+        "city",
+      ],
+      "type": [
+        "object",
+        "null",
+      ],
+    },
+    "age": {
+      "maximum": 150,
+      "minimum": 0,
+      "type": [
+        "number",
+        "null",
+      ],
+    },
+    "birthday": {
+      "format": "date-time",
+      "type": [
+        "string",
+        "null",
+      ],
+    },
+    "email": {
+      "format": "email",
+      "type": "string",
+    },
+    "organization": {
+      "format": "uuid",
+      "type": [
+        "string",
+        "null",
+      ],
+    },
+    "passwordHash": {
+      "type": "string",
+    },
+    "role": {
+      "default": "member",
+      "enum": [
+        "member",
+        "admin",
+      ],
+      "type": "string",
+    },
+    "tags": {
+      "items": {
+        "type": "string",
+      },
+      "maxItems": 5,
+      "minItems": 1,
+      "type": "array",
+    },
+    "website": {
+      "format": "uri",
+      "minLength": 8,
+      "type": [
+        "string",
+        "null",
+      ],
+    },
+  },
+  "required": [
+    "email",
+    "passwordHash",
+    "tags",
+    "active",
+  ],
+  "type": "object",
+}
+`;

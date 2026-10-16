@@ -24,3 +24,5 @@ export { DEBOUNCE_MS, handleSignals, startDev, WATCHED_PATHS } from "./dev/dev.t
 export type { DevDependencies, DevSession } from "./dev/dev.ts";
 export { DATABASES, initProject, NEXT_STEPS } from "./init/init.ts";
 export type { DatabaseChoice, InitOptions, Prompt } from "./init/init.ts";
+export { componentNames, entityTag, generateOpenApi, openApiPath, responseSchema, writeSchema } from "./openapi/generate-openapi.ts";
+export type { GenerateOpenApiOptions, JsonSchema, OpenApiDocument } from "./openapi/generate-openapi.ts";

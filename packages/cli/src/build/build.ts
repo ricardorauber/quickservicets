@@ -57,7 +57,8 @@ const CRUD_ROUTES: [string, string, CrudRouteEntry["operation"]][] = [
   ["DELETE", "/[id]", "delete"],
 ];
 
-function crudTable(models: EntityModel[]): CrudRouteEntry[] {
+/** The generated CRUD routes of every non-internal entity, with their resolved hooks. */
+export function crudTable(models: EntityModel[]): CrudRouteEntry[] {
   return models
     .filter((model) => !model.internal)
     .flatMap((model) =>

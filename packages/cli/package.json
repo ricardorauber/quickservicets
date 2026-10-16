@@ -12,6 +12,7 @@
     "drizzle-orm": "0.45.4"
   },
   "devDependencies": {
+    "@scalar/openapi-parser": "0.29.9",
     "mongodb": "7.7.0"
   }
 }

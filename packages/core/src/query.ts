@@ -108,6 +108,15 @@ export function queryableFields(model: EntityModel): Map<string, QueryField> {
   return fields;
 }
 
+/** Filterable fields of a list route with their allowed operators, and whether each can be sorted. */
+export function listQueryFields(model: EntityModel): { name: string; operators: FilterOperator[]; sortable: boolean }[] {
+  return [...queryableFields(model)].map(([name, field]) => ({
+    name,
+    operators: OPERATORS_BY_TYPE[field.type],
+    sortable: field.sortable !== false,
+  }));
+}
+
 class QueryErrors {
   readonly details: FieldErrorDetail[] = [];
   add(field: string, message: string): undefined {

@@ -4,7 +4,7 @@ export { alwaysHiddenPaths, CRUD_OPERATIONS, entityRoutePath, hiddenPathsFor, SY
 export type { ArrayOnDeleteAction, FileAccessMode, RelationKind, RelationSide, CrudOperation, EntityModel, Exposure, ReadOperation, HookReference, OverrideHooksMode, FieldConstraints, FieldModel, FieldStorage, FieldType, NestedFieldModel, OnDeleteAction, PrimitiveFieldType, StringFormat, TypeDescriptor } from "./model.ts";
 export { ReferenceArrayChange, validateBody } from "./validation.ts";
 export type { ValidationMode, ValidationResult } from "./validation.ts";
-export { DEFAULT_LIMIT, FILTER_OPERATORS, MAX_LIMIT, MAX_LIST_VALUES, parseListQuery, queryableFields, SIZE_COMPARISONS } from "./query.ts";
+export { DEFAULT_LIMIT, FILTER_OPERATORS, MAX_LIMIT, MAX_LIST_VALUES, listQueryFields, parseListQuery, queryableFields, SIZE_COMPARISONS } from "./query.ts";
 export type { Condition, FilterOperator, ListQuery, SizeComparison, SizeFilter, SortDirection, SortField } from "./query.ts";
 export { UniqueViolationError } from "./adapter.ts";
 export type { AdapterKind, ConnectOptions, DatabaseAdapter, FindManyOptions, FindManyResult, StoredRecord } from "./adapter.ts";

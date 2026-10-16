@@ -2,7 +2,10 @@ import type { EndpointDoc } from "./endpoint-docs.ts";
 import {
   DEFAULT_LIMIT,
   MAX_LIMIT,
+  entityRoutePath,
   listQueryFields,
+  resolveFileAccess,
+  type FileAccessSettings,
   type CrudOperation,
   type CrudRouteEntry,
   type EntityModel,
@@ -39,6 +42,10 @@ export interface GenerateOpenApiOptions {
   packageJson: { name?: string; version?: string };
   /** Custom endpoints from `/endpoints`, see `describeEndpoints`. */
   endpoints?: EndpointDoc[];
+  /** Storages and file settings, to document the file route of each file entity's access mode. */
+  files?: Pick<FileAccessSettings, "storage" | "files">;
+  /** Maximum segments of a populate path (default 2). */
+  populateMaxDepth?: number;
 }
 
 type WriteMode = "create" | "replace" | "update";
@@ -72,6 +79,8 @@ const ERROR_DESCRIPTIONS: Record<number, string> = {
   403: "Forbidden",
   404: "Not found",
   409: "Conflict",
+  413: "Payload too large",
+  415: "Unsupported media type",
 };
 
 const SYSTEM_PROPERTIES: Record<string, JsonSchema> = {
@@ -164,15 +173,32 @@ function objectSchema(fields: NestedFieldModel[], visible: (field: NestedFieldMo
   };
 }
 
-/** The response schema: system fields and every field that is not `@hidden`. */
-export function responseSchema(model: EntityModel): JsonSchema {
+/** A reference that population may replace: the id, or the target's read schema. */
+function populatableSchema(field: NestedFieldModel & { type: "ref" | "refArray" }, target: string): JsonSchema {
+  const one = { oneOf: [{ type: "string", format: "uuid" }, ref(target)] };
+  if (field.type === "ref") return field.optional ? { oneOf: [...one.oneOf, { type: "null" }] } : one;
+  const schema: JsonSchema = { type: field.optional ? ["array", "null"] : "array", items: one };
+  if (field.minLength !== undefined) schema.minItems = field.minLength;
+  if (field.maxLength !== undefined) schema.maxItems = field.maxLength;
+  return schema;
+}
+
+/**
+ * The response schema: system fields and every field that is not `@hidden`. With `readSchemaOf`, references are
+ * `oneOf` the id and the referenced entity's read schema.
+ */
+export function responseSchema(model: EntityModel, readSchemaOf?: (target: string) => string | undefined): JsonSchema {
   const visible = (field: NestedFieldModel) => !field.hidden;
   const shown = model.fields.filter(visible);
+  const propertyOf = (field: (typeof shown)[number]) => {
+    const target = (field.type === "ref" || field.type === "refArray") && readSchemaOf?.(field.target);
+    return target ? populatableSchema(field as NestedFieldModel & { type: "ref" | "refArray" }, target) : fieldSchema(field, visible, "response");
+  };
   return {
     type: "object",
     properties: {
       ...SYSTEM_PROPERTIES,
-      ...Object.fromEntries(shown.map((field) => [field.name, fieldSchema(field, visible, "response")])),
+      ...Object.fromEntries(shown.map((field) => [field.name, propertyOf(field)])),
     },
     required: ["id", "createdAt", "updatedAt", ...shown.filter((field) => !field.optional).map((field) => field.name)],
   };
@@ -191,8 +217,53 @@ export function writeSchema(model: EntityModel, mode: WriteMode): JsonSchema {
   };
 }
 
-const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
+function ref(name: string): JsonSchema {
+  return { $ref: `#/components/schemas/${name}` };
+}
 const json = (schema: JsonSchema) => ({ "application/json": { schema } });
+const multipart = (schema: JsonSchema) => ({ "multipart/form-data": { schema } });
+const BINARY: JsonSchema = { type: "string", format: "binary" };
+
+/** `1048576` → `1 MB`. */
+function formatSize(bytes: number): string {
+  for (const [unit, size] of [["GB", 1024 ** 3], ["MB", 1024 ** 2], ["KB", 1024]] as const) {
+    if (bytes >= size && bytes % size === 0) return `${bytes / size} ${unit}`;
+  }
+  return `${bytes} bytes`;
+}
+
+/** The file entity a reference field targets, when the field can take uploads. */
+function fileTargetOf(field: EntityModel["fields"][number], models: EntityModel[]): EntityModel | undefined {
+  if ((field.type !== "ref" && field.type !== "refArray") || field.storage === "derived") return undefined;
+  const target = models.find((model) => model.key === field.target);
+  return target?.file ? target : undefined;
+}
+
+/** The multipart variant of a write schema: file reference fields become binary parts, with their limits described. */
+function multipartSchema(model: EntityModel, json: JsonSchema, models: EntityModel[]): JsonSchema {
+  const properties = { ...(json.properties as Record<string, JsonSchema>) };
+  for (const field of model.fields) {
+    if (!(field.name in properties) || !fileTargetOf(field, models)) continue;
+    const limits = [
+      field.fileLimits?.maxSize !== undefined ? `Max size: ${formatSize(field.fileLimits.maxSize)}.` : "",
+      field.fileLimits?.maxTotalSize !== undefined ? `Max total size: ${formatSize(field.fileLimits.maxTotalSize)}.` : "",
+      field.fileLimits?.accept ? `Accepted types: ${field.fileLimits.accept.join(", ")}.` : "",
+    ].filter((text) => text !== "");
+    const description = ["File upload.", ...limits].join(" ");
+    properties[field.name] = field.type === "refArray" ? { type: "array", items: BINARY, description } : { ...BINARY, description };
+  }
+  return { ...json, properties };
+}
+
+/** The multipart body of a file entity: the required `file` part and the entity's own writable fields. */
+function fileUploadSchema(json: JsonSchema): JsonSchema {
+  const { additionalProperties: _, ...rest } = json;
+  return {
+    ...rest,
+    properties: { file: BINARY, ...(json.properties as Record<string, JsonSchema>) },
+    required: ["file", ...((json.required as string[] | undefined) ?? [])],
+  };
+}
 
 function errorResponses(codes: number[]): Record<string, unknown> {
   return Object.fromEntries(
@@ -352,6 +423,32 @@ interface ReadSchemas {
   list: string;
   read: string;
   schemas: Record<string, JsonSchema>;
+  /** Paths the `populate` parameter accepts. */
+  populate: string[];
+}
+
+/** Reference paths an entity can populate, up to `maxDepth` segments; hidden references are left out. */
+export function populatePathsOf(model: EntityModel, models: EntityModel[], maxDepth: number, prefix = ""): string[] {
+  if (maxDepth <= 0) return [];
+  return model.fields.flatMap((field) => {
+    if ((field.type !== "ref" && field.type !== "refArray") || field.hidden) return [];
+    const path = `${prefix}${field.name}`;
+    const target = models.find((candidate) => candidate.key === field.target);
+    return [path, ...(target ? populatePathsOf(target, models, maxDepth - 1, `${path}.`) : [])];
+  });
+}
+
+function populateParameters(paths: string[]): unknown[] {
+  if (paths.length === 0) return [];
+  return [
+    {
+      name: "populate",
+      in: "query",
+      required: false,
+      description: `Comma-separated reference paths to replace with the referenced records. Allowed paths: ${paths.map((path) => `\`${path}\``).join(", ")}.`,
+      schema: { type: "string" },
+    },
+  ];
 }
 
 function operationFor(
@@ -364,13 +461,25 @@ function operationFor(
   const unique = model.fields.some((field) => field.unique);
   const conflict = unique ? [409] : [];
   const record = { content: json(ref(name)) };
-  const body = (schema: string) => ({ required: true, content: json(ref(schema)) });
+  const hasFileReferences = model.fields.some((field) => fileTargetOf(field, models) !== undefined);
+  const body = (schema: string) => {
+    if (model.file && !schema.endsWith("Update")) {
+      return { required: true, content: multipart(fileUploadSchema(readSchemas.schemas[schema]!)) };
+    }
+    if (!hasFileReferences) return { required: true, content: json(ref(schema)) };
+    return { required: true, content: { ...json(ref(schema)), ...multipart(multipartSchema(model, readSchemas.schemas[schema]!, models)) } };
+  };
+  const uploadErrors = model.file ? [413, 415] : [];
   const base = { tags: [entityTag(model)], operationId: `${operation}${name}` };
   switch (operation) {
     case "list":
       return {
         ...base,
-        parameters: [...listParameters(model), ...selectionParameters(readSchemas.schemas[readSchemas.list]!)],
+        parameters: [
+          ...listParameters(model),
+          ...selectionParameters(readSchemas.schemas[readSchemas.list]!),
+          ...populateParameters(readSchemas.populate),
+        ],
         responses: {
           "200": {
             description: `A page of ${model.name}`,
@@ -391,14 +500,14 @@ function operationFor(
     case "read":
       return {
         ...base,
-        parameters: [ID_PARAMETER, ...selectionParameters(readSchemas.schemas[readSchemas.read]!)],
+        parameters: [ID_PARAMETER, ...selectionParameters(readSchemas.schemas[readSchemas.read]!), ...populateParameters(readSchemas.populate)],
         responses: { "200": { description: `The ${model.entityName}`, content: json(ref(readSchemas.read)) }, ...errorResponses([404]) },
       };
     case "create":
       return {
         ...base,
         requestBody: body(`${name}Create`),
-        responses: { "201": { description: `The created ${model.entityName}`, ...record }, ...errorResponses([400, ...conflict]) },
+        responses: { "201": { description: `The created ${model.entityName}`, ...record }, ...errorResponses([400, ...conflict, ...uploadErrors]) },
       };
     case "update":
       return {
@@ -412,7 +521,10 @@ function operationFor(
         ...base,
         parameters: [ID_PARAMETER],
         requestBody: body(`${name}Replace`),
-        responses: { "200": { description: `The replaced ${model.entityName}`, ...record }, ...errorResponses([400, 404, ...conflict]) },
+        responses: {
+          "200": { description: `The replaced ${model.entityName}`, ...record },
+          ...errorResponses([400, 404, ...conflict, ...uploadErrors]),
+        },
       };
     case "delete":
       return {
@@ -484,7 +596,6 @@ function sortKeys<T>(record: Record<string, T>, compare?: (a: string, b: string)
   return Object.fromEntries(Object.entries(record).sort(([a], [b]) => (compare ? compare(a, b) : a < b ? -1 : a > b ? 1 : 0)));
 }
 
-/** Builds the OpenAPI 3.1 document of the entities and their generated CRUD routes. */
 /** Projects the success response schema of an endpoint with `@fields`/`@exclude`; unknown schemas stay as they are. */
 function projectSuccessResponse(
   operation: Record<string, any>,
@@ -529,13 +640,45 @@ function documentHooks(operation: Record<string, any>, declared: HookCall[], hoo
   return bearer;
 }
 
-export function generateOpenApi({ models, routes, packageJson, endpoints = [], hooks = new Map() }: GenerateOpenApiOptions): OpenApiDocument {
+/** The file route of a file entity in proxy or signed mode. */
+function fileOperation(model: EntityModel, name: string, signed: boolean): Record<string, unknown> {
+  const signature = [
+    { name: "expires", in: "query", required: true, description: "Expiry of the signed URL, in unix seconds.", schema: { type: "integer" } },
+    { name: "signature", in: "query", required: true, description: "Signature of the URL.", schema: { type: "string" } },
+  ];
+  return {
+    tags: [entityTag(model)],
+    operationId: `download${name}`,
+    parameters: [ID_PARAMETER, ...(signed ? signature : [])],
+    responses: {
+      "200": { description: `The ${model.entityName} content`, content: { "*/*": { schema: BINARY } } },
+      ...errorResponses(signed ? [403, 404] : [404]),
+    },
+  };
+}
+
+/** Builds the OpenAPI 3.1 document of the entities and their generated CRUD routes. */
+export function generateOpenApi({
+  models,
+  routes,
+  packageJson,
+  endpoints = [],
+  hooks = new Map(),
+  files,
+  populateMaxDepth = 2,
+}: GenerateOpenApiOptions): OpenApiDocument {
   const entities = models.filter((model) => !model.link);
   const names = componentNames(entities);
   const schemas: Record<string, JsonSchema> = { Error: ERROR_SCHEMA };
+  // Which entities need projected read schemas does not depend on how references are shown, so it is decided first.
+  const readNames = new Map<string, string>();
   for (const model of entities) {
     const name = names.get(model.key)!;
-    schemas[name] = responseSchema(model);
+    readNames.set(model.key, projectSchema(responseSchema(model), model.exposure.read) ? `${name}Read` : name);
+  }
+  for (const model of entities) {
+    const name = names.get(model.key)!;
+    schemas[name] = responseSchema(model, (target) => readNames.get(target));
     schemas[`${name}Create`] = writeSchema(model, "create");
     schemas[`${name}Replace`] = writeSchema(model, "replace");
     schemas[`${name}Update`] = writeSchema(model, "update");
@@ -547,7 +690,12 @@ export function generateOpenApi({ models, routes, packageJson, endpoints = [], h
     const read = projectSchema(schemas[name]!, model.exposure.read);
     if (listItem) schemas[`${name}ListItem`] = listItem;
     if (read) schemas[`${name}Read`] = read;
-    readSchemas.set(model.key, { list: listItem ? `${name}ListItem` : name, read: read ? `${name}Read` : name, schemas });
+    readSchemas.set(model.key, {
+      list: listItem ? `${name}ListItem` : name,
+      read: read ? `${name}Read` : name,
+      schemas,
+      populate: populatePathsOf(model, entities, populateMaxDepth),
+    });
   }
   const paths: Record<string, Record<string, unknown>> = {};
   const tags = new Set<string>();
@@ -560,6 +708,13 @@ export function generateOpenApi({ models, routes, packageJson, endpoints = [], h
     tags.add(entityTag(model));
     (paths[path] ??= {})[route.method.toLowerCase()] = operationFor(model, route.operation, names.get(model.key)!, entities, readSchemas.get(model.key)!);
     operationHooks.set(`${route.method.toLowerCase()} ${path}`, route.hooks);
+    const mode = model.file && files && route.operation === "read" ? resolveFileAccess(model, files).mode : "direct";
+    if (mode !== "direct") {
+      const filePath = `${openApiPath(`${entityRoutePath(model)}/[id]`)}/file`;
+      (paths[filePath] ??= {}).get = fileOperation(model, names.get(model.key)!, mode === "signed");
+      // Proxy downloads run the entity's read hooks; signed ones only check the signature.
+      operationHooks.set(`get ${filePath}`, mode === "proxy" ? route.hooks : []);
+    }
   }
   for (const doc of endpoints) {
     const method = doc.method.toLowerCase();

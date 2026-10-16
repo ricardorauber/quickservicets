@@ -117,3 +117,13 @@ describe("config", () => {
     expect((await loadConfig(root, { NODE_ENV: "production" })).docs.enabled).toBe(false);
   });
 });
+
+test("the built document documents file routes of the configured access mode", async () => {
+  const root = createLinkedProject({
+    "quickservice.config.ts": MEMORY_CONFIG,
+    "entities/Document.ts": 'import type { File } from "@quickservice/core";\n/** @access proxy */\nexport type Document = File & { title?: string }',
+  });
+  await build(root);
+  const document = JSON.parse(readFileSync(join(root, ".generated/openapi.json"), "utf8"));
+  expect(document.paths).toHaveProperty("/documents/{id}/file");
+});

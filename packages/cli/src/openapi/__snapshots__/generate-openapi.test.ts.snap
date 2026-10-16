@@ -54,10 +54,17 @@ exports[`schemas map every field kind and tag 1`] = `
       "type": "string",
     },
     "organization": {
-      "format": "uuid",
-      "type": [
-        "string",
-        "null",
+      "oneOf": [
+        {
+          "format": "uuid",
+          "type": "string",
+        },
+        {
+          "$ref": "#/components/schemas/Organization",
+        },
+        {
+          "type": "null",
+        },
       ],
     },
     "role": {

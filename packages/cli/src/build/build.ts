@@ -231,7 +231,15 @@ export async function build(projectRoot: string): Promise<BuildSummary> {
   );
   const packageFile = join(projectRoot, "package.json");
   const packageJson = existsSync(packageFile) ? (JSON.parse(readFileSync(packageFile, "utf8")) as { name?: string; version?: string }) : {};
-  const openApi = generateOpenApi({ models, routes: crudTable(models), hooks, packageJson, endpoints: endpointDocs.docs });
+  const openApi = generateOpenApi({
+    models,
+    routes: crudTable(models),
+    hooks,
+    packageJson,
+    endpoints: endpointDocs.docs,
+    files: config,
+    populateMaxDepth: config.populate.maxDepth,
+  });
 
   const files: Record<string, string> = {
     "models.ts": `${HEADER}\nimport type { EntityModel } from "@quickservice/core";\n\nexport const models: EntityModel[] = ${JSON.stringify(models, null, 2)};\n`,

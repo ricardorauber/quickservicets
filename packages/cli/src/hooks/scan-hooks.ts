@@ -1,4 +1,4 @@
-import { isHookDefinition, type HookPhase } from "@quickservice/core";
+import { isHookDefinition, type HookDocs, type HookPhase } from "@quickservice/core";
 import { readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import { isBuiltInEntityTag } from "../entities/entity-tags.ts";
@@ -11,6 +11,8 @@ export interface HookEntry {
   phase: HookPhase;
   /** File path relative to the project root. */
   file: string;
+  /** `options.docs` of the hook definition. */
+  docs?: HookDocs;
 }
 
 const HOOK_NAME = /^[a-z][a-zA-Z0-9]*$/;
@@ -41,7 +43,8 @@ export async function scanHooks(projectRoot: string): Promise<Map<string, HookEn
     if (!isHookDefinition(module.default)) {
       throw new BuildError(`${file}: must default-export definePreHook(...) or definePostHook(...)`);
     }
-    hooks.set(name, { name, phase: module.default.phase, file });
+    const { phase, docs } = module.default;
+    hooks.set(name, { name, phase, file, ...(docs ? { docs } : {}) });
   }
   return hooks;
 }

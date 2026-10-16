@@ -219,7 +219,12 @@ export async function build(projectRoot: string): Promise<BuildSummary> {
   const endpointDocs = describeEndpoints(
     projectRoot,
     models,
-    resolved.map((endpoint, index) => ({ route: endpoint.route, metadata: endpoints[index]!.metadata, override: endpoint.override })),
+    resolved.map((endpoint, index) => ({
+      route: endpoint.route,
+      metadata: endpoints[index]!.metadata,
+      override: endpoint.override,
+      hooks: endpoint.hooks,
+    })),
   );
   warnings.push(...endpointDocs.warnings);
   const dialect = sqlDialectOf(config.database.kind);

@@ -46,16 +46,26 @@ export type PostHookFn = (
 
 const HOOK_MARKER = Symbol.for("quickservice.hook");
 
-export type HookDefinition =
-  | { readonly [HOOK_MARKER]: true; phase: "pre"; fn: PreHookFn }
-  | { readonly [HOOK_MARKER]: true; phase: "post"; fn: PostHookFn };
-
-export function definePreHook(fn: PreHookFn): HookDefinition {
-  return { [HOOK_MARKER]: true, phase: "pre", fn };
+/** How a hook appears in the API docs: extra error responses and the security scheme it enforces. */
+export interface HookDocs {
+  responses?: number[];
+  security?: "bearer";
 }
 
-export function definePostHook(fn: PostHookFn): HookDefinition {
-  return { [HOOK_MARKER]: true, phase: "post", fn };
+export interface HookOptions {
+  docs?: HookDocs;
+}
+
+export type HookDefinition =
+  | { readonly [HOOK_MARKER]: true; phase: "pre"; fn: PreHookFn; docs?: HookDocs }
+  | { readonly [HOOK_MARKER]: true; phase: "post"; fn: PostHookFn; docs?: HookDocs };
+
+export function definePreHook(fn: PreHookFn, options: HookOptions = {}): HookDefinition {
+  return { [HOOK_MARKER]: true, phase: "pre", fn, ...(options.docs ? { docs: options.docs } : {}) };
+}
+
+export function definePostHook(fn: PostHookFn, options: HookOptions = {}): HookDefinition {
+  return { [HOOK_MARKER]: true, phase: "post", fn, ...(options.docs ? { docs: options.docs } : {}) };
 }
 
 export function isHookDefinition(value: unknown): value is HookDefinition {

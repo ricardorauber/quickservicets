@@ -1,5 +1,5 @@
 import { join, relative, resolve, sep } from "node:path";
-import type { CrudOperation, EntityModel } from "@quickservice/core";
+import type { CrudOperation, EntityModel, HookCall } from "@quickservice/core";
 import ts from "typescript";
 import type { EndpointRoute } from "../endpoints/scan-endpoints.ts";
 import type { EndpointMetadata } from "../hooks/endpoint-tags.ts";
@@ -20,12 +20,15 @@ export interface EndpointDoc {
   result?: JsonSchema;
   /** The generated CRUD route the endpoint replaces. */
   override?: { entity: string; operation: CrudOperation };
+  /** Resolved hooks in execution order, as the runtime runs them. */
+  hooks: HookCall[];
 }
 
 export interface EndpointDocInput {
   route: EndpointRoute;
   metadata: EndpointMetadata;
   override?: { entity: string; operation: CrudOperation };
+  hooks?: HookCall[];
 }
 
 class UnsupportedType extends Error {}
@@ -208,7 +211,7 @@ export function describeEndpoints(
     names: componentNames(models.filter((model) => !model.link)),
     visiting: new Set(),
   };
-  const docs = endpoints.map(({ route, metadata, override }, index): EndpointDoc => {
+  const docs = endpoints.map(({ route, metadata, override, hooks = [] }, index): EndpointDoc => {
     const sourceFile = program.getSourceFile(files[index]!);
     const endpointType = sourceFile ? endpointTypeOf(sourceFile) : undefined;
     const [bodyNode, resultNode] = endpointType?.typeArguments ?? [];
@@ -233,6 +236,7 @@ export function describeEndpoints(
       ...withValue("body", convert(bodyNode)),
       ...withValue("result", convert(resultNode)),
       ...(override ? { override } : {}),
+      hooks,
     };
   });
   return { docs, warnings };

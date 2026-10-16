@@ -17,6 +17,8 @@ export { definePostHook, definePreHook, isHookDefinition } from "./hooks.ts";
 export type {
   HookCall,
   HookDefinition,
+  HookDocs,
+  HookOptions,
   HookPhase,
   PostHookFn,
   PreHookFn,

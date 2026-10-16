@@ -6,7 +6,9 @@ import {
   type CrudOperation,
   type CrudRouteEntry,
   type EntityModel,
-  type HookDefinition,
+  type HookCall,
+  type HookDocs,
+  type HookPhase,
   type NestedFieldModel,
   type TypeDescriptor,
 } from "@quickservice/core";
@@ -18,14 +20,21 @@ export interface OpenApiDocument {
   info: { title: string; version: string };
   tags: { name: string }[];
   paths: Record<string, Record<string, unknown>>;
-  components: { schemas: Record<string, JsonSchema> };
+  components: { schemas: Record<string, JsonSchema>; securitySchemes?: Record<string, JsonSchema> };
+}
+
+/** What the document needs from a hook: its phase and `options.docs`. */
+export interface HookDocEntry {
+  phase: HookPhase;
+  docs?: HookDocs;
 }
 
 export interface GenerateOpenApiOptions {
   models: EntityModel[];
   /** Generated CRUD routes (method, path, entity key and operation). */
   routes: CrudRouteEntry[];
-  hooks?: ReadonlyMap<string, HookDefinition>;
+  /** Hooks by name (the hook registry), for phases and `options.docs`. */
+  hooks?: ReadonlyMap<string, HookDocEntry>;
   packageJson: { name?: string; version?: string };
   /** Custom endpoints from `/endpoints`, see `describeEndpoints`. */
   endpoints?: EndpointDoc[];
@@ -56,7 +65,13 @@ const ERROR_SCHEMA: JsonSchema = {
   },
 };
 
-const ERROR_DESCRIPTIONS: Record<number, string> = { 400: "Invalid request", 404: "Not found", 409: "Conflict" };
+const ERROR_DESCRIPTIONS: Record<number, string> = {
+  400: "Invalid request",
+  401: "Unauthorized",
+  403: "Forbidden",
+  404: "Not found",
+  409: "Conflict",
+};
 
 const SYSTEM_PROPERTIES: Record<string, JsonSchema> = {
   id: { type: "string", format: "uuid" },
@@ -179,7 +194,9 @@ const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
 const json = (schema: JsonSchema) => ({ "application/json": { schema } });
 
 function errorResponses(codes: number[]): Record<string, unknown> {
-  return Object.fromEntries(codes.map((code) => [String(code), { description: ERROR_DESCRIPTIONS[code], content: json(ref("Error")) }]));
+  return Object.fromEntries(
+    codes.map((code) => [String(code), { description: ERROR_DESCRIPTIONS[code] ?? "Error", content: json(ref("Error")) }]),
+  );
 }
 
 /** Whether a record of the entity can be referenced by a record of another entity. */
@@ -339,7 +356,29 @@ function sortKeys<T>(record: Record<string, T>, compare?: (a: string, b: string)
 }
 
 /** Builds the OpenAPI 3.1 document of the entities and their generated CRUD routes. */
-export function generateOpenApi({ models, routes, packageJson, endpoints = [] }: GenerateOpenApiOptions): OpenApiDocument {
+/** Adds the hook line, `x-hooks`, hook error responses and security to an operation; returns whether bearer auth is used. */
+function documentHooks(operation: Record<string, any>, declared: HookCall[], hooks: ReadonlyMap<string, HookDocEntry>): boolean {
+  // The runtime runs every pre-hook before the handler and every post-hook after it, each group in declared order.
+  const calls = [
+    ...declared.filter((call) => hooks.get(call.name)?.phase !== "post"),
+    ...declared.filter((call) => hooks.get(call.name)?.phase === "post"),
+  ];
+  const line = `Hooks: ${calls.map((call) => (call.args.length > 0 ? `${call.name}(${call.args.join(", ")})` : call.name)).join(", ")}`;
+  operation.description = operation.description ? `${operation.description}\n\n${line}` : line;
+  operation["x-hooks"] = calls.map((call) => ({ name: call.name, phase: hooks.get(call.name)?.phase, args: call.args }));
+  let bearer = false;
+  for (const call of calls) {
+    const docs = hooks.get(call.name)?.docs;
+    for (const code of docs?.responses ?? []) {
+      operation.responses[String(code)] ??= errorResponses([code])[String(code)];
+    }
+    if (docs?.security === "bearer") bearer = true;
+  }
+  if (bearer) operation.security = [{ bearerAuth: [] }];
+  return bearer;
+}
+
+export function generateOpenApi({ models, routes, packageJson, endpoints = [], hooks = new Map() }: GenerateOpenApiOptions): OpenApiDocument {
   const entities = models.filter((model) => !model.link);
   const names = componentNames(entities);
   const schemas: Record<string, JsonSchema> = { Error: ERROR_SCHEMA };
@@ -352,12 +391,15 @@ export function generateOpenApi({ models, routes, packageJson, endpoints = [] }:
   }
   const paths: Record<string, Record<string, unknown>> = {};
   const tags = new Set<string>();
+  // Hooks run by each operation, keyed by `<method> <path>`.
+  const operationHooks = new Map<string, HookCall[]>();
   for (const route of routes) {
     const model = entities.find((candidate) => candidate.key === route.entity);
     if (!model || model.internal) continue;
     const path = openApiPath(route.path);
     tags.add(entityTag(model));
     (paths[path] ??= {})[route.method.toLowerCase()] = operationFor(model, route.operation, names.get(model.key)!, entities);
+    operationHooks.set(`${route.method.toLowerCase()} ${path}`, route.hooks);
   }
   for (const doc of endpoints) {
     const method = doc.method.toLowerCase();
@@ -365,6 +407,7 @@ export function generateOpenApi({ models, routes, packageJson, endpoints = [] }:
     const generatedPath = route ? openApiPath(route.path) : undefined;
     const generated = generatedPath ? paths[generatedPath]?.[method] : undefined;
     if (generatedPath && generated) {
+      operationHooks.delete(`${method} ${generatedPath}`);
       delete paths[generatedPath]![method];
       if (Object.keys(paths[generatedPath]!).length === 0) delete paths[generatedPath];
     }
@@ -373,6 +416,13 @@ export function generateOpenApi({ models, routes, packageJson, endpoints = [] }:
     if (doc.description) operation.description = doc.description;
     for (const tag of operation.tags as string[]) tags.add(tag);
     (paths[openApiPath(doc.path)] ??= {})[method] = operation;
+    operationHooks.set(`${method} ${openApiPath(doc.path)}`, doc.hooks);
+  }
+  let bearer = false;
+  for (const [key, calls] of operationHooks) {
+    if (calls.length === 0) continue;
+    const [method, path] = [key.slice(0, key.indexOf(" ")), key.slice(key.indexOf(" ") + 1)];
+    if (documentHooks(paths[path]![method] as Record<string, any>, calls, hooks)) bearer = true;
   }
   return {
     openapi: "3.1.0",
@@ -386,6 +436,9 @@ export function generateOpenApi({ models, routes, packageJson, endpoints = [] }:
         ]),
       ),
     ),
-    components: { schemas: sortKeys(schemas) },
+    components: {
+      schemas: sortKeys(schemas),
+      ...(bearer ? { securitySchemes: { bearerAuth: { type: "http", scheme: "bearer" } } } : {}),
+    },
   };
 }

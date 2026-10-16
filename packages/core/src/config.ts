@@ -40,6 +40,10 @@ export interface ServiceConfig {
     /** Delete the files a record references when the record is deleted (default true). */
     deleteWithOwner?: boolean;
   };
+  repositories?: {
+    /** Most records a fluent query's `all()` may return (default 10000). */
+    findAllMax?: number;
+  };
   populate?: {
     /** Maximum number of segments in a populate path (default 2). */
     maxDepth?: number;

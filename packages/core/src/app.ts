@@ -74,7 +74,12 @@ export function createApp({ models, crudRoutes, endpoints, hooks, config, openAp
     deleteWithOwner: config.files.deleteWithOwner,
     logger: config.logger ?? jsonLogger,
   };
-  const repos = createRepositories(models, config.database, { populateMaxDepth: config.populate?.maxDepth, fileAccess, fileCleanup });
+  const repos = createRepositories(models, config.database, {
+    populateMaxDepth: config.populate?.maxDepth,
+    fileAccess,
+    fileCleanup,
+    findAllMax: config.repositories?.findAllMax,
+  });
   const hooksByRoute = new Map(crudRoutes.map((entry) => [`${entry.method} ${entry.path}`, entry.hooks]));
   const uploads = { storage: config.storage, files: config.files };
   // The file route runs the entity's read hooks in proxy mode; a valid signature is the only check in signed mode.

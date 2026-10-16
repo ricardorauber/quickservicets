@@ -1,5 +1,6 @@
 import { UniqueViolationError, type DatabaseAdapter, type StoredRecord } from "./adapter.ts";
 import { HttpError } from "./errors.ts";
+import { conditionsOf, type PageOptions, type Query, type QueryLambda } from "./fluent-query.ts";
 import { alwaysHiddenPaths, type EntityModel } from "./model.ts";
 import { project } from "./projection.ts";
 import { withFileUrls, type FileAccessSettings } from "./files/access.ts";
@@ -42,7 +43,11 @@ export interface RepositoryOptions {
   fileAccess?: FileAccessSettings;
   /** When set, objects and file records that are no longer used are deleted. */
   fileCleanup?: FileCleanupSettings;
+  /** Most records a fluent query's `all()` may return (default 10000). */
+  findAllMax?: number;
 }
+
+export const DEFAULT_FIND_ALL_MAX = 10000;
 
 export interface ListResult<T> {
   data: T[];
@@ -76,6 +81,10 @@ export interface Repository<T extends EntityRecord = EntityRecord, R = Record<ne
   createWith(id: string, managed: Record<string, unknown>, data: unknown): Promise<T>;
   /** Replaces a record like `replace`, also setting framework-managed fields. */
   replaceWith(id: string, managed: Record<string, unknown>, data: unknown): Promise<T>;
+  /** A fluent query filtered by the lambda's conditions. */
+  where(lambda: QueryLambda<T>): Query<T>;
+  /** A fluent query over every record. */
+  query(): Query<T>;
 }
 
 /** Repositories keyed by repository key; entities with an explicit schema are nested under the schema key. */
@@ -258,7 +267,53 @@ export function createRepository(
     });
   };
 
+  const findAllMax = repositoryOptions.findAllMax ?? DEFAULT_FIND_ALL_MAX;
+  const DEFAULT_SORT = [
+    { field: "createdAt", direction: "desc" as const },
+    { field: "id", direction: "desc" as const },
+  ];
+  const fluent = (where: Condition[]): Query<EntityRecord> => {
+    const resolved = () => resolveDerivedConditions(model, where, models, adapter);
+    const read = (limit: number, offset: number) => repository.list({ where, sort: DEFAULT_SORT, limit, offset });
+    const count = async () => adapter.count(model, await resolved());
+    return {
+      where: (lambda) => fluent([...where, ...conditionsOf(model, lambda as QueryLambda<unknown>)]),
+      async all() {
+        const total = await count();
+        if (total > findAllMax) {
+          throw new Error(`Query on ${model.entityName} matched ${total} records, more than repositories.findAllMax (${findAllMax})`);
+        }
+        return total === 0 ? [] : (await read(total, 0)).data;
+      },
+      async first() {
+        const [record] = (await read(1, 0)).data;
+        if (!record) throw notFound();
+        return record;
+      },
+      async firstOrDefault() {
+        return (await read(1, 0)).data[0] ?? null;
+      },
+      count,
+      async any() {
+        return (await count()) > 0;
+      },
+      async page({ limit = 20, offset = 0 }: PageOptions = {}) {
+        if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error(`page limit must be an integer from 1 to 100, got ${limit}`);
+        if (!Number.isInteger(offset) || offset < 0) throw new Error(`page offset must be a non-negative integer, got ${offset}`);
+        return read(limit, offset);
+      },
+    };
+  };
+
   const repository: Repository = {
+    where(lambda) {
+      return fluent(conditionsOf(model, lambda as QueryLambda<unknown>));
+    },
+
+    query() {
+      return fluent([]);
+    },
+
     async create(data, options) {
       return createRecord(Bun.randomUUIDv7(), {}, data, options);
     },

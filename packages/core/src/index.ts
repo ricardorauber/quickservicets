@@ -31,6 +31,8 @@ export type { Endpoint, HandlerResult, Route, Server, ServerOptions } from "./ht
 export { Router, patternOf, splitPath } from "./http/router.ts";
 export type { RouteMatch, RoutePattern } from "./http/router.ts";
 export { executedHooks, operationForRoute, resolveRouteHooks, withHooks } from "./http/pipeline.ts";
+export { conditionsOf, QueryCondition } from "./fluent-query.ts";
+export type { PageOptions, Query, QueryFields, QueryLambda } from "./fluent-query.ts";
 export { parseQueryItems, withQueryItems } from "./http/query-items.ts";
 export type { QueryItem, QueryItemLimits, QueryValueType } from "./http/query-items.ts";
 export { DOCS_PATH, docsPage, docsRoutes, OPENAPI_PATH, SCALAR_URL, SCALAR_VERSION } from "./http/docs.ts";

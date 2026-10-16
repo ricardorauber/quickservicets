@@ -134,7 +134,9 @@ describe("paths", () => {
     expect(item.patch.operationId).toBe("updateUser");
     expect(item.delete.operationId).toBe("deleteUser");
     expect(collection.get.tags).toEqual(["users"]);
-    expect(item.get.parameters).toEqual([{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }]);
+    expect(item.get.parameters.filter((parameter: { in: string }) => parameter.in === "path")).toEqual([
+      { name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+    ]);
     expect(collection.post.requestBody.content["application/json"].schema).toEqual({ $ref: "#/components/schemas/UserCreate" });
     expect(item.put.requestBody.content["application/json"].schema).toEqual({ $ref: "#/components/schemas/UserReplace" });
     expect(item.patch.requestBody.content["application/json"].schema).toEqual({ $ref: "#/components/schemas/UserUpdate" });

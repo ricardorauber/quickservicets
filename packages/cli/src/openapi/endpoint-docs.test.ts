@@ -158,7 +158,9 @@ describe("paths", () => {
       "endpoints/get.ts": "export default () => ({});",
     });
     const operation = doc.paths["/organizations/{orgId}"]!.get;
-    expect(operation.parameters).toEqual([{ name: "orgId", in: "path", required: true, schema: { type: "string" } }]);
+    expect(operation.parameters.filter((parameter: { in: string }) => parameter.in === "path")).toEqual([
+      { name: "orgId", in: "path", required: true, schema: { type: "string" } },
+    ]);
     expect(operation.tags).toEqual(["organizations"]);
     expect(operation.operationId).toBe("getOrganizationsOrgId");
     const member = doc.paths["/organizations/{orgId}/members/{memberId}"]!.get;

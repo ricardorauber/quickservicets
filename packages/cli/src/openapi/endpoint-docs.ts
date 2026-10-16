@@ -22,6 +22,8 @@ export interface EndpointDoc {
   override?: { entity: string; operation: CrudOperation };
   /** Resolved hooks in execution order, as the runtime runs them. */
   hooks: HookCall[];
+  /** `@fields`/`@exclude` of the endpoint. */
+  projection?: { include?: string[]; exclude?: string[] };
 }
 
 export interface EndpointDocInput {
@@ -236,6 +238,7 @@ export function describeEndpoints(
       ...withValue("body", convert(bodyNode)),
       ...withValue("result", convert(resultNode)),
       ...(override ? { override } : {}),
+      ...(metadata.projection ? { projection: metadata.projection } : {}),
       hooks,
     };
   });

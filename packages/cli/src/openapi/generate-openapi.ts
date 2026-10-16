@@ -10,6 +10,7 @@ import {
   type HookDocs,
   type HookPhase,
   type NestedFieldModel,
+  type Projection,
   type TypeDescriptor,
 } from "@quickservice/core";
 
@@ -235,7 +236,131 @@ function listParameters(model: EntityModel): unknown[] {
 
 const ID_PARAMETER = { name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } };
 
-function operationFor(model: EntityModel, operation: CrudOperation, name: string, models: EntityModel[]): Record<string, unknown> {
+type PathTree = Map<string, PathTree | true>;
+
+function pathTree(paths: readonly string[]): PathTree {
+  const root: PathTree = new Map();
+  for (const path of paths) {
+    let node = root;
+    const segments = path.split(".");
+    segments.forEach((segment, index) => {
+      const existing = node.get(segment);
+      if (existing === true) return;
+      if (index === segments.length - 1) return void node.set(segment, true);
+      const child: PathTree = existing ?? new Map();
+      node.set(segment, child);
+      node = child;
+    });
+  }
+  return root;
+}
+
+/** The schema a `$ref` points to, or the schema itself. */
+function dereference(schema: JsonSchema, schemas: Record<string, JsonSchema>): JsonSchema {
+  const target = typeof schema.$ref === "string" ? schemas[schema.$ref.replace("#/components/schemas/", "")] : undefined;
+  return target ? structuredClone(target) : schema;
+}
+
+/** Applies `select` to the properties of an object schema, looking through `$ref`s and arrays. */
+function mapProperties(
+  schema: JsonSchema,
+  schemas: Record<string, JsonSchema>,
+  select: (properties: Record<string, JsonSchema>) => Record<string, JsonSchema>,
+): JsonSchema {
+  const resolved = dereference(schema, schemas);
+  if (resolved.items) return { ...resolved, items: mapProperties(resolved.items as JsonSchema, schemas, select) };
+  if (!resolved.properties) return resolved;
+  const properties = select(resolved.properties as Record<string, JsonSchema>);
+  const required = (resolved.required as string[] | undefined)?.filter((name) => name in properties);
+  const { required: _, ...rest } = resolved;
+  return { ...rest, properties, ...(required && required.length > 0 ? { required } : {}) };
+}
+
+function keepPaths(schema: JsonSchema, tree: PathTree, schemas: Record<string, JsonSchema>): JsonSchema {
+  return mapProperties(schema, schemas, (properties) => {
+    const kept: Record<string, JsonSchema> = {};
+    for (const [name, subtree] of tree) {
+      if (!(name in properties)) continue;
+      kept[name] = subtree === true ? properties[name]! : keepPaths(properties[name]!, subtree, schemas);
+    }
+    return kept;
+  });
+}
+
+function dropPaths(schema: JsonSchema, tree: PathTree, schemas: Record<string, JsonSchema>): JsonSchema {
+  return mapProperties(schema, schemas, (properties) => {
+    const kept: Record<string, JsonSchema> = { ...properties };
+    for (const [name, subtree] of tree) {
+      if (!(name in kept)) continue;
+      if (subtree === true) delete kept[name];
+      else kept[name] = dropPaths(kept[name]!, subtree, schemas);
+    }
+    return kept;
+  });
+}
+
+/** Removes every `required` list, since client field selection can leave out any property. */
+function allOptional(schema: JsonSchema): JsonSchema {
+  const { required: _, ...rest } = schema;
+  const result: JsonSchema = { ...rest };
+  if (rest.items) result.items = allOptional(rest.items as JsonSchema);
+  if (rest.properties) {
+    result.properties = Object.fromEntries(
+      Object.entries(rest.properties as Record<string, JsonSchema>).map(([name, property]) => [name, allOptional(property)]),
+    );
+  }
+  return result;
+}
+
+/** The schema with only the paths a projection exposes, or undefined when it exposes everything. */
+export function projectSchema(schema: JsonSchema, projection: Projection, schemas: Record<string, JsonSchema> = {}): JsonSchema | undefined {
+  const full = dereference(schema, schemas);
+  let projected = projection.include && projection.include.length > 0 ? keepPaths(full, pathTree(projection.include), schemas) : full;
+  if (projection.exclude && projection.exclude.length > 0) projected = dropPaths(projected, pathTree(projection.exclude), schemas);
+  return JSON.stringify(projected) === JSON.stringify(full) ? undefined : allOptional(projected);
+}
+
+/** Every property path of a schema, including nested ones (`address`, `address.city`). */
+export function schemaPaths(schema: JsonSchema, prefix = ""): string[] {
+  const target = schema.items ? (schema.items as JsonSchema) : schema;
+  const properties = (target.properties ?? {}) as Record<string, JsonSchema>;
+  return Object.entries(properties).flatMap(([name, property]) => [`${prefix}${name}`, ...schemaPaths(property, `${prefix}${name}.`)]);
+}
+
+function selectionParameters(schema: JsonSchema): unknown[] {
+  const paths = schemaPaths(schema).map((path) => `\`${path}\``).join(", ");
+  return [
+    {
+      name: "fields",
+      in: "query",
+      required: false,
+      description: `Comma-separated paths to return. Selectable paths: ${paths}.`,
+      schema: { type: "string" },
+    },
+    {
+      name: "exclude",
+      in: "query",
+      required: false,
+      description: `Comma-separated paths to leave out. Selectable paths: ${paths}.`,
+      schema: { type: "string" },
+    },
+  ];
+}
+
+/** Component names of the list item and read schemas: projected ones when the operation exposes fewer paths. */
+interface ReadSchemas {
+  list: string;
+  read: string;
+  schemas: Record<string, JsonSchema>;
+}
+
+function operationFor(
+  model: EntityModel,
+  operation: CrudOperation,
+  name: string,
+  models: EntityModel[],
+  readSchemas: ReadSchemas,
+): Record<string, unknown> {
   const unique = model.fields.some((field) => field.unique);
   const conflict = unique ? [409] : [];
   const record = { content: json(ref(name)) };
@@ -245,7 +370,7 @@ function operationFor(model: EntityModel, operation: CrudOperation, name: string
     case "list":
       return {
         ...base,
-        parameters: listParameters(model),
+        parameters: [...listParameters(model), ...selectionParameters(readSchemas.schemas[readSchemas.list]!)],
         responses: {
           "200": {
             description: `A page of ${model.name}`,
@@ -253,7 +378,7 @@ function operationFor(model: EntityModel, operation: CrudOperation, name: string
               type: "object",
               required: ["data", "total", "limit", "offset"],
               properties: {
-                data: { type: "array", items: ref(name) },
+                data: { type: "array", items: ref(readSchemas.list) },
                 total: { type: "integer" },
                 limit: { type: "integer" },
                 offset: { type: "integer" },
@@ -264,7 +389,11 @@ function operationFor(model: EntityModel, operation: CrudOperation, name: string
         },
       };
     case "read":
-      return { ...base, parameters: [ID_PARAMETER], responses: { "200": { description: `The ${model.entityName}`, ...record }, ...errorResponses([404]) } };
+      return {
+        ...base,
+        parameters: [ID_PARAMETER, ...selectionParameters(readSchemas.schemas[readSchemas.read]!)],
+        responses: { "200": { description: `The ${model.entityName}`, content: json(ref(readSchemas.read)) }, ...errorResponses([404]) },
+      };
     case "create":
       return {
         ...base,
@@ -356,6 +485,28 @@ function sortKeys<T>(record: Record<string, T>, compare?: (a: string, b: string)
 }
 
 /** Builds the OpenAPI 3.1 document of the entities and their generated CRUD routes. */
+/** Projects the success response schema of an endpoint with `@fields`/`@exclude`; unknown schemas stay as they are. */
+function projectSuccessResponse(
+  operation: Record<string, any>,
+  projection: Projection,
+  schemas: Record<string, JsonSchema>,
+  isList: boolean,
+): void {
+  const responses = operation.responses as Record<string, any>;
+  const code = Object.keys(responses).find((status) => status.startsWith("2"));
+  const content = code ? responses[code].content?.["application/json"] : undefined;
+  if (!content) return;
+  const schema = content.schema as JsonSchema;
+  // A list response projects its items, not the page envelope.
+  const data = (schema.properties as Record<string, JsonSchema> | undefined)?.data;
+  if (isList && data?.items) {
+    const items = projectSchema(data.items as JsonSchema, projection, schemas);
+    if (items) content.schema = { ...schema, properties: { ...(schema.properties as object), data: { ...data, items } } };
+    return;
+  }
+  content.schema = projectSchema(schema, projection, schemas) ?? schema;
+}
+
 /** Adds the hook line, `x-hooks`, hook error responses and security to an operation; returns whether bearer auth is used. */
 function documentHooks(operation: Record<string, any>, declared: HookCall[], hooks: ReadonlyMap<string, HookDocEntry>): boolean {
   // The runtime runs every pre-hook before the handler and every post-hook after it, each group in declared order.
@@ -389,6 +540,15 @@ export function generateOpenApi({ models, routes, packageJson, endpoints = [], h
     schemas[`${name}Replace`] = writeSchema(model, "replace");
     schemas[`${name}Update`] = writeSchema(model, "update");
   }
+  const readSchemas = new Map<string, ReadSchemas>();
+  for (const model of entities) {
+    const name = names.get(model.key)!;
+    const listItem = projectSchema(schemas[name]!, model.exposure.list);
+    const read = projectSchema(schemas[name]!, model.exposure.read);
+    if (listItem) schemas[`${name}ListItem`] = listItem;
+    if (read) schemas[`${name}Read`] = read;
+    readSchemas.set(model.key, { list: listItem ? `${name}ListItem` : name, read: read ? `${name}Read` : name, schemas });
+  }
   const paths: Record<string, Record<string, unknown>> = {};
   const tags = new Set<string>();
   // Hooks run by each operation, keyed by `<method> <path>`.
@@ -398,7 +558,7 @@ export function generateOpenApi({ models, routes, packageJson, endpoints = [], h
     if (!model || model.internal) continue;
     const path = openApiPath(route.path);
     tags.add(entityTag(model));
-    (paths[path] ??= {})[route.method.toLowerCase()] = operationFor(model, route.operation, names.get(model.key)!, entities);
+    (paths[path] ??= {})[route.method.toLowerCase()] = operationFor(model, route.operation, names.get(model.key)!, entities, readSchemas.get(model.key)!);
     operationHooks.set(`${route.method.toLowerCase()} ${path}`, route.hooks);
   }
   for (const doc of endpoints) {
@@ -412,6 +572,7 @@ export function generateOpenApi({ models, routes, packageJson, endpoints = [], h
       if (Object.keys(paths[generatedPath]!).length === 0) delete paths[generatedPath];
     }
     const operation = generated ? overriddenOperation(doc, generated as Record<string, unknown>) : customOperation(doc);
+    if (doc.projection) projectSuccessResponse(operation, doc.projection, schemas, generated !== undefined && doc.override?.operation === "list");
     if (doc.summary) operation.summary = doc.summary;
     if (doc.description) operation.description = doc.description;
     for (const tag of operation.tags as string[]) tags.add(tag);

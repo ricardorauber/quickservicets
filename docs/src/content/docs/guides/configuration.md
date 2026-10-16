@@ -1,0 +1,180 @@
+---
+title: Configuration and logging
+description: The config file, database adapters, environment variables, and request logs.
+sidebar:
+  order: 43
+---
+
+A project has one configuration file, `quickservice.config.ts`, at its root. The CLI reads it for `build`, `dev` and the migration commands, and the server reads it when it starts. Most settings have defaults, so a config often holds just the database.
+
+## `quickservice.config.ts`
+
+The file default-exports the result of `defineConfig`. `defineConfig` returns its argument unchanged; it is there so your editor types and completes every key:
+
+```ts check title="quickservice.config.ts"
+import { defineConfig, postgresAdapter } from "@quickservice/core";
+
+export default defineConfig({
+  database: postgresAdapter({ url: process.env.DATABASE_URL! }),
+  server: { publicUrl: "https://api.example.com" },
+  files: { maxSize: "20MB" },
+  populate: { maxDepth: 3 },
+});
+```
+
+`database` is the only required key. Invalid values stop the CLI and the server with a message naming the key, for example `Invalid server.port: expected an integer between 1 and 65535, got 70000`. Every key, with its type and default, is in the [Configuration reference](/reference/config/).
+
+The config is TypeScript, so it can read environment variables, branch on them, or import helpers. The server resolves it when it starts, not at build time, so one build runs in every environment.
+
+## Database adapters
+
+`database` takes one of four adapters, all exported by `@quickservice/core`:
+
+```ts check
+import { memoryAdapter, mongodbAdapter, postgresAdapter, sqliteAdapter } from "@quickservice/core";
+
+// Records live in memory and disappear on restart; no migrations.
+export const memory = memoryAdapter();
+
+// A SQLite file (created when missing), or ":memory:".
+export const sqlite = sqliteAdapter({ path: process.env.DATABASE_PATH! });
+
+// PostgreSQL, through Bun's SQL client.
+export const postgres = postgresAdapter({ url: process.env.DATABASE_URL! });
+
+// MongoDB; it must run as a replica set, because relation updates use transactions.
+export const mongodb = mongodbAdapter({ url: process.env.DATABASE_URL!, database: process.env.DATABASE_NAME! });
+```
+
+`quickservice init --db <database>` writes the matching config and a `.env` with the variables it reads.
+
+## Environment variables
+
+Bun loads `.env` from the project folder, so values there reach `process.env` in the config. `init` adds `.env` to `.gitignore`; keep secrets there or in your host's settings.
+
+| Variable | Read by | Effect |
+| --- | --- | --- |
+| `DATABASE_URL` | the config written by `init` | Connection URL for PostgreSQL and MongoDB. |
+| `DATABASE_NAME` | the config written by `init` | MongoDB database name. |
+| `DATABASE_PATH` | the config written by `init` | SQLite file path. |
+| `DATABASE_SCHEMA` | quickservice | Default database schema; overrides `schema` in the config. Must match `^[a-z][a-z0-9-]*$`. |
+| `PORT` | quickservice | Port to listen on when `server.port` is not set (default 3000). |
+| `NODE_ENV` | quickservice | `production` turns on production mode when `production` is not set. |
+| `FILES_SIGNING_SECRET` | quickservice | Secret of signed file URLs when `files.signingSecret` is not set. |
+| `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION`, `S3_ENDPOINT` | `s3Storage` | Credentials, region and endpoint left out of the options; the `AWS_*` versions also work. |
+
+The `DATABASE_*` names other than `DATABASE_SCHEMA` are a convention of the generated config, not built in: rename them as you like. `DATABASE_SCHEMA` lets one build run against a different schema per environment:
+
+```bash
+DATABASE_SCHEMA=staging bun run quickservice migrate
+DATABASE_SCHEMA=staging bun .generated/server.ts
+```
+
+An invalid name stops the command:
+
+```text
+Invalid DATABASE_SCHEMA: "Bad" must match ^[a-z][a-z0-9-]*$
+```
+
+### Production mode
+
+`production` defaults to `NODE_ENV === "production"`. In production:
+
+- 500 responses hide the error details. In development they include the stack:
+
+```bash
+curl localhost:3000/boom
+```
+
+```json
+// 500 Internal Server Error, development
+{"error":{"code":"INTERNAL_ERROR","message":"Internal server error","details":{"stack":"Error: Something broke\n    at handler (.../endpoints/boom/get.ts:2:13)\n    ..."}}}
+
+// 500 Internal Server Error, production
+{"error":{"code":"INTERNAL_ERROR","message":"Internal server error"}}
+```
+
+- The [API docs](/guides/api-docs/) are off unless `docs.enabled` is `true`.
+- `migrate` refuses to revert migrations without `--force` (see [Migrations](/guides/migrations/)).
+
+## Logging
+
+The server writes one log entry per request, as a JSON line on stdout:
+
+```json
+{"level":"info","timestamp":"2026-10-16T22:25:19.256Z","requestId":"01a146d1-d595-77ea-8f13-a6c875a44b64","method":"DELETE","route":"/organizations/[id]","status":204,"durationMs":2.82,"hooks":[]}
+```
+
+| Key | Description |
+| --- | --- |
+| `level` | `info` for statuses below 500, `error` for 500 and above. |
+| `timestamp` | ISO 8601 time of the entry. |
+| `requestId` | The request id (see below). |
+| `method` | HTTP method. |
+| `route` | The matched route pattern, such as `/users/[id]`, or `null` when no route matched. |
+| `status` | Response status. |
+| `durationMs` | Time to produce the response. |
+| `hooks` | Names of the hooks that ran. |
+
+Entries never contain bodies, query values, path parameter values or headers other than the request id, so they are safe to ship to a log service.
+
+Two other kinds of entries exist. An unexpected error (anything thrown that is not an `HttpError`) is logged at `error` with its name, message and stack, in every mode, before the request's entry:
+
+```json
+{"level":"error","timestamp":"2026-10-16T22:37:22.964Z","requestId":"01a146dc-e094-7726-97ee-a516e0382876","error":{"name":"Error","message":"Something broke","stack":"Error: Something broke\n    at handler (.../endpoints/boom/get.ts:2:13)\n    ..."}}
+```
+
+And a stored file that could not be deleted is logged at `warn` with `message: "File object not deleted"`, the `storage`, the `key` and the `error` (see [Files and storage](/guides/files/#cleanup)).
+
+### Request ids
+
+Every response has an `x-request-id` header with the id that appears in the logs, and handlers and hooks read it as `req.id`. When the request sends an `x-request-id` made of 1 to 128 letters, digits, `_` or `-`, the server keeps it; otherwise it generates a UUID v7. Pass the id from your gateway or frontend to follow one request across services (`/health` is the endpoint from [API docs](/guides/api-docs/#custom-endpoints)):
+
+```bash
+curl -i -H 'x-request-id: checkout-42' "localhost:3000/health?verbose=true"
+```
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+x-request-id: checkout-42
+Content-Length: 33
+
+{"status":"ok","uptimeSeconds":2}
+```
+
+```json
+{"level":"info","timestamp":"2026-10-16T22:37:22.936Z","requestId":"checkout-42","method":"GET","route":"/health","status":200,"durationMs":0.723,"hooks":[]}
+```
+
+### A custom logger
+
+`logger` takes any object with `info`, `warn` and `error` methods, each receiving the entry as an object. Send entries to your log library, or add fields to them. This config adds the service name and keeps the JSON lines of the default `jsonLogger`:
+
+```ts check
+import { defineConfig, jsonLogger, sqliteAdapter, type Logger } from "@quickservice/core";
+
+const logger: Logger = {
+  info: (entry) => jsonLogger.info({ service: "accounts", ...entry }),
+  warn: (entry) => jsonLogger.warn({ service: "accounts", ...entry }),
+  error: (entry) => jsonLogger.error({ service: "accounts", ...entry }),
+};
+
+export default defineConfig({
+  database: sqliteAdapter({ path: process.env.DATABASE_PATH! }),
+  logger,
+});
+```
+
+```json
+{"level":"info","service":"accounts","timestamp":"2026-10-16T22:37:22.974Z","requestId":"01a146dc-e09e-71d8-b329-7c5e571e7ca7","method":"GET","route":"/users/[id]","status":401,"durationMs":0.377,"hooks":["authorized"]}
+```
+
+An error thrown by the logger never changes the response.
+
+## See also
+
+- [Configuration reference](/reference/config/): every key with its type and default.
+- [CLI](/reference/cli/): the commands that read the config.
+
+Next: [Recipes](/recipes/).

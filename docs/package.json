@@ -10,5 +10,10 @@
   "dependencies": {
     "@astrojs/starlight": "0.42.5",
     "astro": "7.3.5"
+  },
+  "devDependencies": {
+    "@quickservice/cli": "workspace:*",
+    "@quickservice/core": "workspace:*",
+    "typescript": "5.9.2"
   }
 }

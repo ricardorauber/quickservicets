@@ -1,3 +1,4 @@
 dist/
 .astro/
+.snippets/
 node_modules/

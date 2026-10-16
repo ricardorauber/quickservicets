@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { BuildError } from "../errors.ts";
 import { version } from "../version.ts";
 
@@ -8,9 +8,61 @@ export type DatabaseChoice = (typeof DATABASES)[number];
 
 export type Prompt = (question: string, choices: readonly string[]) => Promise<string>;
 
+/** Installs the dependencies of a workspace, resolving to whether it succeeded. */
+export type Install = (workspaceRoot: string) => Promise<boolean>;
+
 export interface InitOptions {
   db?: string;
   prompt?: Prompt;
+  install?: Install;
+}
+
+const bunInstall: Install = async (workspaceRoot) => {
+  try {
+    const child = Bun.spawn(["bun", "install"], { cwd: workspaceRoot, stdout: "ignore", stderr: "ignore" });
+    return (await child.exited) === 0;
+  } catch {
+    return false;
+  }
+};
+
+const FRAMEWORK_PACKAGES = ["@quickservice/core", "@quickservice/cli"];
+
+function readJson(file: string): Record<string, unknown> | undefined {
+  try {
+    return JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
+}
+
+function workspaceGlobs(manifest: Record<string, unknown>): string[] {
+  const workspaces = manifest.workspaces;
+  const globs = Array.isArray(workspaces) ? workspaces : (workspaces as { packages?: unknown } | undefined)?.packages;
+  return Array.isArray(globs) ? globs.filter((glob): glob is string => typeof glob === "string") : [];
+}
+
+/**
+ * The root of the quickservice monorepo the target folder belongs to: a parent whose `workspaces` match the
+ * folder and include both framework packages. Undefined anywhere else.
+ */
+export function quickserviceWorkspace(target: string): string | undefined {
+  for (let dir = dirname(resolve(target)); ; dir = dirname(dir)) {
+    const manifest = readJson(join(dir, "package.json"));
+    const globs = manifest ? workspaceGlobs(manifest) : [];
+    if (globs.length > 0) {
+      const path = relative(dir, resolve(target)).split(sep).join("/");
+      const names = globs.flatMap((glob) =>
+        [...new Bun.Glob(`${glob.replace(/\/+$/, "")}/package.json`).scanSync({ cwd: dir, onlyFiles: true })].map(
+          (file) => readJson(join(dir, file))?.name,
+        ),
+      );
+      const matches = globs.some((glob) => new Bun.Glob(glob.replace(/\/+$/, "")).match(path));
+      if (matches && FRAMEWORK_PACKAGES.every((name) => names.includes(name))) return dir;
+      return undefined;
+    }
+    if (dirname(dir) === dir) return undefined;
+  }
 }
 
 const CONFIGS: Record<DatabaseChoice, string> = {
@@ -58,13 +110,14 @@ const TSCONFIG = `${JSON.stringify(
       skipLibCheck: true,
       allowImportingTsExtensions: true,
     },
-    include: ["quickservice.config.ts", "entities", "endpoints", "hooks", ".generated"],
+    // TypeScript skips folders starting with a dot unless a pattern names their files.
+    include: ["quickservice.config.ts", "entities", "endpoints", "hooks", ".generated/**/*.ts"],
   },
   null,
   2,
 )}\n`;
 
-function packageJson(name: string): string {
+function packageJson(name: string, dependency: string): string {
   return `${JSON.stringify(
     {
       name,
@@ -77,8 +130,8 @@ function packageJson(name: string): string {
         start: "bun .generated/server.ts",
       },
       dependencies: {
-        "@quickservice/core": `^${version}`,
-        "@quickservice/cli": `^${version}`,
+        "@quickservice/core": dependency,
+        "@quickservice/cli": dependency,
       },
     },
     null,
@@ -115,6 +168,7 @@ export async function initProject(directory: string, options: InitOptions = {}):
     throw new BuildError(`Unknown database "${options.db}" (use ${DATABASES.join(", ")})`);
   }
   const db = (options.db ?? (await (options.prompt ?? terminalPrompt)("Which database?", DATABASES))) as DatabaseChoice;
+  const workspace = quickserviceWorkspace(root);
 
   const files: Record<string, string> = {
     "quickservice.config.ts": CONFIGS[db],
@@ -124,11 +178,14 @@ export async function initProject(directory: string, options: InitOptions = {}):
     "endpoints/.gitkeep": "",
     "hooks/.gitkeep": "",
     "tsconfig.json": TSCONFIG,
-    "package.json": packageJson(basename(root)),
+    "package.json": packageJson(basename(root), workspace ? "workspace:*" : `^${version}`),
   };
   for (const [path, content] of Object.entries(files)) {
     mkdirSync(join(root, path, ".."), { recursive: true });
     writeFileSync(join(root, path), content);
   }
-  return NEXT_STEPS;
+  if (!workspace) return NEXT_STEPS;
+  const installed = await (options.install ?? bunInstall)(workspace);
+  if (!installed) return [`Could not install dependencies; run "bun install" in ${workspace}`, ...NEXT_STEPS];
+  return ["Next steps:", ...NEXT_STEPS.slice(2).map((step, index) => step.replace(/^ {2}\d+\./, `  ${index + 1}.`))];
 }

@@ -15,6 +15,7 @@ import {
 } from "@quickservice/core";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import ts from "typescript";
 import { parseProjectEntities as parseEntities } from "../entities/parse-entities.ts";
 import { BuildError } from "../errors.ts";
 import { scanEndpoints, type EndpointRoute } from "../endpoints/scan-endpoints.ts";
@@ -113,6 +114,18 @@ function resolveEndpoint(endpoint: ScannedEndpoint, models: EntityModel[], maxDe
   const parsed = parseFieldPaths(entity, paths);
   if (!parsed.ok) throw new BuildError(`${route.file}: unknown path ${parsed.invalid.join(", ")} in @fields/@exclude`);
   return { route, override: replaced, hooks, projection: metadata.projection, populate };
+}
+
+export const GENERATED_INCLUDE_WARNING =
+  'tsconfig.json includes ".generated", which TypeScript skips; use ".generated/**/*.ts" so endpoints and hooks see the generated types';
+
+/** Warns about the old `include` entry that leaves the generated types out of the project. */
+function generatedIncludeWarning(projectRoot: string): string | undefined {
+  const file = join(projectRoot, "tsconfig.json");
+  if (!existsSync(file)) return undefined;
+  const { config } = ts.readConfigFile(file, (path) => readFileSync(path, "utf8"));
+  const include = (config as { include?: unknown } | undefined)?.include;
+  return Array.isArray(include) && include.includes(".generated") ? GENERATED_INCLUDE_WARNING : undefined;
 }
 
 /** Fails when an entity route or a custom endpoint takes a path the API docs reserve. */
@@ -258,6 +271,8 @@ export async function build(projectRoot: string): Promise<BuildSummary> {
   renameSync(staging, target);
 
   const warnings: string[] = joinTableWarnings(models, config.database.kind);
+  const tsconfigWarning = generatedIncludeWarning(projectRoot);
+  if (tsconfigWarning) warnings.push(tsconfigWarning);
   warnings.push(...endpointDocs.warnings);
   const dialect = sqlDialectOf(config.database.kind);
   if (dialect && (await hasPendingChanges(projectRoot, models, dialect))) warnings.push(PENDING_MIGRATION_WARNING);

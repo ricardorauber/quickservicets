@@ -6,6 +6,6 @@
     "entities",
     "endpoints",
     "hooks",
-    ".generated"
+    ".generated/**/*.ts"
   ]
 }

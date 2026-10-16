@@ -11,17 +11,29 @@ export const DEFAULT_PORT = 3000;
 
 /** The project configuration written in `quickservice.config.ts`. Features add their own keys here. */
 export interface ServiceConfig {
+  /** The database adapter: `memoryAdapter()`, `sqliteAdapter(...)`, `postgresAdapter(...)` or `mongodbAdapter(...)`. */
   database: DatabaseAdapter;
-  server?: { port?: number; publicUrl?: string };
+  /** HTTP server settings. */
+  server?: {
+    /** Port to listen on (default `PORT`, then 3000). */
+    port?: number;
+    /** Absolute base URL of the API, used in file URLs (default: relative URLs). */
+    publicUrl?: string;
+  };
+  /** Production mode: hides internal error details and disables the API docs (default `NODE_ENV === "production"`). */
   production?: boolean;
-  /** API docs at `GET /docs` and `GET /openapi.json` (default: enabled unless `production`). */
-  docs?: { enabled?: boolean };
+  /** API docs settings. */
+  docs?: {
+    /** Serve the API docs at `GET /docs` and `GET /openapi.json` (default: enabled unless `production`). */
+    enabled?: boolean;
+  };
   /** Receives one entry per request; defaults to JSON lines on stdout. */
   logger?: Logger;
   /** Default database schema for entities without an explicit one; `DATABASE_SCHEMA` overrides it. */
   schema?: string;
-  /** Named file storages; file entities use `default` unless `@storage` names another. */
+  /** Named file storages; file entities use `default` unless `@storage` names another (default: a local storage in `uploads/`). */
   storage?: Record<string, StorageAdapter>;
+  /** File upload and access settings. */
   files?: {
     /** Largest upload in bytes or as `10MB` (default 10 MB). */
     maxSize?: number | string;
@@ -40,14 +52,17 @@ export interface ServiceConfig {
     /** Delete the files a record references when the record is deleted (default true). */
     deleteWithOwner?: boolean;
   };
+  /** Repository settings. */
   repositories?: {
     /** Most records a fluent query's `all()` may return (default 10000). */
     findAllMax?: number;
   };
+  /** Populate settings. */
   populate?: {
     /** Maximum number of segments in a populate path (default 2). */
     maxDepth?: number;
   };
+  /** Migration settings. */
   migrations?: {
     /** Whether `quickservice dev` creates migrations automatically for model changes (default true). */
     autoInDev?: boolean;

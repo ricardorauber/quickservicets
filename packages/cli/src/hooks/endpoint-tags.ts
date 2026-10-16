@@ -3,6 +3,7 @@ import ts from "typescript";
 import { splitArgs } from "../entities/entity-tags.ts";
 import { readTags, type DocTag } from "../entities/jsdoc.ts";
 import { BuildError } from "../errors.ts";
+import { tagDocRegistry } from "../tag-docs.ts";
 
 /** What an endpoint's JSDoc declares besides hooks; built-in endpoint tags fill it in. */
 export interface EndpointMetadata {
@@ -24,6 +25,12 @@ const builtInEndpointTags = new Map<string, EndpointTagHandler>();
 export function registerEndpointTag(name: string, handler: EndpointTagHandler = () => {}): void {
   builtInEndpointTags.set(name, handler);
 }
+
+const endpointTagDocs = tagDocRegistry(() => builtInEndpointTags.keys());
+/** Documents an endpoint tag for the reference pages. */
+export const describeEndpointTag = endpointTagDocs.describe;
+/** Every built-in endpoint tag with its documentation. */
+export const documentedEndpointTags = endpointTagDocs.list;
 
 export function isBuiltInEndpointTag(name: string): boolean {
   return builtInEndpointTags.has(name);
@@ -112,3 +119,29 @@ registerEndpointTag("description", (tag, file, metadata) => {
 });
 registerEndpointTag("fields", projectionTag("include"));
 registerEndpointTag("exclude", projectionTag("exclude"));
+
+describeEndpointTag("summary", {
+  description: "One-line summary of the operation in the API docs.",
+  appliesTo: "Custom endpoints",
+  example: "/** @summary Organization stats */",
+});
+describeEndpointTag("description", {
+  description: "Longer text of the operation in the API docs; may span several lines.",
+  appliesTo: "Custom endpoints",
+  example: "/** @description Counts the members of an organization. */",
+});
+describeEndpointTag("fields", {
+  description: "Fields the response keeps.",
+  appliesTo: "Custom endpoints",
+  example: "/** @fields id,name */",
+});
+describeEndpointTag("exclude", {
+  description: "Fields removed from the response.",
+  appliesTo: "Custom endpoints",
+  example: "/** @exclude secret */",
+});
+describeEndpointTag("populate", {
+  description: "Reference paths populated on the response of an override of a list or read route.",
+  appliesTo: "Overrides of generated list and read routes",
+  example: "/** @populate organization */",
+});

@@ -1,4 +1,5 @@
 import { parseSize, type FieldModel, type NestedFieldModel, type StringFormat, type TypeDescriptor } from "@quickservice/core";
+import { tagDocRegistry } from "../tag-docs.ts";
 import { EntityParseError } from "./errors.ts";
 import type { DocTag } from "./jsdoc.ts";
 
@@ -18,6 +19,12 @@ const fieldTagHandlers = new Map<string, FieldTagHandler>();
 export function registerFieldTag(name: string, handler: FieldTagHandler): void {
   fieldTagHandlers.set(name, handler);
 }
+
+const fieldTagDocs = tagDocRegistry(() => fieldTagHandlers.keys());
+/** Documents a field tag for the reference pages. */
+export const describeFieldTag = fieldTagDocs.describe;
+/** Every registered field tag with its documentation. */
+export const documentedFieldTags = fieldTagDocs.list;
 
 export function isFieldTag(name: string): boolean {
   return fieldTagHandlers.has(name);
@@ -228,4 +235,105 @@ registerFieldTag("hidden", (field, tag, context) => {
     }
   }
   field.hiddenOn = [...new Set([...(field.hiddenOn ?? []), ...(operations as ("list" | "read")[])])];
+});
+
+describeFieldTag("unique", {
+  description: "Rejects a value that another record already has, with 409 `Value already exists`.",
+  appliesTo: "Top-level fields that are not arrays or objects",
+  example: "/** @unique */ email: string",
+});
+describeFieldTag("index", {
+  description: "Creates a database index on the field, for faster filters and sorting.",
+  appliesTo: "Top-level fields that are not arrays or objects",
+  example: "/** @index */ country: string",
+});
+describeFieldTag("default", {
+  description: "Value used when a create body leaves the field out; enum fields also accept `Enum.member`.",
+  appliesTo: "Any field",
+  example: "/** @default 'member' */ role: \"member\" | \"admin\"",
+});
+describeFieldTag("minLength", {
+  description: "Minimum length of a string (`Must be at least <n> characters`); on arrays, the minimum number of items.",
+  appliesTo: "Strings and arrays",
+  example: "/** @minLength 2 */ name: string",
+});
+describeFieldTag("maxLength", {
+  description: "Maximum length of a string; on arrays, the maximum number of items.",
+  appliesTo: "Strings and arrays",
+  example: "/** @maxLength 80 */ title: string",
+});
+describeFieldTag("minItems", {
+  description: "Minimum number of items (`Must have at least <n> items`).",
+  appliesTo: "Arrays and reference arrays",
+  example: "/** @minItems 1 */ tags: string[]",
+});
+describeFieldTag("maxItems", {
+  description: "Maximum number of items (`Must have at most <n> items`).",
+  appliesTo: "Arrays and reference arrays",
+  example: "/** @maxItems 10 */ members: User[]",
+});
+describeFieldTag("min", {
+  description: "Smallest accepted number (`Must be at least <n>`).",
+  appliesTo: "Numbers",
+  example: "/** @min 0 */ age: number",
+});
+describeFieldTag("max", {
+  description: "Largest accepted number (`Must be at most <n>`).",
+  appliesTo: "Numbers",
+  example: "/** @max 150 */ age: number",
+});
+describeFieldTag("format", {
+  description: "Checks that a string is an `email` or a `url`.",
+  appliesTo: "Strings",
+  example: "/** @format email */ email: string",
+});
+describeFieldTag("maxSize", {
+  description: "Largest file this field accepts, on top of the file entity's own limit.",
+  appliesTo: "References and reference arrays to file entities",
+  example: "/** @maxSize 1MB */ logo?: Media",
+});
+describeFieldTag("accept", {
+  description: "MIME patterns this field accepts, on top of the file entity's own rules.",
+  appliesTo: "References and reference arrays to file entities",
+  example: "/** @accept image/png,image/webp */ logo?: Media",
+});
+describeFieldTag("maxTotalSize", {
+  description: "Largest total size of the files uploaded to the field in one request.",
+  appliesTo: "Reference arrays to file entities",
+  example: "/** @maxTotalSize 10MB */ gallery?: Media[]",
+});
+describeFieldTag("keepFile", {
+  description: "Never deletes the referenced file when it is replaced or when this record is deleted.",
+  appliesTo: "References and reference arrays to file entities",
+  example: "/** @keepFile */ contract?: File",
+});
+describeFieldTag("onDelete", {
+  description: "What happens to this record when the referenced record is deleted: `restrict` (default), `cascade` or `setNull`; arrays take `pull` (default), `restrict` or `cascade`.",
+  appliesTo: "References and reference arrays",
+  example: "/** @onDelete cascade */ organization: Organization",
+});
+describeFieldTag("inverse", {
+  description: "Pairs the field with a field of the referenced entity into one relation; `@inverse none` keeps them apart.",
+  appliesTo: "References and reference arrays",
+  example: "/** @inverse members */ organization: Organization",
+});
+describeFieldTag("owner", {
+  description: "Marks the side of a 1-1 relation that stores the reference.",
+  appliesTo: "Single references in a 1-1 relation",
+  example: "/** @owner */ profile: Profile",
+});
+describeFieldTag("joinTable", {
+  description: "Names the junction table (or join collection) of a reference array or N-N relation.",
+  appliesTo: "Reference arrays",
+  example: "/** @joinTable team_members */ users: User[]",
+});
+describeFieldTag("onConflict", {
+  description: "With `replace`, linking a 1-1 target that is already linked moves the link instead of failing with 409.",
+  appliesTo: "Single references in a 1-1 relation",
+  example: "/** @onConflict replace */ badge: Badge",
+});
+describeFieldTag("hidden", {
+  description: "Never returns the field in responses; `@hidden:list` or `@hidden:read` hides it only there.",
+  appliesTo: "Any field",
+  example: "/** @hidden */ passwordHash: string",
 });

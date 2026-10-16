@@ -10,7 +10,8 @@
   "scripts": {
     "test": "bun test",
     "docs:dev": "bun run --cwd docs dev",
-    "docs:build": "bun run --cwd docs build"
+    "docs:build": "bun run --cwd docs build",
+    "docs:reference": "bun docs/scripts/write-reference.ts"
   },
   "devDependencies": {
     "@types/bun": "1.2.21",

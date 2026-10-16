@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { DatabaseAdapter } from "./adapter.ts";
 import type { Logger } from "./logger.ts";
+import { DEFAULT_MAX_FILE_SIZE, parseSize } from "./files/limits.ts";
 import { localStorage } from "./storage/local.ts";
 import type { StorageAdapter } from "./storage/storage.ts";
 
@@ -19,6 +20,12 @@ export interface ServiceConfig {
   schema?: string;
   /** Named file storages; file entities use `default` unless `@storage` names another. */
   storage?: Record<string, StorageAdapter>;
+  files?: {
+    /** Largest upload in bytes or as `10MB` (default 10 MB). */
+    maxSize?: number | string;
+    /** Accepted MIME patterns (default any). */
+    accept?: string[];
+  };
   populate?: {
     /** Maximum number of segments in a populate path (default 2). */
     maxDepth?: number;
@@ -32,8 +39,9 @@ export interface ServiceConfig {
 /** The configuration with every default applied. */
 export const DEFAULT_POPULATE_DEPTH = 2;
 
-export interface ResolvedConfig extends Omit<ServiceConfig, "server" | "production" | "schema" | "populate" | "storage"> {
+export interface ResolvedConfig extends Omit<ServiceConfig, "server" | "production" | "schema" | "populate" | "storage" | "files"> {
   server: { port: number };
+  files: { maxSize: number; accept: string[] };
   storage: Record<string, StorageAdapter> & { default: StorageAdapter };
   populate: { maxDepth: number };
   production: boolean;
@@ -82,6 +90,12 @@ function resolveStorage(config: ServiceConfig, projectRoot: string): ResolvedCon
   return config.storage as ResolvedConfig["storage"];
 }
 
+function resolveFiles(config: ServiceConfig): ResolvedConfig["files"] {
+  const maxSize = config.files?.maxSize === undefined ? DEFAULT_MAX_FILE_SIZE : parseSize(config.files.maxSize);
+  if (maxSize === undefined) throw new ConfigError(`Invalid files.maxSize: ${String(config.files?.maxSize)}`);
+  return { maxSize, accept: config.files?.accept ?? ["*/*"] };
+}
+
 export function resolveConfig(
   config: ServiceConfig,
   env: Record<string, string | undefined> = process.env,
@@ -97,6 +111,7 @@ export function resolveConfig(
     schema: resolveSchema(config, env),
     populate: { maxDepth: config.populate?.maxDepth ?? DEFAULT_POPULATE_DEPTH },
     storage: resolveStorage(config, projectRoot),
+    files: resolveFiles(config),
   };
 }
 

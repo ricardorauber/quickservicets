@@ -154,6 +154,10 @@ function parseEntity(program: ts.Program, context: ParseContext): EntityModel {
   if (tags.storageName && !shape.base) {
     throw new EntityParseError(`${source.relativeFile}: invalid @storage: ${source.entityName} is not a file entity`);
   }
+  if (tags.fileLimits && !shape.base) {
+    const tag = tags.fileLimits.maxSize !== undefined ? "@maxSize" : "@accept";
+    throw new EntityParseError(`${source.relativeFile}: invalid ${tag}: ${source.entityName} is not a file entity`);
+  }
   const model: EntityModel = {
     key: source.key,
     entityName: source.entityName,

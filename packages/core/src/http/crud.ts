@@ -5,6 +5,7 @@ import { repositoryFor, type RepositoryRegistry } from "../repository.ts";
 import { patternOf } from "./router.ts";
 import { parseClientSelection, selectFields } from "./selection.ts";
 import { parsePopulateParam } from "../populate.ts";
+import { parseUpload, storeFile, type UploadSettings } from "../files/upload.ts";
 import type { Endpoint, Route } from "./server.ts";
 
 export interface CrudRoute extends Route {
@@ -17,7 +18,29 @@ export function populatePaths(model: EntityModel, operation: "list" | "read", pa
   return [...new Set([...(model.populate?.[operation] ?? []), ...parsePopulateParam(params)])];
 }
 
-export function createCrudRoutes(models: EntityModel[], repos: RepositoryRegistry): CrudRoute[] {
+export interface CrudOptions {
+  /** Storages and limits used by uploads to file entities. */
+  uploads?: UploadSettings;
+}
+
+/** Runs `write` with a freshly stored file, removing the stored object when the write fails. */
+async function withStoredFile<T>(
+  model: EntityModel,
+  id: string,
+  file: Blob & { name?: string },
+  uploads: UploadSettings,
+  write: (managed: Record<string, unknown>) => Promise<T>,
+): Promise<T> {
+  const stored = await storeFile(model, id, file, uploads);
+  try {
+    return await write(stored.managed);
+  } catch (error) {
+    await stored.discard();
+    throw error;
+  }
+}
+
+export function createCrudRoutes(models: EntityModel[], repos: RepositoryRegistry, options: CrudOptions = {}): CrudRoute[] {
   return models
     .filter((model) => !model.internal)
     .flatMap((model) => {
@@ -55,13 +78,31 @@ export function createCrudRoutes(models: EntityModel[], repos: RepositoryRegistr
           collection,
           "create",
           async (_, req, res) => {
-            const created = await repo.create(await req.json());
+            let created: unknown;
+            if (model.file) {
+              const uploads = options.uploads!;
+              const { file, data } = await parseUpload(req, model, uploads);
+              const newId = Bun.randomUUIDv7();
+              created = await withStoredFile(model, newId, file, uploads, (managed) => repo.createWith(newId, managed, data));
+            } else {
+              created = await repo.create(await req.json());
+            }
             res.status(201);
             return created;
           },
         ],
         ["PATCH", item, "update", async (_, req) => repo.update(id(req.params), await req.json())],
-        ["PUT", item, "replace", async (_, req) => repo.replace(id(req.params), await req.json())],
+        [
+          "PUT",
+          item,
+          "replace",
+          async (_, req) => {
+            if (!model.file) return repo.replace(id(req.params), await req.json());
+            const uploads = options.uploads!;
+            const { file, data } = await parseUpload(req, model, uploads);
+            return withStoredFile(model, id(req.params), file, uploads, (managed) => repo.replaceWith(id(req.params), managed, data));
+          },
+        ],
         [
           "DELETE",
           item,

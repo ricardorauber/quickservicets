@@ -61,7 +61,8 @@ export interface App {
 export function createApp({ models, crudRoutes, endpoints, hooks, config }: AppOptions): App {
   const repos = createRepositories(models, config.database, { populateMaxDepth: config.populate?.maxDepth });
   const hooksByRoute = new Map(crudRoutes.map((entry) => [`${entry.method} ${entry.path}`, entry.hooks]));
-  const generated: Route[] = createCrudRoutes(models, repos).map((route) => ({
+  const uploads = { storage: config.storage, files: config.files };
+  const generated: Route[] = createCrudRoutes(models, repos, { uploads }).map((route) => ({
     method: route.method,
     path: route.path,
     handler: withHooks(route.handler, hooksByRoute.get(`${route.method} ${route.path}`) ?? [], hooks),

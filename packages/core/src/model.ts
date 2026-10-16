@@ -118,6 +118,8 @@ export interface EntityModel {
   file?: { base: "file" | "media" };
   /** `@storage <name>`: the configured storage of a file entity (default: `default`). */
   storageName?: string;
+  /** `@maxSize` (bytes) and `@accept` (MIME patterns) of a file entity. */
+  fileLimits?: { maxSize?: number; accept?: string[] };
 }
 
 /** Paths of fields (top-level or nested) that are never returned. */

@@ -1,4 +1,4 @@
-import { CRUD_OPERATIONS, type CrudOperation, type EntityModel, type HookReference } from "@quickservice/core";
+import { CRUD_OPERATIONS, parseSize, type CrudOperation, type EntityModel, type HookReference } from "@quickservice/core";
 import { EntityParseError } from "./errors.ts";
 import type { DocTag } from "./jsdoc.ts";
 
@@ -7,7 +7,7 @@ export interface FieldSelectionTag {
   paths: string;
 }
 
-export type EntityTagTarget = Pick<EntityModel, "hooks" | "overrideHooks" | "internal" | "populate" | "storageName"> & {
+export type EntityTagTarget = Pick<EntityModel, "hooks" | "overrideHooks" | "internal" | "populate" | "storageName" | "fileLimits"> & {
   /** `@fields` whitelists, validated once the fields are parsed. */
   fieldSelections?: FieldSelectionTag[];
 };
@@ -123,6 +123,18 @@ registerEntityTag("populate", (entity, tag, context) => {
 registerEntityTag("storage", (entity, tag, context) => {
   if (!/^[A-Za-z_$][\w$-]*$/.test(tag.text)) throw entityTagError(context, tag, "expects a storage name");
   entity.storageName = tag.text;
+});
+registerEntityTag("maxSize", (entity, tag, context) => {
+  const size = parseSize(tag.text);
+  if (size === undefined) throw entityTagError(context, tag, "expects a size like 512KB or 10MB");
+  entity.fileLimits = { ...entity.fileLimits, maxSize: size };
+});
+registerEntityTag("accept", (entity, tag, context) => {
+  const patterns = splitArgs(tag.text);
+  if (patterns.length === 0 || !patterns.every((pattern) => /^[\w*.+-]+\/[\w*.+-]+$/.test(pattern))) {
+    throw entityTagError(context, tag, "expects MIME patterns like image/png,image/*");
+  }
+  entity.fileLimits = { ...entity.fileLimits, accept: patterns };
 });
 registerEntityTag("internal", (entity, tag, context) => {
   if (tag.text !== "") throw entityTagError(context, tag, "takes no value");

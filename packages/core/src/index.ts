@@ -31,6 +31,7 @@ export type { RouteMatch, RoutePattern } from "./http/router.ts";
 export { executedHooks, operationForRoute, resolveRouteHooks, withHooks } from "./http/pipeline.ts";
 export type { RouteHookSource } from "./http/pipeline.ts";
 export { createCrudRoutes, mergeRoutes, populatePaths } from "./http/crud.ts";
+export type { CrudOptions } from "./http/crud.ts";
 export type { CrudRoute } from "./http/crud.ts";
 export { createApp } from "./app.ts";
 export type { App, AppEndpoint, AppOptions, CrudRouteEntry } from "./app.ts";
@@ -59,3 +60,6 @@ export { assertSafeKey, extensionOf, storageKeyFor, StorageKeyError } from "./st
 export type { StorageAdapter, StorageBody } from "./storage/storage.ts";
 export { s3Storage } from "./storage/s3.ts";
 export type { S3StorageOptions } from "./storage/s3.ts";
+export { DEFAULT_MAX_FILE_SIZE, mimeMatches, parseSize, sanitizeFilename } from "./files/limits.ts";
+export { assertFileAllowed, coerceFormValue, formFields, parseUpload, readMultipart, storageOf, storeFile } from "./files/upload.ts";
+export type { ParsedUpload, UploadSettings } from "./files/upload.ts";

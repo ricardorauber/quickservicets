@@ -56,6 +56,10 @@ export interface Repository<T extends EntityRecord = EntityRecord, R = Record<ne
   delete(id: string): Promise<void>;
   /** Populates reference paths on records already loaded, e.g. results of a custom endpoint. */
   populate(records: T[], paths: readonly string[]): Promise<T[]>;
+  /** Creates a record whose framework-managed fields (e.g. a file's metadata) and id are already known. */
+  createWith(id: string, managed: Record<string, unknown>, data: unknown): Promise<T>;
+  /** Replaces a record like `replace`, also setting framework-managed fields. */
+  replaceWith(id: string, managed: Record<string, unknown>, data: unknown): Promise<T>;
 }
 
 /** Repositories keyed by repository key; entities with an explicit schema are nested under the schema key. */
@@ -135,8 +139,7 @@ export function createRepository(
       return present(await existing(id), options);
     });
 
-  const repository: Repository = {
-    async create(data, options) {
+  const createRecord = async (id: string, managed: Record<string, unknown>, data: unknown, options?: ReadOptions) => {
       const value = await validate(data, "create");
       for (const field of model.fields) {
         if (value[field.name] === undefined && field.default !== undefined) {
@@ -145,13 +148,36 @@ export function createRepository(
         if (value[field.name] === undefined && field.type === "refArray") value[field.name] = [];
       }
       const at = nextTimestamp();
-      const record: StoredRecord = { ...value, id: Bun.randomUUIDv7(), createdAt: at, updatedAt: at };
+      const record: StoredRecord = { ...value, ...managed, id, createdAt: at, updatedAt: at };
       return atomically(async () => {
         await releaseOneToOne(model, undefined, value, adapter, touch);
         await mapUniqueViolation(() => adapter.insert(model, withoutDerived(model, record) as StoredRecord));
         if (hasDerived) await mapUniqueViolation(() => writeDerived(model, record.id, value, models, adapter, touch));
         return present(await existing(record.id), options);
       });
+  };
+
+  const replaceRecord = async (id: string, managed: Record<string, unknown>, data: unknown, options?: ReadOptions) => {
+    const value = await validate(data, "replace");
+    const changes: Record<string, unknown> = {};
+    for (const field of model.fields) {
+      if (field.readOnly) continue;
+      changes[field.name] = value[field.name] ?? (field.type === "refArray" ? [] : null);
+    }
+    return write(id, { ...changes, ...managed }, options);
+  };
+
+  const repository: Repository = {
+    async create(data, options) {
+      return createRecord(Bun.randomUUIDv7(), {}, data, options);
+    },
+
+    async createWith(id, managed, data) {
+      return createRecord(id, managed, data);
+    },
+
+    async replaceWith(id, managed, data) {
+      return replaceRecord(id, managed, data);
     },
 
     async findById(id, options) {
@@ -212,10 +238,7 @@ export function createRepository(
     },
 
     async replace(id, data, options) {
-      const value = await validate(data, "replace");
-      const changes: Record<string, unknown> = {};
-      for (const field of model.fields) changes[field.name] = value[field.name] ?? (field.type === "refArray" ? [] : null);
-      return write(id, changes, options);
+      return replaceRecord(id, {}, data, options);
     },
 
     async delete(id) {

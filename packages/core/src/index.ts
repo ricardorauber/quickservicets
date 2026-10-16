@@ -32,7 +32,7 @@ export { Router, patternOf, splitPath } from "./http/router.ts";
 export type { RouteMatch, RoutePattern } from "./http/router.ts";
 export { executedHooks, operationForRoute, resolveRouteHooks, withHooks } from "./http/pipeline.ts";
 export { parseQueryItems, withQueryItems } from "./http/query-items.ts";
-export type { QueryItem, QueryValueType } from "./http/query-items.ts";
+export type { QueryItem, QueryItemLimits, QueryValueType } from "./http/query-items.ts";
 export { DOCS_PATH, docsPage, docsRoutes, OPENAPI_PATH, SCALAR_URL, SCALAR_VERSION } from "./http/docs.ts";
 export type { RouteHookSource } from "./http/pipeline.ts";
 export { createCrudRoutes, mergeRoutes, populatePaths } from "./http/crud.ts";

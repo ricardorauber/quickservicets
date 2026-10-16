@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import type { QueryItem, QueryValueType } from "@quickservice/core";
 import ts from "typescript";
+import { readTags, type DocTag } from "../entities/jsdoc.ts";
 import { BuildError } from "../errors.ts";
 import { endpointTypeOf } from "../openapi/endpoint-docs.ts";
 import type { EndpointRoute } from "./scan-endpoints.ts";
@@ -48,9 +49,12 @@ function valueType(node: ts.TypeNode, checker: ts.TypeChecker): QueryValueType |
   const declaration = resolved(node, checker);
   if (declaration && ts.isEnumDeclaration(declaration)) {
     const values = enumValues(declaration);
-    return values ? { type: "enum", values } : undefined;
+    return values ? { type: "enum", values, enumName: declaration.name.text } : undefined;
   }
-  if (declaration && ts.isTypeAliasDeclaration(declaration) && !declaration.typeParameters) return valueType(declaration.type, checker);
+  if (declaration && ts.isTypeAliasDeclaration(declaration) && !declaration.typeParameters) {
+    const aliased = valueType(declaration.type, checker);
+    return aliased?.type === "enum" ? { ...aliased, enumName: declaration.name.text } : aliased;
+  }
   return undefined;
 }
 
@@ -65,14 +69,76 @@ function itemOf(member: ts.TypeElement, file: string, checker: ts.TypeChecker): 
     : ts.isTypeReferenceNode(type) && type.typeName.getText() === "Array" && type.typeArguments?.length === 1
       ? type.typeArguments[0]
       : undefined;
+  let item: QueryItem;
   if (element) {
     const items = valueType(element, checker);
     if (!items) throw fail();
-    return { name, optional, type: "array", items };
+    item = { name, optional, type: "array", items };
+  } else {
+    const single = valueType(type, checker);
+    if (!single) throw fail();
+    item = { name, optional, ...single };
   }
-  const single = valueType(type, checker);
-  if (!single) throw fail();
-  return { name, optional, ...single };
+  return withTags(item, readTags(member), file);
+}
+
+const ISO_8601 = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?)?$/;
+
+function matchesType(value: unknown, type: QueryValueType): boolean {
+  switch (type.type) {
+    case "string":
+      return typeof value === "string";
+    case "number":
+      return typeof value === "number" && Number.isFinite(value);
+    case "boolean":
+      return typeof value === "boolean";
+    case "date":
+      return typeof value === "string" && ISO_8601.test(value) && !Number.isNaN(Date.parse(value));
+    case "enum":
+      return typeof value === "string" && type.values.includes(value);
+  }
+}
+
+/** Applies `@default`, `@min`, `@max`, `@minLength` and `@maxLength`; any other tag fails the build. */
+function withTags(item: QueryItem, tags: DocTag[], file: string): QueryItem {
+  const valueTypeOf = item.type === "array" ? item.items : (item as QueryValueType);
+  const result: QueryItem = { ...item };
+  for (const tag of tags) {
+    const fail = (reason: string) => new BuildError(`${file}: query item "${item.name}" has invalid @${tag.name}: ${reason}`);
+    switch (tag.name) {
+      case "default": {
+        let value: unknown;
+        try {
+          const quoted = /^'(.*)'$/s.exec(tag.text);
+          value = quoted ? quoted[1] : JSON.parse(tag.text);
+        } catch {
+          throw fail(`"${tag.text}" is not a valid literal`);
+        }
+        const valid = item.type === "array" ? Array.isArray(value) && value.every((entry) => matchesType(entry, item.items)) : matchesType(value, valueTypeOf);
+        if (!valid) throw fail(`${tag.text} does not match the item type`);
+        result.default = value;
+        break;
+      }
+      case "min":
+      case "max": {
+        if (valueTypeOf.type !== "number") throw fail("only applies to number items");
+        const value = Number(tag.text);
+        if (tag.text.trim() === "" || !Number.isFinite(value)) throw fail("expects a number");
+        result.limits = { ...result.limits, [tag.name]: value };
+        break;
+      }
+      case "minLength":
+      case "maxLength": {
+        if (valueTypeOf.type !== "string") throw fail("only applies to string items");
+        if (!/^\d+$/.test(tag.text)) throw fail("expects a non-negative integer");
+        result.limits = { ...result.limits, [tag.name]: Number(tag.text) };
+        break;
+      }
+      default:
+        throw fail("is not supported on query items");
+    }
+  }
+  return result;
 }
 
 function membersOf(node: ts.TypeNode, checker: ts.TypeChecker): readonly ts.TypeElement[] | undefined {

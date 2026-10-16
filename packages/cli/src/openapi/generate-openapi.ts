@@ -14,6 +14,8 @@ import {
   type HookPhase,
   type NestedFieldModel,
   type Projection,
+  type QueryItem,
+  type QueryValueType,
   type TypeDescriptor,
 } from "@quickservice/core";
 
@@ -614,7 +616,46 @@ function endpointIdentity(doc: EndpointDoc): { tags: string[]; operationId: stri
   return { tags: [tag], operationId: `${doc.method.toLowerCase()}${pascalPath(doc.path)}` };
 }
 
-function customOperation(doc: EndpointDoc): Record<string, unknown> {
+/** The schema of one query value; a named enum or alias uses its shared schema when the name is free or matches. */
+function queryValueSchema(type: QueryValueType, schemas: Record<string, JsonSchema>): JsonSchema {
+  switch (type.type) {
+    case "date":
+      return { type: "string", format: "date-time" };
+    case "enum": {
+      const inline = { type: "string", enum: [...type.values] };
+      if (!type.enumName) return inline;
+      schemas[type.enumName] ??= inline;
+      return JSON.stringify(schemas[type.enumName]) === JSON.stringify(inline) ? ref(type.enumName) : inline;
+    }
+    default:
+      return { type: type.type };
+  }
+}
+
+/** Query parameters of typed query items, with their tags. */
+function queryParameters(items: QueryItem[], schemas: Record<string, JsonSchema>): unknown[] {
+  return items.map((item) => {
+    const valueSchema = queryValueSchema(item.type === "array" ? item.items : (item as QueryValueType), schemas);
+    const limits = {
+      ...(item.limits?.min !== undefined ? { minimum: item.limits.min } : {}),
+      ...(item.limits?.max !== undefined ? { maximum: item.limits.max } : {}),
+      ...(item.limits?.minLength !== undefined ? { minLength: item.limits.minLength } : {}),
+      ...(item.limits?.maxLength !== undefined ? { maxLength: item.limits.maxLength } : {}),
+    };
+    const withLimits = Object.keys(limits).length > 0 ? (valueSchema.$ref ? { allOf: [valueSchema], ...limits } : { ...valueSchema, ...limits }) : valueSchema;
+    const schema = item.type === "array" ? { type: "array", items: withLimits } : withLimits;
+    if (item.default !== undefined) (schema as JsonSchema).default = item.default;
+    return {
+      name: item.name,
+      in: "query",
+      required: !item.optional && item.default === undefined,
+      ...(item.type === "array" ? { style: "form", explode: true } : {}),
+      schema,
+    };
+  });
+}
+
+function customOperation(doc: EndpointDoc, schemas: Record<string, JsonSchema>): Record<string, unknown> {
   const method = doc.method.toLowerCase();
   const success =
     method === "delete" && !doc.result
@@ -622,17 +663,20 @@ function customOperation(doc: EndpointDoc): Record<string, unknown> {
       : { "200": { description: "Success", content: json(doc.result ?? { type: "object" }) } };
   return {
     ...endpointIdentity(doc),
-    ...(doc.params.length > 0 ? { parameters: pathParameters(doc.params) } : {}),
+    ...(doc.params.length > 0 || doc.query ? { parameters: [...pathParameters(doc.params), ...queryParameters(doc.query ?? [], schemas)] } : {}),
     ...(BODY_METHODS.has(method) ? { requestBody: { required: true, content: json(doc.body ?? { type: "object" }) } } : {}),
     responses: success,
   };
 }
 
 /** The generated operation's schemas, parameters and responses, with the endpoint's path, types and texts taking precedence. */
-function overriddenOperation(doc: EndpointDoc, generated: Record<string, unknown>): Record<string, unknown> {
+function overriddenOperation(doc: EndpointDoc, generated: Record<string, unknown>, schemas: Record<string, JsonSchema>): Record<string, unknown> {
   const operation: Record<string, any> = { ...structuredClone(generated), ...endpointIdentity(doc) };
-  const queryParameters = ((operation.parameters ?? []) as { in: string }[]).filter((parameter) => parameter.in !== "path");
-  const parameters = [...pathParameters(doc.params), ...queryParameters];
+  // A typed query replaces the generated query parameters; otherwise they are inherited.
+  const inherited = doc.query
+    ? queryParameters(doc.query, schemas)
+    : ((operation.parameters ?? []) as { in: string }[]).filter((parameter) => parameter.in !== "path");
+  const parameters = [...pathParameters(doc.params), ...inherited];
   if (parameters.length > 0) operation.parameters = parameters;
   if (doc.body && operation.requestBody) operation.requestBody = { required: true, content: json(doc.body) };
   if (doc.result) {
@@ -780,7 +824,7 @@ export function generateOpenApi({
       delete paths[generatedPath]![method];
       if (Object.keys(paths[generatedPath]!).length === 0) delete paths[generatedPath];
     }
-    const operation = generated ? overriddenOperation(doc, generated as Record<string, unknown>) : customOperation(doc);
+    const operation = generated ? overriddenOperation(doc, generated as Record<string, unknown>, schemas) : customOperation(doc, schemas);
     if (doc.projection) projectSuccessResponse(operation, doc.projection, schemas, generated !== undefined && doc.override?.operation === "list");
     if (doc.summary) operation.summary = doc.summary;
     if (doc.description) operation.description = doc.description;

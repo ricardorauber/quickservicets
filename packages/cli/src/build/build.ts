@@ -249,6 +249,7 @@ export async function build(projectRoot: string): Promise<BuildSummary> {
       metadata: endpoints[index]!.metadata,
       override: endpoint.override,
       hooks: endpoint.hooks,
+      query: endpoint.query,
     })),
   );
   const packageFile = join(projectRoot, "package.json");

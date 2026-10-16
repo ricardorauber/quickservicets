@@ -1,5 +1,5 @@
 import { join, relative, resolve, sep } from "node:path";
-import type { CrudOperation, EntityModel, HookCall } from "@quickservice/core";
+import type { CrudOperation, EntityModel, HookCall, QueryItem } from "@quickservice/core";
 import ts from "typescript";
 import type { EndpointRoute } from "../endpoints/scan-endpoints.ts";
 import type { EndpointMetadata } from "../hooks/endpoint-tags.ts";
@@ -24,6 +24,8 @@ export interface EndpointDoc {
   hooks: HookCall[];
   /** `@fields`/`@exclude` of the endpoint. */
   projection?: { include?: string[]; exclude?: string[] };
+  /** Typed query items of a GET or DELETE endpoint. */
+  query?: QueryItem[];
 }
 
 export interface EndpointDocInput {
@@ -31,6 +33,7 @@ export interface EndpointDocInput {
   metadata: EndpointMetadata;
   override?: { entity: string; operation: CrudOperation };
   hooks?: HookCall[];
+  query?: QueryItem[];
 }
 
 class UnsupportedType extends Error {}
@@ -213,7 +216,7 @@ export function describeEndpoints(
     names: componentNames(models.filter((model) => !model.link)),
     visiting: new Set(),
   };
-  const docs = endpoints.map(({ route, metadata, override, hooks = [] }, index): EndpointDoc => {
+  const docs = endpoints.map(({ route, metadata, override, hooks = [], query }, index): EndpointDoc => {
     const sourceFile = program.getSourceFile(files[index]!);
     const endpointType = sourceFile ? endpointTypeOf(sourceFile) : undefined;
     const [bodyNode, resultNode] = endpointType?.typeArguments ?? [];
@@ -239,6 +242,7 @@ export function describeEndpoints(
       ...withValue("result", convert(resultNode)),
       ...(override ? { override } : {}),
       ...(metadata.projection ? { projection: metadata.projection } : {}),
+      ...(query ? { query } : {}),
       hooks,
     };
   });

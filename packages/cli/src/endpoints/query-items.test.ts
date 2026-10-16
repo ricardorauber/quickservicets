@@ -46,7 +46,7 @@ describe("extraction", () => {
       { name: "limit", optional: false, type: "number" },
     ]);
     expect(items.get("endpoints/b/get.ts")).toEqual([
-      { name: "status", optional: true, type: "enum", values: ["draft", "live"] },
+      { name: "status", optional: true, type: "enum", values: ["draft", "live"], enumName: "Status" },
       { name: "tags", optional: true, type: "array", items: { type: "string" } },
     ]);
     expect(items.get("endpoints/c/delete.ts")).toEqual([

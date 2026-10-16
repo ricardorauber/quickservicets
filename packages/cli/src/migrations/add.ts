@@ -1,4 +1,6 @@
-import { loadConfig, type EntityModel, type SqlDialect } from "@quickservice/core";
+import { buildDrizzleSchema, loadConfig, SQLITE_DEFAULT_SCHEMA_TOKEN, type EntityModel, type SqlDialect } from "@quickservice/core";
+import { getTableConfig as pgTableConfig } from "drizzle-orm/pg-core";
+import { getTableConfig as sqliteTableConfig } from "drizzle-orm/sqlite-core";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { parseEntities } from "../entities/parse-entities.ts";
@@ -39,16 +41,86 @@ export function sqlDialectOf(kind: string | undefined): SqlDialect | undefined {
 /** Diffs the current models against the latest migration snapshot. */
 export async function planMigration(projectRoot: string, models: EntityModel[], dialect: SqlDialect): Promise<MigrationPlan> {
   const previous = readLatestSnapshot(projectRoot);
+  const previousModels = previous?.models ?? [];
   const before = previous && previous.dialect !== "mongodb" ? previous.drizzle : await drizzleSnapshot([], dialect);
   const after = await drizzleSnapshot(models, dialect);
+  const renames = joinTableRenames(previousModels, models, dialect);
   return {
     dialect,
     models,
     drizzle: after,
-    up: await diffSnapshots(dialect, before, after),
-    down: await diffSnapshots(dialect, after, before),
-    previousModels: previous?.models ?? [],
+    up: [
+      ...renames.map((rename) => renameStatement(dialect, rename.from, rename.to)),
+      ...(await diffSnapshots(dialect, renameTables(before, renames, dialect, after), after)),
+    ],
+    down: [
+      ...renames.map((rename) => renameStatement(dialect, rename.to, rename.from)),
+      ...(await diffSnapshots(dialect, renameTables(after, renames.map(({ from, to }) => ({ from: to, to: from })), dialect, before), before)),
+    ],
+    previousModels,
   };
+}
+
+interface TableRename {
+  from: { schema: string | undefined; name: string };
+  to: { schema: string | undefined; name: string };
+}
+
+/** Physical join tables by identity (`<entity>.<field>` for reference arrays, the link key for N-N relations). */
+function joinTables(models: EntityModel[], dialect: SqlDialect): Map<string, { schema: string | undefined; name: string }> {
+  const { tables, junctions } = buildDrizzleSchema(models, dialect, { sqliteDefaultPrefix: SQLITE_DEFAULT_SCHEMA_TOKEN });
+  const config = (table: unknown) => (dialect === "sqlite" ? sqliteTableConfig(table as never) : pgTableConfig(table as never));
+  const result = new Map<string, { schema: string | undefined; name: string }>();
+  for (const [key, table] of Object.entries(junctions)) {
+    const { name, schema } = config(table) as { name: string; schema?: string };
+    result.set(key, { name, schema });
+  }
+  for (const model of models) {
+    if (!model.link) continue;
+    const { name, schema } = config(tables[model.key]) as { name: string; schema?: string };
+    result.set(model.key, { name, schema });
+  }
+  return result;
+}
+
+/** Join tables whose identity is unchanged but whose name changed (e.g. a new `@joinTable`). */
+function joinTableRenames(previous: EntityModel[], current: EntityModel[], dialect: SqlDialect): TableRename[] {
+  const before = joinTables(previous, dialect);
+  const after = joinTables(current, dialect);
+  const renames: TableRename[] = [];
+  for (const [key, from] of before) {
+    const to = after.get(key);
+    if (to && (to.name !== from.name || to.schema !== from.schema)) renames.push({ from, to });
+  }
+  return renames;
+}
+
+function renameStatement(dialect: SqlDialect, from: TableRename["from"], to: TableRename["to"]): string {
+  if (dialect === "sqlite") return `ALTER TABLE \`${from.name}\` RENAME TO \`${to.name}\`;`;
+  const qualified = from.schema ? `"${from.schema}"."${from.name}"` : `"${from.name}"`;
+  return `ALTER TABLE ${qualified} RENAME TO "${to.name}";`;
+}
+
+/**
+ * A copy of a snapshot with tables renamed, so the diff sees them as kept instead of dropped and created. SQLite
+ * foreign keys are unnamed in the database, so their names are taken from `target` to avoid rebuilding the table.
+ */
+function renameTables(snapshot: DrizzleSnapshot, renames: TableRename[], dialect: SqlDialect, target: DrizzleSnapshot): DrizzleSnapshot {
+  if (renames.length === 0) return snapshot;
+  const keyOf = (table: TableRename["from"]) => (dialect === "sqlite" ? table.name : `${table.schema ?? "public"}.${table.name}`);
+  const tables = { ...snapshot.tables };
+  for (const { from, to } of renames) {
+    const table = tables[keyOf(from)];
+    if (!table) continue;
+    delete tables[keyOf(from)];
+    const targetTable = target.tables[keyOf(to)];
+    tables[keyOf(to)] = {
+      ...table,
+      name: to.name,
+      ...(dialect === "sqlite" && targetTable ? { foreignKeys: targetTable.foreignKeys } : {}),
+    };
+  }
+  return { ...snapshot, tables };
 }
 
 export async function hasPendingChanges(projectRoot: string, models: EntityModel[], dialect: SqlDialect): Promise<boolean> {

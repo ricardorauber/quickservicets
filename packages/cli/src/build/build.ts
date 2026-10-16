@@ -160,6 +160,16 @@ const listening = server.listen();
 console.log(\`quickservice listening on http://localhost:\${listening.port}\`);
 `;
 
+/** On MongoDB and memory, unpaired reference arrays are embedded, so their `@joinTable` has no effect. */
+export function joinTableWarnings(models: EntityModel[], kind: string | undefined): string[] {
+  if (kind !== "mongodb" && kind !== "memory") return [];
+  return models.flatMap((model) =>
+    model.fields
+      .filter((field) => field.type === "refArray" && field.storage === "relation" && field.joinTable)
+      .map((field) => `entities/${model.key}.ts: @joinTable on field "${field.name}" is ignored on ${kind} (reference arrays are embedded)`),
+  );
+}
+
 /** Builds the project at `projectRoot` into `.generated/`, replacing the previous output only on success. */
 export async function build(projectRoot: string): Promise<BuildSummary> {
   const config = await loadConfig(projectRoot);
@@ -192,7 +202,7 @@ export async function build(projectRoot: string): Promise<BuildSummary> {
   if (existsSync(target)) rmSync(target, { recursive: true, force: true });
   renameSync(staging, target);
 
-  const warnings: string[] = [];
+  const warnings: string[] = joinTableWarnings(models, config.database.kind);
   const dialect = sqlDialectOf(config.database.kind);
   if (dialect && (await hasPendingChanges(projectRoot, models, dialect))) warnings.push(PENDING_MIGRATION_WARNING);
   return { entities: models.length, endpoints: endpoints.length, hooks: hooks.size, warnings };

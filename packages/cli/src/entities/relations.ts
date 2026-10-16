@@ -35,6 +35,15 @@ function storingSide(a: Side, b: Side, kind: RelationKind): Side {
 
 function pair(a: Side, b: Side): void {
   const kind = kindOf(a.field, b.field);
+  if (kind === "N-N" && a.field.joinTable && b.field.joinTable && a.field.joinTable !== b.field.joinTable) {
+    throw new EntityParseError(
+      `${fileOf(a.model)}: ${label(a)} and ${label(b)} declare different @joinTable names (${a.field.joinTable} and ${b.field.joinTable})`,
+    );
+  }
+  if (kind !== "N-N" && (a.field.joinTable || b.field.joinTable)) {
+    const side = a.field.joinTable ? a : b;
+    throw new EntityParseError(`${fileOf(side.model)}: invalid @joinTable on ${label(side)}: ${kind} relations have no join table`);
+  }
   if (kind !== "1-1" && (a.field.owner || b.field.owner)) {
     const side = a.field.owner ? a : b;
     throw new EntityParseError(`${fileOf(side.model)}: invalid @owner on ${label(side)}: only 1-1 relations have an owner`);
@@ -56,7 +65,10 @@ const SYSTEM = ["id", "createdAt", "updatedAt"];
 
 /** The internal entity that stores the links of an N-N relation, named after its storing side. */
 export function linkEntity(left: Side, right: Side): EntityModel {
-  const tableName = `${left.model.tableName}__${toSnakeCase(left.field.name.replace(/[A-Z]/g, (char) => `_${char.toLowerCase()}`))}`;
+  const tableName =
+    left.field.joinTable ??
+    right.field.joinTable ??
+    `${left.model.tableName}__${toSnakeCase(left.field.name.replace(/[A-Z]/g, (char) => `_${char.toLowerCase()}`))}`;
   const name = tableName.replaceAll("_", "-");
   const fields: FieldModel[] = [
     { name: "left", type: "ref", target: left.model.key, onDelete: "cascade", optional: false, storage: "column" },

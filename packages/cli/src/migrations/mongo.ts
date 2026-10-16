@@ -23,8 +23,20 @@ const key = (spec: MongoIndexSpec) =>
 /** Index changes between the latest snapshot and the current models, as `up` and `down` statements. */
 export function planMongoMigration(projectRoot: string, models: EntityModel[]): MongoMigrationPlan {
   const previous = readLatestSnapshot(projectRoot);
-  const before = previous?.dialect === "mongodb" ? previous.indexes : [];
   const previousModels = previous?.models ?? [];
+  // Join collections whose relation is unchanged but whose name changed are renamed, keeping their documents.
+  const renames = previousModels
+    .filter((model) => model.link)
+    .flatMap((model) => {
+      const current = models.find((candidate) => candidate.key === model.key);
+      return current && current.tableName !== model.tableName ? [{ schema: model.schema, from: model.tableName, to: current.tableName }] : [];
+    });
+  const renamed = (collection: string, schema: string | null) =>
+    renames.find((rename) => rename.from === collection && rename.schema === schema)?.to ?? collection;
+  const before = (previous?.dialect === "mongodb" ? previous.indexes : []).map((spec) => ({
+    ...spec,
+    collection: renamed(spec.collection, spec.schema),
+  }));
   const after = models.flatMap(mongoIndexSpecs);
   const beforeKeys = new Set(before.map(key));
   const afterKeys = new Set(after.map(key));
@@ -32,17 +44,20 @@ export function planMongoMigration(projectRoot: string, models: EntityModel[]): 
   const removed = before.filter((spec) => !afterKeys.has(key(spec)));
 
   const kept = (model: EntityModel) =>
-    models.some((current) => current.tableName === model.tableName && current.schema === model.schema);
+    models.some((current) => (current.tableName === model.tableName || current.key === model.key) && current.schema === model.schema);
   const todos = previousModels
     .filter((model) => !kept(model))
     .map((model) => `// TODO: data in collection ${model.tableName} is kept; drop it here if intended`);
 
+  const db = (schema: string | null) => (schema ? `ctx.db(${JSON.stringify(schema)})` : "ctx.db()");
+  const renameUp = renames.map((rename) => `await ${db(rename.schema)}.collection(${JSON.stringify(rename.from)}).rename(${JSON.stringify(rename.to)});`);
+  const renameDown = renames.map((rename) => `await ${db(rename.schema)}.collection(${JSON.stringify(rename.to)}).rename(${JSON.stringify(rename.from)});`);
   return {
     dialect: "mongodb",
     models,
     indexes: after,
     previousModels,
-    up: [...todos, ...removed.map(dropIndex), ...added.map(createIndex)],
-    down: [...added.map(dropIndex), ...removed.map(createIndex)],
+    up: [...todos, ...renameUp, ...removed.map(dropIndex), ...added.map(createIndex)],
+    down: [...added.map(dropIndex), ...removed.map(createIndex), ...renameDown],
   };
 }

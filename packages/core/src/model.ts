@@ -65,6 +65,8 @@ export type FieldModel = NestedFieldModel & {
   owner?: boolean;
   /** `@onConflict replace`: linking a 1-1 target that is already linked moves the link instead of failing. */
   onConflict?: "replace";
+  /** `@joinTable <name>`: name of the junction table (or join collection) of a reference array or N-N relation. */
+  joinTable?: string;
   /** Set when the field is paired with an inverse field into one relation. */
   relation?: RelationSide;
 };

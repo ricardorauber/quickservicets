@@ -65,6 +65,7 @@ export function parseEntities(projectRoot: string): EntityModel[] {
   const models = sources.map((source) => parseEntity(program, { checker, source, sourcesByFile }));
   assertUniqueCollectionNames(models, sources);
   const links = pairRelations(models);
+  assertUniqueTableNames(models, links, sources);
   models.forEach((model, index) => {
     for (const field of model.fields) {
       if (field.storage === "derived" && (field.unique || field.index)) {
@@ -361,6 +362,29 @@ function mapEnum(typeNode: ts.UnionTypeNode, path: string, source: EntitySource)
     );
   });
   return { type: "enum", values };
+}
+
+const snakeColumn = (name: string) => name.replace(/[A-Z]/g, (char) => `_${char.toLowerCase()}`);
+
+/** Entity tables, junction tables and join tables must have distinct names within a schema. */
+function assertUniqueTableNames(models: EntityModel[], links: EntityModel[], sources: EntitySource[]): void {
+  const owners = new Map<string, string>();
+  const claim = (schema: string | null, table: string, source: string) => {
+    const key = `${schema ?? ""}\u0000${table}`;
+    const previous = owners.get(key);
+    if (previous) throw new EntityParseError(`${previous} and ${source} both use the table name "${table}"`);
+    owners.set(key, source);
+  };
+  models.forEach((model, index) => claim(model.schema, model.tableName, `${sources[index]!.relativeFile} (entity ${model.entityName})`));
+  models.forEach((model, index) => {
+    for (const field of model.fields) {
+      if (field.type !== "refArray" || field.storage !== "relation") continue;
+      claim(model.schema, field.joinTable ?? `${model.tableName}__${snakeColumn(field.name)}`, `${sources[index]!.relativeFile} (field "${field.name}")`);
+    }
+  });
+  for (const link of links) {
+    claim(link.schema, link.tableName, `entities/${link.link!.left.entity}.ts (field "${link.link!.left.field}")`);
+  }
 }
 
 function assertUniqueCollectionNames(models: EntityModel[], sources: EntitySource[]): void {

@@ -8,7 +8,7 @@ export interface FieldTagContext {
   topLevel: boolean;
 }
 
-type FieldUnderConstruction = NestedFieldModel & Partial<Pick<FieldModel, "unique" | "index" | "inverse" | "owner" | "onConflict">>;
+type FieldUnderConstruction = NestedFieldModel & Partial<Pick<FieldModel, "unique" | "index" | "inverse" | "owner" | "onConflict" | "joinTable">>;
 
 type FieldTagHandler = (field: FieldUnderConstruction, tag: DocTag, context: FieldTagContext) => void;
 
@@ -172,6 +172,11 @@ registerFieldTag("owner", (field, tag, context) => {
   requireNoValue(field, tag, context);
   if (field.type !== "ref") throw fieldTagError(context, tag, "only applies to single reference fields");
   field.owner = true;
+});
+registerFieldTag("joinTable", (field, tag, context) => {
+  if (field.type !== "refArray") throw fieldTagError(context, tag, "only applies to reference arrays and N-N relations");
+  if (!/^[a-z][a-z0-9_]*$/.test(tag.text)) throw fieldTagError(context, tag, "expects a name matching ^[a-z][a-z0-9_]*$");
+  field.joinTable = tag.text;
 });
 registerFieldTag("onConflict", (field, tag, context) => {
   if (field.type !== "ref") throw fieldTagError(context, tag, "only applies to single reference fields");

@@ -184,7 +184,13 @@ export function buildDrizzleSchema(models: EntityModel[], dialect: SqlDialect, o
       if (field.type !== "refArray" || field.storage !== "relation") continue;
       const target = models.find((candidate) => candidate.key === field.target);
       if (!target) continue;
-      const name = `${physicalName(model)}__${columnName(field.name)}`;
+      const name = field.joinTable
+        ? isSqlite
+          ? model.schema
+            ? `${schemaIdentifier(model.schema)}__${field.joinTable}`
+            : `${options.sqliteDefaultPrefix ?? ""}${field.joinTable}`
+          : field.joinTable
+        : `${physicalName(model)}__${columnName(field.name)}`;
       const prefix = `${namePrefix(model)}__${columnName(field.name)}`;
       const targetOnDelete = field.onDelete === "pull" ? "cascade" : "restrict";
       const integerColumn = (column: string): ColumnBuilder => (isSqlite ? integer(column) : pgInteger(column));

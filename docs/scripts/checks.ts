@@ -1,5 +1,5 @@
 import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 import ts from "typescript";
 
 export const SECOND_LOCALE = "pt-br";
@@ -33,6 +33,8 @@ export interface Snippet {
   /** 1-based line of the opening fence. */
   line: number;
   code: string;
+  /** File path from the fence's `title="..."`; snippets of one page with titles form a small project. */
+  title?: string;
 }
 
 /** Code blocks fenced as ```ts check (other words after `check`, like a title, are allowed). */
@@ -40,11 +42,13 @@ export function extractSnippets(page: string, markdown: string): Snippet[] {
   const snippets: Snippet[] = [];
   const lines = markdown.split("\n");
   for (let index = 0; index < lines.length; index++) {
-    if (!/^\s*```ts\s+check\b/.test(lines[index]!)) continue;
+    const fence = /^\s*```ts\s+check\b(.*)$/.exec(lines[index]!);
+    if (!fence) continue;
     const start = index;
+    const title = /title="([^"]+)"/.exec(fence[1]!)?.[1];
     const body: string[] = [];
     for (index++; index < lines.length && !/^\s*```\s*$/.test(lines[index]!); index++) body.push(lines[index]!);
-    snippets.push({ page, line: start + 1, code: body.join("\n") });
+    snippets.push({ page, line: start + 1, code: body.join("\n"), ...(title ? { title } : {}) });
   }
   return snippets;
 }
@@ -53,33 +57,45 @@ export function snippetsOf(contentDir: string): Snippet[] {
   return [...pagesUnder(contentDir)].flatMap((page) => extractSnippets(page, readFileSync(join(contentDir, page), "utf8")));
 }
 
-/** Type-checks snippets against the framework packages; returns `page:line: message` for each failure. */
+const COMPILER_OPTIONS: ts.CompilerOptions = {
+  strict: true,
+  noEmit: true,
+  skipLibCheck: true,
+  lib: ["lib.esnext.d.ts", "lib.dom.d.ts"],
+  types: ["bun"],
+  target: ts.ScriptTarget.ESNext,
+  module: ts.ModuleKind.ESNext,
+  moduleResolution: ts.ModuleResolutionKind.Bundler,
+  allowImportingTsExtensions: true,
+};
+
+/**
+ * Type-checks snippets against the framework packages, one program per page so pages never see each other's
+ * declarations; returns `page:line: message` for each failure.
+ */
 export function snippetErrors(snippets: Snippet[], workDir: string): string[] {
   rmSync(workDir, { recursive: true, force: true });
-  mkdirSync(workDir, { recursive: true });
-  const files = snippets.map((snippet, index) => {
-    const file = join(workDir, `snippet-${index}.ts`);
-    // Each snippet is its own module, so names never clash between snippets.
-    writeFileSync(file, `${snippet.code}\nexport {};\n`);
-    return file;
-  });
-  const program = ts.createProgram(files, {
-    strict: true,
-    noEmit: true,
-    skipLibCheck: true,
-    lib: ["lib.esnext.d.ts", "lib.dom.d.ts"],
-    types: ["bun"],
-    target: ts.ScriptTarget.ESNext,
-    module: ts.ModuleKind.ESNext,
-    moduleResolution: ts.ModuleResolutionKind.Bundler,
-    allowImportingTsExtensions: true,
-  });
-  return files.flatMap((file, index) => {
-    const source = program.getSourceFile(file);
-    const snippet = snippets[index]!;
-    return ts.getPreEmitDiagnostics(program, source).map((diagnostic) => {
-      const line = diagnostic.start !== undefined && source ? source.getLineAndCharacterOfPosition(diagnostic.start).line + 1 : 0;
-      return `${snippet.page}:${snippet.line + line}: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, " ")}`;
+  const pages = [...new Set(snippets.map((snippet) => snippet.page))];
+  let previous: ts.Program | undefined;
+  return pages.flatMap((page, pageIndex) => {
+    const dir = join(workDir, `page-${pageIndex}`);
+    const ofPage = snippets.filter((snippet) => snippet.page === page);
+    const files = ofPage.map((snippet, index) => {
+      const file = join(dir, snippet.title ?? `snippet-${index}.ts`);
+      mkdirSync(dirname(file), { recursive: true });
+      // Untitled snippets are their own modules, so names never clash between them.
+      writeFileSync(file, snippet.title ? snippet.code : `${snippet.code}\nexport {};\n`);
+      return file;
+    });
+    const program = ts.createProgram(files, COMPILER_OPTIONS, undefined, previous);
+    previous = program;
+    return files.flatMap((file, index) => {
+      const source = program.getSourceFile(file);
+      const snippet = ofPage[index]!;
+      return ts.getPreEmitDiagnostics(program, source).map((diagnostic) => {
+        const line = diagnostic.start !== undefined && source ? source.getLineAndCharacterOfPosition(diagnostic.start).line + 1 : 0;
+        return `${snippet.page}:${snippet.line + line}: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, " ")}`;
+      });
     });
   });
 }

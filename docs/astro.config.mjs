@@ -11,7 +11,7 @@ export default defineConfig({
     starlight({
       title: "quickservice",
       description: "Backend services from TypeScript types, on Bun.",
-      logo: { src: "./src/assets/logo.svg", replacesTitle: true },
+      logo: { light: "./src/assets/logo-light.svg", dark: "./src/assets/logo-dark.svg", replacesTitle: true },
       defaultLocale: "root",
       locales: {
         root: { label: "English", lang: "en" },

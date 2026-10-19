@@ -21,9 +21,15 @@ export interface SelectionContext {
   models?: EntityModel[];
 }
 
+/** The populated paths with every prefix: populating `organization.country` populates `organization` too. */
+export function populatedPrefixes(paths: readonly string[]): string[] {
+  return [...new Set(paths.flatMap((path) => path.split(".").map((_, index, segments) => segments.slice(0, index + 1).join("."))))];
+}
+
 /** Whether `path` reaches inside a populated reference and is exposed by the referenced entity. */
 function withinPopulated(model: EntityModel, exposure: Exposure, path: string, context: SelectionContext): boolean {
-  for (const populated of context.populated ?? []) {
+  const populatedPaths = populatedPrefixes(context.populated ?? []);
+  for (const populated of populatedPaths) {
     if (!path.startsWith(`${populated}.`) || !isExposed(exposure, populated.split(".")[0]!)) continue;
     let target: EntityModel | undefined = model;
     for (const segment of populated.split(".")) {
@@ -33,7 +39,7 @@ function withinPopulated(model: EntityModel, exposure: Exposure, path: string, c
     }
     if (!target) continue;
     const rest = path.slice(populated.length + 1);
-    if (withinPopulated(target, target.exposure.read, rest, { ...context, populated: (context.populated ?? []).filter((other) => other.startsWith(`${populated}.`)).map((other) => other.slice(populated.length + 1)) })) {
+    if (withinPopulated(target, target.exposure.read, rest, { ...context, populated: populatedPaths.filter((other) => other.startsWith(`${populated}.`)).map((other) => other.slice(populated.length + 1)) })) {
       return true;
     }
     const parsed = parseFieldPaths(target, [rest]);

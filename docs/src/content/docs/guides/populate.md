@@ -133,10 +133,10 @@ Content-Type: application/json
 }
 ```
 
-`fields` accepts a path inside a reference only when that exact reference is in `populate`. To select fields of the organization itself as well, list `organization` too:
+Every level of a populate path counts as populated, so `fields` and `exclude` can also select fields of the organization itself, without listing `organization` again:
 
 ```http
-GET /users?populate=organization,organization.country&fields=name,organization.name,organization.country.code
+GET /users?populate=organization.country&fields=organization.name
 ```
 
 ```http
@@ -146,21 +146,13 @@ Content-Type: application/json
 {
   "data": [
     {
-      "name": "Bruno",
       "organization": {
-        "name": "Acme",
-        "country": {
-          "code": "BR"
-        }
+        "name": "Acme"
       }
     },
     {
-      "name": "Ana",
       "organization": {
-        "name": "Acme",
-        "country": {
-          "code": "BR"
-        }
+        "name": "Acme"
       }
     }
   ],
@@ -170,10 +162,10 @@ Content-Type: application/json
 }
 ```
 
-Without it, the selection fails:
+`country` is left out because `fields` did not select it. A path inside a reference that is not populated fails, and so does a field the populated entity does not have:
 
 ```http
-GET /users?populate=organization.country&fields=name,organization.name
+GET /users?fields=name,organization.name
 ```
 
 ```http
@@ -193,8 +185,6 @@ Content-Type: application/json
   }
 }
 ```
-
-The same error comes back when `populate` is missing entirely.
 
 Every segment of a path must be a reference or reference array field:
 

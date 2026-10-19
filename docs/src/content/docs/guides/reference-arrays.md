@@ -435,7 +435,23 @@ Content-Type: application/json
 }
 ```
 
-Each changed team gets a newer `updatedAt`. Pulling doesn't check `@minItems`, so a list can end up shorter than its minimum.
+Each changed team gets a newer `updatedAt`.
+
+A pull never leaves a list shorter than its `@minItems`. When it would, the delete fails with 409 before anything changes, and the message names the first list that would drop below its minimum. Had `Team.members` been declared `/** @minItems 1 */ members: User[];`, deleting Bruno while Docs listed only him would fail:
+
+```http
+HTTP/1.1 409 Conflict
+Content-Type: application/json
+
+{
+  "error": {
+    "code": "CONFLICT",
+    "message": "Cannot delete: teams.members would have fewer than 1 item"
+  }
+}
+```
+
+Bruno and every team stay unchanged. Add another member to Docs, or delete the team, then delete Bruno.
 
 ### `restrict`
 

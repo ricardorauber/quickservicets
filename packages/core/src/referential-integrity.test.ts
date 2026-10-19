@@ -127,3 +127,33 @@ test("self-referencing cascade removes the subtree and terminates", async () => 
   for (const record of [root, child, grandchild]) expect(await categories.findById(record.id)).toBeNull();
   expect(await categories.findById(unrelated.id)).not.toBeNull();
 });
+
+describe("pull below the minimum", () => {
+  const person = entity("User", [field({ name: "name", type: "string" })]);
+  const teamWith = (minLength: number) =>
+    entity("Team", [field({ name: "members", type: "refArray", target: "User", onDelete: "pull", minLength })]);
+
+  test("the delete fails with 409 naming the array", async () => {
+    const { repos } = await setup([person, teamWith(1)]);
+    const only = await repos.users!.create({ name: "a" });
+    await repos.teams!.create({ members: [only.id] });
+    const error = await httpError(repos.users!.delete(only.id));
+    expect(error.status).toBe(409);
+    expect(error.message).toBe("Cannot delete: teams.members would have fewer than 1 item");
+  });
+
+  test("the plural is used above 1", async () => {
+    const { repos } = await setup([person, teamWith(2)]);
+    const [a, b] = await Promise.all(["a", "b"].map((name) => repos.users!.create({ name })));
+    await repos.teams!.create({ members: [a!.id, b!.id] });
+    expect((await httpError(repos.users!.delete(a!.id))).message).toBe("Cannot delete: teams.members would have fewer than 2 items");
+  });
+
+  test("a pull that keeps the minimum succeeds", async () => {
+    const { repos } = await setup([person, teamWith(1)]);
+    const [a, b] = await Promise.all(["a", "b"].map((name) => repos.users!.create({ name })));
+    const team = await repos.teams!.create({ members: [a!.id, b!.id] });
+    await repos.users!.delete(a!.id);
+    expect((await repos.teams!.findById(team.id))!.members).toEqual([b!.id]);
+  });
+});

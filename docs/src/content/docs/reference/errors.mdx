@@ -34,6 +34,7 @@ Every error response has the shape `{ "error": { "code", "message", "details"? }
 | 405 | `Method not allowed` | The path exists with other methods, listed in the `allow` header. |
 | 409 | `Value already exists` | A `@unique` field already has the value. |
 | 409 | `Cannot delete: referenced by <collection>` | A `restrict` reference still points to the record. |
+| 409 | `Cannot delete: <collection>.<field> would have fewer than <n> items` | A `pull` would leave a reference array below its `@minItems` (`item` when `<n>` is 1). |
 | 413 | `File too large` | An upload is larger than the allowed size. |
 | 413 | `Total upload size too large` | The files of an array field are larger than `@maxTotalSize` together. |
 | 415 | `Must be multipart/form-data` | A file entity was written with JSON instead of a multipart body. |

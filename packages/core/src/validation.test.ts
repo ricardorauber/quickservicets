@@ -78,7 +78,7 @@ describe("tag errors with boundaries", () => {
   test.each([
     [{ name: "J" }, "name", "Must be at least 2 characters"],
     [{ name: "Johnny" }, "name", "Must be at most 5 characters"],
-    [{ tags: [] }, "tags", "Must have at least 1 items"],
+    [{ tags: [] }, "tags", "Must have at least 1 item"],
     [{ tags: ["a", "b", "c"] }, "tags", "Must have at most 2 items"],
     [{ age: -1 }, "age", "Must be at least 0"],
     [{ age: 121 }, "age", "Must be at most 120"],
@@ -89,6 +89,25 @@ describe("tag errors with boundaries", () => {
   test("exact boundaries pass", () => {
     expect(validateBody(user, { name: "Jo", age: 0, tags: ["a", "b"] }, "patch").ok).toBe(true);
     expect(validateBody(user, { name: "Johnn", age: 120, tags: ["a"] }, "patch").ok).toBe(true);
+  });
+});
+
+describe("item counts", () => {
+  const limited = (minLength: number, maxLength: number) =>
+    entity("Team", [
+      field({ name: "members", type: "refArray", target: "User", onDelete: "pull", minLength, maxLength }),
+      field({ name: "labels", type: "array", items: { type: "string" }, minLength, maxLength }),
+    ]);
+  const messages = (minLength: number, maxLength: number, list: string[]) =>
+    details(validateBody(limited(minLength, maxLength), { members: list, labels: list }, "patch")).map((detail) => detail.message);
+
+  test("a count of 1 uses the singular", () => {
+    expect(messages(1, 1, [])).toEqual(["Must have at least 1 item", "Must have at least 1 item"]);
+    expect(messages(1, 1, ["a", "b"])).toEqual(["Must have at most 1 item", "Must have at most 1 item"]);
+  });
+  test("other counts use the plural", () => {
+    expect(messages(2, 3, ["a"])).toEqual(["Must have at least 2 items", "Must have at least 2 items"]);
+    expect(messages(0, 0, ["a"])).toEqual(["Must have at most 0 items", "Must have at most 0 items"]);
   });
 });
 

@@ -26,7 +26,7 @@ import {
 } from "./relations.ts";
 import type { Condition, ListQuery } from "./query.ts";
 import { assertReferencesExist, executeDeletePlan, planDelete } from "./referential-integrity.ts";
-import { ReferenceArrayChange, validateBody, type ValidationMode } from "./validation.ts";
+import { itemCount, ReferenceArrayChange, validateBody, type ValidationMode } from "./validation.ts";
 
 export type EntityRecord = StoredRecord;
 
@@ -302,10 +302,10 @@ export function createRepository(
         if (!(change instanceof ReferenceArrayChange)) continue;
         const list = change.applyTo((current[field.name] as string[] | null) ?? []);
         if (field.minLength !== undefined && list.length < field.minLength) {
-          details.push({ field: field.name, message: `Must have at least ${field.minLength} items` });
+          details.push({ field: field.name, message: `Must have at least ${itemCount(field.minLength)}` });
         }
         if (field.maxLength !== undefined && list.length > field.maxLength) {
-          details.push({ field: field.name, message: `Must have at most ${field.maxLength} items` });
+          details.push({ field: field.name, message: `Must have at most ${itemCount(field.maxLength)}` });
         }
         value[field.name] = list;
       }

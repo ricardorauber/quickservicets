@@ -59,6 +59,22 @@ describe.each(factories)("%s", (_, factory) => {
     await adapter.disconnect();
   });
 
+  test("a pull below the minimum changes nothing", async () => {
+    const team = entity("Team", [
+      field({ name: "name", type: "string" }),
+      field({ name: "members", type: "refArray", target: "User", onDelete: "pull", minLength: 1 }),
+    ]);
+    const { repos, adapter } = await setup(factory, [user, team]);
+    const [only, other] = await Promise.all(["a", "b"].map((name) => repos.users!.create({ name })));
+    const blocked = await repos.teams!.create({ name: "blocked", members: [only!.id] });
+    const pulled = await repos.teams!.create({ name: "pulled", members: [only!.id, other!.id] });
+    expect(await conflict(repos.users!.delete(only!.id))).toEqual([409, "Cannot delete: teams.members would have fewer than 1 item"]);
+    expect(await repos.users!.findById(only!.id)).toMatchObject({ name: "a" });
+    expect(await repos.teams!.findById(blocked.id)).toMatchObject({ members: [only!.id], updatedAt: blocked.updatedAt });
+    expect(await repos.teams!.findById(pulled.id)).toMatchObject({ members: [only!.id, other!.id], updatedAt: pulled.updatedAt });
+    await adapter.disconnect();
+  });
+
   test("restrict blocks the delete", async () => {
     const { repos, adapter } = await setup(factory, [user, organizationWith("restrict")]);
     const member = await repos.users!.create({ name: "b" });

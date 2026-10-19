@@ -5,6 +5,9 @@ type ValueSpec = TypeDescriptor & FieldConstraints;
 
 export type ValidationMode = "create" | "replace" | "patch";
 
+/** `1 item`, `2 items`: the count of an item limit in messages. */
+export const itemCount = (count: number): string => `${count} ${count === 1 ? "item" : "items"}`;
+
 /** A PATCH of a reference array given as ids to add and remove, resolved against the stored list. */
 export class ReferenceArrayChange {
   constructor(
@@ -166,20 +169,20 @@ function validateValue(field: ValueSpec, raw: unknown, path: string, errors: Col
     case "refArray": {
       if (!Array.isArray(raw)) return errors.add(path, "Must be an array");
       if (field.minLength !== undefined && raw.length < field.minLength) {
-        return errors.add(path, `Must have at least ${field.minLength} items`);
+        return errors.add(path, `Must have at least ${itemCount(field.minLength)}`);
       }
       if (field.maxLength !== undefined && raw.length > field.maxLength) {
-        return errors.add(path, `Must have at most ${field.maxLength} items`);
+        return errors.add(path, `Must have at most ${itemCount(field.maxLength)}`);
       }
       return validateIdList(raw, path, errors);
     }
     case "array": {
       if (!Array.isArray(raw)) return errors.add(path, "Must be an array");
       if (field.minLength !== undefined && raw.length < field.minLength) {
-        return errors.add(path, `Must have at least ${field.minLength} items`);
+        return errors.add(path, `Must have at least ${itemCount(field.minLength)}`);
       }
       if (field.maxLength !== undefined && raw.length > field.maxLength) {
-        return errors.add(path, `Must have at most ${field.maxLength} items`);
+        return errors.add(path, `Must have at most ${itemCount(field.maxLength)}`);
       }
       return raw.map((item, index) => {
         const itemPath = `${path}[${index}]`;

@@ -1,6 +1,7 @@
 import type { DatabaseAdapter, StoredRecord } from "./adapter.ts";
 import { HttpError, type FieldErrorDetail } from "./errors.ts";
 import type { EntityModel, FieldModel } from "./model.ts";
+import { itemCount } from "./validation.ts";
 
 type RefField = Extract<FieldModel, { type: "ref" }>;
 type RefArrayField = Extract<FieldModel, { type: "refArray" }>;
@@ -94,7 +95,8 @@ const recordKey = (model: EntityModel, id: string) => `${model.key}\u0000${id}`;
 
 /**
  * Collects every record a delete affects, following `cascade` recursively, and fails with 409 before anything
- * changes when a `restrict` reference would be left dangling.
+ * changes when a `restrict` reference would be left dangling or a pull would leave a reference array below its
+ * `@minItems`.
  */
 export async function planDelete(
   model: EntityModel,
@@ -167,6 +169,15 @@ export async function planDelete(
           update.changes[reference.field.name] = current.filter((id) => !deletedIds.has(recordKey(deletion.model, id)));
         }
         updates.set(key, update);
+      }
+    }
+  }
+  for (const { model: owner, changes } of updates.values()) {
+    for (const field of owner.fields) {
+      if (field.type !== "refArray" || field.onDelete !== "pull" || field.minLength === undefined) continue;
+      const list = changes[field.name];
+      if (Array.isArray(list) && list.length < field.minLength) {
+        throw new HttpError(409, `Cannot delete: ${owner.name}.${field.name} would have fewer than ${itemCount(field.minLength)}`);
       }
     }
   }

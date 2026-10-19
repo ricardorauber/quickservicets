@@ -91,6 +91,17 @@ describe("validation", () => {
       { field: "members", message: "Must have at most 3 items" },
     ]);
   });
+  test("limits of 1 use the singular", async () => {
+    const team = entity("Team", [field({ name: "members", type: "refArray", target: "User", onDelete: "pull", minLength: 1, maxLength: 1 })]);
+    const adapter = memoryAdapter();
+    await adapter.connect([user, team]);
+    const repos = createRepositories([user, team], adapter);
+    const [a, b] = await Promise.all(["a", "b"].map((name) => (repos.users as Repository).create({ name })));
+    const teams = repos.teams as Repository;
+    const { id } = await teams.create({ members: [a!.id] });
+    expect(await fail(teams.update(id, { members: { remove: [a!.id] } }))).toEqual([{ field: "members", message: "Must have at least 1 item" }]);
+    expect(await fail(teams.update(id, { members: { add: [b!.id] } }))).toEqual([{ field: "members", message: "Must have at most 1 item" }]);
+  });
   test("added ids must exist", async () => {
     expect(await fail(organizations.update(orgId, { members: { add: [Bun.randomUUIDv7()] } }))).toEqual([
       { field: "members[2]", message: "Referenced record not found" },

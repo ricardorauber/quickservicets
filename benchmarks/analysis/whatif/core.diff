@@ -1,0 +1,175 @@
+diff -ru a/packages/core/src/adapters/postgres.ts b/packages/core/src/adapters/postgres.ts
+--- a/packages/core/src/adapters/postgres.ts	2026-10-19 13:01:39
++++ b/packages/core/src/adapters/postgres.ts	2026-10-19 16:30:08
+@@ -48,6 +48,7 @@
+   return undefined;
+ }
+ 
++const WHATIF = new Set((process.env.QS_WHATIF ?? "").split(",").filter(Boolean));
+ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapter {
+   let client: SQL | undefined;
+   let db: BunSQLDatabase | undefined;
+@@ -81,6 +82,24 @@
+     if (!db) throw new Error("The PostgreSQL adapter is not connected");
+     return db.transaction((tx) => transactions.run(tx as unknown as Executor, fn));
+   };
++  const hasRelations = (entity: EntityModel) => entity.fields.some((field) => field.storage === "relation");
++  const maybeTransaction = <T>(entity: EntityModel, fn: () => Promise<T>): Promise<T> =>
++    WHATIF.has("notx") && !hasRelations(entity) ? fn() : transaction(fn);
++  // Raw statements: precomputed SQL text per entity, column aliases give field names.
++  const rawCache = new Map<string, { select: string; columns: string[]; fields: string[]; table: string }>();
++  const rawOf = (entity: EntityModel) => {
++    let cached = rawCache.get(entity.key);
++    if (!cached) {
++      const table = tableFor(entity);
++      const fields = Object.keys(table).filter((key) => table[key] && typeof table[key] === "object" && "name" in table[key] && "columnType" in table[key]);
++      const columns = fields.map((field) => table[field].name as string);
++      const select = columns.map((column, index) => `"${column}" as "${fields[index]}"`).join(", ");
++      cached = { select, columns, fields, table: `"${entity.tableName}"` };
++      rawCache.set(entity.key, cached);
++    }
++    return cached;
++  };
++  const raw = () => (WHATIF.has("rawsql") && !transactions.getStore() ? client : undefined);
+   const first = async (entity: EntityModel, rows: unknown[]): Promise<StoredRecord | null> =>
+     rows[0] ? (await withRelations(entity, [rows[0] as StoredRecord]))[0]! : null;
+ 
+@@ -109,8 +128,16 @@
+     },
+     insert(entity, record) {
+       return translateErrors(() =>
+-        transaction(async () => {
++        maybeTransaction(entity, async () => {
+           const { columns, relations } = splitRelations(entity, record);
++          const direct = raw();
++          if (direct && !hasRelations(entity)) {
++            const info = rawOf(entity);
++            const names = info.fields.filter((field) => columns[field] !== undefined);
++            const text = `insert into ${info.table} (${names.map((n) => `"${info.columns[info.fields.indexOf(n)]}"`).join(", ")}) values (${names.map((_, i) => `$${i + 1}`).join(", ")}) returning ${info.select}`;
++            const inserted = await direct.unsafe(text, names.map((n) => columns[n]));
++            return inserted[0] as StoredRecord;
++          }
+           const rows = await executor().insert(tableFor(entity)).values(columns).returning();
+           await writeRelations(executor(), schema!, entity, record.id, relations);
+           return (await first(entity, rows))!;
+@@ -118,6 +145,12 @@
+       );
+     },
+     async findById(entity, id) {
++      const direct = raw();
++      if (direct) {
++        const info = rawOf(entity);
++        const rows = await direct.unsafe(`select ${info.select} from ${info.table} where "id" = $1 limit 1`, [id]);
++        return rows[0] ? (await withRelations(entity, [{ ...rows[0] } as StoredRecord]))[0]! : null;
++      }
+       const table = tableFor(entity);
+       return first(entity, await executor().select().from(table).where(eq(table.id, id)).limit(1));
+     },
+@@ -125,7 +158,7 @@
+       const table = tableFor(entity);
+       return first(entity, await executor().select().from(table).where(toWhere(table, where, "postgres", relationContext(entity))).limit(1));
+     },
+-    async findMany(entity, { where, sort, limit, offset }) {
++    async findMany(entity, { where, sort, limit, offset, count: withCount }: any) {
+       const table = tableFor(entity);
+       const condition = toWhere(table, where, "postgres", relationContext(entity));
+       const data = (await executor()
+@@ -135,12 +168,13 @@
+         .orderBy(...toOrderBy(table, sort))
+         .limit(limit)
+         .offset(offset)) as StoredRecord[];
++      if (withCount === false && WHATIF.has("nocount")) return { data: await withRelations(entity, data), total: data.length };
+       const [row] = await executor().select({ total: count() }).from(table).where(condition);
+       return { data: await withRelations(entity, data), total: Number(row?.total ?? 0) };
+     },
+     updateById(entity, id, changes, where = []) {
+       return translateErrors(() =>
+-        transaction(async () => {
++        maybeTransaction(entity, async () => {
+           const table = tableFor(entity);
+           const { columns, relations } = splitRelations(entity, changes);
+           const target = and(eq(table.id, id), toWhere(table, where, "postgres", relationContext(entity)));
+diff -ru a/packages/core/src/fluent-query.ts b/packages/core/src/fluent-query.ts
+--- a/packages/core/src/fluent-query.ts	2026-10-19 13:01:39
++++ b/packages/core/src/fluent-query.ts	2026-10-19 16:30:08
+@@ -242,6 +242,7 @@
+ }
+ 
+ /** A query over the backend's records with the given state; every method returns a new query. */
++const WHATIF = new Set((process.env.QS_WHATIF ?? "").split(",").filter(Boolean));
+ export function createQuery<T, R = Record<never, never>>(backend: QueryBackend, state: QueryState): Query<T, R> {
+   const { model, findAllMax } = backend;
+   const next = (changes: Partial<QueryState>) => createQuery<T, R>(backend, { ...state, ...changes });
+@@ -274,6 +275,15 @@
+     select: (...fields) => createQuery(backend, { ...state, select: fields }) as never,
+     include: (...paths) => createQuery(backend, { ...state, include: [...new Set([...(state.include ?? []), ...paths])] }) as never,
+     async all() {
++      if (WHATIF.has("nocount")) {
++        const limit = Math.min(state.take ?? Number.POSITIVE_INFINITY, findAllMax + 1);
++        const rows = (await backend.list(
++          { where: state.where, sort: state.sort.length > 0 ? sorted(state.sort) : DEFAULT_SORT, limit, offset: state.skip, count: false } as never,
++          state.include ?? [],
++        )).data;
++        if (rows.length > findAllMax) throw new Error(`Query on ${model.entityName} matched more than repositories.findAllMax (${findAllMax})`);
++        return shape(rows);
++      }
+       const size = sliceSize(await count());
+       if (size > findAllMax) {
+         throw new Error(`Query on ${model.entityName} matched ${size} records, more than repositories.findAllMax (${findAllMax})`);
+diff -ru a/packages/core/src/populate.ts b/packages/core/src/populate.ts
+--- a/packages/core/src/populate.ts	2026-10-19 13:01:39
++++ b/packages/core/src/populate.ts	2026-10-19 16:30:08
+@@ -85,7 +85,8 @@
+                 sort: [{ field: "id", direction: "asc" }],
+                 limit: ids.length,
+                 offset: 0,
+-              })
++                count: false,
++              } as never)
+             ).data;
+       const withDerived = await compute(target, await deriveRelations(target, found, models, adapter));
+       const nested = subtree.size > 0 ? await fill(target, withDerived, subtree) : withDerived;
+diff -ru a/packages/core/src/projection.ts b/packages/core/src/projection.ts
+--- a/packages/core/src/projection.ts	2026-10-19 13:01:39
++++ b/packages/core/src/projection.ts	2026-10-19 16:30:08
+@@ -83,8 +83,9 @@
+ }
+ 
+ /** Keeps the `include` paths (whole subtrees), then removes the `exclude` paths. Never mutates its input. */
++const WHATIF = new Set((process.env.QS_WHATIF ?? "").split(",").filter(Boolean));
+ export function project(value: unknown, { include, exclude }: Projection): unknown {
+-  let result: unknown = structuredClone(value);
++  let result: unknown = WHATIF.has("noclone") ? value : structuredClone(value);
+   if (include) result = keep(result, toTree(include));
+   if (exclude) result = remove(result, toTree(exclude));
+   return result;
+diff -ru a/packages/core/src/repository.ts b/packages/core/src/repository.ts
+--- a/packages/core/src/repository.ts	2026-10-19 13:01:39
++++ b/packages/core/src/repository.ts	2026-10-19 16:30:08
+@@ -168,6 +168,7 @@
+   }
+ }
+ 
++const WHATIF = new Set((process.env.QS_WHATIF ?? "").split(",").filter(Boolean));
+ export function createRepository(
+   model: EntityModel,
+   adapter: DatabaseAdapter,
+@@ -278,7 +279,8 @@
+       const record: StoredRecord = { ...value, ...managed, id, createdAt: at, updatedAt: at };
+       return atomically(async () => {
+         await releaseOneToOne(model, undefined, value, adapter, touch);
+-        await mapUniqueViolation(() => adapter.insert(model, withoutDerived(model, record) as StoredRecord));
++        const inserted = await mapUniqueViolation(() => adapter.insert(model, withoutDerived(model, record) as StoredRecord));
++        if (WHATIF.has("noreselect") && !hasDerived) return present((await compute(model, [inserted]))[0]!, options);
+         if (hasDerived) await mapUniqueViolation(() => writeDerived(model, record.id, value, models, adapter, touch));
+         return present((await compute(model, [await existing(record.id)]))[0]!, options);
+       });
+@@ -386,7 +388,7 @@
+ 
+     async list(query, options) {
+       const where = await resolveDerivedConditions(model, query.where, models, adapter);
+-      const { data, total } = await adapter.findMany(model, { ...query, where });
++      const { data, total } = await adapter.findMany(model, { ...query, where } as never);
+       const populated = await withReferences(data, options);
+       return { data: populated.map((record) => present(record, options)), total, limit: query.limit, offset: query.offset };
+     },

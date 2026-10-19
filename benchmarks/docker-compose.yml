@@ -19,7 +19,7 @@ services:
     # The data directory is a tmpfs: the dataset is small, it is recreated for every stack, and disk speed
     # (or free space) on the benchmark machine should not influence the results.
     tmpfs:
-      - /var/lib/postgresql/data:size=1g
+      - /var/lib/postgresql/data:size=3g
     command:
       - postgres
       - -c

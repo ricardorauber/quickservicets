@@ -153,6 +153,9 @@ export const terminalPrompt: Prompt = async (question, choices) => {
   throw new BuildError("No database chosen");
 };
 
+/** Keeps secrets, dependencies and everything the framework generates out of git. */
+const GITIGNORE = [".env", "node_modules/", ".generated/", "uploads/", "data.db"].join("\n") + "\n";
+
 export const NEXT_STEPS = [
   "Next steps:",
   "  1. Install dependencies: bun install",
@@ -173,7 +176,7 @@ export async function initProject(directory: string, options: InitOptions = {}):
   const files: Record<string, string> = {
     "quickservice.config.ts": CONFIGS[db],
     ".env": ENV[db],
-    ".gitignore": ".env\nnode_modules\n",
+    ".gitignore": GITIGNORE,
     "entities/.gitkeep": "",
     "endpoints/.gitkeep": "",
     "hooks/.gitkeep": "",

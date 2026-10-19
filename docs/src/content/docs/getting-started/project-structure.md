@@ -124,7 +124,7 @@ Everything `build` (and `dev`) produces. Each build updates it in place and dele
 | `openapi.json` | The OpenAPI document served at `/openapi.json` and `/docs` |
 | `server.ts` | The entry that starts the server: `bun .generated/server.ts` |
 
-Never edit these files; the next build overwrites them. Add `.generated/` to `.gitignore`, since `init` does not.
+Never edit these files; the next build overwrites them. `init` already lists `.generated/` in `.gitignore`, so they stay out of git.
 
 The `Repositories` type is what gives `repos.users` its types in endpoints and hooks. The [Repositories and queries reference](/reference/api/) covers its methods.
 
@@ -132,8 +132,8 @@ The `Repositories` type is what gives `repos.users` its types in endpoints and h
 
 - **`package.json`** has the two framework dependencies and the `dev`, `build`, `migrate` and `start` scripts.
 - **`tsconfig.json`** includes `.generated/**/*.ts`, so your editor sees the generated types. TypeScript skips folders whose name starts with a dot unless a pattern names their files.
-- **`uploads/`** appears once someone uploads a file: it is the default local storage for `File` and `Media` records. Add it to `.gitignore` as well.
-- With SQLite, the database file (`data.db` by default) sits in the project folder too.
+- **`uploads/`** appears once someone uploads a file: it is the default local storage for `File` and `Media` records. `init` lists it in `.gitignore` too.
+- With SQLite, the database file (`data.db` by default) sits in the project folder too, and is also in `.gitignore`.
 
 ## Next
 

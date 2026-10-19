@@ -43,7 +43,7 @@ The target folder must be empty or not exist yet; otherwise `init` stops with `D
 ```text
 examples/my-api/
 ├── .env                       # database settings (empty for memory)
-├── .gitignore                 # .env and node_modules
+├── .gitignore                 # .env, dependencies and generated files
 ├── entities/                  # your entity types
 ├── endpoints/                 # your custom routes
 ├── hooks/                     # your hooks

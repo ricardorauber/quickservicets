@@ -19,7 +19,6 @@ describe("files for each database", () => {
     await initProject(root, { db });
     expect(read(root, "quickservice.config.ts")).toContain(adapter);
     expect(read(root, ".env")).toBe(env);
-    expect(read(root, ".gitignore")).toBe(".env\nnode_modules\n");
     for (const folder of ["entities", "endpoints", "hooks"]) expect(readdirSync(join(root, folder))).toEqual([".gitkeep"]);
     expect(existsSync(join(root, "tsconfig.json"))).toBe(true);
     const pkg = JSON.parse(read(root, "package.json"));
@@ -27,6 +26,12 @@ describe("files for each database", () => {
     expect(Object.keys(pkg.dependencies)).toEqual(["@quickservice/core", "@quickservice/cli"]);
     expect(Object.keys(pkg.scripts)).toEqual(["dev", "build", "migrate", "start"]);
   });
+});
+
+test("the .gitignore keeps secrets, dependencies and generated files out of git", async () => {
+  const root = emptyDir();
+  await initProject(root, { db: "sqlite" });
+  expect(read(root, ".gitignore").split("\n").filter(Boolean)).toEqual([".env", "node_modules/", ".generated/", "uploads/", "data.db"]);
 });
 
 test("a non-empty directory is rejected and nothing is written", async () => {

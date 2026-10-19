@@ -67,6 +67,25 @@ k6 (`grafana/k6:2.3.0`) runs in a container on the same network with 4 CPUs, 64 
 | `health` | `GET /health` (the framework's floor) |
 | `get_user`, `list_users`, `create_user`, `filter_users`, `populate_orgs` | one request of the above, alone |
 
+## Latest results
+
+Requests per second (2 CPUs per service, 64 VUs, PostgreSQL with 2 CPUs), the better of two full rounds per stack and scenario: background load on the benchmark machine only lowers throughput. Raw numbers for both rounds are in `results/` and `results/round-1/`; the profile of the QuickService service and the prioritized optimizations are in [`analysis/quickservice-profile.md`](analysis/quickservice-profile.md).
+
+| Stack | `crud` | `query` | `custom` | `upload` | `health` | `get_user` | `list_users` | `create_user` | `filter_users` | `populate_orgs` | Image (MB) | Startup (ms) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| QuickService | 3,791 | 901 | 2,561 | 2,437 | 42,040 | 10,644 | 2,007 | 5,141 | 1,046 | 533 | 110.7 | 289 |
+| QuickService, 2 processes (experiment) | 4,917 | 1,439 | 4,711 | 2,532 | 60,969 | 19,903 | 1,854 | 8,478 | 965 | 1,031 | 110.9 | 366 |
+| Bun (Bun.serve + Bun.sql) | 5,562 | 1,412 | 13,636 | 3,791 | 50,487 | 31,866 | 1,404 | 20,012 | 778 | 2,564 | 86.6 | 120 |
+| Node + Express | 5,680 | 1,502 | 13,854 | 2,830 | 53,781 | 21,017 | 1,742 | 18,414 | 952 | 2,684 | 169.3 | 330 |
+| Node + Fastify | 6,118 | 1,630 | 13,702 | 2,841 | 61,802 | 25,724 | 1,869 | 22,363 | 1,028 | 2,778 | 175.3 | 370 |
+| Python + FastAPI | 5,525 | 1,568 | 7,729 | 1,619 | 22,325 | 7,177 | 1,773 | 7,348 | 985 | 2,189 | 191.6 | 1288 |
+| Go (net/http + pgx) | 6,700 | 1,660 | 14,420 | 5,261 | 58,995 | 30,458 | 1,973 | 32,712 | 1,073 | 3,370 | 10.5 | 101 |
+| Rust (axum + tokio-postgres) | 6,548 | 1,479 | 12,930 | 4,294 | 51,626 | 18,744 | 1,712 | 33,158 | 988 | 3,639 | 40.2 | 125 |
+| .NET 10 (Minimal APIs) | 6,536 | 1,324 | 14,006 | 4,809 | 55,615 | 28,602 | 1,786 | 27,196 | 922 | 2,174 | 266.7 | 264 |
+| Java (Spring Boot 3.5) | 6,577 | 1,629 | 14,575 | 2,945 | 35,822 | 18,855 | 1,954 | 15,349 | 1,008 | 2,820 | 263.3 | 1180 |
+| PHP (Laravel Octane) | 2,229 | 1,008 | 2,386 | 1,369 | 3,290 | 2,708 | 1,456 | 2,661 | 824 | 1,286 | 158.9 | 730 |
+| C++ (Drogon) | 3,708 | 1,177 | 12,603 | 4,297 | 52,583 | 28,655 | 1,001 | 25,788 | 803 | 1,754 | 107.6 | 165 |
+
 ## Results
 
 `results/<stack>.json` holds the settings, the environment, the image size, the startup samples, idle and peak memory, the conformance counts and, per scenario, requests, req/s, latency (avg, p50, p90, p99, max in ms), error rate, average and peak CPU and memory, and the same numbers per endpoint. The raw k6 summaries stay in `benchmarks/.cache/out/<stack>/`.

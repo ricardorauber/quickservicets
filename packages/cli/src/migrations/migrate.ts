@@ -25,6 +25,16 @@ export const MONGO_HISTORY_COLLECTION = "_migrations";
 export const MONGO_NO_TRANSACTION_WARNING =
   "MongoDB migrations run without transactions: index changes cannot run inside one";
 
+/** A migration that failed; carries the warnings of the run, which still apply to the migrations before it. */
+export class MigrationError extends BuildError {
+  constructor(
+    message: string,
+    readonly warnings: string[],
+  ) {
+    super(message);
+  }
+}
+
 export interface MigrateOptions {
   target?: string;
   force?: boolean;
@@ -412,7 +422,7 @@ export async function migrate(projectRoot: string, options: MigrateOptions = {})
       try {
         await driver.runStep(migration, direction, module, repos);
       } catch (error) {
-        throw new BuildError(`Migration ${migration.id} failed: ${error instanceof Error ? error.message : String(error)}`);
+        throw new MigrationError(`Migration ${migration.id} failed: ${error instanceof Error ? error.message : String(error)}`, driver.warnings);
       }
       (direction === "up" ? result.applied : result.reverted).push(migration.id);
       result.messages.push(`${direction === "up" ? "Applied" : "Reverted"} ${migration.id}`);

@@ -38,10 +38,16 @@ export async function run(args: string[], output: Output = consoleOutput, cwd = 
       await new Promise(() => {});
     }
     if (command === "migrate") {
-      const { migrate } = await import("./migrations/migrate.ts");
+      const { migrate, MigrationError } = await import("./migrations/migrate.ts");
       const positional = args.slice(1).filter((arg) => !arg.startsWith("--"));
-      const result = await migrate(cwd, { target: positional[0], force: args.includes("--force") });
-      for (const warning of result.warnings) output.error(`Warning: ${warning}`);
+      const printWarnings = (warnings: string[]) => {
+        for (const warning of warnings) output.error(`Warning: ${warning}`);
+      };
+      const result = await migrate(cwd, { target: positional[0], force: args.includes("--force") }).catch((error: unknown) => {
+        if (error instanceof MigrationError) printWarnings(error.warnings);
+        throw error;
+      });
+      printWarnings(result.warnings);
       for (const message of result.messages) output.log(message);
       return 0;
     }

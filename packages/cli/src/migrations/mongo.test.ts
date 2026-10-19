@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { MongoClient } from "mongodb";
 import { createLinkedProject } from "../testing/project.ts";
+import { run } from "../run.ts";
 import { addMigration } from "./add.ts";
 import { listMigrationStatus } from "./list-remove.ts";
 import { migrate, MONGO_NO_TRANSACTION_WARNING } from "./migrate.ts";
@@ -77,6 +78,42 @@ if (url) {
       expect((await db.collection("users").indexes()).map((index) => index.name)).toEqual(["_id_"]);
       expect(await db.collection("_migrations").countDocuments()).toBe(0);
       await db.dropDatabase();
+      await client.close();
+    });
+
+    test("each run that applies or reverts warns once, and a failure keeps the migrations before it", async () => {
+      const { root, database } = project();
+      await addMigration(root, "Initial", at(0));
+      writeFileSync(
+        join(root, "migrations/20261015120001_Seed.ts"),
+        'export async function up(ctx) { await ctx.db().collection("users").insertOne({ _id: "seed", email: "s@x.co" }); }\nexport async function down(ctx) { await ctx.db().collection("users").deleteOne({ _id: "seed" }); }\n',
+      );
+      writeFileSync(
+        join(root, "migrations/20261015120002_Broken.ts"),
+        'export async function up() { throw new Error("broken"); }\nexport async function down() {}\n',
+      );
+      const migrateRun = async (...args: string[]) => {
+        const errors: string[] = [];
+        const code = await run(["migrate", ...args], { log: () => {}, error: (line) => errors.push(line) }, root);
+        return { code, warnings: errors.filter((line) => line.startsWith("Warning:")), errors };
+      };
+      const warning = `Warning: ${MONGO_NO_TRANSACTION_WARNING}`;
+
+      const failed = await migrateRun();
+      expect(failed.code).toBe(1);
+      expect(failed.warnings).toEqual([warning]);
+      expect(failed.errors.at(-1)).toContain("Migration 20261015120002_Broken failed: broken");
+      const client = new MongoClient(url);
+      await client.connect();
+      const history = client.db(database).collection("_migrations");
+      expect((await history.find().sort({ _id: 1 }).toArray()).map((row) => row._id)).toEqual([
+        "20261015120000_Initial",
+        "20261015120001_Seed",
+      ] as never[]);
+
+      expect(await migrateRun("Initial")).toMatchObject({ code: 0, warnings: [warning] });
+      expect((await history.find().toArray()).map((row) => row._id)).toEqual(["20261015120000_Initial"] as never[]);
+      await client.db(database).dropDatabase();
       await client.close();
     });
 

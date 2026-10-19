@@ -8,6 +8,7 @@ import { withQueryItems, type QueryItem } from "./http/query-items.ts";
 import { createServer, type Endpoint, type Route, type Server } from "./http/server.ts";
 import type { JobDefinition } from "./jobs/job.ts";
 import { createJobRunner, createJobScheduler, type JobClock, type JobRunner, type JobScheduler } from "./jobs/scheduler.ts";
+import { createRequestJobs } from "./jobs/triggers.ts";
 import type { CrudOperation, EntityModel } from "./model.ts";
 import { projectResult, type Projection } from "./projection.ts";
 import { createRepositories, repositoryFor, type RepositoryRegistry } from "./repository.ts";
@@ -120,7 +121,6 @@ export function createApp({ models, crudRoutes, endpoints, hooks, config, openAp
     ...(endpoint.status !== undefined ? { status: endpoint.status } : {}),
   }));
   const docs = openApi && config.docs?.enabled ? docsRoutes(openApi) : [];
-  const server = createServer({ routes: [...mergeRoutes(generated, custom), ...docs], repos: repos as unknown as Repositories, config });
   const logger = config.logger ?? jsonLogger;
   const jobRunner = createJobRunner({
     jobs,
@@ -132,6 +132,12 @@ export function createApp({ models, crudRoutes, endpoints, hooks, config, openAp
     production: config.production,
     logger,
     clock,
+  });
+  const server = createServer({
+    routes: [...mergeRoutes(generated, custom), ...docs],
+    repos: repos as unknown as Repositories,
+    config,
+    jobs: createRequestJobs(jobRunner, { logger, clock }),
   });
   const scheduler = createJobScheduler(jobs, jobRunner, { enabled: config.jobs.enabled, logger, clock });
   return { server, repos, jobRunner, scheduler };

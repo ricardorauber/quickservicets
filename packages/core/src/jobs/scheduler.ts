@@ -52,6 +52,8 @@ export interface RunRequest {
   attempt: number;
   /** Runs even when the job is already running and its overlap is `skip`. */
   force?: boolean;
+  /** Called by `run()` with the claimed record, before it is executed. */
+  onClaimed?: (run: JobRun) => void;
 }
 
 /** A run being executed in this instance. */
@@ -258,6 +260,7 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
       return track(
         (async () => {
           const claimed = await claim(request);
+          if (claimed) request.onClaimed?.(claimed);
           if (!claimed || claimed.status !== "running") return claimed;
           return execute(claimed);
         })(),

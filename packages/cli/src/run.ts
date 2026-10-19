@@ -8,12 +8,22 @@ export interface Output {
 
 const consoleOutput: Output = { log: (line) => console.log(line), error: (line) => console.error(line) };
 
+/** The job name of `job run <name>` and `job runs <name> [--limit n]`. */
+function jobNameArg(args: string[]): string | undefined {
+  return args.slice(2).find((arg, index, list) => !arg.startsWith("--") && list[index - 1] !== "--limit");
+}
+
 export async function run(args: string[], output: Output = consoleOutput, cwd = process.cwd()): Promise<number> {
   if (args.includes("--version")) {
     output.log(version);
     return 0;
   }
   const [command] = args;
+  const print = (result: { code: number; lines: string[]; errors: string[] }) => {
+    for (const line of result.lines) output.log(line);
+    for (const line of result.errors) output.error(line);
+    return result.code;
+  };
   try {
     if (command === "build") {
       const { build } = await import("./build/build.ts");
@@ -75,6 +85,19 @@ export async function run(args: string[], output: Output = consoleOutput, cwd = 
       if (outputFile) await Bun.write(outputFile.startsWith("/") ? outputFile : `${cwd}/${outputFile}`, script);
       else output.log(script.trimEnd());
       return 0;
+    }
+    if (command === "job" && args[1] === "run") {
+      const { runJobCommand } = await import("./jobs/job-commands.ts");
+      return print(await runJobCommand(cwd, jobNameArg(args), { force: args.includes("--force") }));
+    }
+    if (command === "job" && args[1] === "list") {
+      const { listJobsCommand } = await import("./jobs/job-commands.ts");
+      return print(await listJobsCommand(cwd));
+    }
+    if (command === "job" && args[1] === "runs") {
+      const { listJobRunsCommand } = await import("./jobs/job-commands.ts");
+      const limitIndex = args.indexOf("--limit");
+      return print(await listJobRunsCommand(cwd, jobNameArg(args), { limit: limitIndex >= 0 ? (args[limitIndex + 1] ?? "") : undefined }));
     }
     if (command === "migration" && args[1] === "add") {
       if (!args[2]) throw new Error("Usage: quickservice migration add <Name>");

@@ -34,5 +34,17 @@ export const COMMANDS: CommandDoc[] = [
     usage: "quickservice migration script [from] [to] [--output <file>]",
     description: "Prints, or writes to a file, the SQL of the migrations between two points.",
   },
+  {
+    name: "job run",
+    usage: "quickservice job run <name> [--force]",
+    description:
+      "Runs a job now in the CLI process as a `manual` run, printing its status, duration and result or error; exits with 1 unless it succeeds. `--force` runs it even while another run of the job is running.",
+  },
+  { name: "job list", usage: "quickservice job list", description: "Lists every job with its schedule, time zone and next run time." },
+  {
+    name: "job runs",
+    usage: "quickservice job runs <name> [--limit n]",
+    description: "Lists the latest runs of a job (20 by default) with their attempt, trigger, status, start and duration.",
+  },
   { name: "--version", usage: "quickservice --version", description: "Prints the CLI version." },
 ];

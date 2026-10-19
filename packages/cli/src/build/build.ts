@@ -207,7 +207,7 @@ function generateRoutesFile(
   ].join("\n");
 }
 
-/** The job registry: every job of `jobs/` keyed by its name. */
+/** The job registry: every job of `jobs/` keyed by its name, and the job names `req.jobs.run` accepts. */
 export function generateJobsFile(jobs: JobEntry[]): string {
   return [
     HEADER,
@@ -217,6 +217,12 @@ export function generateJobsFile(jobs: JobEntry[]): string {
     "export const jobs = new Map<string, JobDefinition>([",
     ...jobs.map((entry, index) => `  [${JSON.stringify(entry.name)}, job${index}],`),
     "]);",
+    "",
+    'declare module "@quickservice/core" {',
+    "  interface JobNames {",
+    ...jobs.map((entry) => `    ${JSON.stringify(entry.name)}: true;`),
+    "  }",
+    "}",
     "",
   ].join("\n");
 }

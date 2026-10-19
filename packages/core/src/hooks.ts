@@ -1,3 +1,5 @@
+import type { RequestJobs } from "./jobs/triggers.ts";
+
 /**
  * The repositories available to endpoints and hooks, keyed by repository key. The build augments this
  * interface with one typed repository per entity.
@@ -24,6 +26,8 @@ export interface ServiceRequest<Body = unknown> {
    * `{}` for endpoints without them.
    */
   readonly queryItems: Body extends object ? Body : Record<string, unknown>;
+  /** Starts the project's jobs on demand. */
+  readonly jobs: RequestJobs;
 }
 
 /** Lets endpoints and hooks set the status and headers of a data response. */

@@ -3,7 +3,7 @@ import type { ServiceRequest } from "../hooks.ts";
 import { MEDIA_MIME_TYPES } from "../files.ts";
 import type { EntityModel, FieldModel } from "../model.ts";
 import { storageKeyFor, type StorageAdapter } from "../storage/storage.ts";
-import { detectFileType } from "./detect.ts";
+import { declaredTypeFits, detectFileType } from "./detect.ts";
 import { mimeMatches, sanitizeFilename } from "./limits.ts";
 
 export interface UploadSettings {
@@ -129,19 +129,20 @@ const essence = (type: string) => type.split(";")[0]!.trim().toLowerCase();
 
 /**
  * The file with the type its content shows: a recognized format replaces a missing or generic declared type and must
- * match any other one; the declared type stays for formats the server does not recognize.
+ * match any other one, unless that type may stand for the format; the declared type stays for formats the server
+ * does not recognize.
  */
 export async function resolveUploadType<T extends Blob & { name?: string }>(file: T, path: string): Promise<File> {
   const detected = await detectFileType(file);
   const declared = essence(file.type);
   const name = file.name ?? "file";
-  if (detected === undefined) return file instanceof File ? file : new File([file], name, { type: file.type });
-  if (declared !== "" && declared !== "application/octet-stream" && declared !== detected) {
-    throw new HttpError(415, "File content does not match its type", {
-      details: [{ field: path, message: `Detected ${detected}, declared ${declared}` }],
-    });
-  }
-  return new File([file], name, { type: detected });
+  const keep = () => (file instanceof File ? file : new File([file], name, { type: file.type }));
+  if (detected === undefined) return keep();
+  if (declared === "" || declared === "application/octet-stream" || declared === detected) return new File([file], name, { type: detected });
+  if (declaredTypeFits(detected, declared)) return keep();
+  throw new HttpError(415, "File content does not match its type", {
+    details: [{ field: path, message: `Detected ${detected}, declared ${declared}` }],
+  });
 }
 
 /** Checks a file against the size and MIME limits of the entity (and of a field, when given). */

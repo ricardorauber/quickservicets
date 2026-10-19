@@ -101,3 +101,27 @@ describe("resolved upload types", () => {
     expect((await send("GET", `/media/${created.body.logo}`)).body.mimeType).toBe("image/jpeg");
   });
 });
+
+describe("archives and media", () => {
+  const DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  const PPTX = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+
+  test("a DOCX declared as XLSX fails", async () => {
+    const response = await (await setup()).upload("/files", file("docx", "report.xlsx", XLSX));
+    expect(response.status).toBe(415);
+    expect(response.body.error.details).toEqual([{ field: "file", message: `Detected ${DOCX}, declared ${XLSX}` }]);
+  });
+
+  test("a PPTX keeps its type and a plain ZIP without one is stored as application/zip", async () => {
+    const { upload } = await setup();
+    expect((await upload("/files", file("pptx", "deck.pptx", PPTX))).body.mimeType).toBe(PPTX);
+    expect((await upload("/files", file("zip", "bundle.zip"))).body.mimeType).toBe("application/zip");
+  });
+
+  test("an MP4 declared as audio/mp4 is stored as audio/mp4, and an MP3 declared as video/mp4 fails", async () => {
+    const { upload } = await setup();
+    expect((await upload("/media", file("mp4", "voice.m4a", "audio/mp4"))).body.mimeType).toBe("audio/mp4");
+    expect((await upload("/media", file("mp3", "song.mp4", "video/mp4"))).status).toBe(415);
+  });
+});

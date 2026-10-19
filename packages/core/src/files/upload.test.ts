@@ -85,3 +85,34 @@ describe("resolved types", () => {
     expect([resolved.type, resolved.name, await resolved.text()]).toEqual(["text/csv", "items.csv", "name,qty\nbolt,4\n"]);
   });
 });
+
+describe("compatible declared types", () => {
+  const PPTX = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+  const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+  test("a generic ZIP file keeps any declared type, and takes application/zip when none is declared", async () => {
+    expect((await resolveUploadType(file(fileSamples.pptx, PPTX), "file")).type).toBe(PPTX);
+    expect((await resolveUploadType(file(fileSamples.zip, "application/epub+zip"), "file")).type).toBe("application/epub+zip");
+    expect((await resolveUploadType(file(fileSamples.zip, "application/octet-stream"), "file")).type).toBe("application/zip");
+  });
+
+  test("DOCX and XLSX must match their declared type", async () => {
+    const error = await rejection(resolveUploadType(file(fileSamples.docx, XLSX), "file"));
+    expect(error.status).toBe(415);
+    expect((await resolveUploadType(file(fileSamples.xlsx, XLSX), "file")).type).toBe(XLSX);
+  });
+
+  test("audio types are accepted for MP4 and WebM video, keeping the declared type", async () => {
+    expect((await resolveUploadType(file(fileSamples.mp4, "audio/mp4"), "file")).type).toBe("audio/mp4");
+    expect((await resolveUploadType(file(fileSamples.webm, "audio/webm"), "file")).type).toBe("audio/webm");
+    expect((await resolveUploadType(file(fileSamples.webm, ""), "file")).type).toBe("video/webm");
+  });
+
+  test("other audio and video mismatches fail", async () => {
+    expect((await rejection(resolveUploadType(file(fileSamples.mp3, "video/mp4"), "file"))).details).toEqual([
+      { field: "file", message: "Detected audio/mpeg, declared video/mp4" },
+    ]);
+    expect((await rejection(resolveUploadType(file(fileSamples.mp4, "audio/webm"), "file"))).status).toBe(415);
+    expect((await rejection(resolveUploadType(file(fileSamples.webm, "audio/mp4"), "file"))).status).toBe(415);
+  });
+});

@@ -2,4 +2,4 @@ export { contractItem, contractModels, contractOrganization, contractRecord, run
 export type { AdapterFactory } from "./adapter-contract.ts";
 export { entity, field } from "./entities.ts";
 export { runStorageContract } from "./storage-contract.ts";
-export { fileSamples } from "./file-samples.ts";
+export { fileSamples, zipSample } from "./file-samples.ts";

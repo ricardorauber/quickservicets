@@ -197,14 +197,23 @@ curl -X POST localhost:3000/files -F "file=@contract.pdf;type=application/pdf"
 
 The type of an upload is decided from its bytes when the server recognizes the format, so a file name or a declared type cannot get a file past `@accept`. The declared type is the `Content-Type` header of the part, as the client sent it; the file name plays no part. With curl, set it with `;type=`.
 
-The server recognizes PNG (`image/png`), JPEG (`image/jpeg`), GIF (`image/gif`), WebP (`image/webp`) and PDF (`application/pdf`) from their first bytes. Then:
+The server recognizes these formats from their content:
+
+- PNG (`image/png`), JPEG (`image/jpeg`), GIF (`image/gif`), WebP (`image/webp`) and PDF (`application/pdf`);
+- ZIP (`application/zip`), and among ZIP files DOCX (`application/vnd.openxmlformats-officedocument.wordprocessingml.document`) and XLSX (`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`);
+- MP4 (`video/mp4`), WebM (`video/webm`) and MP3 (`audio/mpeg`).
+
+Then:
 
 | Content | Declared type | Type used |
 | --- | --- | --- |
 | A recognized format | The same type (parameters and case are ignored) | The detected type |
 | A recognized format | Missing or `application/octet-stream` | The detected type |
+| A recognized format | A compatible type (see below) | The declared type |
 | A recognized format | Any other type | None: the upload fails with 415 |
 | Any other content | Anything | The declared type |
+
+The compatible types are `audio/mp4` for MP4 and `audio/webm` for WebM, and any type for a ZIP file that is not DOCX or XLSX, since many formats are ZIP files (`.pptx`, `.odt`, `.epub`).
 
 `@accept`, the stored `mimeType` and the `content-type` of the [file route](#proxy) all use that type. PNG bytes sent without a type are stored as `image/png`:
 

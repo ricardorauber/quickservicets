@@ -1,0 +1,44 @@
+# syntax=docker/dockerfile:1
+# QuickService benchmark service. Build from the repository root:
+#   docker build -f benchmarks/quickservice/Dockerfile -t qsbench-quickservice .
+
+# 1. Install every dependency and run `quickservice build`, which writes .generated/.
+FROM oven/bun:1.4.2-alpine AS build
+WORKDIR /app
+COPY package.json bun.lock ./
+COPY docs/package.json docs/
+COPY packages/core packages/core
+COPY packages/cli packages/cli
+COPY benchmarks/quickservice benchmarks/quickservice
+RUN bun install --frozen-lockfile --filter quickservice-benchmark
+RUN cd benchmarks/quickservice && bun run build
+
+# 2. Production dependencies of the service only: the CLI is a build tool and stays out of the image.
+FROM oven/bun:1.4.2-alpine AS deps
+WORKDIR /app
+COPY package.json bun.lock ./
+COPY packages/core/package.json packages/core/
+COPY packages/cli/package.json packages/cli/
+COPY docs/package.json docs/
+COPY benchmarks/quickservice/package.json benchmarks/quickservice/
+RUN sed -i '/"@quickservice\/cli"/d; s/"@quickservice\/core": "workspace:\*",/"@quickservice\/core": "workspace:*"/' benchmarks/quickservice/package.json \
+  && bun install --production --filter quickservice-benchmark
+
+# 3. Runtime: Bun, the core package, the production dependencies and the built project.
+FROM oven/bun:1.4.2-alpine
+ENV NODE_ENV=production PORT=8080 UPLOAD_DIR=/data/uploads
+WORKDIR /app
+COPY --from=deps /app/node_modules node_modules
+COPY --from=deps /app/benchmarks/quickservice/node_modules benchmarks/quickservice/node_modules
+COPY --from=deps /app/packages/core/node_modules packages/core/node_modules
+COPY package.json ./
+COPY packages/core/package.json packages/core/
+COPY packages/core/src packages/core/src
+COPY --from=build /app/benchmarks/quickservice/package.json /app/benchmarks/quickservice/quickservice.config.ts benchmarks/quickservice/
+COPY --from=build /app/benchmarks/quickservice/.generated benchmarks/quickservice/.generated
+COPY --from=build /app/benchmarks/quickservice/endpoints benchmarks/quickservice/endpoints
+RUN mkdir -p /data/uploads && chown -R bun:bun /data
+USER bun
+WORKDIR /app/benchmarks/quickservice
+EXPOSE 8080
+CMD ["bun", ".generated/server.ts"]

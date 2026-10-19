@@ -1,0 +1,15 @@
+{
+  "name": "quickservice-benchmark",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "quickservice dev",
+    "build": "quickservice build",
+    "migrate": "quickservice migrate",
+    "start": "bun .generated/server.ts"
+  },
+  "dependencies": {
+    "@quickservice/core": "workspace:*",
+    "@quickservice/cli": "workspace:*"
+  }
+}

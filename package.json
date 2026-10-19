@@ -5,6 +5,7 @@
   "workspaces": [
     "packages/*",
     "examples/*",
+    "benchmarks/quickservice",
     "docs"
   ],
   "scripts": {

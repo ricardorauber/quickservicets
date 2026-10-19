@@ -1,0 +1,65 @@
+# Shared infrastructure for the benchmark: one PostgreSQL server on the "qsbench" network.
+# The stack under test and k6 are started by run.ts with `docker run` on the same network.
+name: qsbench
+
+services:
+  postgres:
+    image: postgres:17.11-alpine
+    container_name: qsbench-postgres
+    environment:
+      POSTGRES_USER: bench
+      POSTGRES_PASSWORD: bench
+      POSTGRES_DB: bench
+    ports:
+      - "127.0.0.1:55432:5432"
+    cpus: 2
+    # 2 GB for PostgreSQL itself plus room for the data directory, which lives in memory (below).
+    mem_limit: 3g
+    shm_size: 1g
+    # The data directory is a tmpfs: the dataset is small, it is recreated for every stack, and disk speed
+    # (or free space) on the benchmark machine should not influence the results.
+    tmpfs:
+      - /var/lib/postgresql/data:size=1g
+    command:
+      - postgres
+      - -c
+      - max_connections=200
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - effective_cache_size=1536MB
+      - -c
+      - work_mem=8MB
+      - -c
+      - maintenance_work_mem=128MB
+      - -c
+      - wal_buffers=16MB
+      - -c
+      - max_wal_size=512MB
+      - -c
+      - checkpoint_timeout=15min
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - effective_io_concurrency=200
+      # The database is shared infrastructure, not the subject under test: skip waiting for the
+      # WAL flush on commit so Docker Desktop disk latency does not dominate write scenarios.
+      - -c
+      - synchronous_commit=off
+      - -c
+      - max_worker_processes=2
+      - -c
+      - max_parallel_workers=2
+      - -c
+      - max_parallel_workers_per_gather=1
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bench -d bench"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+    networks:
+      - qsbench
+
+networks:
+  qsbench:
+    name: qsbench

@@ -22,6 +22,7 @@ import { BuildError } from "../errors.ts";
 import { scanEndpoints, type EndpointRoute } from "../endpoints/scan-endpoints.ts";
 import { parseEndpointTags, type EndpointMetadata } from "../hooks/endpoint-tags.ts";
 import { scanHooks, type HookEntry } from "../hooks/scan-hooks.ts";
+import { scanJobs, type JobEntry } from "../jobs/scan-jobs.ts";
 import { validateHookReferences } from "../hooks/validate-hook-references.ts";
 import { hasPendingChanges, sqlDialectOf } from "../migrations/add.ts";
 import { generateTypesFile } from "./generate-types.ts";
@@ -206,6 +207,20 @@ function generateRoutesFile(
   ].join("\n");
 }
 
+/** The job registry: every job of `jobs/` keyed by its name. */
+export function generateJobsFile(jobs: JobEntry[]): string {
+  return [
+    HEADER,
+    'import type { JobDefinition } from "@quickservice/core";',
+    ...jobs.map((entry, index) => `import job${index} from ${JSON.stringify(`../${entry.file}`)};`),
+    "",
+    "export const jobs = new Map<string, JobDefinition>([",
+    ...jobs.map((entry, index) => `  [${JSON.stringify(entry.name)}, job${index}],`),
+    "]);",
+    "",
+  ].join("\n");
+}
+
 const SERVER_FILE = `${HEADER}
 import { createApp, resolveConfig } from "@quickservice/core";
 import projectConfig from "../quickservice.config.ts";
@@ -235,6 +250,7 @@ export async function build(projectRoot: string): Promise<BuildSummary> {
   const config = await loadConfig(projectRoot);
   const models = parseEntities(projectRoot);
   const hooks = await scanHooks(projectRoot);
+  const jobs = await scanJobs(projectRoot);
   const endpoints: ScannedEndpoint[] = scanEndpoints(projectRoot).map((route) => ({
     route,
     ...parseEndpointTags(readFileSync(join(projectRoot, route.file), "utf8"), route.file),
@@ -287,6 +303,7 @@ export async function build(projectRoot: string): Promise<BuildSummary> {
     "models.ts": `${HEADER}\nimport type { EntityModel } from "@quickservice/core";\n\nexport const models: EntityModel[] = ${JSON.stringify(models, null, 2)};\n`,
     "types.ts": generateTypesFile(models),
     "routes.ts": generateRoutesFile(models, resolved, hooks),
+    "jobs.ts": generateJobsFile(jobs),
     "server.ts": SERVER_FILE,
     "openapi.json": `${JSON.stringify(openApi, null, 2)}\n`,
   };

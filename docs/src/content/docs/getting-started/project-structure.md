@@ -1,6 +1,6 @@
 ---
 title: Project structure
-description: What each file and folder of a quickservice project is for.
+description: What each file and folder of a QuickService project is for.
 sidebar:
   order: 5
 ---

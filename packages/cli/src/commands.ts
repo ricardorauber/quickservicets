@@ -9,7 +9,7 @@ export const COMMANDS: CommandDoc[] = [
   {
     name: "init",
     usage: "quickservice init [directory] [--db postgres|mongodb|sqlite|memory]",
-    description: "Creates a project; inside the quickservice monorepo it also links the workspace packages and installs them.",
+    description: "Creates a project; inside the QuickService monorepo it also links the workspace packages and installs them.",
   },
   {
     name: "dev",

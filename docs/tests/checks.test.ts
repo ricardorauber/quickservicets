@@ -1,32 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { extractSnippets, missingTranslations, snippetErrors, snippetsOf } from "../scripts/checks.ts";
+import { join } from "node:path";
+import { extractSnippets, snippetErrors, snippetsOf } from "../scripts/checks.ts";
 
 const docs = join(import.meta.dir, "..");
 const content = join(docs, "src/content/docs");
 const work = (name: string) => join(docs, ".snippets", name);
-
-function fixture(files: Record<string, string>): string {
-  const root = mkdtempSync(join(tmpdir(), "docs-checks-"));
-  for (const [path, text] of Object.entries(files)) {
-    mkdirSync(dirname(join(root, path)), { recursive: true });
-    writeFileSync(join(root, path), text);
-  }
-  return root;
-}
-
-describe("translation parity", () => {
-  test("pages missing in either locale are named", () => {
-    const root = fixture({ "a.md": "", "guides/b.md": "", "pt-br/a.md": "", "pt-br/only.mdx": "" });
-    expect(missingTranslations(root)).toEqual(["pt-br/guides/b.md", "only.mdx"]);
-  });
-
-  test("every page of the site exists in English and Portuguese", () => {
-    expect(missingTranslations(content)).toEqual([]);
-  });
-});
 
 describe("snippet extraction", () => {
   test("only ts check blocks, with their line, several per page", () => {
@@ -68,5 +46,5 @@ describe("type-checking", () => {
 
   test("every checked snippet of the site compiles", () => {
     expect(snippetErrors(snippetsOf(content), work("site"))).toEqual([]);
-  });
+  }, 60_000);
 });

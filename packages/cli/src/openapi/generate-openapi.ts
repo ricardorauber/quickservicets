@@ -842,7 +842,7 @@ export function generateOpenApi({
   }
   return {
     openapi: "3.1.0",
-    info: { title: packageJson.name ?? "quickservice", version: packageJson.version ?? "0.0.0" },
+    info: { title: packageJson.name ?? "QuickService", version: packageJson.version ?? "0.0.0" },
     tags: [...tags].sort().map((name) => ({ name })),
     paths: sortKeys(
       Object.fromEntries(

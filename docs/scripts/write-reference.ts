@@ -1,4 +1,4 @@
-/** `bun run docs:reference`: writes the generated reference pages in both locales. */
+/** `bun run docs:reference`: writes the generated reference pages. */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { CONTENT, referencePages } from "./reference.ts";

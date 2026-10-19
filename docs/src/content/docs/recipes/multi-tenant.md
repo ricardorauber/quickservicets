@@ -5,7 +5,7 @@ sidebar:
   order: 20
 ---
 
-You run the same API for several customers and want each one's data apart, in the same database server, without a second build. Or you want some entities, like accounts, in a schema of their own. quickservice has two tools for this:
+You run the same API for several customers and want each one's data apart, in the same database server, without a second build. Or you want some entities, like accounts, in a schema of their own. QuickService has two tools for this:
 
 | | Default schema | Explicit schema |
 | --- | --- | --- |

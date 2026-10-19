@@ -57,10 +57,10 @@ Bun loads `.env` from the project folder, so values there reach `process.env` in
 | `DATABASE_URL` | the config written by `init` | Connection URL for PostgreSQL and MongoDB. |
 | `DATABASE_NAME` | the config written by `init` | MongoDB database name. |
 | `DATABASE_PATH` | the config written by `init` | SQLite file path. |
-| `DATABASE_SCHEMA` | quickservice | Default database schema; overrides `schema` in the config. Must match `^[a-z][a-z0-9-]*$`. |
-| `PORT` | quickservice | Port to listen on when `server.port` is not set (default 3000). |
-| `NODE_ENV` | quickservice | `production` turns on production mode when `production` is not set. |
-| `FILES_SIGNING_SECRET` | quickservice | Secret of signed file URLs when `files.signingSecret` is not set. |
+| `DATABASE_SCHEMA` | QuickService | Default database schema; overrides `schema` in the config. Must match `^[a-z][a-z0-9-]*$`. |
+| `PORT` | QuickService | Port to listen on when `server.port` is not set (default 3000). |
+| `NODE_ENV` | QuickService | `production` turns on production mode when `production` is not set. |
+| `FILES_SIGNING_SECRET` | QuickService | Secret of signed file URLs when `files.signingSecret` is not set. |
 | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION`, `S3_ENDPOINT` | `s3Storage` | Credentials, region and endpoint left out of the options; the `AWS_*` versions also work. |
 
 The `DATABASE_*` names other than `DATABASE_SCHEMA` are a convention of the generated config, not built in: rename them as you like. `DATABASE_SCHEMA` lets one build run against a different schema per environment:

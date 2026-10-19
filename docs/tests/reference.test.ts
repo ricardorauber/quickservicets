@@ -5,7 +5,7 @@ import { COMMANDS } from "../../packages/cli/src/commands.ts";
 import { documentedEntityTags } from "../../packages/cli/src/entities/entity-tags.ts";
 import { documentedFieldTags } from "../../packages/cli/src/entities/field-tags.ts";
 import { documentedEndpointTags } from "../../packages/cli/src/hooks/endpoint-tags.ts";
-import { configKeys, CONTENT, REPO, referencePages, TRANSLATIONS } from "../scripts/reference.ts";
+import { configKeys, CONTENT, REPO, referencePages } from "../scripts/reference.ts";
 
 const pages = referencePages();
 
@@ -17,11 +17,8 @@ describe("tags", () => {
     expect(undocumented).toEqual([]);
   });
 
-  test("the tags page lists them in both locales", () => {
-    for (const path of ["reference/tags.mdx", "pt-br/reference/tags.mdx"]) {
-      for (const tag of ["@unique", "@default", "@access", "@summary", "@onDelete", "@collection"]) expect(pages[path]).toContain(`\`${tag}\``);
-    }
-    expect(pages["pt-br/reference/tags.mdx"]).toContain("Vale para");
+  test("the tags page lists them", () => {
+    for (const tag of ["@unique", "@default", "@access", "@summary", "@onDelete", "@collection"]) expect(pages["reference/tags.mdx"]).toContain(`\`${tag}\``);
   });
 });
 
@@ -48,12 +45,6 @@ describe("cli", () => {
       expect(pages["reference/cli.mdx"]).toContain(`## \`${command}\``);
     }
   });
-});
-
-test("a missing Portuguese text fails the generation, naming the key", () => {
-  const translations = JSON.parse(readFileSync(TRANSLATIONS, "utf8")) as Record<string, string>;
-  delete translations["cli.dev"];
-  expect(() => referencePages(translations)).toThrow("Missing Portuguese translations: cli.dev");
 });
 
 test("the committed reference pages are up to date (run `bun run docs:reference`)", () => {
@@ -84,13 +75,11 @@ describe("http, errors and api pages", () => {
     }
   });
 
-  test("repository and query methods with signatures, in both locales", () => {
-    for (const path of ["reference/api.mdx", "pt-br/reference/api.mdx"]) {
-      const api = pages[path]!;
-      for (const method of ["where", "include", "findByIds", "all", "page", "create", "findById", "update", "replace", "delete"]) {
-        expect(api).toContain(`### \`${method}\``);
-      }
-      expect(api).toContain("findByIds<const P extends readonly PopulatePath<R>[] = []>(ids: readonly string[]");
+  test("repository and query methods with signatures", () => {
+    const api = pages["reference/api.mdx"]!;
+    for (const method of ["where", "include", "findByIds", "all", "page", "create", "findById", "update", "replace", "delete"]) {
+      expect(api).toContain(`### \`${method}\``);
     }
+    expect(api).toContain("findByIds<const P extends readonly PopulatePath<R>[] = []>(ids: readonly string[]");
   });
 });

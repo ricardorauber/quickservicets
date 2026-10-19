@@ -46,7 +46,7 @@ export type Post = {
 
 - **Inline union** (`"news" | "opinion"`): quickest for a list used by one field.
 - **String enum** (`Status`): the values are the initializers, `"draft"` and `"published"`. In code you write `Status.Draft`.
-- **Enum without initializers** (`Priority`): the values are the member names, `"low"`, `"normal"` and `"high"`. TypeScript numbers these members at runtime (`Priority.low` is `0`), but quickservice never uses the numbers.
+- **Enum without initializers** (`Priority`): the values are the member names, `"low"`, `"normal"` and `"high"`. TypeScript numbers these members at runtime (`Priority.low` is `0`), but QuickService never uses the numbers.
 - **Union alias** (`Visibility`): a named union without a runtime object.
 
 Enums and aliases also work in arrays (`labels?: Status[]`) and inside nested objects (`meta: { status: Status }`).

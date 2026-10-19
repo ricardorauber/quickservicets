@@ -43,7 +43,7 @@ function workspaceGlobs(manifest: Record<string, unknown>): string[] {
 }
 
 /**
- * The root of the quickservice monorepo the target folder belongs to: a parent whose `workspaces` match the
+ * The root of the QuickService monorepo the target folder belongs to: a parent whose `workspaces` match the
  * folder and include both framework packages. Undefined anywhere else.
  */
 export function quickserviceWorkspace(target: string): string | undefined {

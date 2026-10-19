@@ -16,7 +16,7 @@ TTY (the `dev` watcher, CI, tests) that prompt fails, so the spec could not be f
 - C: A new `@renamedFrom` tag that declares renames explicitly — deterministic, but a new feature needing its own spec.
 
 ## Decision
-"Sempre drop + add, editável" (Always drop + add, editable) — option A.
+"Always drop + add, editable" — option A.
 
 ## Consequences
 The generator diffs in two steps (removals first, then additions) so drizzle-kit never sees an ambiguous change and

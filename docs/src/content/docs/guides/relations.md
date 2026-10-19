@@ -5,7 +5,7 @@ sidebar:
   order: 22
 ---
 
-When two entities point to each other, like `Book.author` and `Author.books`, quickservice pairs the two fields into one **relation**. The relation is stored once, both fields show it, and clients can write it from either side.
+When two entities point to each other, like `Book.author` and `Author.books`, QuickService pairs the two fields into one **relation**. The relation is stored once, both fields show it, and clients can write it from either side.
 
 ## Pairing
 

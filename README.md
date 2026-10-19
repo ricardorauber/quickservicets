@@ -1,12 +1,12 @@
-# quickservice
+# QuickService
 
-Build backend services from TypeScript entity types. Write an entity as a `type` with JSDoc tags in `/entities`, and quickservice generates its CRUD routes, validation, filters, relations, file uploads, migrations and OpenAPI docs, on Bun with an in-memory, SQLite, PostgreSQL or MongoDB database.
+Build backend services from TypeScript entity types. Write an entity as a `type` with JSDoc tags in `/entities`, and QuickService generates its CRUD routes, validation, filters, relations, file uploads, migrations and OpenAPI docs, on Bun with an in-memory, SQLite, PostgreSQL or MongoDB database.
 
 This monorepo holds `@quickservice/core` (runtime), `@quickservice/cli` (the `quickservice` command) and examples in `examples/`.
 
 ## Documentation
 
-The developer documentation is a Starlight site in `docs/`, in English and Portuguese:
+The developer documentation is a Starlight site in `docs/`:
 
 ```bash
 bun run docs:dev     # serves it at http://localhost:4321

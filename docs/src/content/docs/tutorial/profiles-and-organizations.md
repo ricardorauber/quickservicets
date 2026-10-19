@@ -46,7 +46,7 @@ export type Profile = {
 }
 ```
 
-`permissions: Permission[]` is a reference array: an ordered list of permission ids. quickservice checks it for you:
+`permissions: Permission[]` is a reference array: an ordered list of permission ids. QuickService checks it for you:
 
 - Every id must exist, and the same id may not appear twice.
 - The order you send is the order you get back.

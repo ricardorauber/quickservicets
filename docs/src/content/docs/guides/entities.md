@@ -5,7 +5,7 @@ sidebar:
   order: 10
 ---
 
-An entity is a TypeScript type in the `entities/` folder. From each one, quickservice generates a database table (or collection), CRUD routes, body validation, a typed repository, migrations and API docs. JSDoc tags on the type and on its fields fine-tune all of that.
+An entity is a TypeScript type in the `entities/` folder. From each one, QuickService generates a database table (or collection), CRUD routes, body validation, a typed repository, migrations and API docs. JSDoc tags on the type and on its fields fine-tune all of that.
 
 ## Entity files
 

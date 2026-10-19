@@ -1,6 +1,6 @@
 ---
 title: Installation and init
-description: Create a quickservice project with the init command.
+description: Create a QuickService project with the init command.
 sidebar:
   order: 2
 ---
@@ -10,7 +10,7 @@ The `init` command creates an empty project, ready for your first entity. This p
 ## What you need
 
 - [Bun](https://bun.sh), which runs the framework, the CLI and your project.
-- A clone of the quickservice repository, with its dependencies installed:
+- A clone of the QuickService repository, with its dependencies installed:
 
 ```bash
 bun install
@@ -48,7 +48,7 @@ examples/my-api/
 ├── endpoints/                 # your custom routes
 ├── hooks/                     # your hooks
 ├── package.json               # dependencies and scripts
-├── quickservice.config.ts  # the project configuration
+├── quickservice.config.ts     # the project configuration
 └── tsconfig.json
 ```
 

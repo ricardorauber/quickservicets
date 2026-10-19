@@ -30,7 +30,7 @@ export function docsPage(title: string): string {
 /** `GET /openapi.json` and `GET /docs`; they run no hooks. */
 export function docsRoutes(document: { info?: { title?: string } }): Route[] {
   const json = JSON.stringify(document);
-  const html = docsPage(document.info?.title ?? "quickservice");
+  const html = docsPage(document.info?.title ?? "QuickService");
   return [
     {
       method: "GET",

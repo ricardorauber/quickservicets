@@ -133,7 +133,7 @@ Your `entities/` folder now matches `examples/identity/entities`.
 
 ## How fields pair into relations
 
-When entity A has exactly one field pointing at entity B, and B has exactly one field pointing back at A, quickservice pairs the two fields into one relation. The kind depends on the two sides:
+When entity A has exactly one field pointing at entity B, and B has exactly one field pointing back at A, QuickService pairs the two fields into one relation. The kind depends on the two sides:
 
 | Fields | Kind | Stored as | Derived side |
 | --- | --- | --- | --- |

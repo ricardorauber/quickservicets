@@ -2,9 +2,8 @@ import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync }
 import { dirname, join, relative } from "node:path";
 import ts from "typescript";
 
-export const SECOND_LOCALE = "pt-br";
-
-function pagesUnder(dir: string, skip?: string): string[] {
+/** Every Markdown and MDX page under a folder, as sorted paths relative to it. */
+export function pagesUnder(dir: string): string[] {
   let entries: string[];
   try {
     entries = readdirSync(dir).sort();
@@ -13,19 +12,9 @@ function pagesUnder(dir: string, skip?: string): string[] {
   }
   return entries.flatMap((entry) => {
     const path = join(dir, entry);
-    if (statSync(path).isDirectory()) return entry === skip ? [] : pagesUnder(path).map((page) => `${entry}/${page}`);
+    if (statSync(path).isDirectory()) return pagesUnder(path).map((page) => `${entry}/${page}`);
     return /\.(md|mdx)$/.test(entry) ? [entry] : [];
   });
-}
-
-/** Pages that exist in one locale but not the other, as paths relative to the content folder. */
-export function missingTranslations(contentDir: string): string[] {
-  const english = pagesUnder(contentDir, SECOND_LOCALE);
-  const portuguese = pagesUnder(join(contentDir, SECOND_LOCALE));
-  return [
-    ...english.filter((page) => !portuguese.includes(page)).map((page) => `${SECOND_LOCALE}/${page}`),
-    ...portuguese.filter((page) => !english.includes(page)),
-  ];
 }
 
 export interface Snippet {
@@ -54,7 +43,7 @@ export function extractSnippets(page: string, markdown: string): Snippet[] {
 }
 
 export function snippetsOf(contentDir: string): Snippet[] {
-  return [...pagesUnder(contentDir)].flatMap((page) => extractSnippets(page, readFileSync(join(contentDir, page), "utf8")));
+  return pagesUnder(contentDir).flatMap((page) => extractSnippets(page, readFileSync(join(contentDir, page), "utf8")));
 }
 
 const COMPILER_OPTIONS: ts.CompilerOptions = {

@@ -27,7 +27,7 @@ export type Module = {
 
 ## An enum without initializers
 
-`ModuleAction` has no values after its members. In that case quickservice uses the member names as the values, so the API accepts and returns `"manage"` and `"view"`, never `0` or `1`.
+`ModuleAction` has no values after its members. In that case QuickService uses the member names as the values, so the API accepts and returns `"manage"` and `"view"`, never `0` or `1`.
 
 Other string forms work the same way. All of these are valid:
 

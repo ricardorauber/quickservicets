@@ -1,11 +1,11 @@
 ---
 title: Introduction
-description: What quickservice is and how it turns TypeScript types into a REST API.
+description: What QuickService is and how it turns TypeScript types into a REST API.
 sidebar:
   order: 1
 ---
 
-quickservice is a backend framework for [Bun](https://bun.sh). You describe your data as plain TypeScript types, and it generates a typed, validated and documented REST API for them.
+QuickService is a backend framework for [Bun](https://bun.sh). You describe your data as plain TypeScript types, and it generates a typed, validated and documented REST API for them.
 
 There are no decorators, schemas or classes to keep in sync. The type is the model.
 
@@ -47,7 +47,7 @@ While you work, `quickservice dev` does steps 3 and 4 for you, and rebuilds and 
 Every tag is listed in [JSDoc tags](/reference/tags/), and every command in [CLI](/reference/cli/).
 
 :::note
-The packages are not published to npm yet. For now, projects live inside the quickservice repository, under `examples/`, and use the workspace packages. The next page shows how.
+The packages are not published to npm yet. For now, projects live inside the QuickService repository, under `examples/`, and use the workspace packages. The next page shows how.
 :::
 
 ## Next

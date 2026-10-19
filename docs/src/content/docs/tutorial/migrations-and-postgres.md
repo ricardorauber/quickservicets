@@ -9,7 +9,7 @@ The memory database forgets everything on each restart. In this page you move th
 
 ## Why migrations
 
-A SQL database needs tables before it can store records. A migration is a TypeScript file in `migrations/` that changes the database from one version of your model to the next. quickservice writes it for you by comparing your entities with the last migration, and you review it before applying it.
+A SQL database needs tables before it can store records. A migration is a TypeScript file in `migrations/` that changes the database from one version of your model to the next. QuickService writes it for you by comparing your entities with the last migration, and you review it before applying it.
 
 ## Start PostgreSQL
 

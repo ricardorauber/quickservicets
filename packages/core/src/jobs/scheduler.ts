@@ -4,7 +4,8 @@ import { parseSize } from "../files/limits.ts";
 import type { Repositories } from "../hooks.ts";
 import { safeLog, type Logger } from "../logger.ts";
 import type { EntityModel } from "../model.ts";
-import { jobSettings, type JobContext, type JobDefinition, type JobLogFields, type JobLogger, type JobSettings, type JobTrigger } from "./job.ts";
+import { retryDelayOf, startTimer, timeoutError } from "./attempts.ts";
+import { jobSettings, parseDuration, type JobContext, type JobDefinition, type JobLogFields, type JobLogger, type JobSettings, type JobTrigger } from "./job.ts";
 import { jobRunEntity, type JobRun, type JobRunLog } from "./job-run.ts";
 import { nextRunTime, parseSchedule, type ParsedSchedule } from "./schedule.ts";
 
@@ -76,9 +77,14 @@ export interface JobRunner {
   execute(run: JobRun): Promise<JobRun>;
   /** Claims a run and, when this instance holds it and it is not skipped, executes it. */
   run(request: RunRequest): Promise<JobRun | null>;
+  /**
+   * Schedules the next attempt of a finished run when its status is retried and attempts remain: after
+   * `retryDelay × 2^(attempt − 1)`, claimed like any other run. Runs executed here are retried on their own.
+   */
+  retry(run: JobRun): void;
   /** The runs this instance is executing, by run id. */
   readonly active: ReadonlyMap<string, ActiveRun>;
-  /** Resolves when every claim and execution started so far has finished. */
+  /** Resolves when every claim and execution started so far has finished, including the retries they scheduled. */
   idle(): Promise<void>;
 }
 
@@ -159,7 +165,7 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
   const settingsOf = (name: string): JobSettings => jobSettings(definitionOf(name).options, config);
 
   const logEvent = (message: "job.started" | "job.finished", run: JobRun) => {
-    safeLog(logger, run.status === "failed" ? "error" : "info", {
+    safeLog(logger, run.status === "failed" || run.status === "timedOut" ? "error" : "info", {
       timestamp: timestamp(),
       message,
       job: run.job,
@@ -206,8 +212,42 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
       })(),
     );
 
+  const retryTimers = new Set<() => void>();
+
+  const retry = (finished: JobRun): void => {
+    const delay = retryDelayOf(finished, settingsOf(finished.job));
+    if (delay === undefined) return;
+    const request: RunRequest = { job: finished.job, trigger: finished.trigger, scheduledAt: finished.scheduledAt, attempt: finished.attempt + 1 };
+    // Tracked from now on, so `idle()` also waits for the attempts still to come.
+    const { promise, resolve } = Promise.withResolvers<void>();
+    const stopTimer = startTimer(clock, delay, () => {
+      retryTimers.delete(cancel);
+      runner
+        .run(request)
+        .catch((error: unknown) => {
+          safeLog(logger, "error", {
+            timestamp: timestamp(),
+            message: "job.error",
+            job: request.job,
+            scheduledAt: request.scheduledAt.toISOString(),
+            attempt: request.attempt,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        })
+        .finally(resolve);
+    });
+    const cancel = () => {
+      stopTimer();
+      resolve();
+    };
+    retryTimers.add(cancel);
+    void track(promise);
+  };
+
   const execute = (run: JobRun): Promise<JobRun> => {
     const definition = definitionOf(run.job);
+    const { timeout } = settingsOf(run.job);
+    const timeoutMs = parseDuration(timeout);
     const controller = new AbortController();
     const logs = createLogCollector(config.limits.logLines, clock.now);
     const write = (level: JobRunLog["level"]) => (message: string, fields?: JobLogFields) => {
@@ -225,15 +265,36 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
     };
     const done = (async (): Promise<JobRun> => {
       logEvent("job.started", run);
-      let changes: Partial<JobRun>;
-      try {
-        const value = await Promise.resolve().then(() => definition.run(context));
-        const { result, note } = storableResult(value, config.limits.result);
-        if (note) log.warn(note);
-        changes = { status: "success", ...(result !== undefined ? { result } : {}) };
-      } catch (error) {
-        changes = { status: "failed", error: runError(error, production) };
-      }
+      // The first outcome wins: once the timeout has fired, the closure settling later changes nothing.
+      let settled = false;
+      const changes = await new Promise<Partial<JobRun>>((resolve) => {
+        const stopTimer =
+          timeoutMs === undefined
+            ? undefined
+            : startTimer(clock, timeoutMs, () => {
+                settled = true;
+                const reason = timeoutError(timeout);
+                controller.abort(reason);
+                resolve({ status: "timedOut", error: { message: reason.message } });
+              });
+        Promise.resolve()
+          .then(() => definition.run(context))
+          .then(
+            (value) => {
+              if (settled) return;
+              const { result, note } = storableResult(value, config.limits.result);
+              if (note) log.warn(note);
+              resolve({ status: "success", ...(result !== undefined ? { result } : {}) });
+            },
+            (error: unknown) => {
+              if (!settled) resolve({ status: "failed", error: runError(error, production) });
+            },
+          )
+          .finally(() => {
+            settled = true;
+            stopTimer?.();
+          });
+      });
       const finishedAt = new Date(clock.now());
       Object.assign(changes, {
         finishedAt,
@@ -244,6 +305,7 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
       await database.updateById(model, run.id, changes);
       const finished = { ...run, ...changes } as JobRun;
       logEvent("job.finished", finished);
+      retry(finished);
       return finished;
     })();
     active.set(run.id, { run, controller, done });
@@ -252,10 +314,11 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
     return track(done);
   };
 
-  return {
+  const runner: JobRunner = {
     settingsOf,
     claim,
     execute,
+    retry,
     run(request) {
       return track(
         (async () => {
@@ -271,6 +334,7 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
       while (pending.size > 0) await Promise.allSettled([...pending]);
     },
   };
+  return runner;
 }
 
 export interface JobSchedulerOptions {

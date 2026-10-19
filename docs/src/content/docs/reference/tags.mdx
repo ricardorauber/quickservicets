@@ -359,6 +359,16 @@ Longer text of the operation in the API docs; may span several lines.
 /** @description Counts the members of an organization. */
 ```
 
+### `@status`
+
+Status of a success response (200 to 299), used when the handler does not call `res.status`, and documented as the operation's success response. `204` is documented without content.
+
+**Applies to:** Custom endpoints
+
+```ts
+/** @status 201 */
+```
+
 ### `@fields`
 
 Fields the response keeps.

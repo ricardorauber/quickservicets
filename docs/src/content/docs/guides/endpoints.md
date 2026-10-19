@@ -215,24 +215,27 @@ What the handler returns becomes the response:
 
 | The handler returns | The response |
 | --- | --- |
-| A value (object, array, string, number) | JSON, status 200 or the one set with `res.status` |
-| `undefined` | An empty body, status 204 or the one set with `res.status` |
+| A value (object, array, string, number) | JSON, status 200, or the one set with `@status` or `res.status` |
+| `undefined` | An empty body, status 204, or the one set with `@status` or `res.status` |
 | A `Response` | Sent as it is |
 
-`res.status(code)` and `res.header(name, value)` change the status and headers, and they chain:
+`@status <code>` on the endpoint sets its success status, from 200 to 299, both for the response and for the API docs. `res.status(code)` and `res.header(name, value)` change the status and headers for one response, and they chain; a status set with `res.status` wins over `@status`:
 
 ```ts check title="endpoints/organizations/[orgId]/members/post.ts"
 import { HttpError, type Endpoint } from "@quickservice/core";
 
 type AddMember = { email: string };
 
-/** @summary Add a member by email */
+/**
+ * @summary Add a member by email
+ * @status 201
+ */
 const handler: Endpoint<AddMember, { members: number }> = async (repos, req, res) => {
   const { email } = await req.json();
   const user = await repos.users.where((u) => u.email.eq(email)).firstOrDefault();
   if (!user) throw new HttpError(404, "User not found", { details: [{ field: "email", message: "No user has this email" }] });
   const organization = await repos.organizations.update(req.params.orgId!, { members: { add: [user.id] } });
-  res.status(201).header("location", `/organizations/${organization.id}/members/${user.id}`);
+  res.header("location", `/organizations/${organization.id}/members/${user.id}`);
   return { members: organization.members.length };
 };
 
@@ -365,7 +368,7 @@ Custom endpoints appear in the API docs at `/docs` and in `/openapi.json`:
 - `Body` becomes the request body schema and `Result` the success response schema. Entity types, from `entities/` or from `.generated/types.ts`, become references to their schemas, and `<Entity>Create` and `<Entity>Update` from `.generated/types.ts` to the request body schemas of the generated routes, alone, in arrays or inside object types. `@hidden` fields stay out of these schemas.
 - Each path parameter is a required string, and the path uses OpenAPI syntax (`/organizations/{orgId}`).
 - The tag is the first path segment and the `operationId` is the method plus the path in PascalCase.
-- The documented success status is 200, or 204 for a `delete` without a `Result` type, whatever `res.status` sets at runtime.
+- The documented success status is the `@status` code, with the `Result` schema (`@status 204` has no content). Without `@status` it is 200, or 204 for a `delete` without a `Result` type; `res.status` is not read by the docs, so declare the status with `@status` to document it.
 - An override without generics keeps the generated route's schemas and responses; generics, `@summary` and `@description` take precedence when present. Its documented parameters are its path parameters plus the items of its query type, never the generated `limit`, `offset`, `sort`, `where`, `fields`, `exclude` or `populate`.
 
 ```bash

@@ -66,6 +66,8 @@ interface ResolvedEndpoint {
   query?: QueryItem[];
   projection?: Projection;
   populate?: { entity: string; paths: string[] };
+  /** Success status from `@status`. */
+  status?: number;
 }
 
 interface ScannedEndpoint {
@@ -185,7 +187,7 @@ function generateRoutesFile(
   ];
   const endpointEntries = endpoints.map(
     (endpoint, index) =>
-      `  { method: ${JSON.stringify(endpoint.route.method)}, path: ${JSON.stringify(endpoint.route.path)}, hooks: ${JSON.stringify(endpoint.hooks)}, ${endpoint.projection ? `projection: ${JSON.stringify(endpoint.projection)}, ` : ""}${endpoint.populate ? `populate: ${JSON.stringify(endpoint.populate)}, ` : ""}${endpoint.query ? `query: ${JSON.stringify(endpoint.query)}, ` : ""}handler: endpoint${index} as Endpoint },`,
+      `  { method: ${JSON.stringify(endpoint.route.method)}, path: ${JSON.stringify(endpoint.route.path)}, hooks: ${JSON.stringify(endpoint.hooks)}, ${endpoint.projection ? `projection: ${JSON.stringify(endpoint.projection)}, ` : ""}${endpoint.populate ? `populate: ${JSON.stringify(endpoint.populate)}, ` : ""}${endpoint.query ? `query: ${JSON.stringify(endpoint.query)}, ` : ""}${endpoint.status !== undefined ? `status: ${endpoint.status}, ` : ""}handler: endpoint${index} as Endpoint },`,
   );
   return [
     HEADER,
@@ -252,10 +254,11 @@ export async function build(projectRoot: string): Promise<BuildSummary> {
   }
   assertNoDocsConflicts(models, endpoints.map((endpoint) => endpoint.route));
   const queryItems = extractQueryItems(projectRoot, endpoints.map((endpoint) => endpoint.route));
-  const resolved = endpoints.map((endpoint) => {
+  const resolved = endpoints.map((endpoint): ResolvedEndpoint => {
     const result = resolveEndpoint(endpoint, models, config.populate.maxDepth);
     const query = queryItems.get(endpoint.route.file);
-    return query ? { ...result, query } : result;
+    const status = endpoint.metadata.status;
+    return { ...result, ...(query ? { query } : {}), ...(status !== undefined ? { status } : {}) };
   });
   const endpointDocs = describeEndpoints(
     projectRoot,

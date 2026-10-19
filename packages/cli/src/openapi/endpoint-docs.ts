@@ -26,6 +26,8 @@ export interface EndpointDoc {
   projection?: { include?: string[]; exclude?: string[] };
   /** Typed query items of a GET or DELETE endpoint. */
   query?: QueryItem[];
+  /** Success status from `@status`. */
+  status?: number;
 }
 
 export interface EndpointDocInput {
@@ -278,6 +280,7 @@ export function describeEndpoints(
       ...(override ? { override } : {}),
       ...(metadata.projection ? { projection: metadata.projection } : {}),
       ...(query ? { query } : {}),
+      ...(metadata.status !== undefined ? { status: metadata.status } : {}),
       hooks,
     };
   });

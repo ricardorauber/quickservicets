@@ -15,6 +15,8 @@ export interface EndpointMetadata {
   summary?: string;
   /** `@description`: free text shown as the operation description in the API docs. */
   description?: string;
+  /** `@status`: the 2xx status of a success response, at runtime and in the API docs. */
+  status?: number;
 }
 
 type EndpointTagHandler = (tag: DocTag, file: string, metadata: EndpointMetadata) => void;
@@ -117,6 +119,12 @@ registerEndpointTag("description", (tag, file, metadata) => {
   if (tag.text === "") throw new BuildError(`${file}: @description needs a text`);
   metadata.description = tag.text;
 });
+registerEndpointTag("status", (tag, file, metadata) => {
+  const text = tag.text.trim();
+  const code = /^\d+$/.test(text) ? Number(text) : Number.NaN;
+  if (!(code >= 200 && code <= 299)) throw new BuildError(`${file}: invalid @status: expects a 2xx status code`);
+  metadata.status = code;
+});
 registerEndpointTag("fields", projectionTag("include"));
 registerEndpointTag("exclude", projectionTag("exclude"));
 
@@ -129,6 +137,12 @@ describeEndpointTag("description", {
   description: "Longer text of the operation in the API docs; may span several lines.",
   appliesTo: "Custom endpoints",
   example: "/** @description Counts the members of an organization. */",
+});
+describeEndpointTag("status", {
+  description:
+    "Status of a success response (200 to 299), used when the handler does not call `res.status`, and documented as the operation's success response. `204` is documented without content.",
+  appliesTo: "Custom endpoints",
+  example: "/** @status 201 */",
 });
 describeEndpointTag("fields", {
   description: "Fields the response keeps.",

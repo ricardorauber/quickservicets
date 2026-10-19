@@ -30,6 +30,8 @@ export interface AppEndpoint {
   populate?: { entity: string; paths: string[] };
   /** Typed query items, converted into `req.queryItems` after the pre-hooks. */
   query?: QueryItem[];
+  /** Success status from `@status`, used when the handler does not call `res.status`. */
+  status?: number;
   handler: Endpoint;
 }
 
@@ -105,6 +107,7 @@ export function createApp({ models, crudRoutes, endpoints, hooks, config, openAp
     method: endpoint.method,
     path: endpoint.path,
     handler: withHooks(withProjection(withPopulate(endpoint), endpoint.projection), endpoint.hooks, hooks),
+    ...(endpoint.status !== undefined ? { status: endpoint.status } : {}),
   }));
   const docs = openApi && config.docs?.enabled ? docsRoutes(openApi) : [];
   const server = createServer({ routes: [...mergeRoutes(generated, custom), ...docs], repos: repos as unknown as Repositories, config });

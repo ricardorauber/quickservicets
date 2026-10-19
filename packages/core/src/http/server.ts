@@ -18,6 +18,8 @@ export interface Route {
   /** Route path with dynamic segments in brackets, e.g. `/users/[id]`. */
   path: string;
   handler: Endpoint;
+  /** Status of a success response when the handler does not set one with `res.status`. */
+  status?: number;
 }
 
 export interface ServerOptions {
@@ -89,14 +91,15 @@ function createRequest(raw: Request, url: URL, params: Record<string, string>, i
   };
 }
 
-export function toResponse(result: unknown, res: ResponseControls): Response {
+/** The response for a handler's result; `status` replaces the default 200 (or 204 for `undefined`) when `res.status` was not called. */
+export function toResponse(result: unknown, res: ResponseControls, status?: number): Response {
   if (result instanceof Response) return result;
   if (result === undefined) {
-    return new Response(null, { status: res.statusCode ?? 204, headers: res.headers });
+    return new Response(null, { status: res.statusCode ?? status ?? 204, headers: res.headers });
   }
   const headers = new Headers(res.headers);
   headers.set("content-type", "application/json");
-  return new Response(JSON.stringify(result), { status: res.statusCode ?? 200, headers });
+  return new Response(JSON.stringify(result), { status: res.statusCode ?? status ?? 200, headers });
 }
 
 export function createServer({ routes, repos, config }: ServerOptions): Server {
@@ -118,7 +121,7 @@ export function createServer({ routes, repos, config }: ServerOptions): Server {
       state.req = createRequest(request, url, match.params, requestId);
       const res = new ResponseControls();
       const result = await match.route.value.handler(repos, state.req, res);
-      return toResponse(result, res);
+      return toResponse(result, res, match.route.value.status);
     } catch (error) {
       if (!(error instanceof HttpError)) {
         const failure = error instanceof Error ? error : new Error(String(error));

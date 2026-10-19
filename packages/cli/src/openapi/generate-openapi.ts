@@ -659,10 +659,11 @@ function queryParameters(items: QueryItem[], schemas: Record<string, JsonSchema>
 
 function customOperation(doc: EndpointDoc, schemas: Record<string, JsonSchema>): Record<string, unknown> {
   const method = doc.method.toLowerCase();
+  const status = doc.status ?? (method === "delete" && !doc.result ? 204 : 200);
   const success =
-    method === "delete" && !doc.result
+    status === 204
       ? { "204": { description: "Success" } }
-      : { "200": { description: "Success", content: json(doc.result ?? { type: "object" }) } };
+      : { [String(status)]: { description: "Success", content: json(doc.result ?? { type: "object" }) } };
   return {
     ...endpointIdentity(doc),
     ...(doc.params.length > 0 || doc.query ? { parameters: [...pathParameters(doc.params), ...queryParameters(doc.query ?? [], schemas)] } : {}),
@@ -685,6 +686,15 @@ function overriddenOperation(doc: EndpointDoc, generated: Record<string, unknown
     const status = code === "204" ? "200" : code;
     delete responses[code];
     operation.responses = { [status]: { description: "Success", content: json(doc.result) }, ...responses };
+  }
+  if (doc.status !== undefined) {
+    // `@status` moves the success response to its code; 204 has no content.
+    const responses = operation.responses as Record<string, Record<string, unknown>>;
+    const code = Object.keys(responses).find((status) => status.startsWith("2"))!;
+    const { content, ...rest } = responses[code]!;
+    delete responses[code];
+    const success = doc.status === 204 ? rest : { ...rest, content: content ?? json(doc.result ?? { type: "object" }) };
+    operation.responses = { [String(doc.status)]: success, ...responses };
   }
   return operation;
 }

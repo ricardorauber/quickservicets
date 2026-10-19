@@ -141,6 +141,8 @@ export function matchesDescriptor(value: unknown, descriptor: TypeDescriptor): b
       );
     case "ref":
       return false;
+    case "json":
+      return true;
     case "refArray":
       return Array.isArray(value) && value.length === 0;
   }

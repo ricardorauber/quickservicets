@@ -177,6 +177,8 @@ function descriptorSchema(descriptor: TypeDescriptor, visible: (field: NestedFie
       return { type: "array", items: descriptorSchema(descriptor.items, visible, mode) };
     case "object":
       return objectSchema(descriptor.fields, visible, mode);
+    case "json":
+      return {};
   }
 }
 
@@ -776,7 +778,8 @@ export function generateOpenApi({
   files,
   populateMaxDepth = 2,
 }: GenerateOpenApiOptions): OpenApiDocument {
-  const entities = models.filter((model) => !model.link);
+  // System entities (e.g. JobRun) have no routes and stay out of the API docs.
+  const entities = models.filter((model) => !model.link && !model.system);
   const names = componentNames(entities);
   const schemas: Record<string, JsonSchema> = { Error: ERROR_SCHEMA };
   registerSharedEnums(entities, names, schemas);

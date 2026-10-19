@@ -132,6 +132,7 @@ const BSON_TYPES: Record<FieldModel["type"], string> = {
   array: "array",
   refArray: "array",
   object: "object",
+  json: "object",
 };
 
 export interface MongoIndexSpec {
@@ -143,7 +144,10 @@ export interface MongoIndexSpec {
   options: { unique?: true; partialFilterExpression?: Document };
 }
 
-/** The indexes an entity needs: createdAt, plus one per `@unique` (partial on non-null values) and `@index` field. */
+/**
+ * The indexes an entity needs: createdAt, plus one per `@unique` (partial on non-null values) and `@index` field, and
+ * the entity's indexes over several fields.
+ */
 export function mongoIndexSpecs(model: EntityModel): MongoIndexSpec[] {
   const collection = model.tableName;
   const schema = model.schema;
@@ -163,6 +167,15 @@ export function mongoIndexSpecs(model: EntityModel): MongoIndexSpec[] {
     if (field.index || field.type === "refArray") {
       specs.push({ schema, collection, name: `${collection}_${field.name}_idx`, keys: { [field.name]: 1 }, options: {} });
     }
+  }
+  for (const { fields, unique } of model.indexes ?? []) {
+    specs.push({
+      schema,
+      collection,
+      name: `${collection}_${fields.join("_")}_${unique ? "uq" : "idx"}`,
+      keys: Object.fromEntries(fields.map((field) => [field, 1 as const])),
+      options: unique ? { unique: true } : {},
+    });
   }
   return specs;
 }

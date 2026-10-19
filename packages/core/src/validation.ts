@@ -198,6 +198,8 @@ function validateValue(field: ValueSpec, raw: unknown, path: string, errors: Col
     case "object":
       if (!isPlainObject(raw)) return errors.add(path, "Must be an object");
       return validateFields(field.fields, raw, path, "replace", errors);
+    case "json":
+      return raw;
   }
 }
 

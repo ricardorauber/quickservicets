@@ -3,6 +3,7 @@ import { join, relative, resolve, sep } from "node:path";
 import ts from "typescript";
 import {
   builtInFileEntity,
+  jobRunEntity,
   FILE_BASE_FIELDS,
   hiddenPathsFor,
   parseFieldPaths,
@@ -16,6 +17,7 @@ import {
   type OnDeleteAction,
   type TypeDescriptor,
 } from "@quickservice/core";
+import { listJobFiles } from "../jobs/scan-jobs.ts";
 import { EntityParseError } from "./errors.ts";
 import { applyEntityTags, type EntityTagTarget } from "./entity-tags.ts";
 import { applyFieldTags } from "./field-tags.ts";
@@ -118,9 +120,27 @@ export function withBuiltInEntities(models: EntityModel[]): EntityModel[] {
   return [...models, ...builtIns];
 }
 
-/** Every entity of the project: the ones in `/entities`, their link entities and the built-in file entities. */
+/** Adds the built-in `JobRun` entity, failing when a project entity takes its name, repository or table. */
+export function withJobRunEntity(models: EntityModel[]): EntityModel[] {
+  const jobRun = jobRunEntity();
+  const conflict = models.find(
+    (model) =>
+      model.key === jobRun.key ||
+      (!model.schema && (model.tableName === jobRun.tableName || (!model.schemaKey && model.repoKey === jobRun.repoKey))),
+  );
+  if (conflict) {
+    throw new EntityParseError(`entities/${conflict.key}.ts: entity ${conflict.entityName} conflicts with the built-in JobRun entity (collection job-runs) that stores job runs`);
+  }
+  return [...models, jobRun];
+}
+
+/**
+ * Every entity of the project: the ones in `/entities`, their link entities, the built-in file entities, and the
+ * built-in `JobRun` entity when the project has jobs.
+ */
 export function parseProjectEntities(projectRoot: string): EntityModel[] {
-  return withBuiltInEntities(parseEntities(projectRoot));
+  const models = withBuiltInEntities(parseEntities(projectRoot));
+  return listJobFiles(projectRoot).length > 0 ? withJobRunEntity(models) : models;
 }
 
 function listEntitySources(projectRoot: string, entitiesDir: string): EntitySource[] {

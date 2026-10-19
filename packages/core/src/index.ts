@@ -1,7 +1,7 @@
 export { CODES_BY_STATUS, HttpError, codeForStatus, toErrorResponse } from "./errors.ts";
 export type { ErrorResponseOptions, FieldErrorDetail, HttpErrorOptions } from "./errors.ts";
 export { alwaysHiddenPaths, CRUD_OPERATIONS, entityRoutePath, hiddenPathsFor, SYSTEM_FIELDS } from "./model.ts";
-export type { ArrayOnDeleteAction, EnumDeclarationInfo, FileAccessMode, RelationKind, RelationSide, CrudOperation, EntityModel, Exposure, ReadOperation, HookReference, OverrideHooksMode, FieldConstraints, FieldModel, FieldStorage, FieldType, NestedFieldModel, OnDeleteAction, PrimitiveFieldType, StringFormat, TypeDescriptor } from "./model.ts";
+export type { ArrayOnDeleteAction, EnumDeclarationInfo, FileAccessMode, RelationKind, RelationSide, CrudOperation, EntityModel, Exposure, ReadOperation, HookReference, ModelIndex, OverrideHooksMode, FieldConstraints, FieldModel, FieldStorage, FieldType, NestedFieldModel, OnDeleteAction, PrimitiveFieldType, StringFormat, TypeDescriptor } from "./model.ts";
 export { ReferenceArrayChange, validateBody } from "./validation.ts";
 export type { ValidationMode, ValidationResult } from "./validation.ts";
 export { DEFAULT_LIMIT, FILTER_OPERATORS, MAX_LIMIT, MAX_LIST_VALUES, convertQueryValue, listQueryFields, OPERATORS_BY_TYPE, parseListQuery, queryableFields, SIZE_COMPARISONS } from "./query.ts";
@@ -9,10 +9,10 @@ export type { Condition, FilterOperator, ListQuery, SizeComparison, SizeFilter, 
 export { UniqueViolationError } from "./adapter.ts";
 export type { AdapterKind, ConnectOptions, DatabaseAdapter, FindManyOptions, FindManyResult, StoredRecord } from "./adapter.ts";
 export { memoryAdapter } from "./adapters/memory.ts";
-export { CONFIG_FILE, ConfigError, DEFAULT_PORT, DEFAULT_POPULATE_DEPTH, defineConfig, loadConfig, resolveConfig } from "./config.ts";
+export { CONFIG_FILE, ConfigError, DEFAULT_PORT, DEFAULT_POPULATE_DEPTH, defineConfig, JOB_DEFAULTS, loadConfig, resolveConfig } from "./config.ts";
 export type { ResolvedConfig, ServiceConfig } from "./config.ts";
-export { createRepositories, createRepository, repositoryFor } from "./repository.ts";
-export type { EntityRecord, ListResult, Many, One, Populated, PopulatePath, ReadOptions, ReferencePath, Repository, RepositoryOptions, RepositoryRegistry } from "./repository.ts";
+export { createRepositories, createRepository, READ_METHODS, readRepository, repositoryFor } from "./repository.ts";
+export type { EntityRecord, ListResult, Many, One, Populated, PopulatePath, ReadOptions, ReadRepository, ReferencePath, Repository, RepositoryOptions, RepositoryRegistry } from "./repository.ts";
 export { definePostHook, definePreHook, isHookDefinition } from "./hooks.ts";
 export type {
   HookCall,
@@ -88,7 +88,9 @@ export { isMultipart, parseEntityUpload, withUploadedFiles } from "./files/refer
 export type { EntityUpload, UploadMode } from "./files/references.ts";
 export { deleteObjects, isFileReferenced, objectOf, ownedFileFields, referencedIds } from "./files/cleanup.ts";
 export type { FileCleanupSettings, StoredObject } from "./files/cleanup.ts";
-export { DURATION_UNITS, isJobDefinition, job, parseDuration } from "./jobs/job.ts";
+export { DURATION_UNITS, isJobDefinition, job, jobSettings, parseDuration } from "./jobs/job.ts";
 export { assertTimeZone, DEFAULT_TIME_ZONE, nextRunTime, parseCron, parseDate, parseInterval, parseSchedule, ScheduleError } from "./jobs/schedule.ts";
 export type { CronSchedule, DateSchedule, IntervalSchedule, ParsedSchedule, Schedule } from "./jobs/schedule.ts";
-export type { JobContext, JobDefinition, JobFn, JobLogFields, JobLogger, JobOptions, JobRunInfo, JobSchedule, JobTrigger } from "./jobs/job.ts";
+export type { JobContext, JobDefinition, JobFn, JobLogFields, JobLogger, JobOptions, JobRunInfo, JobSchedule, JobSettings, JobTrigger } from "./jobs/job.ts";
+export { JOB_LOG_LEVELS, JOB_RUN_STATUSES, JOB_TRIGGERS, jobRunEntity } from "./jobs/job-run.ts";
+export type { JobRun, JobRunLog, JobRunStatus } from "./jobs/job-run.ts";

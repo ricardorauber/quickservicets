@@ -130,6 +130,14 @@ export function memoryAdapter(): DatabaseAdapter {
         }
       }
     }
+    for (const { fields, unique } of entity.indexes ?? []) {
+      if (!unique) continue;
+      for (const other of tableFor(entity).values()) {
+        if (other.id !== record.id && fields.every((field) => compareValues(other[field], record[field]) === 0)) {
+          throw new UniqueViolationError(fields[0]!);
+        }
+      }
+    }
   };
 
   const normalize = (entity: EntityModel, record: StoredRecord): StoredRecord => {

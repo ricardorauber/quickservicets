@@ -175,6 +175,11 @@ export function buildDrizzleSchema(models: EntityModel[], dialect: SqlDialect, o
           extras.push(check(`${prefix}_${column}_check`, enumCheck(table[field.name], field.values)));
         }
       }
+      for (const { fields, unique } of model.indexes ?? []) {
+        const name = `${prefix}_${fields.map(columnName).join("_")}_${unique ? "uq" : "idx"}`;
+        const [first, ...rest] = fields.map((field) => table[field] as never);
+        extras.push((unique ? uniqueIndex(name) : index(name)).on(first, ...rest));
+      }
       return extras;
     });
   }

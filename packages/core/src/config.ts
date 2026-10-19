@@ -3,6 +3,8 @@ import { join } from "node:path";
 import type { DatabaseAdapter } from "./adapter.ts";
 import type { Logger } from "./logger.ts";
 import { DEFAULT_MAX_FILE_SIZE, parseSize } from "./files/limits.ts";
+import { parseDuration } from "./jobs/job.ts";
+import { assertTimeZone, ScheduleError } from "./jobs/schedule.ts";
 import { localStorage } from "./storage/local.ts";
 import type { StorageAdapter } from "./storage/storage.ts";
 
@@ -67,13 +69,37 @@ export interface ServiceConfig {
     /** Whether `quickservice dev` creates migrations automatically for model changes (default true). */
     autoInDev?: boolean;
   };
+  /** Scheduled job settings; each job's own options override them. */
+  jobs?: {
+    /** Run scheduled jobs in this instance (default true); `JOBS_ENABLED=false` overrides it. */
+    enabled?: boolean;
+    /** IANA time zone cron schedules are evaluated in (default "UTC"). */
+    timeZone?: string;
+    /** Longest a run may last, as a duration like `30s`, `10m` or `2h` (default "5m"). */
+    timeout?: string;
+    /** How many times a failed run is retried (default 0). */
+    retries?: number;
+    /** Delay before the first retry, doubled for each next one, as a duration (default "30s"). */
+    retryDelay?: string;
+    /** How long run records are kept, as a duration (default "30d"). */
+    retention?: string;
+    /** How long shutdown waits for running jobs before recording them as interrupted, as a duration (default "10s"). */
+    shutdownGrace?: string;
+    /** Size limits of run records. */
+    limits?: {
+      /** Largest result stored in a run record, in bytes or as `64KB` (default "64KB"). */
+      result?: number | string;
+      /** Most log lines stored in a run record (default 500). */
+      logLines?: number;
+    };
+  };
 }
 
 /** The configuration with every default applied. */
 export const DEFAULT_POPULATE_DEPTH = 2;
 
 export interface ResolvedConfig
-  extends Omit<ServiceConfig, "server" | "production" | "schema" | "populate" | "storage" | "files" | "docs"> {
+  extends Omit<ServiceConfig, "server" | "production" | "schema" | "populate" | "storage" | "files" | "docs" | "jobs"> {
   docs: { enabled: boolean };
   server: { port: number; publicUrl?: string };
   files: {
@@ -88,6 +114,17 @@ export interface ResolvedConfig
   };
   storage: Record<string, StorageAdapter> & { default: StorageAdapter };
   populate: { maxDepth: number };
+  /** Job defaults, validated and kept as written (durations like `5m`, sizes like `64KB`). */
+  jobs: {
+    enabled: boolean;
+    timeZone: string;
+    timeout: string;
+    retries: number;
+    retryDelay: string;
+    retention: string;
+    shutdownGrace: string;
+    limits: { result: number | string; logLines: number };
+  };
   production: boolean;
   /** The resolved default schema, or null for the database's own default. */
   schema: string | null;
@@ -152,6 +189,63 @@ function resolveFiles(config: ServiceConfig, env: Record<string, string | undefi
   };
 }
 
+export const JOB_DEFAULTS: ResolvedConfig["jobs"] = {
+  enabled: true,
+  timeZone: "UTC",
+  timeout: "5m",
+  retries: 0,
+  retryDelay: "30s",
+  retention: "30d",
+  shutdownGrace: "10s",
+  limits: { result: "64KB", logLines: 500 },
+};
+
+function resolveJobsEnabled(config: ServiceConfig, env: Record<string, string | undefined>): boolean {
+  const raw = env.JOBS_ENABLED?.trim().toLowerCase();
+  if (raw === "false" || raw === "0") return false;
+  if (raw === "true" || raw === "1") return true;
+  if (raw !== undefined && raw !== "") throw new ConfigError(`Invalid JOBS_ENABLED: expected true or false, got "${env.JOBS_ENABLED}"`);
+  const enabled = config.jobs?.enabled ?? JOB_DEFAULTS.enabled;
+  if (typeof enabled !== "boolean") throw new ConfigError(`Invalid jobs.enabled: expected a boolean, got ${JSON.stringify(enabled)}`);
+  return enabled;
+}
+
+function resolveJobs(config: ServiceConfig, env: Record<string, string | undefined>): ResolvedConfig["jobs"] {
+  const jobs = config.jobs ?? {};
+  const invalid = (key: string, expected: string, value: unknown) =>
+    new ConfigError(`Invalid jobs.${key}: expected ${expected}, got ${JSON.stringify(value)}`);
+  const duration = (key: "timeout" | "retryDelay" | "retention" | "shutdownGrace"): string => {
+    const value = jobs[key] ?? JOB_DEFAULTS[key];
+    if (parseDuration(value) === undefined) throw invalid(key, "a duration like 30s, 10m or 30d", value);
+    return value;
+  };
+  const timeZone = jobs.timeZone ?? JOB_DEFAULTS.timeZone;
+  try {
+    assertTimeZone(timeZone);
+  } catch (error) {
+    if (error instanceof ScheduleError) throw invalid("timeZone", "an IANA time zone like America/Sao_Paulo", timeZone);
+    throw error;
+  }
+  const retries = jobs.retries ?? JOB_DEFAULTS.retries;
+  if (typeof retries !== "number" || !Number.isInteger(retries) || retries < 0) throw invalid("retries", "an integer of at least 0", retries);
+  const result = jobs.limits?.result ?? JOB_DEFAULTS.limits.result;
+  if ((typeof result !== "number" && typeof result !== "string") || parseSize(result) === undefined) {
+    throw invalid("limits.result", "a size in bytes or like 64KB", result);
+  }
+  const logLines = jobs.limits?.logLines ?? JOB_DEFAULTS.limits.logLines;
+  if (typeof logLines !== "number" || !Number.isInteger(logLines) || logLines < 1) throw invalid("limits.logLines", "an integer of at least 1", logLines);
+  return {
+    enabled: resolveJobsEnabled(config, env),
+    timeZone,
+    timeout: duration("timeout"),
+    retries,
+    retryDelay: duration("retryDelay"),
+    retention: duration("retention"),
+    shutdownGrace: duration("shutdownGrace"),
+    limits: { result, logLines },
+  };
+}
+
 export function resolveConfig(
   config: ServiceConfig,
   env: Record<string, string | undefined> = process.env,
@@ -170,6 +264,7 @@ export function resolveConfig(
     populate: { maxDepth: config.populate?.maxDepth ?? DEFAULT_POPULATE_DEPTH },
     storage: resolveStorage(config, projectRoot),
     files: resolveFiles(config, env),
+    jobs: resolveJobs(config, env),
   };
 }
 

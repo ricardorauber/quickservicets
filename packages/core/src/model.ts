@@ -19,7 +19,9 @@ export type TypeDescriptor =
   | { type: "refArray"; target: string; onDelete: ArrayOnDeleteAction }
   | { type: "enum"; values: string[]; declaration?: EnumDeclarationInfo }
   | { type: "array"; items: TypeDescriptor }
-  | { type: "object"; fields: NestedFieldModel[] };
+  | { type: "object"; fields: NestedFieldModel[] }
+  /** Any JSON value, stored as JSON; used by built-in entities only. */
+  | { type: "json" };
 
 export type FieldType = TypeDescriptor["type"];
 
@@ -143,6 +145,19 @@ export interface EntityModel {
   fileLimits?: { maxSize?: number; accept?: string[] };
   /** `@access <mode> [ttlSeconds]` of a file entity. */
   fileAccess?: { mode: FileAccessMode; ttl?: number };
+  /** Indexes over several fields, in order; `unique` ones reject two records with the same values in all of them. */
+  indexes?: ModelIndex[];
+  /**
+   * Set on built-in entities whose records the framework writes (e.g. `JobRun`): they have no routes, no entry in the
+   * API docs, and their repository offers only read methods.
+   */
+  system?: true;
+}
+
+/** An index over several fields of an entity. */
+export interface ModelIndex {
+  fields: string[];
+  unique?: true;
 }
 
 /** Paths of fields (top-level or nested) that are never returned. */

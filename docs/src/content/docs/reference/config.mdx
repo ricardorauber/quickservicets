@@ -34,3 +34,14 @@ The project configuration lives in `quickservice.config.ts` and is written with 
 | `populate.maxDepth` | `number` | 2 | Maximum number of segments in a populate path (default 2). |
 | `migrations` | `object` | — | Migration settings. |
 | `migrations.autoInDev` | `boolean` | true | Whether `quickservice dev` creates migrations automatically for model changes (default true). |
+| `jobs` | `object` | — | Scheduled job settings; each job's own options override them. |
+| `jobs.enabled` | `boolean` | true | Run scheduled jobs in this instance (default true); `JOBS_ENABLED=false` overrides it. |
+| `jobs.timeZone` | `string` | "UTC" | IANA time zone cron schedules are evaluated in (default "UTC"). |
+| `jobs.timeout` | `string` | "5m" | Longest a run may last, as a duration like `30s`, `10m` or `2h` (default "5m"). |
+| `jobs.retries` | `number` | 0 | How many times a failed run is retried (default 0). |
+| `jobs.retryDelay` | `string` | "30s" | Delay before the first retry, doubled for each next one, as a duration (default "30s"). |
+| `jobs.retention` | `string` | "30d" | How long run records are kept, as a duration (default "30d"). |
+| `jobs.shutdownGrace` | `string` | "10s" | How long shutdown waits for running jobs before recording them as interrupted, as a duration (default "10s"). |
+| `jobs.limits` | `object` | — | Size limits of run records. |
+| `jobs.limits.result` | `number \| string` | "64KB" | Largest result stored in a run record, in bytes or as `64KB` (default "64KB"). |
+| `jobs.limits.logLines` | `number` | 500 | Most log lines stored in a run record (default 500). |

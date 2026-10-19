@@ -116,7 +116,7 @@ export function queryableFields(model: EntityModel): Map<string, QueryField> {
     }
     if (field.storage !== "column" || field.type === "refArray" || field.hidden || !exposed(field.name)) continue;
     if (field.type === "enum") fields.set(field.name, { type: "enum", values: field.values });
-    else if (field.type !== "array" && field.type !== "object") fields.set(field.name, { type: field.type });
+    else if (field.type !== "array" && field.type !== "object" && field.type !== "json") fields.set(field.name, { type: field.type });
   }
   return fields;
 }

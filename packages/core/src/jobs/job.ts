@@ -95,3 +95,21 @@ export function parseDuration(value: unknown): number | undefined {
   if (!match || !Object.hasOwn(DURATION_UNITS, match[2]!)) return undefined;
   return Number(match[1]) * DURATION_UNITS[match[2] as keyof typeof DURATION_UNITS];
 }
+
+/** The settings a job runs with: its own options, else the `jobs` config defaults. */
+export type JobSettings = Required<JobOptions>;
+
+/** Applies a job's options over the `jobs` config defaults. */
+export function jobSettings(
+  options: JobOptions,
+  defaults: Pick<JobSettings, "retries" | "retryDelay" | "timeout" | "retention" | "timeZone">,
+): JobSettings {
+  return {
+    retries: options.retries ?? defaults.retries,
+    retryDelay: options.retryDelay ?? defaults.retryDelay,
+    timeout: options.timeout ?? defaults.timeout,
+    retention: options.retention ?? defaults.retention,
+    timeZone: options.timeZone ?? defaults.timeZone,
+    overlap: options.overlap ?? "skip",
+  };
+}

@@ -135,6 +135,17 @@ export interface Repository<T extends EntityRecord = EntityRecord, R = Record<ne
   query(): Query<T, R>;
 }
 
+/** The read methods of a repository, the only ones offered for records the framework writes (e.g. job runs). */
+export const READ_METHODS = ["findById", "findOne", "list", "where", "query"] as const;
+
+/** A repository that only reads: `findById`, `findOne`, `list`, `where` and `query`. */
+export type ReadRepository<T extends EntityRecord = EntityRecord, R = Record<never, never>> = Pick<Repository<T, R>, (typeof READ_METHODS)[number]>;
+
+/** The read methods of a repository, without its write methods. */
+export function readRepository<T extends EntityRecord, R>(repository: Repository<T, R>): ReadRepository<T, R> {
+  return Object.fromEntries(READ_METHODS.map((method) => [method, repository[method].bind(repository)])) as unknown as ReadRepository<T, R>;
+}
+
 /** Repositories keyed by repository key; entities with an explicit schema are nested under the schema key. */
 export type RepositoryRegistry = Record<string, Repository | Record<string, Repository>>;
 
@@ -431,7 +442,9 @@ export function createRepositories(
   for (const model of models) {
     // Link entities store N-N relations internally and have no repository of their own.
     if (model.link) continue;
-    const repository = createRepository(model, adapter, models, options);
+    const full = createRepository(model, adapter, models, options);
+    // Records of system entities are written by the framework; code only reads them.
+    const repository = model.system ? (readRepository(full) as Repository) : full;
     if (model.schemaKey) {
       const nested = (registry[model.schemaKey] ??= {}) as Record<string, Repository>;
       nested[model.repoKey] = repository;

@@ -198,3 +198,71 @@ describe("overrides", () => {
     expect(doc.paths["/users/{id}"]!.get.operationId).toBe("readUser");
   });
 });
+
+describe("generated types", () => {
+  const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
+
+  test("entity, create and update types from .generated/types.ts use the entity schemas", () => {
+    const { doc, warnings } = documentFor({
+      "endpoints/me/get.ts": endpoint(
+        "const h: Endpoint<unknown, User> = async () => ({}) as never;\nexport default h;",
+        'import type { User } from "../../.generated/types.ts";',
+      ),
+      "endpoints/invites/post.ts": endpoint(
+        "const h: Endpoint<UserCreate, Organization> = async () => ({}) as never;\nexport default h;",
+        'import type { Organization, UserCreate } from "../../.generated/types";',
+      ),
+      "endpoints/profile/patch.ts": endpoint(
+        "const h: Endpoint<Changes, Account> = async () => ({}) as never;\nexport default h;",
+        'import type { User as Account, UserUpdate as Changes } from "../../.generated/types.ts";',
+      ),
+    });
+    expect(warnings).toEqual([]);
+    expect(doc.paths["/me"]!.get.responses["200"].content["application/json"].schema).toEqual(ref("User"));
+    expect(doc.paths["/invites"]!.post.requestBody.content["application/json"].schema).toEqual(ref("UserCreate"));
+    expect(doc.paths["/invites"]!.post.responses["200"].content["application/json"].schema).toEqual(ref("Organization"));
+    expect(doc.paths["/profile"]!.patch.requestBody.content["application/json"].schema).toEqual(ref("UserUpdate"));
+    expect(doc.paths["/profile"]!.patch.responses["200"].content["application/json"].schema).toEqual(ref("User"));
+  });
+
+  test("arrays and object properties of generated types use the same references", () => {
+    const { doc, warnings } = documentFor({
+      "endpoints/invites/post.ts": endpoint(
+        "const h: Endpoint<{ users: UserCreate[]; owner: UserUpdate }, { users: User[]; organizations: Array<Organization> }> = async () => ({}) as never;\nexport default h;",
+        'import type { Organization, User, UserCreate, UserUpdate } from "../../.generated/types.ts";',
+      ),
+    });
+    expect(warnings).toEqual([]);
+    const operation = doc.paths["/invites"]!.post;
+    expect(operation.requestBody.content["application/json"].schema.properties).toEqual({
+      users: { type: "array", items: ref("UserCreate") },
+      owner: ref("UserUpdate"),
+    });
+    expect(operation.responses["200"].content["application/json"].schema.properties).toEqual({
+      users: { type: "array", items: ref("User") },
+      organizations: { type: "array", items: ref("Organization") },
+    });
+  });
+
+  test("the build documents generated types without the fallback warning", async () => {
+    const root = createLinkedProject({
+      "quickservice.config.ts": MEMORY_CONFIG,
+      ...entities,
+      "endpoints/invites/post.ts": endpoint(
+        "const h: Endpoint<UserCreate, { users: User[] }> = async () => ({ users: [] });\nexport default h;",
+        'import type { User, UserCreate } from "../../.generated/types.ts";',
+      ),
+    });
+    // The second build resolves the generated file written by the first.
+    for (const _ of [1, 2]) {
+      const summary = await build(root);
+      expect(summary.warnings.filter((warning) => warning.includes("cannot document type"))).toEqual([]);
+    }
+    const document = JSON.parse(readFileSync(join(root, ".generated/openapi.json"), "utf8"));
+    const operation = document.paths["/invites"].post;
+    expect(operation.requestBody.content["application/json"].schema).toEqual(ref("UserCreate"));
+    expect(operation.responses["200"].content["application/json"].schema.properties.users).toEqual({ type: "array", items: ref("User") });
+    expect(Object.keys(document.components.schemas.User.properties)).not.toContain("passwordHash");
+    expect((await validate(structuredClone(document))).errors).toEqual([]);
+  });
+});

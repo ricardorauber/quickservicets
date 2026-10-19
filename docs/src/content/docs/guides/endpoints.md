@@ -362,7 +362,7 @@ To drop the entity's hooks on overrides, tag the entity with `@overrideHooks rep
 Custom endpoints appear in the API docs at `/docs` and in `/openapi.json`:
 
 - `@summary` (one line) and `@description` (may span lines) set the operation's texts. They are not hooks.
-- `Body` becomes the request body schema and `Result` the success response schema. Types declared in `entities/` become references to their schemas. A type the build cannot convert, such as the generated types of `.generated/types.ts`, falls back to `{ "type": "object" }` with a warning.
+- `Body` becomes the request body schema and `Result` the success response schema. Entity types, from `entities/` or from `.generated/types.ts`, become references to their schemas, and `<Entity>Create` and `<Entity>Update` from `.generated/types.ts` to the request body schemas of the generated routes, alone, in arrays or inside object types. `@hidden` fields stay out of these schemas.
 - Each path parameter is a required string, and the path uses OpenAPI syntax (`/organizations/{orgId}`).
 - The tag is the first path segment and the `operationId` is the method plus the path in PascalCase.
 - The documented success status is 200, or 204 for a `delete` without a `Result` type, whatever `res.status` sets at runtime.

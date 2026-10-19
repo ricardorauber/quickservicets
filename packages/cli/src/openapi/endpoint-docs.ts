@@ -1,4 +1,4 @@
-import { join, relative, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import type { CrudOperation, EntityModel, HookCall, QueryItem } from "@quickservice/core";
 import ts from "typescript";
 import type { EndpointRoute } from "../endpoints/scan-endpoints.ts";
@@ -82,26 +82,58 @@ const isAbsent = (node: ts.TypeNode | undefined) =>
 interface ConvertContext {
   checker: ts.TypeChecker;
   entitiesDir: string;
+  /** `.generated/types` of the project, without extension. */
+  generatedTypes: string;
   models: EntityModel[];
   names: Map<string, string>;
   /** Declarations being converted, to stop on recursive types. */
   visiting: Set<ts.Declaration>;
 }
 
-function declarationOf(name: ts.EntityName, checker: ts.TypeChecker): { declaration?: ts.Declaration; module?: string } {
+interface FoundDeclaration {
+  declaration?: ts.Declaration;
+  /** The module specifier the name was imported from. */
+  module?: string;
+  /** The file that imports the name. */
+  importer?: string;
+  /** The exported name the import refers to (differs from the local name with `as`). */
+  imported?: string;
+}
+
+function declarationOf(name: ts.EntityName, checker: ts.TypeChecker): FoundDeclaration {
   let symbol = checker.getSymbolAtLocation(name);
-  let module: string | undefined;
+  const found: FoundDeclaration = {};
   if (symbol && symbol.flags & ts.SymbolFlags.Alias) {
     const specifier = symbol.declarations?.[0];
     const importDeclaration = specifier && ts.findAncestor(specifier, ts.isImportDeclaration);
-    if (importDeclaration && ts.isStringLiteral(importDeclaration.moduleSpecifier)) module = importDeclaration.moduleSpecifier.text;
+    if (importDeclaration && ts.isStringLiteral(importDeclaration.moduleSpecifier)) {
+      found.module = importDeclaration.moduleSpecifier.text;
+      found.importer = importDeclaration.getSourceFile().fileName;
+    }
+    if (specifier && ts.isImportSpecifier(specifier)) found.imported = (specifier.propertyName ?? specifier.name).text;
     symbol = checker.getAliasedSymbol(symbol);
   }
-  return { declaration: symbol?.declarations?.[0], module };
+  found.declaration = symbol?.declarations?.[0];
+  return found;
+}
+
+/**
+ * The component schema of `<Entity>`, `<Entity>Create` or `<Entity>Update` imported from `.generated/types.ts`.
+ * The import is matched by path, since the generated file may not exist yet while the project builds.
+ */
+function generatedSchemaOf(name: string, found: FoundDeclaration, context: ConvertContext): string | undefined {
+  if (!found.module?.startsWith(".") || !found.importer) return undefined;
+  const target = resolve(dirname(found.importer), found.module).replace(/\.ts$/, "");
+  if (target !== context.generatedTypes) return undefined;
+  const imported = found.imported ?? name;
+  for (const component of context.names.values()) {
+    if (imported === component || imported === `${component}Create` || imported === `${component}Update`) return imported;
+  }
+  return undefined;
 }
 
 /** The entity a type reference names: a declaration in `/entities`, or `File`/`Media` from the core package. */
-function entityOf(name: string, found: { declaration?: ts.Declaration; module?: string }, context: ConvertContext): EntityModel | undefined {
+function entityOf(name: string, found: FoundDeclaration, context: ConvertContext): EntityModel | undefined {
   if (found.module === "@quickservice/core") {
     return context.models.find((model) => model.key === name && model.file);
   }
@@ -137,6 +169,8 @@ function referenceSchema(node: ts.TypeReferenceNode, context: ConvertContext): J
   const found = declarationOf(node.typeName, context.checker);
   const entity = entityOf(name, found, context);
   if (entity && !node.typeArguments) return { $ref: `#/components/schemas/${context.names.get(entity.key)}` };
+  const generated = node.typeArguments ? undefined : generatedSchemaOf(name, found, context);
+  if (generated) return { $ref: `#/components/schemas/${generated}` };
   const declaration = found.declaration;
   if (!declaration || node.typeArguments || context.visiting.has(declaration)) return unsupported(node);
   context.visiting.add(declaration);
@@ -212,6 +246,7 @@ export function describeEndpoints(
   const context: ConvertContext = {
     checker,
     entitiesDir: resolve(projectRoot, "entities"),
+    generatedTypes: resolve(projectRoot, ".generated", "types"),
     models,
     names: componentNames(models.filter((model) => !model.link)),
     visiting: new Set(),

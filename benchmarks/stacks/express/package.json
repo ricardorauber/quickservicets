@@ -1,0 +1,20 @@
+{
+  "name": "qsbench-express",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Benchmark stack: Node.js + Express 5 + node-postgres, two cluster workers",
+  "type": "module",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "NODE_ENV=production node src/server.js"
+  },
+  "dependencies": {
+    "busboy": "1.6.0",
+    "express": "5.2.1",
+    "pg": "8.23.1",
+    "uuid": "14.0.2"
+  }
+}

@@ -87,7 +87,10 @@ interface PlannedRecord {
 
 interface DeletePlan {
   deletions: PlannedRecord[];
-  /** Records that keep existing but lose the reference: set to null, or pulled from a reference array. */
+  /**
+   * Records that keep existing but lose the reference: set to null, pulled from a reference array, or unlinked from
+   * an N-N relation (no change besides `updatedAt`).
+   */
   updates: { model: EntityModel; record: StoredRecord; changes: Record<string, unknown> }[];
 }
 
@@ -108,6 +111,8 @@ export async function planDelete(
   const scheduled = new Set<string>();
 
   const restrictions: { name: string; key: string }[] = [];
+  /** Records on the other side of N-N relations whose links the delete removes. */
+  const unlinked: PlannedRecord[] = [];
   const collect = async (current: EntityModel, currentId: string): Promise<void> => {
     const key = recordKey(current, currentId);
     if (scheduled.has(key)) return;
@@ -130,6 +135,7 @@ export async function planDelete(
         for (const row of rows) {
           deletions.push({ model: link, id: row.id });
           const ownerId = row[otherSide] as string;
+          unlinked.push({ model: owner, id: ownerId });
           if (pointing.onDelete === "restrict") restrictions.push({ name: owner.name, key: recordKey(owner, ownerId) });
           if (pointing.onDelete === "cascade") await collect(owner, ownerId);
         }
@@ -171,6 +177,13 @@ export async function planDelete(
         updates.set(key, update);
       }
     }
+  }
+  // Records that lost an N-N link only get a new `updatedAt`.
+  for (const { model: owner, id: ownerId } of unlinked) {
+    const key = recordKey(owner, ownerId);
+    if (scheduled.has(key) || updates.has(key)) continue;
+    const record = await adapter.findById(owner, ownerId);
+    if (record) updates.set(key, { model: owner, record, changes: {} });
   }
   for (const { model: owner, changes } of updates.values()) {
     for (const field of owner.fields) {

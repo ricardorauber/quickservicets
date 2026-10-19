@@ -97,6 +97,8 @@ Derived sides look just like stored fields: they appear as ids in responses, tak
 
 Each side keeps its own [`@onDelete`](/reference/tags/#ondelete), applied when the record it points to is deleted. `Book.author` decides what happens to books when an author is deleted; `Author.books` decides what happens to an author when one of their books is deleted. The rules are the ones of [references](/guides/references/#delete-rules) and [reference arrays](/guides/reference-arrays/#delete-rules).
 
+Both kinds of reference arrays, those stored in a column and N-N sides stored in a join table, refresh `updatedAt` on every remaining record a deleted record is removed from.
+
 ## 1-N: one author, many books
 
 With the `Author` and `Book` entities above, create a book with its author:
@@ -439,6 +441,8 @@ Content-Type: application/json
   "courses": ["01a1…af72"]
 }
 ```
+
+Ana lost a link, so she also gets a newer `updatedAt`.
 
 ## 1-1: users and badges
 

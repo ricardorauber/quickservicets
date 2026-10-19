@@ -144,6 +144,47 @@ describe.each(factories)("%s", (_, factory) => {
     expect(await failure(restrict.organizations.delete(kept.id))).toEqual([409, "Cannot delete: referenced by users"]);
     await restrict.adapter.disconnect();
   });
+
+  test("an N-N delete removes the links and refreshes updatedAt on the other side", async () => {
+    const { adapter, users, organizations } = await setup(factory, "users?: User[]", "organizations?: Organization[]");
+    const [linked, other] = await Promise.all(["o1", "o2"].map((name) => organizations.create({ name })));
+    const user = await users.create({ name: "u1", organizations: [linked!.id] });
+    const peer = await users.create({ name: "u2", organizations: [linked!.id, other!.id] });
+    const before = (await organizations.findById(linked!.id))!;
+    const untouched = (await organizations.findById(other!.id))!;
+    await users.delete(user.id);
+    const after = (await organizations.findById(linked!.id))!;
+    expect(after.users).toEqual([peer.id]);
+    expect(after.updatedAt.getTime()).toBeGreaterThan(before.updatedAt.getTime());
+    expect((await organizations.findById(other!.id))!.updatedAt).toEqual(untouched.updatedAt);
+
+    const peerBefore = (await users.findById(peer.id))!;
+    await organizations.delete(other!.id);
+    const peerAfter = (await users.findById(peer.id))!;
+    expect(peerAfter.organizations).toEqual([linked!.id]);
+    expect(peerAfter.updatedAt.getTime()).toBeGreaterThan(peerBefore.updatedAt.getTime());
+    await adapter.disconnect();
+  });
+});
+
+test("only the records that lost an N-N link get a new updatedAt", async () => {
+  const { users, organizations } = await setup(() => memoryAdapter(), "users?: User[]", "organizations?: Organization[]");
+  const orgs = await Promise.all(["o1", "o2", "o3", "o4"].map((name) => organizations.create({ name })));
+  const [o1, o2, o3, o4] = orgs.map((org) => org.id);
+  const deleted = await users.create({ name: "u1", organizations: [o1, o2] });
+  const kept = await users.create({ name: "u2", organizations: [o2, o3] });
+  const stamps = async () =>
+    Object.fromEntries(
+      await Promise.all([o1!, o2!, o3!, o4!, kept.id].map(async (id) => [id, ((await organizations.findById(id)) ?? (await users.findById(id)))!.updatedAt.getTime()])),
+    );
+  const before = await stamps();
+  await users.delete(deleted.id);
+  const after = await stamps();
+  expect(after[o1!]).toBeGreaterThan(before[o1!]);
+  expect(after[o2!]).toBeGreaterThan(before[o2!]);
+  expect(after[o3!]).toBe(before[o3!]);
+  expect(after[o4!]).toBe(before[o4!]);
+  expect(after[kept.id]).toBe(before[kept.id]);
 });
 
 test("an N-N relation uses one junction table and no column on either entity (SQLite)", async () => {

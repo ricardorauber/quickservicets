@@ -1,14 +1,16 @@
-import { rmSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { relative } from "node:path";
 import { BuildError } from "../errors.ts";
-import { readAppliedMigrations, type AppliedMigration } from "./migrate.ts";
-import { listMigrations, snapshotFile } from "./snapshot.ts";
+import { readAppliedMigrations, readMigrationHistory, type MigrationHistory } from "./migrate.ts";
+import { listMigrations, snapshotFile, type MigrationFile } from "./snapshot.ts";
 
 export type MigrationStatus = "applied" | "pending" | "missing" | "unknown";
 
 export interface MigrationListEntry {
   id: string;
   status: MigrationStatus;
+  /** For migrations with statements marked with an explicit schema: how many default schemas applied it there. */
+  schemas?: { schema: string; tenants: number }[];
 }
 
 export interface MigrationList {
@@ -16,12 +18,25 @@ export interface MigrationList {
   warning?: string;
 }
 
+const SCHEMA_OPTION = /\{\s*schema:\s*(["'])([^"']+)\1\s*\}/g;
+
+/** The explicit schemas a migration file marks its statements with, in order of first use. */
+function markedSchemas(file: MigrationFile): string[] {
+  return [...new Set([...readFileSync(file.file, "utf8").matchAll(SCHEMA_OPTION)].map((match) => match[2]!))];
+}
+
+/** `billing: 2 tenants, auth: 1 tenant` */
+export function formatSchemaCounts(schemas: { schema: string; tenants: number }[]): string {
+  return schemas.map(({ schema, tenants }) => `${schema}: ${tenants} ${tenants === 1 ? "tenant" : "tenants"}`).join(", ");
+}
+
 /** `quickservice migration list` */
 export async function listMigrationStatus(projectRoot: string): Promise<MigrationList> {
   const files = listMigrations(projectRoot);
-  let applied: AppliedMigration[];
+  const marked = new Map(files.map((file) => [file.id, markedSchemas(file)]));
+  let history: MigrationHistory;
   try {
-    applied = await readAppliedMigrations(projectRoot);
+    history = await readMigrationHistory(projectRoot, [...new Set([...marked.values()].flat())]);
   } catch (error) {
     if (error instanceof BuildError) throw error;
     return {
@@ -29,8 +44,16 @@ export async function listMigrationStatus(projectRoot: string): Promise<Migratio
       warning: `Could not reach the database: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
+  const { applied } = history;
   const appliedIds = new Set(applied.map((migration) => migration.id));
-  const entries: MigrationListEntry[] = files.map((file) => ({ id: file.id, status: appliedIds.has(file.id) ? "applied" : "pending" }));
+  const entries: MigrationListEntry[] = files.map((file) => {
+    const entry: MigrationListEntry = { id: file.id, status: appliedIds.has(file.id) ? "applied" : "pending" };
+    const schemas = marked.get(file.id) ?? [];
+    if (schemas.length > 0) {
+      entry.schemas = schemas.map((schema) => ({ schema, tenants: history.schemas.get(schema)?.get(file.id)?.length ?? 0 }));
+    }
+    return entry;
+  });
   for (const migration of applied) {
     if (!files.some((file) => file.id === migration.id)) entries.push({ id: migration.id, status: "missing" });
   }

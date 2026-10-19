@@ -50,6 +50,8 @@ interface MigrationDriver {
   ensureHistory(): Promise<void>;
   /** Applied migrations, or an empty list when the history does not exist yet. */
   readHistory(): Promise<AppliedMigration[]>;
+  /** The default schemas recorded per migration id in an explicit schema's history; empty when it does not exist. */
+  readSchemaHistory(schema: string): Promise<Map<string, string[]>>;
   /** Runs one migration step and records it in the history. */
   runStep(migration: MigrationFile, direction: Direction, module: MigrationModule, repos: Repositories): Promise<void>;
   warnings: string[];
@@ -121,8 +123,25 @@ function schemaHistories(runner: SqlRunner) {
         value,
       ]);
     },
+    async remove(schema: string, id: string) {
+      await runner.exec(`delete from ${table(schema)} where id = ?`, [id]);
+    },
+    /** Drops the history table when no migration is recorded there any more, so the schema itself can be dropped. */
+    async dropIfEmpty(schema: string) {
+      const [row] = await runner.rows<{ count: number }>(`select count(*) as count from ${table(schema)}`);
+      if (Number(row?.count ?? 0) === 0) await runner.exec(`drop table ${table(schema)}`);
+    },
   };
 }
+
+interface SchemaRecordRow {
+  id: string;
+  default_schemas: string;
+}
+
+const recordsOf = (rows: SchemaRecordRow[]) => new Map(rows.map((row) => [row.id, JSON.parse(row.default_schemas) as string[]]));
+
+const DROP_SCHEMA = /^\s*DROP\s+SCHEMA\s+(?:IF\s+EXISTS\s+)?"([^"]+)"/i;
 
 interface SqlStep {
   runner: SqlRunner;
@@ -135,38 +154,54 @@ interface SqlStep {
 }
 
 /**
- * Runs one migration step: statements in their written order, the ones marked with an explicit schema only when
- * that schema has not applied the migration yet, then the history records. The caller wraps it in a transaction.
+ * Runs one migration step: statements in their written order, then the history records. A statement marked with an
+ * explicit schema changes tables every default schema shares, so applying runs it only when that schema has not
+ * applied the migration yet, and reverting runs it only for the last default schema that applied it there. The
+ * caller wraps the step in a transaction.
  */
 async function runSqlStep(step: SqlStep, migration: MigrationFile, direction: Direction, module: MigrationModule): Promise<void> {
   const { runner } = step;
   const histories = schemaHistories(runner);
-  const marked = new Map<string, { defaultSchemas: string[] | undefined; runs: boolean }>();
+  /** Per marked schema: the default schemas recorded there before this step, and what is left after it. */
+  const marked = new Map<string, { recorded: string[] | undefined; after: string[]; runs: boolean; removed: boolean }>();
   const sql = (async (query: TemplateStringsArray | string, ...values: unknown[]) => {
     const { values: params, schema } = splitSqlOptions(query, values);
     if (schema !== undefined) {
       let state = marked.get(schema);
       if (!state) {
         await histories.ensure(schema);
-        const defaultSchemas = await histories.read(schema, migration.id);
-        state = { defaultSchemas, runs: direction === "down" || defaultSchemas === undefined };
+        const recorded = await histories.read(schema, migration.id);
+        if (direction === "up") {
+          const after = recorded?.includes(step.defaultSchema) ? recorded : [...(recorded ?? []), step.defaultSchema];
+          state = { recorded, after, runs: recorded === undefined, removed: false };
+        } else {
+          const after = (recorded ?? []).filter((name) => name !== step.defaultSchema);
+          state = { recorded, after, runs: after.length === 0, removed: false };
+        }
         marked.set(schema, state);
       }
       if (!state.runs) return undefined;
+      const dropped = typeof query === "string" ? DROP_SCHEMA.exec(query)?.[1] : undefined;
+      if (direction === "down" && dropped === schemaIdentifier(schema) && !state.removed) {
+        // The history table lives in the schema: it has to go first for the schema to be dropped.
+        await histories.remove(schema, migration.id);
+        await histories.dropIfEmpty(schema);
+        state.removed = true;
+      }
     }
     const { text, values: bound } = toQuery(query, params, runner.placeholder);
     return runner.statement(text, bound);
   }) as MigrationContext["sql"];
   await module[direction]({ sql, db: step.db, repos: step.repos } satisfies MigrationContext);
-  if (direction === "down") {
-    await runner.exec(`delete from ${step.history} where id = ?`, [migration.id]);
-    return;
+  if (direction === "down") await runner.exec(`delete from ${step.history} where id = ?`, [migration.id]);
+  else {
+    const now = runner.dialect === "sqlite" ? Date.now() : new Date();
+    await runner.exec(`insert into ${step.history} (id, name, applied_at) values (?, ?, ?)`, [migration.id, migration.name, now]);
   }
-  const now = runner.dialect === "sqlite" ? Date.now() : new Date();
-  await runner.exec(`insert into ${step.history} (id, name, applied_at) values (?, ?, ?)`, [migration.id, migration.name, now]);
-  for (const [schema, { defaultSchemas }] of marked) {
-    const merged = defaultSchemas?.includes(step.defaultSchema) ? defaultSchemas : [...(defaultSchemas ?? []), step.defaultSchema];
-    await histories.write(schema, migration, merged, defaultSchemas !== undefined);
+  for (const [schema, { recorded, after, removed }] of marked) {
+    if (removed) continue;
+    if (after.length > 0) await histories.write(schema, migration, after, recorded !== undefined);
+    else if (recorded !== undefined) await histories.remove(schema, migration.id);
   }
 }
 
@@ -197,6 +232,11 @@ function sqliteDriver(client: Database, defaultSchema: string | null): Migration
       const exists = client.query("select name from sqlite_master where type = 'table' and name = ?").get(HISTORY_TABLE);
       return exists ? (client.query(`select id, name from ${HISTORY_TABLE} order by id`).all() as AppliedMigration[]) : [];
     },
+    async readSchemaHistory(schema) {
+      const table = schemaHistoryTable("sqlite", schema);
+      if (!client.query("select name from sqlite_master where type = 'table' and name = ?").get(table)) return new Map();
+      return recordsOf(client.query(`select id, default_schemas from ${table}`).all() as SchemaRecordRow[]);
+    },
     async runStep(migration, direction, module, repos) {
       client.run("begin");
       try {
@@ -223,6 +263,12 @@ function postgresDriver(client: SQL, defaultSchema: string | null): MigrationDri
     async readHistory() {
       const [row] = (await client.unsafe("select to_regclass($1) as found", [HISTORY_TABLE])) as { found: string | null }[];
       return row?.found ? ((await client.unsafe(`select id, name from ${HISTORY_TABLE} order by id`)) as AppliedMigration[]) : [];
+    },
+    async readSchemaHistory(schema) {
+      const table = schemaHistoryTable("postgres", schema);
+      const [row] = (await client.unsafe("select to_regclass($1) as found", [table])) as { found: string | null }[];
+      if (!row?.found) return new Map();
+      return recordsOf((await client.unsafe(`select id, default_schemas from ${table}`)) as SchemaRecordRow[]);
     },
     async runStep(migration, direction, module, repos) {
       await client.begin(async (tx) => {
@@ -253,6 +299,9 @@ function mongoDriver(adapter: MongodbAdapter): MigrationDriver {
     async readHistory() {
       const rows = await history().find().sort({ _id: 1 }).toArray();
       return rows.map((row) => ({ id: row._id, name: row.name }));
+    },
+    async readSchemaHistory() {
+      return new Map();
     },
     async runStep(migration, direction, module, repos) {
       if (driver.warnings.length === 0) driver.warnings.push(MONGO_NO_TRANSACTION_WARNING);
@@ -317,6 +366,21 @@ async function withDriver<T>(projectRoot: string, work: (driver: MigrationDriver
 /** Reads the applied migrations of the configured database without changing it. */
 export function readAppliedMigrations(projectRoot: string): Promise<AppliedMigration[]> {
   return withDriver(projectRoot, (driver) => driver.readHistory());
+}
+
+export interface MigrationHistory {
+  applied: AppliedMigration[];
+  /** Per explicit schema, the default schemas that applied each migration there. */
+  schemas: Map<string, Map<string, string[]>>;
+}
+
+/** Reads the default schema's history and the histories of the given explicit schemas without changing them. */
+export function readMigrationHistory(projectRoot: string, schemas: string[]): Promise<MigrationHistory> {
+  return withDriver(projectRoot, async (driver) => {
+    const records = new Map<string, Map<string, string[]>>();
+    for (const schema of schemas) records.set(schema, await driver.readSchemaHistory(schema));
+    return { applied: await driver.readHistory(), schemas: records };
+  });
 }
 
 /** `quickservice migrate [target] [--force]` */

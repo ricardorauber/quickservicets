@@ -46,10 +46,12 @@ export async function run(args: string[], output: Output = consoleOutput, cwd = 
       return 0;
     }
     if (command === "migration" && args[1] === "list") {
-      const { listMigrationStatus } = await import("./migrations/list-remove.ts");
+      const { formatSchemaCounts, listMigrationStatus } = await import("./migrations/list-remove.ts");
       const list = await listMigrationStatus(cwd);
       if (list.warning) output.error(`Warning: ${list.warning}`);
-      for (const entry of list.entries) output.log(`${entry.id}  ${entry.status}`);
+      for (const entry of list.entries) {
+        output.log(`${entry.id}  ${entry.status}${entry.schemas ? `  ${formatSchemaCounts(entry.schemas)}` : ""}`);
+      }
       if (list.entries.length === 0) output.log("No migrations");
       return 0;
     }

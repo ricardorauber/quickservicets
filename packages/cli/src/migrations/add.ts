@@ -28,6 +28,8 @@ export interface MigrationPlan {
   down: string[];
   /** The explicit schema each `up` statement changes, or undefined for default-schema tables. */
   upSchemas: (string | undefined)[];
+  /** The explicit schema each `down` statement changes. */
+  downSchemas: (string | undefined)[];
   previousModels: EntityModel[];
 }
 
@@ -52,6 +54,10 @@ export async function planMigration(projectRoot: string, models: EntityModel[], 
     ...renames.map((rename) => renameStatement(dialect, rename.from, rename.to)),
     ...(await diffSnapshots(dialect, renameTables(before, renames, dialect, after), after)),
   ];
+  const down = [
+    ...renames.map((rename) => renameStatement(dialect, rename.to, rename.from)),
+    ...(await diffSnapshots(dialect, renameTables(after, renames.map(({ from, to }) => ({ from: to, to: from })), dialect, before), before)),
+  ];
   const schemaOf = statementSchemaResolver(dialect, [previousModels, models], [before, after]);
   return {
     dialect,
@@ -59,10 +65,8 @@ export async function planMigration(projectRoot: string, models: EntityModel[], 
     drizzle: after,
     up,
     upSchemas: up.map(schemaOf),
-    down: [
-      ...renames.map((rename) => renameStatement(dialect, rename.to, rename.from)),
-      ...(await diffSnapshots(dialect, renameTables(after, renames.map(({ from, to }) => ({ from: to, to: from })), dialect, before), before)),
-    ],
+    down,
+    downSchemas: down.map(schemaOf),
     previousModels,
   };
 }
@@ -164,7 +168,11 @@ const codeBody = (lines: string[]) => lines.map((line) => `  ${line}`).join("\n"
 type AnyPlan = MigrationPlan | MongoMigrationPlan;
 
 export function migrationSource(
-  plan: Pick<AnyPlan, "up" | "down"> & { dialect?: AnyPlan["dialect"]; upSchemas?: (string | undefined)[] },
+  plan: Pick<AnyPlan, "up" | "down"> & {
+    dialect?: AnyPlan["dialect"];
+    upSchemas?: (string | undefined)[];
+    downSchemas?: (string | undefined)[];
+  },
 ): string {
   const mongo = plan.dialect === "mongodb";
   const contextType = mongo ? "MongoMigrationContext" : "MigrationContext";
@@ -178,7 +186,7 @@ ${body(plan.up, plan.upSchemas)}
 }
 
 export async function down(ctx: ${contextType}): Promise<void> {
-${body(plan.down)}
+${body(plan.down, plan.downSchemas)}
 }
 `;
 }

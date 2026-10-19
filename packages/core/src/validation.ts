@@ -148,6 +148,7 @@ function validateValue(field: ValueSpec, raw: unknown, path: string, errors: Col
     }
     case "number": {
       if (typeof raw !== "number" || !Number.isFinite(raw)) return errors.add(path, "Must be a number");
+      if (field.integer && !Number.isInteger(raw)) return errors.add(path, "Must be an integer");
       if (field.min !== undefined && raw < field.min) return errors.add(path, `Must be at least ${field.min}`);
       if (field.max !== undefined && raw > field.max) return errors.add(path, `Must be at most ${field.max}`);
       return raw;

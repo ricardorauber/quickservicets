@@ -66,30 +66,15 @@ declare module "@quickservice/core" {
 
 ## The endpoint
 
-Number query items accept any number, so `offset=1.5` passes the tags. A small helper turns fractions into the same 400 as the other checks, instead of letting `page()` fail with a 500:
-
-```ts check title="lib/paging.ts"
-import { HttpError } from "@quickservice/core";
-
-/** Fails with 400 `Invalid query` when a paging item is not a whole number. */
-export function assertWhole(items: Record<string, number>): void {
-  const details = Object.entries(items)
-    .filter(([, value]) => !Number.isInteger(value))
-    .map(([field]) => ({ field, message: "Must be an integer" }));
-  if (details.length > 0) throw new HttpError(400, "Invalid query", { details });
-}
-```
-
 `GET /authors/:authorId/articles` lists an author's published articles, newest first, with an optional title search:
 
 ```ts check title="endpoints/authors/[authorId]/articles/get.ts"
 import type { Endpoint } from "@quickservice/core";
-import { assertWhole } from "../../../../lib/paging.ts";
 
 type Query = {
-  /** @default 10 @min 1 @max 50 */
+  /** @integer @default 10 @min 1 @max 50 */
   limit?: number;
-  /** @default 0 @min 0 */
+  /** @integer @default 0 @min 0 */
   offset?: number;
   /** @minLength 2 */
   search?: string;
@@ -104,7 +89,6 @@ type Page = { data: Item[]; total: number; limit: number; offset: number };
  */
 const handler: Endpoint<Query, Page> = async (repos, req) => {
   const { limit = 10, offset = 0, search } = req.queryItems;
-  assertWhole({ limit, offset });
   const authorId = req.params.authorId!;
   // 404 "Author not found" when the id is unknown.
   await repos.authors.where((a) => a.id.eq(authorId)).first();
@@ -121,7 +105,7 @@ const handler: Endpoint<Query, Page> = async (repos, req) => {
 export default handler;
 ```
 
-- The tags on `limit` and `offset` do the checking: a missing item gets its `@default`, and a value out of bounds is a 400 before the handler runs. The `= 10` and `= 0` only satisfy TypeScript, which sees the items as optional. `page()` itself accepts a `limit` from 1 to 100.
+- The tags on `limit` and `offset` do the checking: a missing item gets its `@default`, and a fraction (`@integer`) or a value out of bounds is a 400 before the handler runs. The `= 10` and `= 0` only satisfy TypeScript, which sees the items as optional. `page()` itself accepts a `limit` from 1 to 100.
 - `total` counts every match, not only the page; it ignores `limit` and `offset`.
 - Results are always in a stable order: after your sort fields, the query adds `id` as a tie-breaker, so a record never shows up on two pages.
 - `select` keeps the response small; `id` always comes along.
@@ -190,7 +174,7 @@ HTTP/1.1 400 Bad Request
 {"error":{"code":"VALIDATION_ERROR","message":"Invalid query","details":[{"field":"limit","message":"Must be at most 50"},{"field":"offset","message":"Must be at least 0"},{"field":"search","message":"Must be at least 2 characters"}]}}
 ```
 
-Fractions are caught by `assertWhole`:
+Fractions are caught by `@integer`:
 
 ```bash
 curl -i "localhost:3000/authors/01a146dd-4300-7506-a94f-802fd580f626/articles?limit=2.5&offset=1.5"
@@ -235,7 +219,7 @@ curl -s localhost:3000/openapi.json | jq '.paths["/authors/{authorId}/articles"]
     "in": "query",
     "required": false,
     "schema": {
-      "type": "number",
+      "type": "integer",
       "minimum": 1,
       "maximum": 50,
       "default": 10
@@ -246,7 +230,7 @@ curl -s localhost:3000/openapi.json | jq '.paths["/authors/{authorId}/articles"]
     "in": "query",
     "required": false,
     "schema": {
-      "type": "number",
+      "type": "integer",
       "minimum": 0,
       "default": 0
     }
@@ -283,12 +267,11 @@ Use the generated route when clients may filter freely; write an endpoint when t
 
 ```ts check title="endpoints/authors/[authorId]/articles-by-page/get.ts"
 import type { Endpoint } from "@quickservice/core";
-import { assertWhole } from "../../../../lib/paging.ts";
 
 type Query = {
-  /** @default 1 @min 1 */
+  /** @integer @default 1 @min 1 */
   page?: number;
-  /** @default 10 @min 1 @max 50 */
+  /** @integer @default 10 @min 1 @max 50 */
   pageSize?: number;
 };
 
@@ -297,7 +280,6 @@ type Result = { data: { id: string; title: string }[]; page: number; pages: numb
 /** @summary An author's published articles, by page number */
 const handler: Endpoint<Query, Result> = async (repos, req) => {
   const { page = 1, pageSize = 10 } = req.queryItems;
-  assertWhole({ page, pageSize });
   const result = await repos.articles
     .where((a) => a.author.eq(req.params.authorId!).and(a.published.eq(true)))
     .orderByDescending((a) => a.publishedAt)
@@ -327,7 +309,7 @@ curl "localhost:3000/authors/01a146dd-4300-7506-a94f-802fd580f626/articles-by-pa
 
 - [Repositories and queries](/reference/api/): `query`, `where`, `orderBy`, `select`, `skip`, `take`, `page`, `count`.
 - [HTTP query parameters](/reference/http/): paging, sorting and filters on generated routes.
-- [JSDoc tags](/reference/tags/): `@default`, `@min`, `@max`, `@minLength`, `@index`.
+- [JSDoc tags](/reference/tags/): `@integer`, `@default`, `@min`, `@max`, `@minLength`, `@index`.
 - [Errors](/reference/errors/): `Invalid query`.
 
 Next: [Multi-tenant schemas](/recipes/multi-tenant/).

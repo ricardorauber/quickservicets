@@ -99,7 +99,7 @@ function matchesType(value: unknown, type: QueryValueType): boolean {
   }
 }
 
-/** Applies `@default`, `@min`, `@max`, `@minLength` and `@maxLength`; any other tag fails the build. */
+/** Applies `@default`, `@integer`, `@min`, `@max`, `@minLength` and `@maxLength`; any other tag fails the build. */
 function withTags(item: QueryItem, tags: DocTag[], file: string): QueryItem {
   const valueTypeOf = item.type === "array" ? item.items : (item as QueryValueType);
   const result: QueryItem = { ...item };
@@ -119,6 +119,12 @@ function withTags(item: QueryItem, tags: DocTag[], file: string): QueryItem {
         result.default = value;
         break;
       }
+      case "integer": {
+        if (tag.text !== "") throw fail("takes no value");
+        if (valueTypeOf.type !== "number") throw fail("only applies to number items");
+        result.limits = { ...result.limits, integer: true };
+        break;
+      }
       case "min":
       case "max": {
         if (valueTypeOf.type !== "number") throw fail("only applies to number items");
@@ -136,6 +142,12 @@ function withTags(item: QueryItem, tags: DocTag[], file: string): QueryItem {
       }
       default:
         throw fail("is not supported on query items");
+    }
+  }
+  if (result.limits?.integer && result.default !== undefined) {
+    const fraction = (Array.isArray(result.default) ? result.default : [result.default]).find((value) => !Number.isInteger(value));
+    if (fraction !== undefined) {
+      throw new BuildError(`${file}: query item "${item.name}" has invalid @integer: ${fraction} is not an integer`);
     }
   }
   return result;

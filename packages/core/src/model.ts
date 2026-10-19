@@ -40,6 +40,8 @@ export interface FieldConstraints {
   maxLength?: number;
   min?: number;
   max?: number;
+  /** Only whole numbers are accepted (number fields). */
+  integer?: boolean;
   format?: StringFormat;
 }
 

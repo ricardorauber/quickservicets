@@ -5,8 +5,9 @@ import type { Endpoint } from "./server.ts";
 /** `enumName` is the enum or alias an enum item uses, when it has one. */
 export type QueryValueType = { type: "string" | "number" | "boolean" | "date" } | { type: "enum"; values: string[]; enumName?: string };
 
-/** `@min`/`@max` (numbers) and `@minLength`/`@maxLength` (strings), checked on each value. */
+/** `@integer`/`@min`/`@max` (numbers) and `@minLength`/`@maxLength` (strings), checked on each value. */
 export interface QueryItemLimits {
+  integer?: boolean;
   min?: number;
   max?: number;
   minLength?: number;
@@ -25,6 +26,7 @@ export type QueryItem = { name: string; optional: boolean; default?: unknown; li
 function limitError(value: unknown, limits: QueryItemLimits | undefined): string | undefined {
   if (!limits) return undefined;
   if (typeof value === "number") {
+    if (limits.integer && !Number.isInteger(value)) return "Must be an integer";
     if (limits.min !== undefined && value < limits.min) return `Must be at least ${limits.min}`;
     if (limits.max !== undefined && value > limits.max) return `Must be at most ${limits.max}`;
   }

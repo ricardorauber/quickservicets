@@ -44,6 +44,9 @@ export function applyFieldTags(field: FieldUnderConstruction, tags: DocTag[], co
   }
   assertRange(field, "minLength", "maxLength", context);
   assertRange(field, "min", "max", context);
+  if (field.integer && typeof field.default === "number" && !Number.isInteger(field.default)) {
+    throw fieldTagError(context, { name: "integer", text: "" }, `${field.default} is not an integer`);
+  }
 }
 
 function assertRange(
@@ -161,6 +164,11 @@ registerFieldTag("minItems", lengthTag("minLength", true));
 registerFieldTag("maxItems", lengthTag("maxLength", true));
 registerFieldTag("min", boundTag("min"));
 registerFieldTag("max", boundTag("max"));
+registerFieldTag("integer", (field, tag, context) => {
+  requireNoValue(field, tag, context);
+  if (field.type !== "number") throw fieldTagError(context, tag, "only applies to number fields");
+  field.integer = true;
+});
 registerFieldTag("format", (field, tag, context) => {
   if (field.type !== "string") throw fieldTagError(context, tag, "only applies to string fields");
   if (tag.text !== "email" && tag.text !== "url") throw fieldTagError(context, tag, "expects email or url");
@@ -281,6 +289,11 @@ describeFieldTag("max", {
   description: "Largest accepted number (`Must be at most <n>`).",
   appliesTo: "Numbers",
   example: "/** @max 150 */ age: number",
+});
+describeFieldTag("integer", {
+  description: "Accepts only whole numbers (`Must be an integer`); the API docs show `type: integer`. Also applies to number query items of custom endpoints.",
+  appliesTo: "Numbers (entity fields and query items, arrays of numbers included on query items)",
+  example: "/** @integer @min 0 */ stock: number",
 });
 describeFieldTag("format", {
   description: "Checks that a string is an `email` or a `url`.",

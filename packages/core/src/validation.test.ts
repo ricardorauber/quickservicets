@@ -166,3 +166,32 @@ test("all errors are collected in a single result", () => {
     { field: "extra", message: "Unknown field" },
   ]);
 });
+
+describe("integer numbers", () => {
+  const product = entity("Product", [
+    field({ name: "stock", type: "number", integer: true, optional: true }),
+    field({
+      name: "dimensions",
+      type: "object",
+      optional: true,
+      fields: [{ name: "units", type: "number", optional: true, integer: true }],
+    }),
+  ]);
+  const errorsOf = (body: unknown) => details(validateBody(product, body, "patch"));
+
+  test("whole numbers pass on top-level and nested fields", () => {
+    expect(validateBody(product, { stock: 3, dimensions: { units: -2 } }, "patch")).toEqual({
+      ok: true,
+      value: { stock: 3, dimensions: { units: -2 } },
+    });
+  });
+
+  test("fractions fail at the field", () => {
+    expect(errorsOf({ stock: 1.5 })).toEqual([{ field: "stock", message: "Must be an integer" }]);
+    expect(errorsOf({ dimensions: { units: 0.25 } })).toEqual([{ field: "dimensions.units", message: "Must be an integer" }]);
+  });
+
+  test("non-numbers keep the number error", () => {
+    expect(errorsOf({ stock: "1" })).toEqual([{ field: "stock", message: "Must be a number" }]);
+  });
+});

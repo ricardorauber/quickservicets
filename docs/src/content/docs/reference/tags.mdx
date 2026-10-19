@@ -215,6 +215,16 @@ Largest accepted number (`Must be at most <n>`).
 /** @max 150 */ age: number
 ```
 
+### `@integer`
+
+Accepts only whole numbers (`Must be an integer`); the API docs show `type: integer`. Also applies to number query items of custom endpoints.
+
+**Applies to:** Numbers (entity fields and query items, arrays of numbers included on query items)
+
+```ts
+/** @integer @min 0 */ stock: number
+```
+
 ### `@format`
 
 Checks that a string is an `email` or a `url`.

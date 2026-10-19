@@ -120,6 +120,23 @@ describe("schemas", () => {
   });
 });
 
+describe("integer fields", () => {
+  test("use type integer in the entity and write schemas, nested ones included", async () => {
+    const doc = documentFor({
+      "entities/Product.ts": "export type Product = { /** @integer @min 0 */ stock: number; /** @integer */ reserved?: number; price: number; size?: { /** @integer */ units: number } }",
+    });
+    for (const name of ["Product", "ProductCreate", "ProductUpdate"]) {
+      const schema = schemaOf(doc, name);
+      expect(schema.properties.stock).toEqual({ type: "integer", minimum: 0 });
+      expect(schema.properties.reserved).toEqual({ type: ["integer", "null"] });
+      expect(schema.properties.price).toEqual({ type: "number" });
+    }
+    const size = schemaOf(doc, "ProductCreate").properties.size as JsonSchema & { properties: Record<string, JsonSchema> };
+    expect(size.properties.units).toEqual({ type: "integer" });
+    expect((await validate(structuredClone(doc))).errors).toEqual([]);
+  });
+});
+
 describe("paths", () => {
   test("cover every CRUD operation with ids, bodies and responses", () => {
     const doc = documentFor(entities);

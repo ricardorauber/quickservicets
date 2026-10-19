@@ -64,6 +64,22 @@ describe("defaults and limits", () => {
   });
 });
 
+describe("integer items", () => {
+  test("fractions fail on single and array items; whole numbers pass", async () => {
+    const { send } = await project({
+      "endpoints/report/get.ts": endpoint("{ /** @integer @default 0 @min 0 */ offset?: number; /** @integer */ ids?: number[] }"),
+    });
+    const fraction = await send("/report?offset=1.5");
+    expect(fraction.status).toBe(400);
+    expect(fraction.body.error).toMatchObject({ message: "Invalid query", details: [{ field: "offset", message: "Must be an integer" }] });
+    expect((await send("/report?offset=2")).body).toEqual({ offset: 2 });
+    expect((await send("/report")).body).toEqual({ offset: 0 });
+    expect((await send("/report?offset=-1")).body.error.details).toEqual([{ field: "offset", message: "Must be at least 0" }]);
+    expect((await send("/report?ids=1&ids=2.5")).body.error.details).toEqual([{ field: "ids[1]", message: "Must be an integer" }]);
+    expect((await send("/report?ids=1&ids=2")).body).toEqual({ offset: 0, ids: [1, 2] });
+  });
+});
+
 describe("tag errors", () => {
   const fails = (query: string) =>
     expect(build(createLinkedProject({ "quickservice.config.ts": MEMORY_CONFIG, "endpoints/x/get.ts": endpoint(query) }))).rejects;
@@ -73,6 +89,14 @@ describe("tag errors", () => {
     await fails("{ /** @maxLength 2 */ n?: number }").toThrow('query item "n" has invalid @maxLength: only applies to string items');
     await fails("{ /** @default 'x' */ n?: number }").toThrow('query item "n" has invalid @default: \'x\' does not match the item type');
     await fails("{ /** @unique */ q?: string }").toThrow('query item "q" has invalid @unique: is not supported on query items');
+  });
+
+  test("@integer on non-numbers, with a value, or with a fractional default fails the build", async () => {
+    await fails("{ /** @integer */ q?: string }").toThrow('endpoints/x/get.ts: query item "q" has invalid @integer: only applies to number items');
+    await fails("{ /** @integer */ q?: string[] }").toThrow('query item "q" has invalid @integer: only applies to number items');
+    await fails("{ /** @integer 2 */ n?: number }").toThrow('query item "n" has invalid @integer: takes no value');
+    await fails("{ /** @integer @default 1.5 */ n?: number }").toThrow('query item "n" has invalid @integer: 1.5 is not an integer');
+    await fails("{ /** @default [1, 2.5] @integer */ n?: number[] }").toThrow('query item "n" has invalid @integer: 2.5 is not an integer');
   });
 });
 
@@ -103,6 +127,19 @@ describe("OpenAPI parameters", () => {
     expect(document.components.schemas.Status).toEqual({ type: "string", enum: ["draft", "live"] });
     expect(parameters.orgId.required).toBe(true);
     expect(parameters.since.schema).toEqual({ type: "string", format: "date-time" });
+    expect((await validate(structuredClone(document))).errors).toEqual([]);
+  });
+});
+
+describe("integer parameters", () => {
+  test("use type integer, on single and array items, and the document validates", async () => {
+    const { document } = await project({
+      "endpoints/report/get.ts": endpoint("{ /** @integer @default 0 @min 0 */ offset?: number; /** @integer */ ids?: number[]; ratio?: number }"),
+    });
+    const parameters = parametersOf(document, "/report");
+    expect(parameters.offset.schema).toEqual({ type: "integer", minimum: 0, default: 0 });
+    expect(parameters.ids.schema).toEqual({ type: "array", items: { type: "integer" } });
+    expect(parameters.ratio.schema).toEqual({ type: "number" });
     expect((await validate(structuredClone(document))).errors).toEqual([]);
   });
 });

@@ -182,6 +182,7 @@ function descriptorSchema(descriptor: TypeDescriptor, visible: (field: NestedFie
 
 function fieldSchema(field: NestedFieldModel, visible: (field: NestedFieldModel) => boolean, mode: WriteMode | "response"): JsonSchema {
   const schema = descriptorSchema(field, visible, mode);
+  if (field.type === "number" && field.integer) schema.type = "integer";
   const isArray = field.type === "array" || field.type === "refArray";
   if (field.minLength !== undefined) schema[isArray ? "minItems" : "minLength"] = field.minLength;
   if (field.maxLength !== undefined) schema[isArray ? "maxItems" : "maxLength"] = field.maxLength;
@@ -637,7 +638,8 @@ function queryValueSchema(type: QueryValueType, schemas: Record<string, JsonSche
 /** Query parameters of typed query items, with their tags. */
 function queryParameters(items: QueryItem[], schemas: Record<string, JsonSchema>): unknown[] {
   return items.map((item) => {
-    const valueSchema = queryValueSchema(item.type === "array" ? item.items : (item as QueryValueType), schemas);
+    const valueType = item.type === "array" ? item.items : (item as QueryValueType);
+    const valueSchema = valueType.type === "number" && item.limits?.integer ? { type: "integer" } : queryValueSchema(valueType, schemas);
     const limits = {
       ...(item.limits?.min !== undefined ? { minimum: item.limits.min } : {}),
       ...(item.limits?.max !== undefined ? { maximum: item.limits.max } : {}),

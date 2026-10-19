@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createProject } from "../testing/project.ts";
+import { documentedFieldTags } from "./field-tags.ts";
 import { parseEntities } from "./parse-entities.ts";
 
 const fieldOf = (declaration: string) =>
@@ -104,5 +105,29 @@ describe("@minItems and @maxItems", () => {
   });
   test("are rejected on strings", () => {
     expect(failure("/** @maxItems 3 */ name: string")).toContain("@maxItems");
+  });
+});
+
+describe("@integer", () => {
+  test("marks number fields, nested ones included", () => {
+    expect(fieldOf("/** @integer @min 0 */ stock: number")).toMatchObject({ integer: true, min: 0 });
+    expect(fieldOf("size: { /** @integer */ units: number }")).toMatchObject({ fields: [{ name: "units", integer: true }] });
+    expect(fieldOf("/** @integer @default 2 */ stock: number")).toMatchObject({ integer: true, default: 2 });
+  });
+
+  test("fails the build on other types, with a value, or with a fractional default", () => {
+    expect(failure("/** @integer */ name: string")).toBe('entities/Item.ts: field "name" has invalid @integer: only applies to number fields');
+    expect(failure("/** @integer */ counts: number[]")).toBe('entities/Item.ts: field "counts" has invalid @integer: only applies to number fields');
+    expect(failure("size: { /** @integer */ label: string }")).toBe('entities/Item.ts: field "size.label" has invalid @integer: only applies to number fields');
+    expect(failure("/** @integer yes */ stock: number")).toBe('entities/Item.ts: field "stock" has invalid @integer: takes no value');
+    expect(failure("/** @integer @default 1.5 */ stock: number")).toBe('entities/Item.ts: field "stock" has invalid @integer: 1.5 is not an integer');
+    expect(failure("/** @default 1.5 @integer */ stock: number")).toBe('entities/Item.ts: field "stock" has invalid @integer: 1.5 is not an integer');
+  });
+
+  test("is documented for the reference", () => {
+    const doc = documentedFieldTags().find((tag) => tag.name === "integer");
+    expect(doc?.description).toContain("Must be an integer");
+    expect(doc?.appliesTo).toContain("Numbers");
+    expect(doc?.example).toContain("@integer");
   });
 });

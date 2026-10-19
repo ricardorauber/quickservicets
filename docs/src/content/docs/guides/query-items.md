@@ -248,7 +248,7 @@ curl -s localhost:3000/openapi.json | jq '.paths["/users/search"].get.parameters
 ]
 ```
 
-When an override of a generated list or read route (for example `endpoints/users/get.ts`) declares a query type, the docs list its items instead of the generated `limit`, `offset`, `sort`, `where`, `fields`, `exclude` and `populate` parameters. Without a query type, the override keeps the generated parameters.
+When an override of a generated list or read route (for example `endpoints/users/get.ts`) declares a query type, the docs list its items instead of the generated `limit`, `offset`, `sort`, `where`, `fields`, `exclude` and `populate` parameters. Without a query type, the override documents only its path parameters, since the generated query parameters do not apply to a custom handler.
 
 ## Related reference
 

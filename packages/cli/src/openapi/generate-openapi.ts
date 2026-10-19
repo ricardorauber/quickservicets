@@ -674,12 +674,10 @@ function customOperation(doc: EndpointDoc, schemas: Record<string, JsonSchema>):
 /** The generated operation's schemas, parameters and responses, with the endpoint's path, types and texts taking precedence. */
 function overriddenOperation(doc: EndpointDoc, generated: Record<string, unknown>, schemas: Record<string, JsonSchema>): Record<string, unknown> {
   const operation: Record<string, any> = { ...structuredClone(generated), ...endpointIdentity(doc) };
-  // A typed query replaces the generated query parameters; otherwise they are inherited.
-  const inherited = doc.query
-    ? queryParameters(doc.query, schemas)
-    : ((operation.parameters ?? []) as { in: string }[]).filter((parameter) => parameter.in !== "path");
-  const parameters = [...pathParameters(doc.params), ...inherited];
+  // The generated query parameters are never inherited: the override documents its path and typed query items only.
+  const parameters = [...pathParameters(doc.params), ...queryParameters(doc.query ?? [], schemas)];
   if (parameters.length > 0) operation.parameters = parameters;
+  else delete operation.parameters;
   if (doc.body && operation.requestBody) operation.requestBody = { required: true, content: json(doc.body) };
   if (doc.result) {
     const responses = operation.responses as Record<string, Record<string, unknown>>;

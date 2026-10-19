@@ -108,15 +108,22 @@ describe("OpenAPI parameters", () => {
 });
 
 describe("overrides", () => {
-  test("a query type replaces the generated parameters; without one they are inherited", async () => {
+  test("a query type replaces the generated parameters; without one only the path parameters are documented", async () => {
     const { document } = await project({
       "entities/User.ts": "export type User = { email: string }",
       "entities/Team.ts": "export type Team = { name: string }",
       "endpoints/users/get.ts": endpoint("{ q: string }"),
+      "endpoints/users/[id]/get.ts": "export default () => ({});",
       "endpoints/teams/get.ts": "export default () => ({ data: [], total: 0, limit: 20, offset: 0 });",
     });
     expect(Object.keys(parametersOf(document, "/users"))).toEqual(["q"]);
     expect(parametersOf(document, "/users").q.required).toBe(true);
-    expect(Object.keys(parametersOf(document, "/teams"))).toEqual(expect.arrayContaining(["limit", "sort", "where"]));
+    expect(parametersOf(document, "/users/{id}")).toEqual({ id: { name: "id", in: "path", required: true, schema: { type: "string" } } });
+    const read = document.paths["/users/{id}"].get;
+    expect(read.responses["200"].content["application/json"].schema).toEqual({ $ref: "#/components/schemas/User" });
+    expect(read.responses).toHaveProperty("404");
+    expect(document.paths["/teams"].get.parameters).toBeUndefined();
+    expect(document.paths["/teams"].get.responses["200"].content["application/json"].schema.properties).toHaveProperty("data");
+    expect((await validate(structuredClone(document))).errors).toEqual([]);
   });
 });

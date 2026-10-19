@@ -366,7 +366,7 @@ Custom endpoints appear in the API docs at `/docs` and in `/openapi.json`:
 - Each path parameter is a required string, and the path uses OpenAPI syntax (`/organizations/{orgId}`).
 - The tag is the first path segment and the `operationId` is the method plus the path in PascalCase.
 - The documented success status is 200, or 204 for a `delete` without a `Result` type, whatever `res.status` sets at runtime.
-- An override without generics keeps the generated route's schemas, parameters and responses; generics, `@summary` and `@description` take precedence when present.
+- An override without generics keeps the generated route's schemas and responses; generics, `@summary` and `@description` take precedence when present. Its documented parameters are its path parameters plus the items of its query type, never the generated `limit`, `offset`, `sort`, `where`, `fields`, `exclude` or `populate`.
 
 ```bash
 curl -s localhost:3000/openapi.json | jq '.paths["/organizations/{orgId}/stats"].get'

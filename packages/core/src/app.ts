@@ -6,6 +6,8 @@ import { withHooks } from "./http/pipeline.ts";
 import { docsRoutes } from "./http/docs.ts";
 import { withQueryItems, type QueryItem } from "./http/query-items.ts";
 import { createServer, type Endpoint, type Route, type Server } from "./http/server.ts";
+import type { JobDefinition } from "./jobs/job.ts";
+import { createJobRunner, createJobScheduler, type JobClock, type JobRunner, type JobScheduler } from "./jobs/scheduler.ts";
 import type { CrudOperation, EntityModel } from "./model.ts";
 import { projectResult, type Projection } from "./projection.ts";
 import { createRepositories, repositoryFor, type RepositoryRegistry } from "./repository.ts";
@@ -59,15 +61,23 @@ export interface AppOptions {
   config: ResolvedConfig;
   /** The OpenAPI document served at `/openapi.json` and `/docs` when `config.docs.enabled`. */
   openApi?: { info?: { title?: string } };
+  /** The job registry; its jobs run at their scheduled times once `scheduler.start()` is called. */
+  jobs?: ReadonlyMap<string, JobDefinition>;
+  /** The time source of the job scheduler (default: the system clock). */
+  clock?: JobClock;
 }
 
 export interface App {
   server: Server;
   repos: RepositoryRegistry;
+  /** Claims, executes and records job runs. */
+  jobRunner: JobRunner;
+  /** Runs the jobs at their scheduled times when `jobs.enabled`. */
+  scheduler: JobScheduler;
 }
 
 /** Assembles repositories, generated and custom routes and their hooks into a server. */
-export function createApp({ models, crudRoutes, endpoints, hooks, config, openApi }: AppOptions): App {
+export function createApp({ models, crudRoutes, endpoints, hooks, config, openApi, jobs = new Map(), clock }: AppOptions): App {
   const fileAccess = { storage: config.storage, files: config.files, publicUrl: config.server.publicUrl };
   const fileCleanup = {
     storage: config.storage,
@@ -111,5 +121,18 @@ export function createApp({ models, crudRoutes, endpoints, hooks, config, openAp
   }));
   const docs = openApi && config.docs?.enabled ? docsRoutes(openApi) : [];
   const server = createServer({ routes: [...mergeRoutes(generated, custom), ...docs], repos: repos as unknown as Repositories, config });
-  return { server, repos };
+  const logger = config.logger ?? jsonLogger;
+  const jobRunner = createJobRunner({
+    jobs,
+    database: config.database,
+    model: models.find((model) => model.key === "JobRun" && model.system),
+    repos: repos as unknown as Repositories,
+    files: config.storage,
+    config: config.jobs,
+    production: config.production,
+    logger,
+    clock,
+  });
+  const scheduler = createJobScheduler(jobs, jobRunner, { enabled: config.jobs.enabled, logger, clock });
+  return { server, repos, jobRunner, scheduler };
 }

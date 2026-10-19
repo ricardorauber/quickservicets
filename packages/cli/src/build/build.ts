@@ -226,13 +226,15 @@ import { createApp, resolveConfig } from "@quickservice/core";
 import projectConfig from "../quickservice.config.ts";
 import { models } from "./models.ts";
 import { crudRoutes, endpoints, hooks } from "./routes.ts";
+import { jobs } from "./jobs.ts";
 import openApi from "./openapi.json";
 
 const config = resolveConfig(projectConfig);
 await config.database.connect(models, { defaultSchema: config.schema });
-const { server } = createApp({ models, crudRoutes, endpoints, hooks, config, openApi });
+const { server, scheduler } = createApp({ models, crudRoutes, endpoints, hooks, config, openApi, jobs });
 const listening = server.listen();
 console.log(\`quickservice listening on http://localhost:\${listening.port}\`);
+scheduler.start();
 `;
 
 /** On MongoDB and memory, unpaired reference arrays are embedded, so their `@joinTable` has no effect. */

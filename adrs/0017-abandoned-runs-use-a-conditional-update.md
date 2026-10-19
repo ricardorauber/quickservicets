@@ -1,4 +1,4 @@
-# 0032 - Abandoned runs are marked with a conditional `updateById`, and shutdown rejects new claims and then exits with 0
+# 0017 - Abandoned runs are marked with a conditional `updateById`, and shutdown rejects new claims and then exits with 0
 
 - Date: 2026-10-19
 - Spec: 0108-job-heartbeats-and-shutdown

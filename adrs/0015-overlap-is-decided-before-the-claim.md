@@ -1,4 +1,4 @@
-# 0029 - A run's overlap is decided before its claim, so skipped runs are inserted as `skipped`
+# 0015 - A run's overlap is decided before its claim, so skipped runs are inserted as `skipped`
 
 - Date: 2026-10-19
 - Spec: 0106-job-scheduler

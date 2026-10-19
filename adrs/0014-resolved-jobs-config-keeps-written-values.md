@@ -1,4 +1,4 @@
-# 0028 - The resolved `jobs` config keeps durations and sizes as written
+# 0014 - The resolved `jobs` config keeps durations and sizes as written
 
 - Date: 2026-10-19
 - Spec: 0105-job-runs-and-config

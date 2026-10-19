@@ -1,4 +1,4 @@
-# 0024 - Single-date schedules require an explicit UTC offset
+# 0011 - Single-date schedules require an explicit UTC offset
 
 - Date: 2026-10-19
 - Spec: 0104-job-schedule-evaluation

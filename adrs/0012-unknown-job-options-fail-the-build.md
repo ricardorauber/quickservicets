@@ -1,4 +1,4 @@
-# 0026 - Unknown job options fail the build
+# 0012 - Unknown job options fail the build
 
 - Date: 2026-10-19
 - Spec: 0103-job-declarations

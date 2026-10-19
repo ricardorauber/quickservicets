@@ -1,4 +1,4 @@
-# 0031 - Retries are scheduled in memory by the instance that recorded the attempt, and claimed with the overlap rule
+# 0016 - Retries are scheduled in memory by the instance that recorded the attempt, and claimed with the overlap rule
 
 - Date: 2026-10-19
 - Spec: 0107-job-timeouts-and-retries

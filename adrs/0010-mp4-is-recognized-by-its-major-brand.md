@@ -1,4 +1,4 @@
-# 0015 - MP4 is recognized by the major brand of its `ftyp` box
+# 0010 - MP4 is recognized by the major brand of its `ftyp` box
 
 - Date: 2026-10-19
 - Spec: 0097-upload-type-detection-containers-media

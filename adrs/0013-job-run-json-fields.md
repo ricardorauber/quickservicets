@@ -1,4 +1,4 @@
-# 0027 - JobRun stores `result` as any JSON value and log times as ISO strings
+# 0013 - JobRun stores `result` as any JSON value and log times as ISO strings
 
 - Date: 2026-10-19
 - Spec: 0105-job-runs-and-config

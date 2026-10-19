@@ -28,11 +28,16 @@ export function startTimer(clock: JobClock, ms: number, callback: () => void): (
   };
 }
 
-/** The reason `ctx.signal` is aborted with when a run lasts longer than its timeout. */
-export function timeoutError(timeout: string): Error {
-  // The same reason `AbortSignal.timeout()` aborts with; the bundled types omit the constructor's arguments.
+/** A `DOMException` with that name, the kind of reason the platform aborts signals with. */
+export function abortReason(message: string, name: "TimeoutError" | "AbortError"): Error {
+  // The bundled types omit the constructor's arguments.
   const WebException = DOMException as unknown as new (message: string, name: string) => Error;
-  return new WebException(`Timed out after ${timeout}`, "TimeoutError");
+  return new WebException(message, name);
+}
+
+/** The reason `ctx.signal` is aborted with when a run lasts longer than its timeout, as with `AbortSignal.timeout()`. */
+export function timeoutError(timeout: string): Error {
+  return abortReason(`Timed out after ${timeout}`, "TimeoutError");
 }
 
 /** The statuses whose runs are retried while attempts remain. */

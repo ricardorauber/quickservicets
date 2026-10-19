@@ -1,6 +1,6 @@
 import { SQL } from "bun";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { count, eq } from "drizzle-orm";
+import { and, count, eq } from "drizzle-orm";
 import { drizzle, type BunSQLDatabase } from "drizzle-orm/bun-sql";
 import { UniqueViolationError, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
 import type { EntityModel } from "../model.ts";
@@ -138,15 +138,16 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
       const [row] = await executor().select({ total: count() }).from(table).where(condition);
       return { data: await withRelations(entity, data), total: Number(row?.total ?? 0) };
     },
-    updateById(entity, id, changes) {
+    updateById(entity, id, changes, where = []) {
       return translateErrors(() =>
         transaction(async () => {
           const table = tableFor(entity);
           const { columns, relations } = splitRelations(entity, changes);
+          const target = and(eq(table.id, id), toWhere(table, where, "postgres", relationContext(entity)));
           const rows =
             Object.keys(columns).length > 0
-              ? await executor().update(table).set(columns).where(eq(table.id, id)).returning({ id: table.id })
-              : await executor().select({ id: table.id }).from(table).where(eq(table.id, id));
+              ? await executor().update(table).set(columns).where(target).returning({ id: table.id })
+              : await executor().select({ id: table.id }).from(table).where(target);
           if (rows.length > 0) await writeRelations(executor(), schema!, entity, id, relations);
           return rows.length > 0;
         }),

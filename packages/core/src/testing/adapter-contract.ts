@@ -227,6 +227,20 @@ export function runAdapterContract(name: string, factory: AdapterFactory): void 
       expect(await adapter.updateById(contractItem, newId(), { title: "x" })).toBe(false);
     });
 
+    test("conditional updates apply only to a record that still matches", async () => {
+      const [item] = await insertItems({ title: "A", score: 1 });
+      const stillOne = [{ field: "score", op: "eq" as const, value: 1 }];
+      const results = await Promise.all([
+        adapter.updateById(contractItem, item!.id, { score: 2, title: "first" }, stillOne),
+        adapter.updateById(contractItem, item!.id, { score: 3, title: "second" }, stillOne),
+      ]);
+      expect(results.filter(Boolean)).toHaveLength(1);
+      expect(await adapter.findById(contractItem, item!.id)).toMatchObject(results[0] ? { score: 2, title: "first" } : { score: 3, title: "second" });
+      expect(await adapter.updateById(contractItem, item!.id, { title: "missed" }, stillOne)).toBe(false);
+      expect((await adapter.findById(contractItem, item!.id))!.title).not.toBe("missed");
+      expect(await adapter.updateById(contractItem, item!.id, { title: "B" }, [])).toBe(true);
+    });
+
     test("deletes records and reports misses", async () => {
       const [item] = await insertItems({ title: "A" });
       expect(await adapter.deleteById(contractItem, item!.id)).toBe(true);

@@ -5,6 +5,7 @@ import type { Repositories } from "../hooks.ts";
 import { safeLog, type Logger } from "../logger.ts";
 import type { EntityModel } from "../model.ts";
 import { retryDelayOf, startTimer, timeoutError } from "./attempts.ts";
+import { heartbeatInterval, isAbandoned, shutdownError, SHUTDOWN_MESSAGE, startRepeating } from "./lifecycle.ts";
 import { jobSettings, parseDuration, type JobContext, type JobDefinition, type JobLogFields, type JobLogger, type JobSettings, type JobTrigger } from "./job.ts";
 import { jobRunEntity, type JobRun, type JobRunLog } from "./job-run.ts";
 import { nextRunTime, parseSchedule, type ParsedSchedule } from "./schedule.ts";
@@ -82,11 +83,25 @@ export interface JobRunner {
    * `retryDelay × 2^(attempt − 1)`, claimed like any other run. Runs executed here are retried on their own.
    */
   retry(run: JobRun): void;
+  /**
+   * Marks as `abandoned` the `running` records, of any instance, without a heartbeat (or, without one, since they
+   * started) for longer than their job's timeout, and retries them. Only records still `running` are updated, so a
+   * record is marked once even when several instances check at the same time. Resolves with the records it marked.
+   */
+  markAbandoned(): Promise<JobRun[]>;
+  /**
+   * Stops claiming runs (`claim()` and `run()` then reject) and retrying, aborts the signal of every running run, waits up to `graceMs` for them, and
+   * records the ones still running as `interrupted`.
+   */
+  shutdown(graceMs: number): Promise<void>;
   /** The runs this instance is executing, by run id. */
   readonly active: ReadonlyMap<string, ActiveRun>;
   /** Resolves when every claim and execution started so far has finished, including the retries they scheduled. */
   idle(): Promise<void>;
 }
+
+/** Why a run cannot be claimed once the runner is shutting down. */
+export const SHUTTING_DOWN = "Job runs are not started while the server shuts down";
 
 const condition = (field: string, value: unknown) => ({ field, op: "eq" as const, value });
 
@@ -175,9 +190,14 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
     });
   };
 
+  let closed = false;
+  /** Ends a run of this instance with the given outcome, unless it already has one. */
+  const interrupters = new Map<string, (changes: Partial<JobRun>) => void>();
+
   const claim = (request: RunRequest): Promise<JobRun | null> =>
     track(
       (async () => {
+        if (closed) throw new Error(SHUTTING_DOWN);
         const settings = settingsOf(request.job);
         const overlapping =
           settings.overlap === "skip" &&
@@ -216,8 +236,8 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
 
   const retry = (finished: JobRun): void => {
     const delay = retryDelayOf(finished, settingsOf(finished.job));
-    if (delay === undefined) return;
     const request: RunRequest = { job: finished.job, trigger: finished.trigger, scheduledAt: finished.scheduledAt, attempt: finished.attempt + 1 };
+    if (delay === undefined || closed) return;
     // Tracked from now on, so `idle()` also waits for the attempts still to come.
     const { promise, resolve } = Promise.withResolvers<void>();
     const stopTimer = startTimer(clock, delay, () => {
@@ -265,18 +285,31 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
     };
     const done = (async (): Promise<JobRun> => {
       logEvent("job.started", run);
-      // The first outcome wins: once the timeout has fired, the closure settling later changes nothing.
+      // The first outcome wins: once the run timed out or was interrupted, the closure settling later changes nothing.
       let settled = false;
       const changes = await new Promise<Partial<JobRun>>((resolve) => {
-        const stopTimer =
-          timeoutMs === undefined
-            ? undefined
-            : startTimer(clock, timeoutMs, () => {
-                settled = true;
-                const reason = timeoutError(timeout);
-                controller.abort(reason);
-                resolve({ status: "timedOut", error: { message: reason.message } });
-              });
+        const stops: (() => void)[] = [];
+        const settle = (outcome: Partial<JobRun>) => {
+          if (settled) return;
+          settled = true;
+          for (const stop of stops) stop();
+          interrupters.delete(run.id);
+          resolve(outcome);
+        };
+        if (timeoutMs !== undefined) {
+          stops.push(
+            startRepeating(clock, heartbeatInterval(timeoutMs), () => {
+              const heartbeatAt = new Date(clock.now());
+              database.updateById(model, run.id, { heartbeatAt, updatedAt: heartbeatAt }, [condition("status", "running")]).catch(() => {});
+            }),
+            startTimer(clock, timeoutMs, () => {
+              const reason = timeoutError(timeout);
+              controller.abort(reason);
+              settle({ status: "timedOut", error: { message: reason.message } });
+            }),
+          );
+        }
+        interrupters.set(run.id, settle);
         Promise.resolve()
           .then(() => definition.run(context))
           .then(
@@ -284,16 +317,10 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
               if (settled) return;
               const { result, note } = storableResult(value, config.limits.result);
               if (note) log.warn(note);
-              resolve({ status: "success", ...(result !== undefined ? { result } : {}) });
+              settle({ status: "success", ...(result !== undefined ? { result } : {}) });
             },
-            (error: unknown) => {
-              if (!settled) resolve({ status: "failed", error: runError(error, production) });
-            },
-          )
-          .finally(() => {
-            settled = true;
-            stopTimer?.();
-          });
+            (error: unknown) => settle({ status: "failed", error: runError(error, production) }),
+          );
       });
       const finishedAt = new Date(clock.now());
       Object.assign(changes, {
@@ -309,9 +336,54 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
       return finished;
     })();
     active.set(run.id, { run, controller, done });
+    if (closed) controller.abort(shutdownError());
     const forget = () => active.delete(run.id);
     done.then(forget, forget);
     return track(done);
+  };
+
+  const markAbandoned = (): Promise<JobRun[]> =>
+    track(
+      (async () => {
+        if (closed) return [];
+        const { data } = await database.findMany(model, {
+          where: [condition("status", "running")],
+          sort: [{ field: "startedAt", direction: "asc" }],
+          limit: 1000,
+          offset: 0,
+        });
+        const marked: JobRun[] = [];
+        for (const record of data as unknown as JobRun[]) {
+          if (active.has(record.id)) continue;
+          const known = jobs.has(record.job);
+          const timeout = known ? settingsOf(record.job).timeout : config.timeout;
+          const timeoutMs = parseDuration(timeout);
+          if (timeoutMs === undefined || !isAbandoned(record, timeoutMs, clock.now())) continue;
+          const finishedAt = new Date(clock.now());
+          const changes = { status: "abandoned" as const, finishedAt, updatedAt: finishedAt, error: { message: `No heartbeat for ${timeout}` } };
+          if (!(await database.updateById(model, record.id, changes, [condition("status", "running")]))) continue;
+          const abandoned: JobRun = { ...record, ...changes };
+          marked.push(abandoned);
+          if (known) retry(abandoned);
+        }
+        return marked;
+      })(),
+    );
+
+  const shutdown = async (graceMs: number): Promise<void> => {
+    closed = true;
+    for (const cancel of retryTimers) cancel();
+    retryTimers.clear();
+    const running = () => [...active.values()];
+    for (const { controller } of running()) controller.abort(shutdownError());
+    if (active.size > 0) {
+      let stopWaiting = () => {};
+      const grace = new Promise<void>((resolve) => (stopWaiting = startTimer(clock, graceMs, resolve)));
+      await Promise.race([Promise.allSettled(running().map(({ done }) => done)), grace]);
+      stopWaiting();
+    }
+    for (const interrupt of [...interrupters.values()]) interrupt({ status: "interrupted", error: { message: SHUTDOWN_MESSAGE } });
+    await Promise.allSettled(running().map(({ done }) => done));
   };
 
   const runner: JobRunner = {
@@ -319,6 +391,8 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
     claim,
     execute,
     retry,
+    markAbandoned,
+    shutdown,
     run(request) {
       return track(
         (async () => {

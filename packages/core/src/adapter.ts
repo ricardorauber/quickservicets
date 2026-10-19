@@ -36,7 +36,11 @@ export interface DatabaseAdapter {
   findById(entity: EntityModel, id: string): Promise<StoredRecord | null>;
   findOne(entity: EntityModel, where: Condition[]): Promise<StoredRecord | null>;
   findMany(entity: EntityModel, options: FindManyOptions): Promise<FindManyResult>;
-  updateById(entity: EntityModel, id: string, changes: Record<string, unknown>): Promise<boolean>;
+  /**
+   * Updates the record with that id; with `where`, only when the record also matches those conditions, checked in the
+   * same atomic write. Resolves false when no record was updated.
+   */
+  updateById(entity: EntityModel, id: string, changes: Record<string, unknown>, where?: Condition[]): Promise<boolean>;
   deleteById(entity: EntityModel, id: string): Promise<boolean>;
   count(entity: EntityModel, where: Condition[]): Promise<number>;
   /** Runs `fn` atomically when the database supports transactions, or directly otherwise. */

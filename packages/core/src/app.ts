@@ -6,8 +6,9 @@ import { withHooks } from "./http/pipeline.ts";
 import { docsRoutes } from "./http/docs.ts";
 import { withQueryItems, type QueryItem } from "./http/query-items.ts";
 import { createServer, type Endpoint, type Route, type Server } from "./http/server.ts";
-import type { JobDefinition } from "./jobs/job.ts";
+import { parseDuration, type JobDefinition } from "./jobs/job.ts";
 import { jobRunEntity } from "./jobs/job-run.ts";
+import { createAbandonedRunMonitor, type AbandonedRunMonitor } from "./jobs/lifecycle.ts";
 import { createJobRunner, createJobScheduler, type JobClock, type JobRunner, type JobScheduler } from "./jobs/scheduler.ts";
 import { createJobRunCleanup, type JobRunCleanup } from "./jobs/retention.ts";
 import { createRequestJobs } from "./jobs/triggers.ts";
@@ -75,10 +76,20 @@ export interface App {
   repos: RepositoryRegistry;
   /** Claims, executes and records job runs. */
   jobRunner: JobRunner;
-  /** Runs the jobs at their scheduled times when `jobs.enabled`; starting it also starts the run cleanup. */
+  /**
+   * Runs the jobs at their scheduled times when `jobs.enabled`; starting it also starts the run cleanup and the check
+   * that marks the runs of stopped instances as abandoned.
+   */
   scheduler: JobScheduler;
   /** Deletes the run records past their job's retention, hourly once the scheduler is started. */
   runCleanup: JobRunCleanup;
+  /** Marks the runs of stopped instances as abandoned, at startup and once a minute once the scheduler is started. */
+  abandonedRuns: AbandonedRunMonitor;
+  /**
+   * Stops scheduling and claiming runs, aborts the running jobs and waits up to `jobs.shutdownGrace` for them; the
+   * ones still running are recorded as `interrupted`.
+   */
+  shutdown(): Promise<void>;
 }
 
 /** Assembles repositories, generated and custom routes and their hooks into a server. */
@@ -155,20 +166,27 @@ export function createApp({ models, crudRoutes, endpoints, hooks, config, openAp
     logger,
     clock,
   });
+  const abandonedRuns = createAbandonedRunMonitor(jobRunner, { enabled: config.jobs.enabled && jobRunModel !== undefined && jobs.size > 0, logger, clock });
   const scheduler: JobScheduler = {
     ...jobScheduler,
     start() {
       jobScheduler.start();
       runCleanup.start();
+      abandonedRuns.start();
     },
     stop() {
       jobScheduler.stop();
       runCleanup.stop();
+      abandonedRuns.stop();
     },
     async idle() {
       await jobScheduler.idle();
       await runCleanup.idle();
     },
   };
-  return { server, repos, jobRunner, scheduler, runCleanup };
+  const shutdown = async () => {
+    scheduler.stop();
+    await jobRunner.shutdown(parseDuration(config.jobs.shutdownGrace) ?? 0);
+  };
+  return { server, repos, jobRunner, scheduler, runCleanup, abandonedRuns, shutdown };
 }

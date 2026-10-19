@@ -176,10 +176,10 @@ export function memoryAdapter(): DatabaseAdapter {
       const records = sortRecords(select(entity, where), sort);
       return { data: records.slice(offset, offset + limit).map((record) => structuredClone(record)), total: records.length };
     },
-    async updateById(entity, id, changes) {
+    async updateById(entity, id, changes, where = []) {
       const table = tableFor(entity);
       const current = table.get(id);
-      if (!current) return false;
+      if (!current || !where.every((condition) => matches(current, condition, entity))) return false;
       const updated = normalize(entity, { ...current, ...changes, id });
       assertUnique(entity, updated);
       table.set(id, updated);

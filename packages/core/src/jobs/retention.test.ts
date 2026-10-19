@@ -104,7 +104,7 @@ async function app(jobs: Record<string, ReturnType<typeof noop>>, enabled = true
 
 describe("retention", () => {
   test("each job keeps its records for its retention, removed jobs for jobs.retention, at startup and hourly", async () => {
-    const { scheduler, database, clock, cleanups } = await app({ "cleanup/expired-sessions": noop(), "reports/weekly": noop({ retention: "7d" }) });
+    const { scheduler, abandonedRuns, database, clock, cleanups } = await app({ "cleanup/expired-sessions": noop(), "reports/weekly": noop({ retention: "7d" }) });
     const old = record("cleanup/expired-sessions", 31);
     const recent = record("cleanup/expired-sessions", 29);
     const oldFailed = record("cleanup/expired-sessions", 45, "failed");
@@ -115,6 +115,8 @@ describe("retention", () => {
     await seed(database, [old, recent, oldFailed, weeklyOld, weeklyRecent, removedOld, removedRecent]);
 
     scheduler.start();
+    // This test advances the clock by days; the once-a-minute abandoned-run check would only slow it down.
+    abandonedRuns.stop();
     await scheduler.idle();
     expect((await remaining(database)).sort()).toEqual([recent.id, weeklyRecent.id, removedRecent.id].sort());
     expect(cleanups()).toEqual([expect.objectContaining({ level: "info", deleted: 4 })]);

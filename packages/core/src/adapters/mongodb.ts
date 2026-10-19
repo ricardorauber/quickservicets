@@ -263,9 +263,10 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
       const total = await collection(entity).countDocuments(filter, session());
       return { data: documents.map((document) => toRecord(entity, document)!), total };
     },
-    updateById(entity, id, changes) {
+    updateById(entity, id, changes, where = []) {
       return translateErrors(async () => {
-        const result = await collection(entity).updateOne({ _id: id as never }, { $set: changes }, session());
+        const filter = where.length > 0 ? { $and: [{ _id: id as never }, toFilter(where, entity)] } : { _id: id as never };
+        const result = await collection(entity).updateOne(filter, { $set: changes }, session());
         return result.matchedCount > 0;
       });
     },

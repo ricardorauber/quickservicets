@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { count, eq, sql } from "drizzle-orm";
+import { and, count, eq, sql } from "drizzle-orm";
 import { drizzle, type BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import { UniqueViolationError, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
 import type { EntityModel } from "../model.ts";
@@ -130,15 +130,16 @@ export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
         return { data: await withRelations(entity, data), total };
       });
     },
-    updateById(entity, id, changes) {
+    updateById(entity, id, changes, where = []) {
       return translateErrors(() =>
         atomically(async () => {
           const table = tableFor(entity);
           const { columns, relations } = splitRelations(entity, changes);
+          const target = and(eq(table.id, id), toWhere(table, where, "sqlite", relationContext(entity)));
           const exists =
             Object.keys(columns).length > 0
-              ? (ready().db.update(table).set(columns).where(eq(table.id, id)).run() as unknown as RunResult).changes > 0
-              : ready().db.select({ id: table.id }).from(table).where(eq(table.id, id)).get() !== undefined;
+              ? (ready().db.update(table).set(columns).where(target).run() as unknown as RunResult).changes > 0
+              : ready().db.select({ id: table.id }).from(table).where(target).get() !== undefined;
           if (exists) await writeRelations(ready().db, ready().schema, entity, id, relations);
           return exists;
         }),

@@ -228,7 +228,7 @@ export function generateJobsFile(jobs: JobEntry[]): string {
 }
 
 const SERVER_FILE = `${HEADER}
-import { createApp, resolveConfig } from "@quickservice/core";
+import { createApp, handleShutdownSignals, resolveConfig } from "@quickservice/core";
 import projectConfig from "../quickservice.config.ts";
 import { models } from "./models.ts";
 import { crudRoutes, endpoints, hooks } from "./routes.ts";
@@ -237,10 +237,11 @@ import openApi from "./openapi.json";
 
 const config = resolveConfig(projectConfig);
 await config.database.connect(models, { defaultSchema: config.schema });
-const { server, scheduler } = createApp({ models, crudRoutes, endpoints, hooks, config, openApi, jobs });
+const { server, scheduler, shutdown } = createApp({ models, crudRoutes, endpoints, hooks, config, openApi, jobs });
 const listening = server.listen();
 console.log(\`quickservice listening on http://localhost:\${listening.port}\`);
 scheduler.start();
+handleShutdownSignals(shutdown);
 `;
 
 /** On MongoDB and memory, unpaired reference arrays are embedded, so their `@joinTable` has no effect. */

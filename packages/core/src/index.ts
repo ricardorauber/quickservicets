@@ -97,4 +97,6 @@ export type { JobRun, JobRunLog, JobRunStatus } from "./jobs/job-run.ts";
 export { createJobRunner, createJobScheduler, createLogCollector, MAX_TIMER_DELAY, runError, storableResult, systemClock } from "./jobs/scheduler.ts";
 export type { ActiveRun, JobClock, JobRunner, JobRunnerOptions, JobScheduler, JobSchedulerOptions, RunRequest } from "./jobs/scheduler.ts";
 export { createRequestJobs, noRequestJobs, runOnDemand } from "./jobs/triggers.ts";
+export { createJobRunCleanup, RUN_CLEANUP_BATCH, RUN_CLEANUP_INTERVAL } from "./jobs/retention.ts";
+export type { JobRunCleanup, JobRunCleanupOptions } from "./jobs/retention.ts";
 export type { JobName, JobNames, OnDemandRequest, RequestJobs, RunJobOptions } from "./jobs/triggers.ts";

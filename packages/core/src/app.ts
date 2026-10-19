@@ -7,7 +7,9 @@ import { docsRoutes } from "./http/docs.ts";
 import { withQueryItems, type QueryItem } from "./http/query-items.ts";
 import { createServer, type Endpoint, type Route, type Server } from "./http/server.ts";
 import type { JobDefinition } from "./jobs/job.ts";
+import { jobRunEntity } from "./jobs/job-run.ts";
 import { createJobRunner, createJobScheduler, type JobClock, type JobRunner, type JobScheduler } from "./jobs/scheduler.ts";
+import { createJobRunCleanup, type JobRunCleanup } from "./jobs/retention.ts";
 import { createRequestJobs } from "./jobs/triggers.ts";
 import type { CrudOperation, EntityModel } from "./model.ts";
 import { projectResult, type Projection } from "./projection.ts";
@@ -73,8 +75,10 @@ export interface App {
   repos: RepositoryRegistry;
   /** Claims, executes and records job runs. */
   jobRunner: JobRunner;
-  /** Runs the jobs at their scheduled times when `jobs.enabled`. */
+  /** Runs the jobs at their scheduled times when `jobs.enabled`; starting it also starts the run cleanup. */
   scheduler: JobScheduler;
+  /** Deletes the run records past their job's retention, hourly once the scheduler is started. */
+  runCleanup: JobRunCleanup;
 }
 
 /** Assembles repositories, generated and custom routes and their hooks into a server. */
@@ -122,10 +126,11 @@ export function createApp({ models, crudRoutes, endpoints, hooks, config, openAp
   }));
   const docs = openApi && config.docs?.enabled ? docsRoutes(openApi) : [];
   const logger = config.logger ?? jsonLogger;
+  const jobRunModel = models.find((model) => model.key === "JobRun" && model.system);
   const jobRunner = createJobRunner({
     jobs,
     database: config.database,
-    model: models.find((model) => model.key === "JobRun" && model.system),
+    model: jobRunModel,
     repos: repos as unknown as Repositories,
     files: config.storage,
     config: config.jobs,
@@ -139,6 +144,31 @@ export function createApp({ models, crudRoutes, endpoints, hooks, config, openAp
     config,
     jobs: createRequestJobs(jobRunner, { logger, clock }),
   });
-  const scheduler = createJobScheduler(jobs, jobRunner, { enabled: config.jobs.enabled, logger, clock });
-  return { server, repos, jobRunner, scheduler };
+  const jobScheduler = createJobScheduler(jobs, jobRunner, { enabled: config.jobs.enabled, logger, clock });
+  // Projects without jobs have no run records to clean.
+  const runCleanup = createJobRunCleanup({
+    jobs,
+    database: config.database,
+    model: jobRunModel ?? jobRunEntity(),
+    config: config.jobs,
+    enabled: config.jobs.enabled && jobRunModel !== undefined,
+    logger,
+    clock,
+  });
+  const scheduler: JobScheduler = {
+    ...jobScheduler,
+    start() {
+      jobScheduler.start();
+      runCleanup.start();
+    },
+    stop() {
+      jobScheduler.stop();
+      runCleanup.stop();
+    },
+    async idle() {
+      await jobScheduler.idle();
+      await runCleanup.idle();
+    },
+  };
+  return { server, repos, jobRunner, scheduler, runCleanup };
 }

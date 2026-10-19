@@ -156,6 +156,10 @@ function validateValue(field: ValueSpec, raw: unknown, path: string, errors: Col
     case "boolean":
       return typeof raw === "boolean" ? raw : errors.add(path, "Must be a boolean");
     case "date": {
+      // Code calling repositories may pass Date instances; JSON bodies send ISO 8601 strings.
+      if (raw instanceof Date) {
+        return Number.isNaN(raw.getTime()) ? errors.add(path, "Must be an ISO 8601 date") : new Date(raw.getTime());
+      }
       if (typeof raw !== "string" || !ISO_8601.test(raw) || Number.isNaN(Date.parse(raw))) {
         return errors.add(path, "Must be an ISO 8601 date");
       }

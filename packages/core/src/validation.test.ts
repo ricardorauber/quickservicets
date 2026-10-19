@@ -195,3 +195,30 @@ describe("integer numbers", () => {
     expect(errorsOf({ stock: "1" })).toEqual([{ field: "stock", message: "Must be a number" }]);
   });
 });
+
+describe("Date instances", () => {
+  const article = entity("Article", [
+    field({ name: "publishedAt", type: "date", optional: true }),
+    field({ name: "schedule", type: "object", optional: true, fields: [{ name: "startsAt", type: "date", optional: false }] }),
+    field({ name: "reminders", type: "array", items: { type: "date" }, optional: true }),
+  ]);
+  const check = (body: unknown) => validateBody(article, body, "patch");
+  const at = "2026-01-01T00:00:00.000Z";
+
+  test("are accepted like ISO 8601 strings on top-level, nested and array fields", () => {
+    const fromDates = check({ publishedAt: new Date(at), schedule: { startsAt: new Date(at) }, reminders: [new Date(at), new Date(at)] });
+    const fromStrings = check({ publishedAt: at, schedule: { startsAt: at }, reminders: [at, at] });
+    const expected = { publishedAt: new Date(at), schedule: { startsAt: new Date(at) }, reminders: [new Date(at), new Date(at)] };
+    expect(fromDates).toEqual({ ok: true, value: expected });
+    expect(fromStrings).toEqual({ ok: true, value: expected });
+  });
+
+  test("invalid Dates and other types fail with the date message", () => {
+    const message = "Must be an ISO 8601 date";
+    expect(details(check({ publishedAt: new Date("x") }))).toEqual([{ field: "publishedAt", message }]);
+    expect(details(check({ schedule: { startsAt: new Date(Number.NaN) } }))).toEqual([{ field: "schedule.startsAt", message }]);
+    expect(details(check({ reminders: [new Date(at), new Date("x")] }))).toEqual([{ field: "reminders[1]", message }]);
+    expect(details(check({ publishedAt: 123 }))).toEqual([{ field: "publishedAt", message }]);
+    expect(details(check({ publishedAt: { iso: at } }))).toEqual([{ field: "publishedAt", message }]);
+  });
+});

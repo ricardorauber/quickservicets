@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { UniqueViolationError, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
 import type { EntityModel } from "../model.ts";
 import type { Condition, SizeFilter, SortField } from "../query.ts";
+import { createRepositories, type Repository } from "../repository.ts";
 import { entity, field } from "./entities.ts";
 
 export const contractOrganization = entity("Organization", [field({ name: "name", type: "string", unique: true })]);
@@ -23,6 +24,8 @@ export const contractItem = entity("Item", [
     fields: [
       { name: "views", type: "number", optional: false },
       { name: "lines", type: "array", optional: true, items: { type: "object", fields: [{ name: "qty", type: "number", optional: false }] } },
+      { name: "startsAt", type: "date", optional: true },
+      { name: "reminders", type: "array", optional: true, items: { type: "date" } },
     ],
   }),
 ]);
@@ -315,6 +318,27 @@ export function runAdapterContract(name: string, factory: AdapterFactory): void 
         expect(await adapter.findById(contractItem, item!.id)).toMatchObject({ title: "A2", partners: [] });
         expect(await adapter.updateById(contractItem, newId(), { partners: [a] })).toBe(false);
       });
+    });
+
+    test("Date instances written through a repository round-trip", async () => {
+      const items = createRepositories(contractModels, adapter).items as Repository;
+      const instant = (value: unknown) => new Date(value as string | Date).toISOString();
+      const created = await items.create({
+        title: "Dated",
+        publishedAt: new Date("2026-01-01T00:00:00Z"),
+        meta: { views: 1, startsAt: new Date("2026-03-01T09:30:00Z"), reminders: [new Date("2026-02-28T09:30:00Z")] },
+      });
+      const read = await items.findById(created.id as string);
+      expect(read!.publishedAt).toBeInstanceOf(Date);
+      expect(instant(read!.publishedAt)).toBe("2026-01-01T00:00:00.000Z");
+      const meta = read!.meta as { startsAt: unknown; reminders: unknown[] };
+      expect(instant(meta.startsAt)).toBe("2026-03-01T09:30:00.000Z");
+      expect(meta.reminders.map(instant)).toEqual(["2026-02-28T09:30:00.000Z"]);
+
+      await items.update(created.id as string, { publishedAt: new Date("2026-05-05T05:05:05.005Z") });
+      expect(instant((await items.findById(created.id as string))!.publishedAt)).toBe("2026-05-05T05:05:05.005Z");
+      await items.replace(created.id as string, { title: "Replaced", publishedAt: new Date("2026-06-06T00:00:00Z") });
+      expect(await items.findById(created.id as string)).toMatchObject({ title: "Replaced", publishedAt: new Date("2026-06-06T00:00:00Z") });
     });
 
     test("transaction runs the function and returns its value", async () => {

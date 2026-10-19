@@ -1,0 +1,8 @@
+vendor
+storage/logs/*.log
+storage/logs/*.json
+storage/app/uploads
+bootstrap/cache/*.php
+README.md
+Dockerfile
+.dockerignore

@@ -1,6 +1,7 @@
+import { HttpError, type FieldErrorDetail } from "./errors.ts";
 import { SYSTEM_FIELDS, type EntityModel, type FieldModel } from "./model.ts";
 import { project } from "./projection.ts";
-import type { Condition, FilterOperator, ListQuery, SortField } from "./query.ts";
+import { MAX_LIMIT, type Condition, type FilterOperator, type ListQuery, type SortField } from "./query.ts";
 import type { PopulatePath, Populated } from "./repository.ts";
 
 /** One or more conditions combined with AND, built by the field handles of a query lambda. */
@@ -227,8 +228,16 @@ function sortKeys(model: EntityModel): Record<string, SortKey> {
   });
 }
 
+const AT_LEAST_ZERO = "Must be an integer of at least 0";
+const LIMIT_RANGE = `Must be an integer from 1 to ${MAX_LIMIT}`;
+
+/** Paging values usually come from the client, so they fail like the list routes' `limit` and `offset`. */
+function invalidPaging(details: FieldErrorDetail[]): HttpError {
+  return new HttpError(400, "Invalid query", { details });
+}
+
 function nonNegative(method: string, count: number): number {
-  if (!Number.isInteger(count) || count < 0) throw new Error(`${method} expects a non-negative integer, got ${count}`);
+  if (!Number.isInteger(count) || count < 0) throw invalidPaging([{ field: method, message: AT_LEAST_ZERO }]);
   return count;
 }
 
@@ -284,8 +293,10 @@ export function createQuery<T, R = Record<never, never>>(backend: QueryBackend, 
       return (await count()) > 0;
     },
     async page({ limit = 20, offset = 0 }: PageOptions = {}) {
-      if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error(`page limit must be an integer from 1 to 100, got ${limit}`);
-      if (!Number.isInteger(offset) || offset < 0) throw new Error(`page offset must be a non-negative integer, got ${offset}`);
+      const details: FieldErrorDetail[] = [];
+      if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LIMIT) details.push({ field: "limit", message: LIMIT_RANGE });
+      if (!Number.isInteger(offset) || offset < 0) details.push({ field: "offset", message: AT_LEAST_ZERO });
+      if (details.length > 0) throw invalidPaging(details);
       const size = Math.min(limit, state.take === undefined ? limit : Math.max(0, state.take - offset));
       const result = size === 0 ? { data: [] as T[], total: await count() } : await read(size, state.skip + offset);
       return { data: result.data, total: result.total, limit, offset };

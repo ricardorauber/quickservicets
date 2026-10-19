@@ -81,7 +81,7 @@ describe.each(factories)("%s", (_, factory) => {
     expect(emails(page.data)).toEqual(["b@x.co", "c@x.co"]);
     expect(page.total).toBe(5);
     expect(await users.query().take(0).firstOrDefault()).toBeNull();
-    expect(() => users.query().skip(-1)).toThrow("skip expects a non-negative integer, got -1");
+    expect(() => users.query().skip(-1)).toThrow("Invalid query");
     await adapter.disconnect();
   });
 

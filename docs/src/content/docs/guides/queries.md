@@ -202,7 +202,7 @@ repos.organizations.query().orderBy((o) => o.members); // Property 'members' doe
 
 ## Slicing: `skip` and `take`
 
-`skip(n)` leaves out the first `n` results and `take(n)` returns at most `n`. They apply to `all()`, `first()`, `firstOrDefault()` and `page()`, but not to `count()` and `any()`. A negative or fractional value throws, for example `skip expects a non-negative integer, got -1`.
+`skip(n)` leaves out the first `n` results and `take(n)` returns at most `n`. They apply to `all()`, `first()`, `firstOrDefault()` and `page()`, but not to `count()` and `any()`. A negative or fractional value throws a 400 `Invalid query`, with details such as `skip: Must be an integer of at least 0`.
 
 ```ts check
 import type { Repositories } from "@quickservice/core";
@@ -337,7 +337,7 @@ export async function counts(repos: Repositories) {
 
 ### `page`
 
-`page({ limit, offset })` returns `{ data, total, limit, offset }`, the same shape as the generated list routes. `limit` goes from 1 to 100 (default 20) and `offset` from 0 (default 0); other values throw, for example `page limit must be an integer from 1 to 100, got 0`.
+`page({ limit, offset })` returns `{ data, total, limit, offset }`, the same shape as the generated list routes. `limit` goes from 1 to 100 (default 20) and `offset` from 0 (default 0); other values throw a 400 `Invalid query` before the database is queried, with the same details as the list routes' parameters: `limit: Must be an integer from 1 to 100` and `offset: Must be an integer of at least 0`.
 
 ```ts check
 import type { Repositories } from "@quickservice/core";

@@ -9,7 +9,8 @@ import { mongodbAdapter } from "./adapters/mongodb.ts";
 import { postgresAdapter } from "./adapters/postgres.ts";
 import { sqliteAdapter } from "./adapters/sqlite.ts";
 import { HttpError } from "./errors.ts";
-import { conditionsOf } from "./fluent-query.ts";
+import { conditionsOf, createQuery, type QueryBackend } from "./fluent-query.ts";
+import { createServer } from "./http/server.ts";
 import type { EntityModel } from "./model.ts";
 import { createRepositories, type Repository } from "./repository.ts";
 import { entity, field } from "./testing/entities.ts";
@@ -156,7 +157,7 @@ describe.each(factories)("%s", (_, factory) => {
     expect(page).toMatchObject({ total: 3, limit: 2, offset: 2 });
     expect(page.data).toHaveLength(1);
     expect((await users.query().page()).limit).toBe(20);
-    await expect(users.query().page({ limit: 0 })).rejects.toThrow("page limit must be an integer from 1 to 100");
+    await expect(users.query().page({ limit: 0 })).rejects.toThrow("Invalid query");
     await adapter.disconnect();
   });
 
@@ -167,6 +168,78 @@ describe.each(factories)("%s", (_, factory) => {
     expect(admin!.createdAt).toBeInstanceOf(Date);
     const ordered = await users.query().all();
     expect(ordered.map((record) => record.email)).toEqual(["cid@acme.com", "bob@other.org", "ana@acme.com"]);
+    await adapter.disconnect();
+  });
+});
+
+describe("paging errors", () => {
+  /** A backend that records every database call. */
+  const backend = () => {
+    const calls: string[] = [];
+    const spy: QueryBackend = {
+      model: user,
+      findAllMax: 100,
+      list: async () => {
+        calls.push("list");
+        return { data: [], total: 0 };
+      },
+      count: async () => {
+        calls.push("count");
+        return 0;
+      },
+      notFound: () => new HttpError(404, "User not found"),
+    };
+    return { calls, query: createQuery<UserRecord>(spy, { where: [], sort: [], skip: 0 }) };
+  };
+  const failure = async (run: () => unknown) => {
+    try {
+      await run();
+    } catch (error) {
+      expect(error).toBeInstanceOf(HttpError);
+      const { status, message, details } = error as HttpError;
+      return { status, message, details };
+    }
+    throw new Error("expected an HttpError");
+  };
+  const LIMIT = { field: "limit", message: "Must be an integer from 1 to 100" };
+  const OFFSET = { field: "offset", message: "Must be an integer of at least 0" };
+
+  test("page rejects an invalid limit, offset or both before querying", async () => {
+    const { calls, query } = backend();
+    expect(await failure(() => query.page({ limit: 2, offset: 1.5 }))).toEqual({ status: 400, message: "Invalid query", details: [OFFSET] });
+    expect((await failure(() => query.page({ limit: 101 }))).details).toEqual([LIMIT]);
+    expect((await failure(() => query.page({ limit: 2.5 }))).details).toEqual([LIMIT]);
+    expect((await failure(() => query.page({ limit: 0, offset: -1 }))).details).toEqual([LIMIT, OFFSET]);
+    expect(calls).toEqual([]);
+    expect(await query.page({ limit: 2, offset: 2 })).toEqual({ data: [], total: 0, limit: 2, offset: 2 });
+  });
+
+  test("skip and take reject negative and fractional values", async () => {
+    const { query } = backend();
+    const atLeastZero = (field: string) => ({ status: 400, message: "Invalid query", details: [{ field, message: "Must be an integer of at least 0" }] });
+    expect(await failure(() => query.skip(-1))).toEqual(atLeastZero("skip"));
+    expect(await failure(() => query.skip(0.5))).toEqual(atLeastZero("skip"));
+    expect(await failure(() => query.take(1.5))).toEqual(atLeastZero("take"));
+    expect(await failure(() => query.take(-2))).toEqual(atLeastZero("take"));
+    expect(() => query.skip(0).take(0)).not.toThrow();
+  });
+
+  test("a custom endpoint answers 400 Invalid query", async () => {
+    const { adapter, users } = await setup(() => memoryAdapter());
+    const server = createServer({
+      routes: [
+        { method: "GET", path: "/users/paged", handler: () => users.query().page({ limit: 2, offset: 1.5 }) },
+        { method: "GET", path: "/users/valid", handler: () => users.query().page({ limit: 2, offset: 2 }) },
+      ],
+      repos: {} as never,
+      config: { production: true },
+    });
+    const response = await server.fetch(new Request("http://localhost/users/paged"));
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe('{"error":{"code":"VALIDATION_ERROR","message":"Invalid query","details":[{"field":"offset","message":"Must be an integer of at least 0"}]}}');
+    const valid = await server.fetch(new Request("http://localhost/users/valid"));
+    expect(valid.status).toBe(200);
+    expect(await valid.json()).toMatchObject({ total: 3, limit: 2, offset: 2 });
     await adapter.disconnect();
   });
 });

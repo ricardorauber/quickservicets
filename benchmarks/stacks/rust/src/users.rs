@@ -176,13 +176,12 @@ fn validate(body: &[u8], create: bool) -> Result<UserInput, ApiError> {
         Some(email) if !is_email(&email) => details.push(detail("email", "Must be a valid email")),
         email => input.email = email,
     }
-    match string_field(&mut map, "name", create, &mut details) {
-        Some(name) => match name.encode_utf16().count() {
+    if let Some(name) = string_field(&mut map, "name", create, &mut details) {
+        match name.encode_utf16().count() {
             0 => details.push(detail("name", "Must be at least 1 characters")),
             101.. => details.push(detail("name", "Must be at most 100 characters")),
             _ => input.name = Some(name),
-        },
-        None => {}
+        }
     }
     match map.remove("role") {
         None => {}

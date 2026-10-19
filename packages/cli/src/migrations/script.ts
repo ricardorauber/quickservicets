@@ -1,7 +1,7 @@
 import { loadConfig, SQLITE_DEFAULT_SCHEMA_TOKEN, sqliteDefaultPrefix, type MigrationContext, type Repositories, type SqlDialect } from "@quickservice/core";
 import { BuildError } from "../errors.ts";
 import { sqlDialectOf } from "./add.ts";
-import { HISTORY_TABLE, MONGO_HISTORY_COLLECTION } from "./migrate.ts";
+import { HISTORY_TABLE, MONGO_HISTORY_COLLECTION, splitSqlOptions } from "./migrate.ts";
 import { listMigrations, type MigrationFile } from "./snapshot.ts";
 
 export interface ScriptOptions {
@@ -51,8 +51,8 @@ async function recordStatements(migration: MigrationFile, direction: "up" | "dow
     statements.push(`-- custom code in ${migration.id}, not scriptable`);
   };
   const ctx: MigrationContext = {
-    sql: async (query, ...values) => {
-      statements.push(renderQuery(query, values).trim().replace(/;?$/, ";"));
+    sql: async (query: TemplateStringsArray | string, ...values: unknown[]) => {
+      statements.push(renderQuery(query, splitSqlOptions(query, values).values).trim().replace(/;?$/, ";"));
       return undefined;
     },
     db: customCodeMarker(markCustom),

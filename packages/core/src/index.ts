@@ -53,7 +53,7 @@ export { postgresAdapter } from "./adapters/postgres.ts";
 export type { PostgresAdapter, PostgresAdapterOptions } from "./adapters/postgres.ts";
 export { mongodbAdapter, mongoIndexSpecs } from "./adapters/mongodb.ts";
 export type { MongoIndexSpec, MongodbAdapter, MongodbAdapterOptions } from "./adapters/mongodb.ts";
-export type { MigrationContext, MongoMigrationContext } from "./migrations.ts";
+export type { MigrationContext, MigrationSqlOptions, MongoMigrationContext } from "./migrations.ts";
 export { parseFieldPaths, project, projectResult } from "./projection.ts";
 export type { FieldPathsResult, Projection } from "./projection.ts";
 export { isExposed, parseClientSelection, selectFields } from "./http/selection.ts";

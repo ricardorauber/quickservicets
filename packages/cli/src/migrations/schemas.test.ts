@@ -125,7 +125,7 @@ if (postgresUrl) {
       const tables = (await admin.unsafe(
         "select table_schema || '.' || table_name as name from information_schema.tables where table_schema in ('tenant_a', 'auth', 'public') order by 1",
       )) as { name: string }[];
-      expect(tables.map((row) => row.name)).toEqual(["auth.users", "tenant_a.__quickservice_migrations", "tenant_a.files", "tenant_a.media", "tenant_a.users"]);
+      expect(tables.map((row) => row.name)).toEqual(["auth.__quickservice_migrations", "auth.users", "tenant_a.__quickservice_migrations", "tenant_a.files", "tenant_a.media", "tenant_a.users"]);
       const rows = (await admin.unsafe("select count(*)::int as count from tenant_a.users")) as { count: number }[];
       expect(rows[0]?.count).toBe(1);
       await admin.close();

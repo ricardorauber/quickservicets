@@ -3,12 +3,15 @@ import type { SQL } from "bun";
 import {
   createRepositories,
   loadConfig,
+  schemaIdentifier,
   SQLITE_DEFAULT_SCHEMA_TOKEN,
   sqliteDefaultPrefix,
   type MigrationContext,
+  type MigrationSqlOptions,
   type MongodbAdapter,
   type Repositories,
   type ResolvedConfig,
+  type SqlDialect,
 } from "@quickservice/core";
 import { drizzle as drizzleSqlite } from "drizzle-orm/bun-sqlite";
 import { drizzle as drizzlePostgres } from "drizzle-orm/bun-sql";
@@ -57,13 +60,133 @@ function toQuery(query: TemplateStringsArray | string, values: unknown[], placeh
   return { text: query.reduce((text, part, index) => text + (index > 0 ? placeholder(index) : "") + part, ""), values };
 }
 
+function isSqlOptions(value: unknown): value is MigrationSqlOptions {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const keys = Object.keys(value);
+  return keys.length === 1 && keys[0] === "schema" && typeof (value as MigrationSqlOptions).schema === "string";
+}
+
+/** Separates the `{ schema }` options of `ctx.sql(statement, { schema })` from bound values. */
+export function splitSqlOptions(query: TemplateStringsArray | string, values: unknown[]): { values: unknown[]; schema?: string } {
+  if (typeof query === "string" && values.length === 1 && isSqlOptions(values[0])) return { values: [], schema: values[0].schema };
+  return { values };
+}
+
+/** The history table of an explicit schema, named like that schema's tables. */
+export function schemaHistoryTable(dialect: SqlDialect, schema: string): string {
+  return dialect === "sqlite" ? `${sqliteDefaultPrefix(schema)}${HISTORY_TABLE_NAME}` : `"${schemaIdentifier(schema)}".${HISTORY_TABLE_NAME}`;
+}
+
+/** The migration connection inside a step's transaction. */
+interface SqlRunner {
+  dialect: SqlDialect;
+  /** Runs a statement of a migration file, whose bound values use the dialect's placeholders. */
+  statement(text: string, params: unknown[]): Promise<unknown>;
+  placeholder(index: number): string;
+  /** Runs an internal query written with `?` placeholders. */
+  exec(text: string, params?: unknown[]): Promise<unknown>;
+  rows<T>(text: string, params?: unknown[]): Promise<T[]>;
+}
+
+/** Records in explicit schemas: which default schemas applied each migration there. */
+function schemaHistories(runner: SqlRunner) {
+  const ensured = new Set<string>();
+  const table = (schema: string) => schemaHistoryTable(runner.dialect, schema);
+  return {
+    async ensure(schema: string) {
+      if (ensured.has(schema)) return;
+      ensured.add(schema);
+      if (runner.dialect === "postgres") await runner.exec(`create schema if not exists "${schemaIdentifier(schema)}"`);
+      const appliedAt = runner.dialect === "sqlite" ? "integer" : "timestamptz";
+      await runner.exec(
+        `create table if not exists ${table(schema)} (id text primary key, name text not null, applied_at ${appliedAt} not null, default_schemas text not null)`,
+      );
+    },
+    /** The default schemas that applied a migration in `schema`, or undefined when none did. */
+    async read(schema: string, id: string): Promise<string[] | undefined> {
+      const [row] = await runner.rows<{ default_schemas: string }>(`select default_schemas from ${table(schema)} where id = ?`, [id]);
+      return row ? (JSON.parse(row.default_schemas) as string[]) : undefined;
+    },
+    async write(schema: string, migration: MigrationFile, defaultSchemas: string[], exists: boolean) {
+      const value = JSON.stringify(defaultSchemas);
+      if (exists) {
+        await runner.exec(`update ${table(schema)} set default_schemas = ? where id = ?`, [value, migration.id]);
+        return;
+      }
+      const now = runner.dialect === "sqlite" ? Date.now() : new Date();
+      await runner.exec(`insert into ${table(schema)} (id, name, applied_at, default_schemas) values (?, ?, ?, ?)`, [
+        migration.id,
+        migration.name,
+        now,
+        value,
+      ]);
+    },
+  };
+}
+
+interface SqlStep {
+  runner: SqlRunner;
+  /** The history table of the default schema. */
+  history: string;
+  /** The resolved default schema, recorded in explicit schemas' histories (`""` when there is none). */
+  defaultSchema: string;
+  db: unknown;
+  repos: Repositories;
+}
+
+/**
+ * Runs one migration step: statements in their written order, the ones marked with an explicit schema only when
+ * that schema has not applied the migration yet, then the history records. The caller wraps it in a transaction.
+ */
+async function runSqlStep(step: SqlStep, migration: MigrationFile, direction: Direction, module: MigrationModule): Promise<void> {
+  const { runner } = step;
+  const histories = schemaHistories(runner);
+  const marked = new Map<string, { defaultSchemas: string[] | undefined; runs: boolean }>();
+  const sql = (async (query: TemplateStringsArray | string, ...values: unknown[]) => {
+    const { values: params, schema } = splitSqlOptions(query, values);
+    if (schema !== undefined) {
+      let state = marked.get(schema);
+      if (!state) {
+        await histories.ensure(schema);
+        const defaultSchemas = await histories.read(schema, migration.id);
+        state = { defaultSchemas, runs: direction === "down" || defaultSchemas === undefined };
+        marked.set(schema, state);
+      }
+      if (!state.runs) return undefined;
+    }
+    const { text, values: bound } = toQuery(query, params, runner.placeholder);
+    return runner.statement(text, bound);
+  }) as MigrationContext["sql"];
+  await module[direction]({ sql, db: step.db, repos: step.repos } satisfies MigrationContext);
+  if (direction === "down") {
+    await runner.exec(`delete from ${step.history} where id = ?`, [migration.id]);
+    return;
+  }
+  const now = runner.dialect === "sqlite" ? Date.now() : new Date();
+  await runner.exec(`insert into ${step.history} (id, name, applied_at) values (?, ?, ?)`, [migration.id, migration.name, now]);
+  for (const [schema, { defaultSchemas }] of marked) {
+    const merged = defaultSchemas?.includes(step.defaultSchema) ? defaultSchemas : [...(defaultSchemas ?? []), step.defaultSchema];
+    await histories.write(schema, migration, merged, defaultSchemas !== undefined);
+  }
+}
+
 function sqliteDriver(client: Database, defaultSchema: string | null): MigrationDriver {
   const prefix = sqliteDefaultPrefix(defaultSchema);
   const HISTORY_TABLE = `${prefix}${HISTORY_TABLE_NAME}`;
-  const sql = (async (query: TemplateStringsArray | string, ...values: unknown[]) => {
-    const { text, values: params } = toQuery(query, values, () => "?");
-    return client.run(text.replaceAll(SQLITE_DEFAULT_SCHEMA_TOKEN, prefix), params as never[]);
-  }) as MigrationContext["sql"];
+  const resolve = (text: string) => text.replaceAll(SQLITE_DEFAULT_SCHEMA_TOKEN, prefix);
+  const runner: SqlRunner = {
+    dialect: "sqlite",
+    placeholder: () => "?",
+    async statement(text, params) {
+      return client.run(resolve(text), params as never[]);
+    },
+    async exec(text, params = []) {
+      return client.run(text, params as never[]);
+    },
+    async rows<T>(text: string, params: unknown[] = []) {
+      return client.query(text).all(...(params as never[])) as T[];
+    },
+  };
   const db = drizzleSqlite(client);
   return {
     warnings: [],
@@ -77,12 +200,8 @@ function sqliteDriver(client: Database, defaultSchema: string | null): Migration
     async runStep(migration, direction, module, repos) {
       client.run("begin");
       try {
-        await module[direction]({ sql, db, repos } satisfies MigrationContext);
-        if (direction === "up") {
-          client.run(`insert into ${HISTORY_TABLE} (id, name, applied_at) values (?, ?, ?)`, [migration.id, migration.name, Date.now()]);
-        } else {
-          client.run(`delete from ${HISTORY_TABLE} where id = ?`, [migration.id]);
-        }
+        const step = { runner, history: HISTORY_TABLE, defaultSchema: defaultSchema ?? "", db, repos };
+        await runSqlStep(step, migration, direction, module);
         client.run("commit");
       } catch (error) {
         client.run("rollback");
@@ -92,7 +211,7 @@ function sqliteDriver(client: Database, defaultSchema: string | null): Migration
   };
 }
 
-function postgresDriver(client: SQL): MigrationDriver {
+function postgresDriver(client: SQL, defaultSchema: string | null): MigrationDriver {
   const db = drizzlePostgres({ client });
   return {
     warnings: [],
@@ -107,16 +226,19 @@ function postgresDriver(client: SQL): MigrationDriver {
     },
     async runStep(migration, direction, module, repos) {
       await client.begin(async (tx) => {
-        const sql = (async (query: TemplateStringsArray | string, ...values: unknown[]) => {
-          const { text, values: params } = toQuery(query, values, (index) => `$${index}`);
-          return tx.unsafe(text, params);
-        }) as MigrationContext["sql"];
-        await module[direction]({ sql, db, repos } satisfies MigrationContext);
-        if (direction === "up") {
-          await tx.unsafe(`insert into ${HISTORY_TABLE} (id, name, applied_at) values ($1, $2, now())`, [migration.id, migration.name]);
-        } else {
-          await tx.unsafe(`delete from ${HISTORY_TABLE} where id = $1`, [migration.id]);
-        }
+        const numbered = (text: string) => {
+          let index = 0;
+          return text.replace(/\?/g, () => `$${++index}`);
+        };
+        const runner: SqlRunner = {
+          dialect: "postgres",
+          placeholder: (index) => `$${index}`,
+          statement: (text, params) => tx.unsafe(text, params),
+          exec: (text, params = []) => tx.unsafe(numbered(text), params),
+          rows: async <T>(text: string, params: unknown[] = []) => (await tx.unsafe(numbered(text), params)) as T[],
+        };
+        const step = { runner, history: HISTORY_TABLE, defaultSchema: defaultSchema ?? "", db, repos };
+        await runSqlStep(step, migration, direction, module);
       });
     },
   };
@@ -145,7 +267,7 @@ function mongoDriver(adapter: MongodbAdapter): MigrationDriver {
 function driverFor(config: ResolvedConfig): MigrationDriver {
   const adapter = config.database as { kind?: string; client?: unknown };
   if (adapter.kind === "sqlite") return sqliteDriver(adapter.client as Database, config.schema);
-  if (adapter.kind === "postgres") return postgresDriver(adapter.client as SQL);
+  if (adapter.kind === "postgres") return postgresDriver(adapter.client as SQL, config.schema);
   if (adapter.kind === "mongodb") return mongoDriver(config.database as MongodbAdapter);
   throw new BuildError(`Migrations are not supported for the ${adapter.kind ?? "configured"} adapter`);
 }

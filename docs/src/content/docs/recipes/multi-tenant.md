@@ -238,16 +238,25 @@ export async function down(ctx: MongoMigrationContext): Promise<void> {
 }
 ```
 
-:::caution[Explicit schemas are shared by every tenant]
-An explicit schema is the same in every deployment: all tenants read and write the same `auth/users`. On SQL databases the migration history lives in each tenant's default schema, so migrating a second tenant in the same database tries to create the shared tables again and fails:
+### Explicit schemas are shared by every tenant
 
-```bash
-DATABASE_SCHEMA=tenant-b bun run quickservice migrate
-# Migration 20261016222536_Initial failed: table `billing_eu__invoices` already exists
+An explicit schema is the same in every deployment: all tenants read and write the same `auth/users` and `billing-eu/invoices`. `migration add` marks each statement that changes an explicit-schema table with its schema:
+
+```ts title="migrations/20261016222536_Initial.ts"
+await ctx.sql("CREATE TABLE `billing_eu__invoices` (...);", { schema: "billing-eu" });
+await ctx.sql("CREATE TABLE `{{default_schema}}users` (...);");
 ```
 
-Keep explicit schemas for data that really is shared, and on SQLite and PostgreSQL migrate it from one deployment only, or give each tenant its own database.
-:::
+Each explicit schema keeps its own migration history, next to its tables (`billing_eu____quickservice_migrations` on SQLite, `billing_eu.__quickservice_migrations` on PostgreSQL). `migrate` runs a marked statement only when that history does not have the migration yet, so several tenants can migrate the same database:
+
+```bash
+DATABASE_SCHEMA=tenant-a bun run quickservice migrate
+# Applied 20261016222536_Initial
+DATABASE_SCHEMA=tenant-b bun run quickservice migrate
+# Applied 20261016222536_Initial
+```
+
+The first run creates `tenant_a__users`, `auth__users` and `billing_eu__invoices`; the second only creates `tenant_b__users`. The history of `billing-eu` records the migration once, with the default schemas that applied it: `tenant-a` and `tenant-b`. Each migration still runs in one transaction, so a failing statement leaves every history as it was.
 
 ## Naming rules
 

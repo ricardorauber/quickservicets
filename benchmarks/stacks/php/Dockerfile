@@ -31,7 +31,7 @@ ENV APP_ENV=production \
     CACHE_STORE=array \
     SESSION_DRIVER=array \
     OCTANE_SERVER=swoole \
-    OCTANE_WORKERS=2 \
+    OCTANE_WORKERS=10 \
     OCTANE_MAX_REQUESTS=10000 \
     PORT=8080
 

@@ -78,7 +78,7 @@ for (const name of scenarioNames) if (!SCENARIOS[name]) fail(`Unknown scenario "
 function availableStacks(): string[] {
   const dir = join(BENCH, "stacks");
   const others = existsSync(dir) ? readdirSync(dir).filter((name) => existsSync(join(dir, name, "Dockerfile"))).sort() : [];
-  return ["quickservice", ...others];
+  return ["quickservice", "quickservice-2proc", ...others];
 }
 const known = availableStacks();
 const stacks = positional.length === 0 || positional.includes("all") ? known : positional;
@@ -122,8 +122,12 @@ async function seed() {
 async function buildImage(stack: string): Promise<{ image: string; buildSeconds: number | null }> {
   const image = `qsbench-${stack}`;
   if (flags.get("--skip-build")) return { image, buildSeconds: null };
-  const dockerfile = stack === "quickservice" ? join(BENCH, "quickservice", "Dockerfile") : join(BENCH, "stacks", stack, "Dockerfile");
-  const context = stack === "quickservice" ? ROOT : join(BENCH, "stacks", stack);
+  // QuickService variants build from the repository root; "quickservice-2proc" is an experiment (see quickservice/Dockerfile.2proc).
+  const isQuickService = stack.startsWith("quickservice");
+  const dockerfile = isQuickService
+    ? join(BENCH, "quickservice", stack === "quickservice" ? "Dockerfile" : `Dockerfile.${stack.slice("quickservice-".length)}`)
+    : join(BENCH, "stacks", stack, "Dockerfile");
+  const context = isQuickService ? ROOT : join(BENCH, "stacks", stack);
   log(`Building ${image}`);
   const started = performance.now();
   const proc = Bun.spawn(["docker", "build", "-f", dockerfile, "-t", image, context], { stdout: "inherit", stderr: "inherit" });

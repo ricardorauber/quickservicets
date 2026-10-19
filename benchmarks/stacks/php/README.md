@@ -11,9 +11,11 @@
 ## How it uses 2 CPUs
 
 Octane boots the Laravel application once per Swoole worker and keeps it in memory between requests. It runs
-**2 request workers** (`OCTANE_WORKERS=2`, one per CPU) and no task workers. Each worker handles one request at a
-time and keeps its own database connection open across requests, so the service holds **2 PostgreSQL connections**
-in total: a synchronous PHP worker can only use one at a time, so `DB_POOL_SIZE` is not used. Workers are recycled
+**10 request workers** (`OCTANE_WORKERS=10`) and no task workers. Each worker handles one request at a time and keeps
+its own database connection open across requests, so the service holds **10 PostgreSQL connections** in total, the same
+as every other stack (`DB_POOL_SIZE` is not used: a synchronous PHP worker can only use one connection at a time). With
+one worker per CPU the workers mostly wait on the database (about 109% CPU and 1,470 req/s on `GET /users/{id}` with 2
+workers, against about 199% and 2,540 req/s with 4), so the measured run uses the PHP norm of more workers than CPUs. Workers are recycled
 after 10,000 requests (`OCTANE_MAX_REQUESTS`; Octane's default of 500 would re-bootstrap Laravel several times a second
 under load).
 

@@ -68,7 +68,8 @@ export type { StorageAdapter, StorageBody } from "./storage/storage.ts";
 export { s3Storage } from "./storage/s3.ts";
 export type { S3StorageOptions } from "./storage/s3.ts";
 export { DEFAULT_MAX_FILE_SIZE, mimeMatches, parseSize, sanitizeFilename } from "./files/limits.ts";
-export { assertFileAllowed, coerceFormValue, formFields, parseUpload, readMultipart, storageOf, storeFile } from "./files/upload.ts";
+export { assertFileAllowed, coerceFormValue, formFields, parseUpload, readMultipart, resolveUploadType, storageOf, storeFile } from "./files/upload.ts";
+export { detectFileType } from "./files/detect.ts";
 export type { ParsedUpload, UploadSettings } from "./files/upload.ts";
 export {
   contentDisposition,

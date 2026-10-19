@@ -3,6 +3,7 @@ import type { ServiceRequest } from "../hooks.ts";
 import { MEDIA_MIME_TYPES } from "../files.ts";
 import type { EntityModel, FieldModel } from "../model.ts";
 import { storageKeyFor, type StorageAdapter } from "../storage/storage.ts";
+import { detectFileType } from "./detect.ts";
 import { mimeMatches, sanitizeFilename } from "./limits.ts";
 
 export interface UploadSettings {
@@ -60,12 +61,87 @@ export function formFields(model: EntityModel, form: FormData, skip: (name: stri
   return result;
 }
 
+const CRLF = Buffer.from("\r\n");
+const HEADERS_END = Buffer.from("\r\n\r\n");
+
+/**
+ * The `Content-Type` header of each file part (a part with a file name), by part name and in part order;
+ * undefined where the part has none. Read from the raw body because the form parser derives types from file names.
+ */
+function declaredFileTypes(body: Buffer, contentType: string): Map<string, (string | undefined)[]> {
+  const types = new Map<string, (string | undefined)[]>();
+  const boundary = /boundary=(?:"([^"]+)"|([^;\s]+))/i.exec(contentType);
+  if (!boundary) return types;
+  const delimiter = Buffer.from(`--${boundary[1] ?? boundary[2]}`);
+  let position = body.indexOf(delimiter);
+  while (position !== -1) {
+    position += delimiter.length;
+    if (body.subarray(position, position + 2).toString() === "--") break;
+    const headersStart = body.indexOf(CRLF, position) + CRLF.length;
+    const headersEnd = body.indexOf(HEADERS_END, headersStart);
+    if (headersStart < CRLF.length || headersEnd === -1) break;
+    let name: string | undefined;
+    let isFile = false;
+    let type: string | undefined;
+    for (const line of body.subarray(headersStart, headersEnd).toString("utf8").split("\r\n")) {
+      const separator = line.indexOf(":");
+      const header = line.slice(0, separator).trim().toLowerCase();
+      const value = line.slice(separator + 1).trim();
+      if (header === "content-type") type = value;
+      if (header === "content-disposition") {
+        name = /(?:^|;)\s*name="([^"]*)"/i.exec(value)?.[1] ?? /(?:^|;)\s*name=([^;\s]+)/i.exec(value)?.[1];
+        isFile = /(?:^|;)\s*filename\*?=/i.test(value);
+      }
+    }
+    if (name !== undefined && isFile) types.set(name, [...(types.get(name) ?? []), type]);
+    position = body.indexOf(Buffer.concat([CRLF, delimiter]), headersEnd);
+    if (position !== -1) position += CRLF.length;
+  }
+  return types;
+}
+
+/** Parses a multipart body; each file part carries the type its `Content-Type` header declared (empty when it has none). */
 export async function readMultipart(req: ServiceRequest): Promise<FormData> {
   const type = req.headers.get("content-type") ?? "";
   if (!type.toLowerCase().startsWith("multipart/form-data")) {
     throw new HttpError(415, "Must be multipart/form-data");
   }
-  return (await req.raw.formData()) as unknown as FormData;
+  const body = Buffer.from(await req.raw.arrayBuffer());
+  const parsed = (await new Response(body, { headers: { "content-type": type } }).formData()) as unknown as FormData;
+  const declared = declaredFileTypes(body, type);
+  const seen = new Map<string, number>();
+  const form = new FormData();
+  for (const [name, value] of parsed.entries()) {
+    if (typeof value === "string") {
+      form.append(name, value);
+      continue;
+    }
+    const index = seen.get(name) ?? 0;
+    seen.set(name, index + 1);
+    const file = value as File;
+    form.append(name, new File([file], file.name, { type: declared.get(name)?.[index] ?? "" }));
+  }
+  return form;
+}
+
+/** A MIME type without parameters, in lower case. */
+const essence = (type: string) => type.split(";")[0]!.trim().toLowerCase();
+
+/**
+ * The file with the type its content shows: a recognized format replaces a missing or generic declared type and must
+ * match any other one; the declared type stays for formats the server does not recognize.
+ */
+export async function resolveUploadType<T extends Blob & { name?: string }>(file: T, path: string): Promise<File> {
+  const detected = await detectFileType(file);
+  const declared = essence(file.type);
+  const name = file.name ?? "file";
+  if (detected === undefined) return file instanceof File ? file : new File([file], name, { type: file.type });
+  if (declared !== "" && declared !== "application/octet-stream" && declared !== detected) {
+    throw new HttpError(415, "File content does not match its type", {
+      details: [{ field: path, message: `Detected ${detected}, declared ${declared}` }],
+    });
+  }
+  return new File([file], name, { type: detected });
 }
 
 /** Checks a file against the size and MIME limits of the entity (and of a field, when given). */
@@ -111,6 +187,7 @@ export async function parseUpload(req: ServiceRequest, model: EntityModel, setti
   const form = await readMultipart(req);
   const file = form.get("file");
   if (!(file instanceof Blob)) throw invalid("file", "Is required");
-  assertFileAllowed(model, file, settings, "file");
-  return { file, data: formFields(model, form, (name) => name === "file") };
+  const resolved = await resolveUploadType(file, "file");
+  assertFileAllowed(model, resolved, settings, "file");
+  return { file: resolved, data: formFields(model, form, (name) => name === "file") };
 }

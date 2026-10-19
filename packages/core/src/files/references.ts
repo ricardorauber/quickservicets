@@ -3,7 +3,7 @@ import type { ServiceRequest } from "../hooks.ts";
 import type { EntityModel } from "../model.ts";
 import { repositoryFor, type RepositoryRegistry } from "../repository.ts";
 import { fileTargetOf, type FileReference } from "./field-limits.ts";
-import { assertFileAllowed, formFields, readMultipart, storeFile, type UploadSettings } from "./upload.ts";
+import { assertFileAllowed, formFields, readMultipart, resolveUploadType, storeFile, type UploadSettings } from "./upload.ts";
 
 const invalid = (field: string, message: string) => new HttpError(400, "Invalid body", { details: [{ field, message }] });
 
@@ -37,15 +37,17 @@ export async function parseEntityUpload(
     const target = fileTargetOf(field, models);
     if (!target) throw invalid(name, "Unknown field");
     const values = form.getAll(name);
-    const parts = values.filter((value): value is File => value instanceof Blob);
+    let parts = values.filter((value): value is File => value instanceof Blob);
     const ids = values.filter((value): value is string => typeof value === "string");
     if (field!.type === "ref") {
       if (values.length > 1 || name in data) throw invalid(name, "Duplicate field");
+      parts = [await resolveUploadType(parts[0]!, name)];
       assertFileAllowed(target, parts[0]!, settings, name, field!.fileLimits);
     } else {
       // An array takes its current value from form values or the data part, never both; the files come after it.
       if (ids.length > 0 && name in data) throw invalid(name, "Duplicate field");
       if (ids.length > 0) data[name] = ids;
+      parts = await Promise.all(parts.map((part, index) => resolveUploadType(part, `${name}[${index}]`)));
       parts.forEach((part, index) => assertFileAllowed(target, part, settings, `${name}[${index}]`, field!.fileLimits));
       const maxTotalSize = field!.fileLimits?.maxTotalSize;
       if (maxTotalSize !== undefined && parts.reduce((total, part) => total + part.size, 0) > maxTotalSize) {

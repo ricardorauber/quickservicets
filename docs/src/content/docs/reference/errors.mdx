@@ -38,4 +38,5 @@ Every error response has the shape `{ "error": { "code", "message", "details"? }
 | 413 | `File too large` | An upload is larger than the allowed size. |
 | 413 | `Total upload size too large` | The files of an array field are larger than `@maxTotalSize` together. |
 | 415 | `Must be multipart/form-data` | A file entity was written with JSON instead of a multipart body. |
+| 415 | `File content does not match its type` | An upload's bytes are a recognized format other than its declared type; `details` names the field and both types. |
 | 500 | `Internal server error` | An unexpected error; outside production, `details.stack` has the stack trace. |

@@ -21,7 +21,7 @@ Both have the system fields (`id`, `createdAt`, `updatedAt`) plus:
 | Field | Description |
 | --- | --- |
 | `filename` | The uploaded file's base name. The only base field a `PATCH` can change. |
-| `mimeType` | The MIME type of the uploaded part. |
+| `mimeType` | The MIME type of the uploaded file, decided as in [File type](#file-type). |
 | `size` | Size in bytes. |
 | `storage` | Name of the storage that holds the bytes. |
 | `storageKey` | Where the object lives in the storage. Hidden: never in responses. |
@@ -192,6 +192,43 @@ curl -X POST localhost:3000/files -F "file=@contract.pdf;type=application/pdf"
 // 201 Created
 {"id":"01a146d1-3b9d-70bb-b990-71cdf5469789","createdAt":"2026-10-16T22:24:39.837Z","updatedAt":"2026-10-16T22:24:39.837Z","filename":"contract.pdf","mimeType":"application/pdf","size":5009,"storage":"default","url":"/files/01a146d1-3b9d-70bb-b990-71cdf5469789/file"}
 ```
+
+### File type
+
+The type of an upload is decided from its bytes when the server recognizes the format, so a file name or a declared type cannot get a file past `@accept`. The declared type is the `Content-Type` header of the part, as the client sent it; the file name plays no part. With curl, set it with `;type=`.
+
+The server recognizes PNG (`image/png`), JPEG (`image/jpeg`), GIF (`image/gif`), WebP (`image/webp`) and PDF (`application/pdf`) from their first bytes. Then:
+
+| Content | Declared type | Type used |
+| --- | --- | --- |
+| A recognized format | The same type (parameters and case are ignored) | The detected type |
+| A recognized format | Missing or `application/octet-stream` | The detected type |
+| A recognized format | Any other type | None: the upload fails with 415 |
+| Any other content | Anything | The declared type |
+
+`@accept`, the stored `mimeType` and the `content-type` of the [file route](#proxy) all use that type. PNG bytes sent without a type are stored as `image/png`:
+
+```bash
+curl -X POST localhost:3000/media -F "file=@logo.png;type=application/octet-stream"
+```
+
+```json
+// 201 Created
+{"id":"01a146d1-021f-737c-84f5-b476dc5cacc2","createdAt":"2026-10-16T22:24:25.121Z","updatedAt":"2026-10-16T22:24:25.121Z","filename":"logo.png","mimeType":"image/png","size":2048,"storage":"default","alt":null,"url":"/media/01a146d1-021f-737c-84f5-b476dc5cacc2/file"}
+```
+
+PNG bytes declared as another type fail, whatever the file name. The error names the field and both types:
+
+```bash
+curl -X POST localhost:3000/organizations -F name=D -F slug=d -F "logo=@logo.png;type=image/gif"
+```
+
+```json
+// 415 Unsupported Media Type
+{"error":{"code":"UNSUPPORTED_MEDIA_TYPE","message":"File content does not match its type","details":[{"field":"logo","message":"Detected image/png, declared image/gif"}]}}
+```
+
+A format the server does not recognize, such as CSV, keeps its declared type: `-F "file=@items.csv;type=text/csv"` is stored as `text/csv`.
 
 ## Uploading through other entities
 

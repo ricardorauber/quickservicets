@@ -36,6 +36,7 @@ const PAGES = [
   "guides/migrations.md",
   "guides/api-docs.md",
   "guides/configuration.md",
+  "guides/jobs.md",
   "reference/index.md",
   "reference/tags.mdx",
   "reference/config.mdx",
@@ -49,6 +50,7 @@ const PAGES = [
   "recipes/pagination.md",
   "recipes/multi-tenant.md",
   "recipes/testing.md",
+  "recipes/scheduled-cleanup.md",
 ];
 
 test("every page of the site exists, in English only", () => {

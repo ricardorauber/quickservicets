@@ -277,4 +277,4 @@ Nothing changes: `endpoints` and `hooks` from `.generated/routes.ts` already con
 - [HTTP reference](/reference/http/), for list filters
 - [Errors](/reference/errors/)
 
-Previous: [Multi-tenant schemas](/recipes/multi-tenant/). That is the last recipe; back to the [Guides](/guides/).
+Previous: [Multi-tenant schemas](/recipes/multi-tenant/). Next: [Scheduled cleanup](/recipes/scheduled-cleanup/).

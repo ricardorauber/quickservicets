@@ -177,4 +177,4 @@ An error thrown by the logger never changes the response.
 - [Configuration reference](/reference/config/): every key with its type and default.
 - [CLI](/reference/cli/): the commands that read the config.
 
-Next: [Recipes](/recipes/).
+Next: [Jobs](/guides/jobs/).

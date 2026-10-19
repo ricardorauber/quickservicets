@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>QsBench</AssemblyName>
+    <RootNamespace>QsBench</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- ASP.NET Core defaults, stated explicitly: server GC (one heap per CPU) and dynamic PGO. -->
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+    <TieredPGO>true</TieredPGO>
+    <!-- Every JSON type goes through the source-generated context in Json.cs. -->
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+    <!-- ReadyToRun (precompiled code, less JIT at startup) when publishing for a runtime, as the Dockerfile does. -->
+    <PublishReadyToRun Condition="'$(RuntimeIdentifier)' != ''">true</PublishReadyToRun>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Npgsql" Version="10.0.3" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,9 @@
+{
+  "name": "qsbench-bun",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun src/launcher.ts",
+    "build": "bun build src/launcher.ts src/server.ts --target=bun --production --outdir dist"
+  }
+}

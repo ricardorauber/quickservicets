@@ -7,6 +7,7 @@
     "build": "quickservice build",
     "migrate": "quickservice migrate",
     "start": "bun .generated/server.ts",
+    "seed": "quickservice build && bun scripts/seed.ts",
     "test": "bun test tests"
   },
   "dependencies": {

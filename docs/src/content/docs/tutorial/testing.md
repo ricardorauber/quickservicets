@@ -7,7 +7,7 @@ sidebar:
 
 The identity example comes with an API test suite in `examples/identity/tests/api.test.ts`. It calls every route of the project, including the [permission check](/tutorial/permission-endpoint/) and the [API docs](/tutorial/api-docs/), and checks each outcome: success, validation errors, 404, 405, 409 and so on.
 
-It runs **in-process**: no server, no port, no PostgreSQL. The tests build the project, start the generated app on an in-memory database and send it `Request` objects directly.
+It runs **in-process**: no server, no port and, by default, no PostgreSQL. The tests build the project, start the generated app on an in-memory database and send it `Request` objects directly. Set `TEST_POSTGRES_URL` and every test runs a second time on PostgreSQL.
 
 ## Run it
 
@@ -20,14 +20,33 @@ bun test tests
 ```text
 bun test v1.4.2 (744846f84)
 
- 101 pass
+ 102 pass
  1 skip
  0 fail
- 443 expect() calls
-Ran 102 tests across 2 files. [1570.00ms]
+ 448 expect() calls
+Ran 103 tests across 3 files. [2810.00ms]
 ```
 
-The skipped test is in `tests/migrations.test.ts`: it applies the project's migrations one after the other on PostgreSQL, and runs only when `TEST_POSTGRES_URL` points at a database whose `public` schema it may replace.
+Besides `tests/api.test.ts`, the folder has `tests/seed.test.ts`, which checks that the seed script (`scripts/seed.ts`, which `bun run seed` runs) can run twice without duplicating data, and `tests/migrations.test.ts`, the skipped one: it applies the project's migrations one after the other on PostgreSQL, so it runs only when `TEST_POSTGRES_URL` is set.
+
+### On PostgreSQL
+
+Point `TEST_POSTGRES_URL` at a database the tests may change. `tests/migrations.test.ts` replaces its `public` schema, so don't use the one you develop with:
+
+```bash
+TEST_POSTGRES_URL=postgres://postgres:postgres@localhost:5432/identity_test bun test tests
+```
+
+```text
+bun test v1.4.2 (744846f84)
+
+ 204 pass
+ 0 fail
+ 896 expect() calls
+Ran 204 tests across 3 files. [8300.00ms]
+```
+
+Every API test runs once on memory and once on PostgreSQL. For the PostgreSQL run, the suite creates a schema of its own with the project's migrations (`quickservice migrate` with `DATABASE_SCHEMA` set), runs the tests in it and drops it at the end, so runs never see each other's records.
 
 `bun run test` does the same (it is the `test` script in `package.json`). To run some of the tests, filter by name with `-t`:
 
@@ -39,10 +58,10 @@ bun test tests -t "has-permissions"
 bun test v1.4.2 (744846f84)
 
  4 pass
- 98 filtered out
+ 99 filtered out
  0 fail
  20 expect() calls
-Ran 4 tests across 2 files. [1441.00ms]
+Ran 4 tests across 3 files. [1404.00ms]
 ```
 
 ## The test file
@@ -52,19 +71,55 @@ Here is the start of the file, its helpers and some of its cases. The `// …` l
 ```ts check title="tests/api.test.ts"
 /**
  * End-to-end tests of every route of this project, with every outcome each one can produce.
- * Runs the generated app in-process on an in-memory database: `bun test` in examples/identity.
+ * Runs the generated app in-process on an in-memory database: `bun test` in examples/identity. When TEST_POSTGRES_URL is
+ * set, every test runs again on PostgreSQL, in a new schema created with the project's migrations and dropped afterwards.
  */
-import { beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { SQL } from "bun";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createApp, localStorage, memoryAdapter, resolveConfig } from "@quickservice/core";
+import { createApp, localStorage, memoryAdapter, postgresAdapter, resolveConfig, schemaIdentifier, type DatabaseAdapter, type EntityModel } from "@quickservice/core";
 
 const root = join(import.meta.dir, "..");
 type Json = Record<string, any>;
 // The body is any JSON value: an object for most routes, a boolean for the permission check.
 type Result = { status: number; body: any; headers: Headers };
 
+/** A database for one run of the suite, and how to clean it up. */
+type TestDatabase = { database: DatabaseAdapter; close(): Promise<void> };
+
+async function memoryDatabase(models: EntityModel[]): Promise<TestDatabase> {
+  const database = memoryAdapter();
+  await database.connect(models);
+  return { database, close: () => database.disconnect() };
+}
+
+async function postgresDatabase(models: EntityModel[]): Promise<TestDatabase> {
+  const url = process.env.TEST_POSTGRES_URL!;
+  const schema = `identity-test-${Date.now().toString(36)}`;
+  const env = { ...process.env, DATABASE_URL: url, DATABASE_SCHEMA: schema };
+  const migrated = Bun.spawnSync(["bun", "run", "quickservice", "migrate"], { cwd: root, env, stdout: "pipe", stderr: "pipe" });
+  if (migrated.exitCode !== 0) throw new Error(`migrate failed: ${migrated.stderr.toString()}${migrated.stdout.toString()}`);
+  const database = postgresAdapter({ url });
+  await database.connect(models, { defaultSchema: schema });
+  return {
+    database,
+    async close() {
+      await database.disconnect();
+      const admin = new SQL(url);
+      await admin.unsafe(`drop schema "${schemaIdentifier(schema)}" cascade`);
+      await admin.close();
+    },
+  };
+}
+
+const databases: [string, (models: EntityModel[]) => Promise<TestDatabase>][] = [
+  ["memory", memoryDatabase],
+  ...(process.env.TEST_POSTGRES_URL ? [["PostgreSQL", postgresDatabase] as [string, typeof postgresDatabase]] : []),
+];
+
+let generated: { models: EntityModel[]; crudRoutes: any; endpoints: any; hooks: any; openApi: any };
 let fetchApp: (request: Request) => Promise<Response>;
 
 beforeAll(async () => {
@@ -73,11 +128,16 @@ beforeAll(async () => {
   const { models } = await import(join(root, ".generated/models.ts"));
   const { crudRoutes, endpoints, hooks } = await import(join(root, ".generated/routes.ts"));
   const openApi = await Bun.file(join(root, ".generated/openapi.json")).json();
-  const database = memoryAdapter();
-  await database.connect(models);
+  generated = { models, crudRoutes, endpoints, hooks, openApi };
+});
+
+/** Connects the database and starts the app on it; the tests send it requests through `fetchApp`. */
+async function startApp(open: (models: EntityModel[]) => Promise<TestDatabase>): Promise<TestDatabase> {
+  const { models, crudRoutes, endpoints, hooks, openApi } = generated;
+  const opened = await open(models);
   const config = resolveConfig(
     {
-      database,
+      database: opened.database,
       populate: { maxDepth: 3 },
       storage: { default: localStorage({ dir: mkdtempSync(join(tmpdir(), "identity-uploads-")) }) },
       logger: { info() {}, warn() {}, error() {} },
@@ -86,7 +146,8 @@ beforeAll(async () => {
   );
   const { server } = createApp({ models, crudRoutes, endpoints, hooks, config, openApi });
   fetchApp = (request) => server.fetch(request);
-});
+  return opened;
+}
 
 async function call(method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<Result> {
   const init: RequestInit = { method, headers };
@@ -140,49 +201,57 @@ async function world() {
   return { billing, reports, legacy, org, inactiveOrg, billingManage, reportsView, legacyManage, finance, analyst, ana, membership, team };
 }
 
-// … the CRUD cases of every entity, then entity rules, data rules, media and files …
+describe.each(databases)("on %s", (_name, open) => {
+  let opened: TestDatabase;
+  beforeAll(async () => {
+    opened = await startApp(open);
+  }, 60_000);
+  afterAll(() => opened?.close());
 
-// ---------------------------------------------------------------------------------------------------------------
-// The custom endpoint: GET /users/:userId/has-permissions.
-// ---------------------------------------------------------------------------------------------------------------
+  // … the CRUD cases of every entity, then entity rules, data rules, media and files …
 
-describe("GET /users/:userId/has-permissions", () => {
-  const check = (userId: string, query: string) => get(`/users/${userId}/has-permissions?${query}`);
+  // ---------------------------------------------------------------------------------------------------------------
+  // The custom endpoint: GET /users/:userId/has-permissions.
+  // ---------------------------------------------------------------------------------------------------------------
 
-  test("missing or invalid query items fail (400)", async () => {
-    const { ana } = await world();
-    const none = await check(ana.id, "");
-    expect(none.status).toBe(400);
-    expect(details(none).map((item) => [item.field, item.message])).toEqual([
-      ["p", "Is required"],
-      ["rule", "Is required"],
-      ["organization", "Is required"],
-    ]);
-    const badRule = await check(ana.id, `organization=x&p=a:view&rule=some`);
-    expect(detail(badRule, "rule")).toBe("Must be one of: all, any");
-    const repeated = await check(ana.id, `organization=x&organization=y&p=a:view&rule=all`);
-    expect(detail(repeated, "organization")).toBe("Parameter is repeated");
+  describe("GET /users/:userId/has-permissions", () => {
+    const check = (userId: string, query: string) => get(`/users/${userId}/has-permissions?${query}`);
+
+    test("missing or invalid query items fail (400)", async () => {
+      const { ana } = await world();
+      const none = await check(ana.id, "");
+      expect(none.status).toBe(400);
+      expect(details(none).map((item) => [item.field, item.message])).toEqual([
+        ["p", "Is required"],
+        ["rule", "Is required"],
+        ["organization", "Is required"],
+      ]);
+      const badRule = await check(ana.id, `organization=x&p=a:view&rule=some`);
+      expect(detail(badRule, "rule")).toBe("Must be one of: all, any");
+      const repeated = await check(ana.id, `organization=x&organization=y&p=a:view&rule=all`);
+      expect(detail(repeated, "organization")).toBe("Parameter is repeated");
+    });
+
+    // … direct and team grants, inactive records, users without grants …
   });
 
-  // … direct and team grants, inactive records, users without grants …
-});
+  // ---------------------------------------------------------------------------------------------------------------
+  // Framework routes.
+  // ---------------------------------------------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------------------------------------------
-// Framework routes.
-// ---------------------------------------------------------------------------------------------------------------
+  describe("framework routes", () => {
+    test("unknown routes answer 404 Route not found", async () => {
+      const result = await get("/nope");
+      expect([result.status, result.body]).toEqual([404, { error: { code: "NOT_FOUND", message: "Route not found" } }]);
+    });
 
-describe("framework routes", () => {
-  test("unknown routes answer 404 Route not found", async () => {
-    const result = await get("/nope");
-    expect([result.status, result.body]).toEqual([404, { error: { code: "NOT_FOUND", message: "Route not found" } }]);
-  });
-
-  test("API docs are served", async () => {
-    const document = await get("/openapi.json");
-    expect([document.status, document.body.openapi]).toEqual([200, "3.1.0"]);
-    expect(Object.keys(document.body.paths)).toContain("/users/{userId}/has-permissions");
-    const page = await fetchApp(new Request("http://x/docs"));
-    expect([page.status, page.headers.get("content-type")]).toEqual([200, "text/html; charset=utf-8"]);
+    test("API docs are served", async () => {
+      const document = await get("/openapi.json");
+      expect([document.status, document.body.openapi]).toEqual([200, "3.1.0"]);
+      expect(Object.keys(document.body.paths)).toContain("/users/{userId}/has-permissions");
+      const page = await fetchApp(new Request("http://x/docs"));
+      expect([page.status, page.headers.get("content-type")]).toEqual([200, "text/html; charset=utf-8"]);
+    });
   });
 });
 ```
@@ -191,12 +260,15 @@ The rest of this page goes through it, top to bottom.
 
 ## Building and starting the app
 
-`beforeAll` runs once, before any test:
+The top-level `beforeAll` runs once, before any test:
 
 1. **Build.** It runs `quickservice build` in the project folder, which writes `.generated/`: the models, the routes (CRUD routes, custom endpoints and hooks), the types and `openapi.json`. When the build fails, the error is the build output, so a broken entity fails the suite right away.
 2. **Import the generated code.** It imports `models` from `.generated/models.ts`, `crudRoutes`, `endpoints` and `hooks` from `.generated/routes.ts`, and reads `.generated/openapi.json`. These are the same pieces `.generated/server.ts` puts together for the real server.
-3. **Connect a memory database.** `memoryAdapter()` keeps everything in memory, so each run starts empty and needs no setup or cleanup. The tests don't read `quickservice.config.ts`, so they never touch the PostgreSQL database the project is configured with.
-4. **Resolve the config.** `resolveConfig` fills every default, as it does for the real server. The test passes the memory database, the same `populate: { maxDepth: 3 }` as the project, a local storage in a temporary folder for uploads, and a logger that drops the request logs. The second argument, `{}`, is the environment: an empty one, so variables such as `NODE_ENV` don't change the config (the API docs stay on, for example).
+
+Every test sits inside `describe.each(databases)`, which repeats them once per database: `memory`, and `PostgreSQL` when `TEST_POSTGRES_URL` is set. Its `beforeAll` calls `startApp`, and its `afterAll` cleans up:
+
+3. **Connect the database.** `memoryDatabase` uses `memoryAdapter()`, which keeps everything in memory, so each run starts empty. `postgresDatabase` creates a new schema with the project's migrations and connects to it; its `close` drops the schema. The tests don't read `quickservice.config.ts`, so they never touch the database the project is configured with.
+4. **Resolve the config.** `resolveConfig` fills every default, as it does for the real server. The test passes the database, the same `populate: { maxDepth: 3 }` as the project, a local storage in a temporary folder for uploads, and a logger that drops the request logs. The second argument, `{}`, is the environment: an empty one, so variables such as `NODE_ENV` don't change the config (the API docs stay on, for example).
 5. **Create the app.** `createApp` returns a `server` whose `fetch(request)` handles a `Request` like the running service would: routing, hooks, validation, errors and all.
 
 Nothing listens on a port: `fetchApp` is `server.fetch`.

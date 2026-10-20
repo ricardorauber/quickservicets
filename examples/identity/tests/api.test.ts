@@ -1,18 +1,54 @@
 /**
  * End-to-end tests of every route of this project, with every outcome each one can produce.
- * Runs the generated app in-process on an in-memory database: `bun test` in examples/identity.
+ * Runs the generated app in-process on an in-memory database: `bun test` in examples/identity. When TEST_POSTGRES_URL is
+ * set, every test runs again on PostgreSQL, in a new schema created with the project's migrations and dropped afterwards.
  */
-import { beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { SQL } from "bun";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createApp, localStorage, memoryAdapter, resolveConfig } from "@quickservice/core";
+import { createApp, localStorage, memoryAdapter, postgresAdapter, resolveConfig, schemaIdentifier, type DatabaseAdapter, type EntityModel } from "@quickservice/core";
 
 const root = join(import.meta.dir, "..");
 type Json = Record<string, any>;
 // The body is any JSON value: an object for most routes, a boolean for the permission check.
 type Result = { status: number; body: any; headers: Headers };
 
+/** A database for one run of the suite, and how to clean it up. */
+type TestDatabase = { database: DatabaseAdapter; close(): Promise<void> };
+
+async function memoryDatabase(models: EntityModel[]): Promise<TestDatabase> {
+  const database = memoryAdapter();
+  await database.connect(models);
+  return { database, close: () => database.disconnect() };
+}
+
+async function postgresDatabase(models: EntityModel[]): Promise<TestDatabase> {
+  const url = process.env.TEST_POSTGRES_URL!;
+  const schema = `identity-test-${Date.now().toString(36)}`;
+  const env = { ...process.env, DATABASE_URL: url, DATABASE_SCHEMA: schema };
+  const migrated = Bun.spawnSync(["bun", "run", "quickservice", "migrate"], { cwd: root, env, stdout: "pipe", stderr: "pipe" });
+  if (migrated.exitCode !== 0) throw new Error(`migrate failed: ${migrated.stderr.toString()}${migrated.stdout.toString()}`);
+  const database = postgresAdapter({ url });
+  await database.connect(models, { defaultSchema: schema });
+  return {
+    database,
+    async close() {
+      await database.disconnect();
+      const admin = new SQL(url);
+      await admin.unsafe(`drop schema "${schemaIdentifier(schema)}" cascade`);
+      await admin.close();
+    },
+  };
+}
+
+const databases: [string, (models: EntityModel[]) => Promise<TestDatabase>][] = [
+  ["memory", memoryDatabase],
+  ...(process.env.TEST_POSTGRES_URL ? [["PostgreSQL", postgresDatabase] as [string, typeof postgresDatabase]] : []),
+];
+
+let generated: { models: EntityModel[]; crudRoutes: any; endpoints: any; hooks: any; openApi: any };
 let fetchApp: (request: Request) => Promise<Response>;
 
 beforeAll(async () => {
@@ -21,11 +57,16 @@ beforeAll(async () => {
   const { models } = await import(join(root, ".generated/models.ts"));
   const { crudRoutes, endpoints, hooks } = await import(join(root, ".generated/routes.ts"));
   const openApi = await Bun.file(join(root, ".generated/openapi.json")).json();
-  const database = memoryAdapter();
-  await database.connect(models);
+  generated = { models, crudRoutes, endpoints, hooks, openApi };
+});
+
+/** Connects the database and starts the app on it; the tests send it requests through `fetchApp`. */
+async function startApp(open: (models: EntityModel[]) => Promise<TestDatabase>): Promise<TestDatabase> {
+  const { models, crudRoutes, endpoints, hooks, openApi } = generated;
+  const opened = await open(models);
   const config = resolveConfig(
     {
-      database,
+      database: opened.database,
       populate: { maxDepth: 3 },
       storage: { default: localStorage({ dir: mkdtempSync(join(tmpdir(), "identity-uploads-")) }) },
       logger: { info() {}, warn() {}, error() {} },
@@ -34,7 +75,8 @@ beforeAll(async () => {
   );
   const { server } = createApp({ models, crudRoutes, endpoints, hooks, config, openApi });
   fetchApp = (request) => server.fetch(request);
-});
+  return opened;
+}
 
 async function call(method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<Result> {
   const init: RequestInit = { method, headers };
@@ -152,444 +194,452 @@ const crudCases: CrudCase[] = [
   },
 ];
 
-describe.each(crudCases)("$path", ({ path, entity, valid, required, wrongType, change }) => {
-  test("POST creates (201) with system fields", async () => {
-    const result = await post(path, await valid());
-    expect(result.status).toBe(201);
-    expect(result.body).toMatchObject({ id: expect.any(String), createdAt: expect.any(String), updatedAt: expect.any(String) });
-    expect(result.headers.get("x-request-id")).toBeTruthy();
+describe.each(databases)("on %s", (_name, open) => {
+  let opened: TestDatabase;
+  beforeAll(async () => {
+    opened = await startApp(open);
+  }, 60_000);
+  afterAll(() => opened?.close());
+
+  describe.each(crudCases)("$path", ({ path, entity, valid, required, wrongType, change }) => {
+    test("POST creates (201) with system fields", async () => {
+      const result = await post(path, await valid());
+      expect(result.status).toBe(201);
+      expect(result.body).toMatchObject({ id: expect.any(String), createdAt: expect.any(String), updatedAt: expect.any(String) });
+      expect(result.headers.get("x-request-id")).toBeTruthy();
+    });
+
+    test("POST rejects invalid bodies (400)", async () => {
+      const body = await valid();
+      const malformed = await post(path, "{ not json");
+      expect([malformed.status, malformed.body.error.message]).toEqual([400, "Invalid JSON body"]);
+      const notObject = await post(path, []);
+      expect([notObject.status, detail(notObject, "")]).toEqual([400, "Body must be a JSON object"]);
+      const { [required]: _, ...missing } = body;
+      expect(detail(await post(path, missing), required)).toBe("Is required");
+      expect(detail(await post(path, { ...body, extra: 1 }), "extra")).toBe("Unknown field");
+      expect(detail(await post(path, { ...body, id: MISSING }), "id")).toBe("Field is read-only");
+      expect(detail(await post(path, { ...body, [wrongType[0]]: wrongType[1] }), wrongType[0])).toBe(wrongType[2]);
+    });
+
+    test("GET list (200), with paging, sorting, filters and field selection", async () => {
+      await create(path, await valid());
+      const list = await get(path);
+      expect(list.status).toBe(200);
+      expect(list.body).toMatchObject({ data: expect.any(Array), total: expect.any(Number), limit: 20, offset: 0 });
+      const paged = await get(`${path}?limit=1&offset=0&sort=-createdAt`);
+      expect([paged.status, paged.body.data.length, paged.body.limit]).toEqual([200, 1, 1]);
+      const selected = await get(`${path}?fields=id&limit=1`);
+      expect(Object.keys(selected.body.data[0])).toEqual(["id"]);
+      const excluded = await get(`${path}?exclude=createdAt&limit=1`);
+      expect(excluded.body.data[0]).not.toHaveProperty("createdAt");
+      expect((await get(`${path}?where[createdAt][gt]=2000-01-01`)).status).toBe(200);
+    });
+
+    test("GET list rejects invalid query parameters (400)", async () => {
+      expect(detail(await get(`${path}?bogus=1`), "bogus")).toBe("Unknown parameter");
+      expect(detail(await get(`${path}?limit=0`), "limit")).toBe("Must be an integer from 1 to 100");
+      expect(detail(await get(`${path}?limit=101`), "limit")).toBe("Must be an integer from 1 to 100");
+      expect(detail(await get(`${path}?offset=-1`), "offset")).toBe("Must be an integer of at least 0");
+      expect(detail(await get(`${path}?sort=nope`), "sort")).toBe('Field "nope" cannot be sorted');
+      expect(detail(await get(`${path}?where[nope][eq]=1`), "where[nope][eq]")).toBe('Field "nope" cannot be filtered');
+      expect(detail(await get(`${path}?where[createdAt][like]=1`), "where[createdAt][like]")).toBe('Unknown operator "like"');
+      expect(detail(await get(`${path}?where[createdAt][gt]=yesterday`), "where[createdAt][gt]")).toBe("Must be an ISO 8601 date");
+      expect(detail(await get(`${path}?limit=1&limit=2`), "limit")).toBe("Parameter is repeated");
+      expect(detail(await get(`${path}?fields=nope`), "fields")).toBe("Unknown field: nope");
+      expect((await get(`${path}?populate=nope`)).body.error.message).toBe("Cannot populate: nope");
+    });
+
+    test("GET one (200) and missing (404)", async () => {
+      const created = await create(path, await valid());
+      const found = await get(`${path}/${created.id}`);
+      expect([found.status, found.body.id]).toEqual([200, created.id]);
+      expect(Object.keys((await get(`${path}/${created.id}?fields=id`)).body)).toEqual(["id"]);
+      const missing = await get(`${path}/${MISSING}`);
+      expect([missing.status, missing.body.error.code, missing.body.error.message]).toEqual([404, "NOT_FOUND", `${entity} not found`]);
+    });
+
+    test("PATCH updates (200), validates (400) and misses (404)", async () => {
+      const created = await create(path, await valid());
+      const patched = await patch(`${path}/${created.id}`, change);
+      expect(patched.status).toBe(200);
+      expect(patched.body).toMatchObject(change);
+      expect(new Date(patched.body.updatedAt).getTime()).toBeGreaterThan(new Date(created.updatedAt).getTime());
+      expect(detail(await patch(`${path}/${created.id}`, { [wrongType[0]]: wrongType[1] }), wrongType[0])).toBe(wrongType[2]);
+      expect(detail(await patch(`${path}/${created.id}`, { createdAt: "2020-01-01" }), "createdAt")).toBe("Field is read-only");
+      expect((await patch(`${path}/${MISSING}`, change)).status).toBe(404);
+    });
+
+    test("PUT replaces (200), requires every field (400) and misses (404)", async () => {
+      const created = await create(path, await valid());
+      const body = await valid();
+      const replaced = await put(`${path}/${created.id}`, body);
+      expect([replaced.status, replaced.body.id]).toEqual([200, created.id]);
+      const { [required]: _, ...missing } = body;
+      expect(detail(await put(`${path}/${created.id}`, missing), required)).toBe("Is required");
+      expect((await put(`${path}/${MISSING}`, body)).status).toBe(404);
+    });
+
+    test("DELETE removes (204), then misses (404)", async () => {
+      const created = await create(path, await valid());
+      const removed = await del(`${path}/${created.id}`);
+      expect([removed.status, removed.body]).toEqual([204, {}]);
+      expect((await get(`${path}/${created.id}`)).status).toBe(404);
+      expect((await del(`${path}/${created.id}`)).status).toBe(404);
+    });
+
+    test("unsupported methods answer 405 with Allow", async () => {
+      const result = await post(`${path}/${MISSING}`, {});
+      expect([result.status, result.body.error.code]).toEqual([405, "METHOD_NOT_ALLOWED"]);
+      expect(result.headers.get("allow")).toContain("GET");
+      expect((await call("DELETE", path)).status).toBe(405);
+    });
   });
 
-  test("POST rejects invalid bodies (400)", async () => {
-    const body = await valid();
-    const malformed = await post(path, "{ not json");
-    expect([malformed.status, malformed.body.error.message]).toEqual([400, "Invalid JSON body"]);
-    const notObject = await post(path, []);
-    expect([notObject.status, detail(notObject, "")]).toEqual([400, "Body must be a JSON object"]);
-    const { [required]: _, ...missing } = body;
-    expect(detail(await post(path, missing), required)).toBe("Is required");
-    expect(detail(await post(path, { ...body, extra: 1 }), "extra")).toBe("Unknown field");
-    expect(detail(await post(path, { ...body, id: MISSING }), "id")).toBe("Field is read-only");
-    expect(detail(await post(path, { ...body, [wrongType[0]]: wrongType[1] }), wrongType[0])).toBe(wrongType[2]);
+  // ---------------------------------------------------------------------------------------------------------------
+  // Entity-specific rules.
+  // ---------------------------------------------------------------------------------------------------------------
+
+  describe("users", () => {
+    test("role defaults to basic; reference arrays default to []", async () => {
+      const user = await create("/users", { email: `${unique("u")}@x.co` });
+      expect(user).toMatchObject({ role: "basic", name: null, picture: null, memberships: [], teams: [] });
+      expect((await create("/users", { email: `${unique("u")}@x.co`, role: "admin" })).role).toBe("admin");
+    });
+
+    test("PUT replaces the whole record, so role is required there even with @default", async () => {
+      const user = await create("/users", { email: `${unique("u")}@x.co` });
+      const withoutRole = await put(`/users/${user.id}`, { email: `${unique("u")}@x.co` });
+      expect([withoutRole.status, detail(withoutRole, "role")]).toEqual([400, "Is required"]);
+      const replaced = await put(`/users/${user.id}`, { email: `${unique("u")}@x.co`, role: "admin" });
+      expect([replaced.status, replaced.body.role, replaced.body.name]).toEqual([200, "admin", null]);
+    });
+
+    test("memberships and teams are filled from the other side", async () => {
+      const { ana, membership, team } = await world();
+      const found = await get(`/users/${ana.id}`);
+      expect(found.body.memberships).toEqual([membership.id]);
+      expect(found.body.teams).toEqual([team.id]);
+      const populated = await get(`/users/${ana.id}?populate=memberships,teams`);
+      expect(populated.body.memberships[0].id).toBe(membership.id);
+      expect(populated.body.teams[0].name).toBe("Data");
+      expect((await get(`/users?where[teams][contains]=${team.id}`)).body.data.map((user: Json) => user.id)).toEqual([ana.id]);
+    });
+
+    test("filters by enum and text, and rejects disallowed operators", async () => {
+      const email = `${unique("filter")}@acme.co`;
+      await create("/users", { email, role: "admin" });
+      expect((await get(`/users?where[email][contains]=${email.toUpperCase()}`)).body.total).toBe(1);
+      expect((await get(`/users?where[role][eq]=admin&where[email][startsWith]=${email.slice(0, 8)}`)).body.total).toBe(1);
+      expect(detail(await get("/users?where[role][eq]=root"), "where[role][eq]")).toBe("Must be one of: admin, basic");
+      expect(detail(await get("/users?where[role][gt]=a"), "where[role][gt]")).toBe('Operator "gt" is not allowed for this field');
+    });
+
+    test("a user with memberships cannot be deleted (409)", async () => {
+      const { ana } = await world();
+      const result = await del(`/users/${ana.id}`);
+      expect([result.status, result.body.error.code, result.body.error.message]).toEqual([409, "CONFLICT", "Cannot delete: referenced by memberships"]);
+    });
+
+    test("a picture can be uploaded with the user (multipart)", async () => {
+      const created = await post("/users", form([["email", `${unique("pic")}@x.co`], ["picture", png()]]));
+      expect(created.status).toBe(201);
+      const media = await get(`/media/${created.body.picture}`);
+      expect(media.body).toMatchObject({ filename: "pic.png", mimeType: "image/png", size: 8 });
+      const unknownPart = await post("/users", form([["email", `${unique("pic")}@x.co`], ["avatar", png()]]));
+      expect([unknownPart.status, detail(unknownPart, "avatar")]).toEqual([400, "Unknown field"]);
+    });
   });
 
-  test("GET list (200), with paging, sorting, filters and field selection", async () => {
-    await create(path, await valid());
-    const list = await get(path);
-    expect(list.status).toBe(200);
-    expect(list.body).toMatchObject({ data: expect.any(Array), total: expect.any(Number), limit: 20, offset: 0 });
-    const paged = await get(`${path}?limit=1&offset=0&sort=-createdAt`);
-    expect([paged.status, paged.body.data.length, paged.body.limit]).toEqual([200, 1, 1]);
-    const selected = await get(`${path}?fields=id&limit=1`);
-    expect(Object.keys(selected.body.data[0])).toEqual(["id"]);
-    const excluded = await get(`${path}?exclude=createdAt&limit=1`);
-    expect(excluded.body.data[0]).not.toHaveProperty("createdAt");
-    expect((await get(`${path}?where[createdAt][gt]=2000-01-01`)).status).toBe(200);
+  describe("organizations", () => {
+    test("members are derived from memberships; modules keep their order", async () => {
+      const { org, membership, billing, reports, legacy } = await world();
+      const found = await get(`/organizations/${org.id}`);
+      expect(found.body.members).toEqual([membership.id]);
+      expect(found.body.modules).toEqual([billing.id, reports.id, legacy.id]);
+      const populated = await get(`/organizations/${org.id}?populate=modules`);
+      expect(populated.body.modules.map((module: Json) => module.id)).toEqual([billing.id, reports.id, legacy.id]);
+    });
+
+    test("reference arrays validate ids and support add/remove", async () => {
+      const { org, billing, reports } = await world();
+      const duplicate = await patch(`/organizations/${org.id}`, { modules: [billing.id, billing.id] });
+      expect(detail(duplicate, "modules[1]")).toBe("Duplicate item");
+      const missing = await patch(`/organizations/${org.id}`, { modules: [MISSING] });
+      expect([missing.status, detail(missing, "modules[0]")]).toEqual([400, "Referenced record not found"]);
+      const removed = await patch(`/organizations/${org.id}`, { modules: { remove: [billing.id] } });
+      expect(removed.body.modules).not.toContain(billing.id);
+      const added = await patch(`/organizations/${org.id}`, { modules: { add: [billing.id] } });
+      expect(added.body.modules.at(-1)).toBe(billing.id);
+      const conflicting = await patch(`/organizations/${org.id}`, { modules: { add: [reports.id], remove: [reports.id] } });
+      expect(detail(conflicting, "modules")).toBe("Conflicting operations");
+      expect(detail(await patch(`/organizations/${org.id}`, { modules: null }), "modules")).toBe("Cannot be null");
+      expect((await get(`/organizations?where[modules][containsAll]=${billing.id},${reports.id}`)).body.total).toBeGreaterThan(0);
+      expect((await get(`/organizations?where[modules][size][gte]=1&where[modules][isEmpty]=false`)).status).toBe(200);
+    });
+
+    test("an organization with memberships or teams cannot be deleted (409)", async () => {
+      const { org } = await world();
+      const result = await del(`/organizations/${org.id}`);
+      expect(result.status).toBe(409);
+      expect(result.body.error.message).toMatch(/^Cannot delete: referenced by (memberships|teams)$/);
+    });
+
+    test("an unused organization can be deleted", async () => {
+      const lone = await create("/organizations", { slug: unique("lone"), legalName: "Lone", active: true });
+      expect((await del(`/organizations/${lone.id}`)).status).toBe(204);
+    });
   });
 
-  test("GET list rejects invalid query parameters (400)", async () => {
-    expect(detail(await get(`${path}?bogus=1`), "bogus")).toBe("Unknown parameter");
-    expect(detail(await get(`${path}?limit=0`), "limit")).toBe("Must be an integer from 1 to 100");
-    expect(detail(await get(`${path}?limit=101`), "limit")).toBe("Must be an integer from 1 to 100");
-    expect(detail(await get(`${path}?offset=-1`), "offset")).toBe("Must be an integer of at least 0");
-    expect(detail(await get(`${path}?sort=nope`), "sort")).toBe('Field "nope" cannot be sorted');
-    expect(detail(await get(`${path}?where[nope][eq]=1`), "where[nope][eq]")).toBe('Field "nope" cannot be filtered');
-    expect(detail(await get(`${path}?where[createdAt][like]=1`), "where[createdAt][like]")).toBe('Unknown operator "like"');
-    expect(detail(await get(`${path}?where[createdAt][gt]=yesterday`), "where[createdAt][gt]")).toBe("Must be an ISO 8601 date");
-    expect(detail(await get(`${path}?limit=1&limit=2`), "limit")).toBe("Parameter is repeated");
-    expect(detail(await get(`${path}?fields=nope`), "fields")).toBe("Unknown field: nope");
-    expect((await get(`${path}?populate=nope`)).body.error.message).toBe("Cannot populate: nope");
+  describe("modules, permissions and profiles", () => {
+    test("a module used by a permission cannot be deleted (409)", async () => {
+      const { billing } = await world();
+      const result = await del(`/modules/${billing.id}`);
+      expect([result.status, result.body.error.message]).toEqual([409, "Cannot delete: referenced by permissions"]);
+    });
+
+    test("a permission must reference an existing module", async () => {
+      const result = await post("/permissions", { module: MISSING, action: "view" });
+      expect([result.status, detail(result, "module")]).toEqual([400, "Referenced record not found"]);
+    });
+
+    test("deleting a permission pulls it from profiles", async () => {
+      const { finance, legacyManage } = await world();
+      expect((await del(`/permissions/${legacyManage.id}`)).status).toBe(204);
+      expect((await get(`/profiles/${finance.id}`)).body.permissions).not.toContain(legacyManage.id);
+    });
+
+    test("profiles populate permissions and their modules", async () => {
+      const { finance } = await world();
+      const result = await get(`/profiles/${finance.id}?populate=permissions.module`);
+      expect(result.body.permissions[0].module.slug).toMatch(/^billing/);
+    });
+
+    test("populate deeper than populate.maxDepth fails (400)", async () => {
+      const { membership } = await world();
+      const result = await get(`/memberships/${membership.id}?populate=profiles.permissions.module.slug`);
+      expect([result.status, result.body.error.message]).toEqual([400, "Populate depth exceeds 3"]);
+    });
   });
 
-  test("GET one (200) and missing (404)", async () => {
-    const created = await create(path, await valid());
-    const found = await get(`${path}/${created.id}`);
-    expect([found.status, found.body.id]).toEqual([200, created.id]);
-    expect(Object.keys((await get(`${path}/${created.id}?fields=id`)).body)).toEqual(["id"]);
-    const missing = await get(`${path}/${MISSING}`);
-    expect([missing.status, missing.body.error.code, missing.body.error.message]).toEqual([404, "NOT_FOUND", `${entity} not found`]);
+  describe("teams and memberships", () => {
+    test("team users are the storing side of the relation", async () => {
+      const { team, ana } = await world();
+      const bob = await create("/users", { email: `${unique("bob")}@x.co` });
+      const updated = await patch(`/teams/${team.id}`, { users: { add: [bob.id] } });
+      expect(updated.body.users).toEqual([ana.id, bob.id]);
+      expect((await get(`/users/${bob.id}`)).body.teams).toEqual([team.id]);
+      await patch(`/teams/${team.id}`, { users: [ana.id] });
+      expect((await get(`/users/${bob.id}`)).body.teams).toEqual([]);
+    });
+
+    test("memberships require an existing user and organization", async () => {
+      const { org } = await world();
+      const result = await post("/memberships", { organization: org.id, user: MISSING, active: true });
+      expect([result.status, detail(result, "user")]).toEqual([400, "Referenced record not found"]);
+    });
   });
 
-  test("PATCH updates (200), validates (400) and misses (404)", async () => {
-    const created = await create(path, await valid());
-    const patched = await patch(`${path}/${created.id}`, change);
-    expect(patched.status).toBe(200);
-    expect(patched.body).toMatchObject(change);
-    expect(new Date(patched.body.updatedAt).getTime()).toBeGreaterThan(new Date(created.updatedAt).getTime());
-    expect(detail(await patch(`${path}/${created.id}`, { [wrongType[0]]: wrongType[1] }), wrongType[0])).toBe(wrongType[2]);
-    expect(detail(await patch(`${path}/${created.id}`, { createdAt: "2020-01-01" }), "createdAt")).toBe("Field is read-only");
-    expect((await patch(`${path}/${MISSING}`, change)).status).toBe(404);
+  describe("data rules", () => {
+    const conflict = (result: Result, field: string) => [result.status, result.body.error.message, detail(result, field)];
+    const long = (length: number) => "x".repeat(length);
+
+    test("emails are unique, valid and at most 254 characters", async () => {
+      const email = `${unique("twin")}@x.co`;
+      await create("/users", { email });
+      expect(conflict(await post("/users", { email }), "email")).toEqual([409, "Value already exists", "Value already exists"]);
+      const invalid = await post("/users", { email: "abc" });
+      expect([invalid.status, detail(invalid, "email")]).toEqual([400, "Must be a valid email"]);
+      expect(detail(await post("/users", { email: `${long(250)}@x.co` }), "email")).toBe("Must be at most 254 characters");
+      expect((await post("/users", { email: `${long(249)}@x.co` })).status).toBe(201);
+    });
+
+    test("user names have 1 to 120 characters", async () => {
+      expect(detail(await post("/users", { email: `${unique("u")}@x.co`, name: "" }), "name")).toBe("Must be at least 1 characters");
+      expect(detail(await post("/users", { email: `${unique("u")}@x.co`, name: long(121) }), "name")).toBe("Must be at most 120 characters");
+      expect((await post("/users", { email: `${unique("u")}@x.co`, name: long(120) })).status).toBe(201);
+    });
+
+    test.each([
+      ["/modules", (slug: string) => ({ slug })],
+      ["/organizations", (slug: string) => ({ slug, legalName: "Org" })],
+      ["/profiles", (slug: string) => ({ slug })],
+    ])("%s slugs are unique and have 2 to 64 characters", async (path, body) => {
+      const slug = unique("slug");
+      await create(path, body(slug));
+      expect(conflict(await post(path, body(slug)), "slug")).toEqual([409, "Value already exists", "Value already exists"]);
+      const short = await post(path, body("a"));
+      expect([short.status, detail(short, "slug")]).toEqual([400, "Must be at least 2 characters"]);
+      expect(detail(await post(path, body(long(65))), "slug")).toBe("Must be at most 64 characters");
+      expect((await post(path, body(`${slug}-${long(40)}`))).status).toBe(201);
+      expect((await post(path, body(unique("s").slice(0, 2)))).status).toBe(201);
+    });
+
+    test("organization legal names have 1 to 200 characters, names 1 to 120", async () => {
+      const organization = (fields: Json) => post("/organizations", { slug: unique("o"), legalName: "Org", ...fields });
+      expect(detail(await organization({ legalName: "" }), "legalName")).toBe("Must be at least 1 characters");
+      expect(detail(await organization({ legalName: long(201) }), "legalName")).toBe("Must be at most 200 characters");
+      expect((await organization({ legalName: long(200) })).status).toBe(201);
+      expect(detail(await organization({ name: "" }), "name")).toBe("Must be at least 1 characters");
+      expect(detail(await organization({ name: long(121) }), "name")).toBe("Must be at most 120 characters");
+      expect((await organization({ name: long(120) })).status).toBe(201);
+    });
+
+    test("team names have 1 to 120 characters", async () => {
+      const { org } = await world();
+      const team = (name: string) => post("/teams", { organization: org.id, name });
+      expect(detail(await team(""), "name")).toBe("Must be at least 1 characters");
+      expect(detail(await team(long(121)), "name")).toBe("Must be at most 120 characters");
+      expect((await team(long(120))).status).toBe(201);
+    });
+
+    test.each([
+      ["/users", "picture", () => [["email", `${unique("pic")}@x.co`]]],
+      ["/organizations", "logo", () => [["slug", unique("logo")], ["legalName", "Org"]]],
+      ["/teams", "picture", async () => [["organization", (await create("/organizations", { slug: unique("o"), legalName: "Org" })).id], ["name", "Team"]]],
+    ] as [string, string, () => Promise<[string, string][]> | [string, string][]][])(
+      "%s %s accepts PNG, JPEG and WebP images up to 1 MB",
+      async (path, field, fields) => {
+        for (const [name, type] of [["pic.png", "image/png"], ["pic.jpg", "image/jpeg"], ["pic.webp", "image/webp"]] as const) {
+          const accepted = await post(path, form([...(await fields()), [field, png(8, name, type)]]));
+          expect([accepted.status, (await get(`/media/${accepted.body[field]}`)).body.mimeType]).toEqual([201, type]);
+        }
+        const gif = await post(path, form([...(await fields()), [field, png(8, "pic.gif", "image/gif")]]));
+        expect([gif.status, detail(gif, field)]).toEqual([400, "File type not allowed"]);
+        const large = await post(path, form([...(await fields()), [field, png(2 * 1024 * 1024)]]));
+        expect([large.status, large.body.error.message, detail(large, field)]).toEqual([413, "File too large", "File too large"]);
+        expect((await post(path, form([...(await fields()), [field, png(1024 * 1024)]]))).status).toBe(201);
+      },
+    );
+
+    test("active defaults to true", async () => {
+      const module = await create("/modules", { slug: unique("m") });
+      const org = await create("/organizations", { slug: unique("o"), legalName: "Org" });
+      const user = await create("/users", { email: `${unique("u")}@x.co` });
+      const membership = await create("/memberships", { organization: org.id, user: user.id });
+      const team = await create("/teams", { organization: org.id, name: "Team" });
+      expect([module.active, org.active, membership.active, team.active]).toEqual([true, true, true, true]);
+      expect((await get(`/modules/${module.id}`)).body.active).toBe(true);
+      expect((await create("/modules", { slug: unique("m"), active: false })).active).toBe(false);
+    });
   });
 
-  test("PUT replaces (200), requires every field (400) and misses (404)", async () => {
-    const created = await create(path, await valid());
-    const body = await valid();
-    const replaced = await put(`${path}/${created.id}`, body);
-    expect([replaced.status, replaced.body.id]).toEqual([200, created.id]);
-    const { [required]: _, ...missing } = body;
-    expect(detail(await put(`${path}/${created.id}`, missing), required)).toBe("Is required");
-    expect((await put(`${path}/${MISSING}`, body)).status).toBe(404);
+  describe("media and files", () => {
+    test("uploads, reads, streams, renames, replaces and deletes a media file", async () => {
+      const created = await post("/media", form([["file", png(16, "logo.png")]]));
+      expect(created.status).toBe(201);
+      expect(created.body).toMatchObject({ filename: "logo.png", mimeType: "image/png", size: 16, storage: "default", url: `/media/${created.body.id}/file` });
+      expect(created.body).not.toHaveProperty("storageKey");
+      const streamed = await fetchApp(new Request(`http://x${created.body.url}`));
+      expect([streamed.status, streamed.headers.get("content-type"), streamed.headers.get("content-length")]).toEqual([200, "image/png", "16"]);
+      expect(streamed.headers.get("content-disposition")).toBe('inline; filename="logo.png"');
+      const renamed = await patch(`/media/${created.body.id}`, { filename: "brand.png" });
+      expect(renamed.body.filename).toBe("brand.png");
+      expect(detail(await patch(`/media/${created.body.id}`, { size: 1 }), "size")).toBe("Field is read-only");
+      expect(detail(await patch(`/media/${created.body.id}`, { url: "x" }), "url")).toBe("Field is read-only");
+      const replaced = await call("PUT", `/media/${created.body.id}`, form([["file", png(4, "new.png")]]));
+      expect([replaced.status, replaced.body.size, replaced.body.filename]).toEqual([200, 4, "new.png"]);
+      expect((await del(`/media/${created.body.id}`)).status).toBe(204);
+      expect((await fetchApp(new Request(`http://x/media/${created.body.id}/file`))).status).toBe(404);
+    });
+
+    test("rejects JSON bodies (415), missing files (400), other types (400) and large files (413)", async () => {
+      const json = await post("/media", { filename: "x.png" });
+      expect([json.status, json.body.error.code, json.body.error.message]).toEqual([415, "UNSUPPORTED_MEDIA_TYPE", "Must be multipart/form-data"]);
+      const noFile = await post("/media", form([["filename", "x"]]));
+      expect([noFile.status, detail(noFile, "file")]).toEqual([400, "Is required"]);
+      const pdf = await post("/media", form([["file", png(4, "doc.pdf", "application/pdf")]]));
+      expect([pdf.status, detail(pdf, "file")]).toEqual([400, "File type not allowed"]);
+      const large = await post("/media", form([["file", png(11 * 1024 * 1024, "big.png")]]));
+      expect([large.status, large.body.error.code, large.body.error.message]).toEqual([413, "PAYLOAD_TOO_LARGE", "File too large"]);
+    });
+
+    test("media used as a picture cannot be deleted (409)", async () => {
+      const created = await post("/users", form([["email", `${unique("pic")}@x.co`], ["picture", png()]]));
+      const result = await del(`/media/${created.body.picture}`);
+      expect(result.status).toBe(409);
+      expect(result.body.error.message).toMatch(/^Cannot delete: referenced by (users|teams|organizations)$/);
+    });
+
+    test("generic files accept any type", async () => {
+      const created = await post("/files", form([["file", png(4, "notes.pdf", "application/pdf")]]));
+      expect([created.status, created.body.mimeType]).toEqual([201, "application/pdf"]);
+    });
   });
 
-  test("DELETE removes (204), then misses (404)", async () => {
-    const created = await create(path, await valid());
-    const removed = await del(`${path}/${created.id}`);
-    expect([removed.status, removed.body]).toEqual([204, {}]);
-    expect((await get(`${path}/${created.id}`)).status).toBe(404);
-    expect((await del(`${path}/${created.id}`)).status).toBe(404);
+  // ---------------------------------------------------------------------------------------------------------------
+  // The custom endpoint: GET /users/:userId/has-permissions.
+  // ---------------------------------------------------------------------------------------------------------------
+
+  describe("GET /users/:userId/has-permissions", () => {
+    const check = (userId: string, query: string) => get(`/users/${userId}/has-permissions?${query}`);
+
+    test("missing or invalid query items fail (400)", async () => {
+      const { ana } = await world();
+      const none = await check(ana.id, "");
+      expect(none.status).toBe(400);
+      expect(details(none).map((item) => [item.field, item.message])).toEqual([
+        ["p", "Is required"],
+        ["rule", "Is required"],
+        ["organization", "Is required"],
+      ]);
+      const badRule = await check(ana.id, `organization=x&p=a:view&rule=some`);
+      expect(detail(badRule, "rule")).toBe("Must be one of: all, any");
+      const repeated = await check(ana.id, `organization=x&organization=y&p=a:view&rule=all`);
+      expect(detail(repeated, "organization")).toBe("Parameter is repeated");
+    });
+
+    test("direct and team grants, with all and any", async () => {
+      const { ana, org, billing, reports } = await world();
+      const q = (rule: string, ...permissions: string[]) => `organization=${org.id}&rule=${rule}&${permissions.map((p) => `p=${p}`).join("&")}`;
+      expect((await check(ana.id, q("all", `${billing.slug}:manage`))).body).toBe(true);
+      expect((await check(ana.id, q("all", `${billing.slug}:view`))).body).toBe(true);
+      expect((await check(ana.id, q("all", `${reports.slug}:view`))).body).toBe(true);
+      expect((await check(ana.id, q("all", `${billing.slug}:manage`, `${reports.slug}:view`))).body).toBe(true);
+      expect((await check(ana.id, q("all", `${reports.slug}:manage`))).body).toBe(false);
+      expect((await check(ana.id, q("all", `${billing.slug}:manage`, `${reports.slug}:manage`))).body).toBe(false);
+      expect((await check(ana.id, q("any", `${reports.slug}:manage`, `${reports.slug}:view`))).body).toBe(true);
+      expect((await check(ana.id, q("any", "nothing:view", "other:manage"))).body).toBe(false);
+    });
+
+    test("inactive modules, memberships, teams and organizations grant nothing", async () => {
+      const { ana, org, inactiveOrg, legacy, billing, reports, membership, team, finance } = await world();
+      const q = (organization: string, permission: string) => `organization=${organization}&rule=all&p=${permission}`;
+      expect((await check(ana.id, q(org.id, `${legacy.slug}:manage`))).body).toBe(false);
+      await create("/memberships", { organization: inactiveOrg.id, user: ana.id, profiles: [finance.id], active: true });
+      expect((await check(ana.id, q(inactiveOrg.id, `${billing.slug}:manage`))).body).toBe(false);
+      expect((await check(ana.id, q(MISSING, `${billing.slug}:manage`))).body).toBe(false);
+      await patch(`/memberships/${membership.id}`, { active: false });
+      expect((await check(ana.id, q(org.id, `${billing.slug}:manage`))).body).toBe(false);
+      expect((await check(ana.id, q(org.id, `${reports.slug}:view`))).body).toBe(true);
+      await patch(`/teams/${team.id}`, { active: false });
+      expect((await check(ana.id, q(org.id, `${reports.slug}:view`))).body).toBe(false);
+    });
+
+    test("users without grants, and unknown users, get false", async () => {
+      const { org, billing } = await world();
+      const loner = await create("/users", { email: `${unique("loner")}@x.co` });
+      expect((await check(loner.id, `organization=${org.id}&rule=any&p=${billing.slug}:view`)).body).toBe(false);
+      expect((await check(MISSING, `organization=${org.id}&rule=any&p=${billing.slug}:view`)).body).toBe(false);
+    });
   });
 
-  test("unsupported methods answer 405 with Allow", async () => {
-    const result = await post(`${path}/${MISSING}`, {});
-    expect([result.status, result.body.error.code]).toEqual([405, "METHOD_NOT_ALLOWED"]);
-    expect(result.headers.get("allow")).toContain("GET");
-    expect((await call("DELETE", path)).status).toBe(405);
-  });
-});
+  // ---------------------------------------------------------------------------------------------------------------
+  // Framework routes.
+  // ---------------------------------------------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------------------------------------------
-// Entity-specific rules.
-// ---------------------------------------------------------------------------------------------------------------
+  describe("framework routes", () => {
+    test("unknown routes answer 404 Route not found", async () => {
+      const result = await get("/nope");
+      expect([result.status, result.body]).toEqual([404, { error: { code: "NOT_FOUND", message: "Route not found" } }]);
+    });
 
-describe("users", () => {
-  test("role defaults to basic; reference arrays default to []", async () => {
-    const user = await create("/users", { email: `${unique("u")}@x.co` });
-    expect(user).toMatchObject({ role: "basic", name: null, picture: null, memberships: [], teams: [] });
-    expect((await create("/users", { email: `${unique("u")}@x.co`, role: "admin" })).role).toBe("admin");
-  });
-
-  test("PUT replaces the whole record, so role is required there even with @default", async () => {
-    const user = await create("/users", { email: `${unique("u")}@x.co` });
-    const withoutRole = await put(`/users/${user.id}`, { email: `${unique("u")}@x.co` });
-    expect([withoutRole.status, detail(withoutRole, "role")]).toEqual([400, "Is required"]);
-    const replaced = await put(`/users/${user.id}`, { email: `${unique("u")}@x.co`, role: "admin" });
-    expect([replaced.status, replaced.body.role, replaced.body.name]).toEqual([200, "admin", null]);
-  });
-
-  test("memberships and teams are filled from the other side", async () => {
-    const { ana, membership, team } = await world();
-    const found = await get(`/users/${ana.id}`);
-    expect(found.body.memberships).toEqual([membership.id]);
-    expect(found.body.teams).toEqual([team.id]);
-    const populated = await get(`/users/${ana.id}?populate=memberships,teams`);
-    expect(populated.body.memberships[0].id).toBe(membership.id);
-    expect(populated.body.teams[0].name).toBe("Data");
-    expect((await get(`/users?where[teams][contains]=${team.id}`)).body.data.map((user: Json) => user.id)).toEqual([ana.id]);
-  });
-
-  test("filters by enum and text, and rejects disallowed operators", async () => {
-    const email = `${unique("filter")}@acme.co`;
-    await create("/users", { email, role: "admin" });
-    expect((await get(`/users?where[email][contains]=${email.toUpperCase()}`)).body.total).toBe(1);
-    expect((await get(`/users?where[role][eq]=admin&where[email][startsWith]=${email.slice(0, 8)}`)).body.total).toBe(1);
-    expect(detail(await get("/users?where[role][eq]=root"), "where[role][eq]")).toBe("Must be one of: admin, basic");
-    expect(detail(await get("/users?where[role][gt]=a"), "where[role][gt]")).toBe('Operator "gt" is not allowed for this field');
-  });
-
-  test("a user with memberships cannot be deleted (409)", async () => {
-    const { ana } = await world();
-    const result = await del(`/users/${ana.id}`);
-    expect([result.status, result.body.error.code, result.body.error.message]).toEqual([409, "CONFLICT", "Cannot delete: referenced by memberships"]);
-  });
-
-  test("a picture can be uploaded with the user (multipart)", async () => {
-    const created = await post("/users", form([["email", `${unique("pic")}@x.co`], ["picture", png()]]));
-    expect(created.status).toBe(201);
-    const media = await get(`/media/${created.body.picture}`);
-    expect(media.body).toMatchObject({ filename: "pic.png", mimeType: "image/png", size: 8 });
-    const unknownPart = await post("/users", form([["email", `${unique("pic")}@x.co`], ["avatar", png()]]));
-    expect([unknownPart.status, detail(unknownPart, "avatar")]).toEqual([400, "Unknown field"]);
-  });
-});
-
-describe("organizations", () => {
-  test("members are derived from memberships; modules keep their order", async () => {
-    const { org, membership, billing, reports, legacy } = await world();
-    const found = await get(`/organizations/${org.id}`);
-    expect(found.body.members).toEqual([membership.id]);
-    expect(found.body.modules).toEqual([billing.id, reports.id, legacy.id]);
-    const populated = await get(`/organizations/${org.id}?populate=modules`);
-    expect(populated.body.modules.map((module: Json) => module.id)).toEqual([billing.id, reports.id, legacy.id]);
-  });
-
-  test("reference arrays validate ids and support add/remove", async () => {
-    const { org, billing, reports } = await world();
-    const duplicate = await patch(`/organizations/${org.id}`, { modules: [billing.id, billing.id] });
-    expect(detail(duplicate, "modules[1]")).toBe("Duplicate item");
-    const missing = await patch(`/organizations/${org.id}`, { modules: [MISSING] });
-    expect([missing.status, detail(missing, "modules[0]")]).toEqual([400, "Referenced record not found"]);
-    const removed = await patch(`/organizations/${org.id}`, { modules: { remove: [billing.id] } });
-    expect(removed.body.modules).not.toContain(billing.id);
-    const added = await patch(`/organizations/${org.id}`, { modules: { add: [billing.id] } });
-    expect(added.body.modules.at(-1)).toBe(billing.id);
-    const conflicting = await patch(`/organizations/${org.id}`, { modules: { add: [reports.id], remove: [reports.id] } });
-    expect(detail(conflicting, "modules")).toBe("Conflicting operations");
-    expect(detail(await patch(`/organizations/${org.id}`, { modules: null }), "modules")).toBe("Cannot be null");
-    expect((await get(`/organizations?where[modules][containsAll]=${billing.id},${reports.id}`)).body.total).toBeGreaterThan(0);
-    expect((await get(`/organizations?where[modules][size][gte]=1&where[modules][isEmpty]=false`)).status).toBe(200);
-  });
-
-  test("an organization with memberships or teams cannot be deleted (409)", async () => {
-    const { org } = await world();
-    const result = await del(`/organizations/${org.id}`);
-    expect(result.status).toBe(409);
-    expect(result.body.error.message).toMatch(/^Cannot delete: referenced by (memberships|teams)$/);
-  });
-
-  test("an unused organization can be deleted", async () => {
-    const lone = await create("/organizations", { slug: unique("lone"), legalName: "Lone", active: true });
-    expect((await del(`/organizations/${lone.id}`)).status).toBe(204);
-  });
-});
-
-describe("modules, permissions and profiles", () => {
-  test("a module used by a permission cannot be deleted (409)", async () => {
-    const { billing } = await world();
-    const result = await del(`/modules/${billing.id}`);
-    expect([result.status, result.body.error.message]).toEqual([409, "Cannot delete: referenced by permissions"]);
-  });
-
-  test("a permission must reference an existing module", async () => {
-    const result = await post("/permissions", { module: MISSING, action: "view" });
-    expect([result.status, detail(result, "module")]).toEqual([400, "Referenced record not found"]);
-  });
-
-  test("deleting a permission pulls it from profiles", async () => {
-    const { finance, legacyManage } = await world();
-    expect((await del(`/permissions/${legacyManage.id}`)).status).toBe(204);
-    expect((await get(`/profiles/${finance.id}`)).body.permissions).not.toContain(legacyManage.id);
-  });
-
-  test("profiles populate permissions and their modules", async () => {
-    const { finance } = await world();
-    const result = await get(`/profiles/${finance.id}?populate=permissions.module`);
-    expect(result.body.permissions[0].module.slug).toMatch(/^billing/);
-  });
-
-  test("populate deeper than populate.maxDepth fails (400)", async () => {
-    const { membership } = await world();
-    const result = await get(`/memberships/${membership.id}?populate=profiles.permissions.module.slug`);
-    expect([result.status, result.body.error.message]).toEqual([400, "Populate depth exceeds 3"]);
-  });
-});
-
-describe("teams and memberships", () => {
-  test("team users are the storing side of the relation", async () => {
-    const { team, ana } = await world();
-    const bob = await create("/users", { email: `${unique("bob")}@x.co` });
-    const updated = await patch(`/teams/${team.id}`, { users: { add: [bob.id] } });
-    expect(updated.body.users).toEqual([ana.id, bob.id]);
-    expect((await get(`/users/${bob.id}`)).body.teams).toEqual([team.id]);
-    await patch(`/teams/${team.id}`, { users: [ana.id] });
-    expect((await get(`/users/${bob.id}`)).body.teams).toEqual([]);
-  });
-
-  test("memberships require an existing user and organization", async () => {
-    const { org } = await world();
-    const result = await post("/memberships", { organization: org.id, user: MISSING, active: true });
-    expect([result.status, detail(result, "user")]).toEqual([400, "Referenced record not found"]);
-  });
-});
-
-describe("data rules", () => {
-  const conflict = (result: Result, field: string) => [result.status, result.body.error.message, detail(result, field)];
-  const long = (length: number) => "x".repeat(length);
-
-  test("emails are unique, valid and at most 254 characters", async () => {
-    const email = `${unique("twin")}@x.co`;
-    await create("/users", { email });
-    expect(conflict(await post("/users", { email }), "email")).toEqual([409, "Value already exists", "Value already exists"]);
-    const invalid = await post("/users", { email: "abc" });
-    expect([invalid.status, detail(invalid, "email")]).toEqual([400, "Must be a valid email"]);
-    expect(detail(await post("/users", { email: `${long(250)}@x.co` }), "email")).toBe("Must be at most 254 characters");
-    expect((await post("/users", { email: `${long(249)}@x.co` })).status).toBe(201);
-  });
-
-  test("user names have 1 to 120 characters", async () => {
-    expect(detail(await post("/users", { email: `${unique("u")}@x.co`, name: "" }), "name")).toBe("Must be at least 1 characters");
-    expect(detail(await post("/users", { email: `${unique("u")}@x.co`, name: long(121) }), "name")).toBe("Must be at most 120 characters");
-    expect((await post("/users", { email: `${unique("u")}@x.co`, name: long(120) })).status).toBe(201);
-  });
-
-  test.each([
-    ["/modules", (slug: string) => ({ slug })],
-    ["/organizations", (slug: string) => ({ slug, legalName: "Org" })],
-    ["/profiles", (slug: string) => ({ slug })],
-  ])("%s slugs are unique and have 2 to 64 characters", async (path, body) => {
-    const slug = unique("slug");
-    await create(path, body(slug));
-    expect(conflict(await post(path, body(slug)), "slug")).toEqual([409, "Value already exists", "Value already exists"]);
-    const short = await post(path, body("a"));
-    expect([short.status, detail(short, "slug")]).toEqual([400, "Must be at least 2 characters"]);
-    expect(detail(await post(path, body(long(65))), "slug")).toBe("Must be at most 64 characters");
-    expect((await post(path, body(`${slug}-${long(40)}`))).status).toBe(201);
-    expect((await post(path, body(unique("s").slice(0, 2)))).status).toBe(201);
-  });
-
-  test("organization legal names have 1 to 200 characters, names 1 to 120", async () => {
-    const organization = (fields: Json) => post("/organizations", { slug: unique("o"), legalName: "Org", ...fields });
-    expect(detail(await organization({ legalName: "" }), "legalName")).toBe("Must be at least 1 characters");
-    expect(detail(await organization({ legalName: long(201) }), "legalName")).toBe("Must be at most 200 characters");
-    expect((await organization({ legalName: long(200) })).status).toBe(201);
-    expect(detail(await organization({ name: "" }), "name")).toBe("Must be at least 1 characters");
-    expect(detail(await organization({ name: long(121) }), "name")).toBe("Must be at most 120 characters");
-    expect((await organization({ name: long(120) })).status).toBe(201);
-  });
-
-  test("team names have 1 to 120 characters", async () => {
-    const { org } = await world();
-    const team = (name: string) => post("/teams", { organization: org.id, name });
-    expect(detail(await team(""), "name")).toBe("Must be at least 1 characters");
-    expect(detail(await team(long(121)), "name")).toBe("Must be at most 120 characters");
-    expect((await team(long(120))).status).toBe(201);
-  });
-
-  test.each([
-    ["/users", "picture", () => [["email", `${unique("pic")}@x.co`]]],
-    ["/organizations", "logo", () => [["slug", unique("logo")], ["legalName", "Org"]]],
-    ["/teams", "picture", async () => [["organization", (await create("/organizations", { slug: unique("o"), legalName: "Org" })).id], ["name", "Team"]]],
-  ] as [string, string, () => Promise<[string, string][]> | [string, string][]][])(
-    "%s %s accepts PNG, JPEG and WebP images up to 1 MB",
-    async (path, field, fields) => {
-      for (const [name, type] of [["pic.png", "image/png"], ["pic.jpg", "image/jpeg"], ["pic.webp", "image/webp"]] as const) {
-        const accepted = await post(path, form([...(await fields()), [field, png(8, name, type)]]));
-        expect([accepted.status, (await get(`/media/${accepted.body[field]}`)).body.mimeType]).toEqual([201, type]);
-      }
-      const gif = await post(path, form([...(await fields()), [field, png(8, "pic.gif", "image/gif")]]));
-      expect([gif.status, detail(gif, field)]).toEqual([400, "File type not allowed"]);
-      const large = await post(path, form([...(await fields()), [field, png(2 * 1024 * 1024)]]));
-      expect([large.status, large.body.error.message, detail(large, field)]).toEqual([413, "File too large", "File too large"]);
-      expect((await post(path, form([...(await fields()), [field, png(1024 * 1024)]]))).status).toBe(201);
-    },
-  );
-
-  test("active defaults to true", async () => {
-    const module = await create("/modules", { slug: unique("m") });
-    const org = await create("/organizations", { slug: unique("o"), legalName: "Org" });
-    const user = await create("/users", { email: `${unique("u")}@x.co` });
-    const membership = await create("/memberships", { organization: org.id, user: user.id });
-    const team = await create("/teams", { organization: org.id, name: "Team" });
-    expect([module.active, org.active, membership.active, team.active]).toEqual([true, true, true, true]);
-    expect((await get(`/modules/${module.id}`)).body.active).toBe(true);
-    expect((await create("/modules", { slug: unique("m"), active: false })).active).toBe(false);
-  });
-});
-
-describe("media and files", () => {
-  test("uploads, reads, streams, renames, replaces and deletes a media file", async () => {
-    const created = await post("/media", form([["file", png(16, "logo.png")]]));
-    expect(created.status).toBe(201);
-    expect(created.body).toMatchObject({ filename: "logo.png", mimeType: "image/png", size: 16, storage: "default", url: `/media/${created.body.id}/file` });
-    expect(created.body).not.toHaveProperty("storageKey");
-    const streamed = await fetchApp(new Request(`http://x${created.body.url}`));
-    expect([streamed.status, streamed.headers.get("content-type"), streamed.headers.get("content-length")]).toEqual([200, "image/png", "16"]);
-    expect(streamed.headers.get("content-disposition")).toBe('inline; filename="logo.png"');
-    const renamed = await patch(`/media/${created.body.id}`, { filename: "brand.png" });
-    expect(renamed.body.filename).toBe("brand.png");
-    expect(detail(await patch(`/media/${created.body.id}`, { size: 1 }), "size")).toBe("Field is read-only");
-    expect(detail(await patch(`/media/${created.body.id}`, { url: "x" }), "url")).toBe("Field is read-only");
-    const replaced = await call("PUT", `/media/${created.body.id}`, form([["file", png(4, "new.png")]]));
-    expect([replaced.status, replaced.body.size, replaced.body.filename]).toEqual([200, 4, "new.png"]);
-    expect((await del(`/media/${created.body.id}`)).status).toBe(204);
-    expect((await fetchApp(new Request(`http://x/media/${created.body.id}/file`))).status).toBe(404);
-  });
-
-  test("rejects JSON bodies (415), missing files (400), other types (400) and large files (413)", async () => {
-    const json = await post("/media", { filename: "x.png" });
-    expect([json.status, json.body.error.code, json.body.error.message]).toEqual([415, "UNSUPPORTED_MEDIA_TYPE", "Must be multipart/form-data"]);
-    const noFile = await post("/media", form([["filename", "x"]]));
-    expect([noFile.status, detail(noFile, "file")]).toEqual([400, "Is required"]);
-    const pdf = await post("/media", form([["file", png(4, "doc.pdf", "application/pdf")]]));
-    expect([pdf.status, detail(pdf, "file")]).toEqual([400, "File type not allowed"]);
-    const large = await post("/media", form([["file", png(11 * 1024 * 1024, "big.png")]]));
-    expect([large.status, large.body.error.code, large.body.error.message]).toEqual([413, "PAYLOAD_TOO_LARGE", "File too large"]);
-  });
-
-  test("media used as a picture cannot be deleted (409)", async () => {
-    const created = await post("/users", form([["email", `${unique("pic")}@x.co`], ["picture", png()]]));
-    const result = await del(`/media/${created.body.picture}`);
-    expect(result.status).toBe(409);
-    expect(result.body.error.message).toMatch(/^Cannot delete: referenced by (users|teams|organizations)$/);
-  });
-
-  test("generic files accept any type", async () => {
-    const created = await post("/files", form([["file", png(4, "notes.pdf", "application/pdf")]]));
-    expect([created.status, created.body.mimeType]).toEqual([201, "application/pdf"]);
-  });
-});
-
-// ---------------------------------------------------------------------------------------------------------------
-// The custom endpoint: GET /users/:userId/has-permissions.
-// ---------------------------------------------------------------------------------------------------------------
-
-describe("GET /users/:userId/has-permissions", () => {
-  const check = (userId: string, query: string) => get(`/users/${userId}/has-permissions?${query}`);
-
-  test("missing or invalid query items fail (400)", async () => {
-    const { ana } = await world();
-    const none = await check(ana.id, "");
-    expect(none.status).toBe(400);
-    expect(details(none).map((item) => [item.field, item.message])).toEqual([
-      ["p", "Is required"],
-      ["rule", "Is required"],
-      ["organization", "Is required"],
-    ]);
-    const badRule = await check(ana.id, `organization=x&p=a:view&rule=some`);
-    expect(detail(badRule, "rule")).toBe("Must be one of: all, any");
-    const repeated = await check(ana.id, `organization=x&organization=y&p=a:view&rule=all`);
-    expect(detail(repeated, "organization")).toBe("Parameter is repeated");
-  });
-
-  test("direct and team grants, with all and any", async () => {
-    const { ana, org, billing, reports } = await world();
-    const q = (rule: string, ...permissions: string[]) => `organization=${org.id}&rule=${rule}&${permissions.map((p) => `p=${p}`).join("&")}`;
-    expect((await check(ana.id, q("all", `${billing.slug}:manage`))).body).toBe(true);
-    expect((await check(ana.id, q("all", `${billing.slug}:view`))).body).toBe(true);
-    expect((await check(ana.id, q("all", `${reports.slug}:view`))).body).toBe(true);
-    expect((await check(ana.id, q("all", `${billing.slug}:manage`, `${reports.slug}:view`))).body).toBe(true);
-    expect((await check(ana.id, q("all", `${reports.slug}:manage`))).body).toBe(false);
-    expect((await check(ana.id, q("all", `${billing.slug}:manage`, `${reports.slug}:manage`))).body).toBe(false);
-    expect((await check(ana.id, q("any", `${reports.slug}:manage`, `${reports.slug}:view`))).body).toBe(true);
-    expect((await check(ana.id, q("any", "nothing:view", "other:manage"))).body).toBe(false);
-  });
-
-  test("inactive modules, memberships, teams and organizations grant nothing", async () => {
-    const { ana, org, inactiveOrg, legacy, billing, reports, membership, team, finance } = await world();
-    const q = (organization: string, permission: string) => `organization=${organization}&rule=all&p=${permission}`;
-    expect((await check(ana.id, q(org.id, `${legacy.slug}:manage`))).body).toBe(false);
-    await create("/memberships", { organization: inactiveOrg.id, user: ana.id, profiles: [finance.id], active: true });
-    expect((await check(ana.id, q(inactiveOrg.id, `${billing.slug}:manage`))).body).toBe(false);
-    expect((await check(ana.id, q(MISSING, `${billing.slug}:manage`))).body).toBe(false);
-    await patch(`/memberships/${membership.id}`, { active: false });
-    expect((await check(ana.id, q(org.id, `${billing.slug}:manage`))).body).toBe(false);
-    expect((await check(ana.id, q(org.id, `${reports.slug}:view`))).body).toBe(true);
-    await patch(`/teams/${team.id}`, { active: false });
-    expect((await check(ana.id, q(org.id, `${reports.slug}:view`))).body).toBe(false);
-  });
-
-  test("users without grants, and unknown users, get false", async () => {
-    const { org, billing } = await world();
-    const loner = await create("/users", { email: `${unique("loner")}@x.co` });
-    expect((await check(loner.id, `organization=${org.id}&rule=any&p=${billing.slug}:view`)).body).toBe(false);
-    expect((await check(MISSING, `organization=${org.id}&rule=any&p=${billing.slug}:view`)).body).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------------------------------------------
-// Framework routes.
-// ---------------------------------------------------------------------------------------------------------------
-
-describe("framework routes", () => {
-  test("unknown routes answer 404 Route not found", async () => {
-    const result = await get("/nope");
-    expect([result.status, result.body]).toEqual([404, { error: { code: "NOT_FOUND", message: "Route not found" } }]);
-  });
-
-  test("API docs are served", async () => {
-    const document = await get("/openapi.json");
-    expect([document.status, document.body.openapi]).toEqual([200, "3.1.0"]);
-    expect(Object.keys(document.body.paths)).toContain("/users/{userId}/has-permissions");
-    const page = await fetchApp(new Request("http://x/docs"));
-    expect([page.status, page.headers.get("content-type")]).toEqual([200, "text/html; charset=utf-8"]);
+    test("API docs are served", async () => {
+      const document = await get("/openapi.json");
+      expect([document.status, document.body.openapi]).toEqual([200, "3.1.0"]);
+      expect(Object.keys(document.body.paths)).toContain("/users/{userId}/has-permissions");
+      const page = await fetchApp(new Request("http://x/docs"));
+      expect([page.status, page.headers.get("content-type")]).toEqual([200, "text/html; charset=utf-8"]);
+    });
   });
 });

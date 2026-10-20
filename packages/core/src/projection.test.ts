@@ -95,3 +95,24 @@ test("the input is never mutated", () => {
   project(record, { exclude: ["orders.notes", "address.zip"] });
   expect(record).toEqual(copy);
 });
+
+test("keep and remove build new objects only along the paths they change", () => {
+  const kept = project(record, { include: ["name", "address", "orders.total"] }) as Record<string, unknown> & { address: unknown; orders: unknown[] };
+  expect(kept).not.toBe(record);
+  expect(kept.address).toBe(record.address);
+  expect(kept.orders).not.toBe(record.orders);
+  expect(kept.orders[0]).toEqual({ total: 1 });
+
+  const removed = project(record, { exclude: ["address.zip"] }) as Record<string, unknown>;
+  expect(removed).not.toBe(record);
+  expect(removed.address).not.toBe(record.address);
+  expect(removed.address).toEqual({ city: "Rio" });
+  expect(removed.orders).toBe(record.orders);
+  expect(removed.createdAt).toBe(record.createdAt);
+
+  // Paths that are absent, or that keep every key in place, change nothing and copy nothing.
+  expect(project(record, { exclude: ["email", "address.street", "orders.lines.price"] })).toBe(record);
+  expect(project(record, { include: ["id", "name", "address", "orders", "createdAt"] })).toBe(record);
+  // The kept order is the include order, as before.
+  expect(Object.keys(project(record, { include: ["name", "id"] }) as object)).toEqual(["name", "id"]);
+});

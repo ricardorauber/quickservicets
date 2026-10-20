@@ -1,7 +1,7 @@
 import type { DatabaseAdapter, StoredRecord } from "./adapter.ts";
 import { HttpError, type FieldErrorDetail } from "./errors.ts";
 import { alwaysHiddenPaths, type EntityModel, type FieldModel } from "./model.ts";
-import { project } from "./projection.ts";
+import { project, type Projection } from "./projection.ts";
 import { deriveRelations } from "./relations.ts";
 
 /** Reasons a populate path is invalid, or an empty list when it is valid. */
@@ -46,9 +46,23 @@ function toTree(paths: string[]): PathTree {
   return root;
 }
 
-/** How a referenced record appears when populated: hidden fields removed and the target's read exposure applied. */
+/** The single projection of a populated record of each entity: its read exposure plus its always-hidden fields. */
+const populatedProjections = new WeakMap<EntityModel, Projection>();
+
+/**
+ * How a referenced record appears when populated: hidden fields removed and the target's read exposure applied, in
+ * one pass. Removing paths and keeping paths commute, so excluding the hidden paths together with the exposure's own
+ * exclusions gives the same result as removing them first.
+ */
 function presentPopulated(target: EntityModel, record: StoredRecord): unknown {
-  return project(project(record, { exclude: alwaysHiddenPaths(target.fields) }), target.exposure.read);
+  let projection = populatedProjections.get(target);
+  if (!projection) {
+    const { include, exclude } = target.exposure.read;
+    const hidden = alwaysHiddenPaths(target.fields).filter((path) => !exclude.includes(path));
+    projection = { include, exclude: hidden.length === 0 ? exclude : [...exclude, ...hidden] };
+    populatedProjections.set(target, projection);
+  }
+  return project(record, projection);
 }
 
 /**

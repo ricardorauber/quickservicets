@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { HttpError } from "../errors.ts";
 import type { ServiceRequest } from "../hooks.ts";
 import { fileSamples } from "../testing/file-samples.ts";
-import { readMultipart, resolveUploadType } from "./upload.ts";
+import type { EntityModel } from "../model.ts";
+import { parseUpload, readMultipart, resolveUploadType } from "./upload.ts";
 
 const BOUNDARY = "sample-boundary";
 
@@ -114,5 +115,86 @@ describe("compatible declared types", () => {
     ]);
     expect((await rejection(resolveUploadType(file(fileSamples.mp4, "audio/webm"), "file"))).status).toBe(415);
     expect((await rejection(resolveUploadType(file(fileSamples.webm, "audio/mp4"), "file"))).status).toBe(415);
+  });
+});
+
+describe("declared types in one pass", () => {
+  test("each file part keeps its own declared type and bytes, also when the body arrives in small chunks", async () => {
+    const body = await new Response(
+      multipart([
+        filePart("files", "a.png", fileSamples.png, "image/png"),
+        filePart("files", "b.txt", "plain", "Text/Plain; Charset=UTF-8"),
+        filePart("files", "c.bin", ""),
+        { headers: ['Content-Disposition: form-data; name="files"'], body: "an id" },
+      ]).raw.body,
+    ).bytes();
+    const raw = new Request("http://x/media", {
+      method: "POST",
+      headers: { "content-type": `multipart/form-data; boundary=${BOUNDARY}` },
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          for (let start = 0; start < body.length; start += 5) controller.enqueue(body.subarray(start, start + 5));
+          controller.close();
+        },
+      }),
+    });
+    const form = await readMultipart({ headers: raw.headers, raw } as unknown as ServiceRequest);
+    const [png, text, empty, id] = form.getAll("files") as [File, File, File, string];
+    expect([png.name, png.type, png.size]).toEqual(["a.png", "image/png", fileSamples.png.length]);
+    expect(new Uint8Array(await png.arrayBuffer())).toEqual(fileSamples.png);
+    expect([text.name, text.type, await text.text()]).toEqual(["b.txt", "text/plain; charset=utf-8", "plain"]);
+    expect([empty.name, empty.type, empty.size]).toEqual(["c.bin", "", 0]);
+    expect(id).toBe("an id");
+  });
+});
+
+describe("malformed bodies and limits", () => {
+  const send = (body: string | ReadableStream<Uint8Array>, contentType = `multipart/form-data; boundary=${BOUNDARY}`) => {
+    const raw = new Request("http://x/media", { method: "POST", headers: { "content-type": contentType }, body });
+    return { headers: raw.headers, raw } as unknown as ServiceRequest;
+  };
+  const head = `--${BOUNDARY}\r\nContent-Disposition: form-data; name="file"; filename="a.png"\r\n`;
+
+  test("malformed bodies fail with the form parser's errors", async () => {
+    const cases: [string | ReadableStream<Uint8Array>, string, string?][] = [
+      ["", "FormData parse error missing final boundary"],
+      ["no boundary here", "FormData parse error missing final boundary"],
+      [`${head}\r\nabc\r\n`, "FormData parse error missing final boundary"],
+      [`${head}abc\r\n--${BOUNDARY}--`, "FormData parse error is missing header end"],
+      [`${head}not a header\r\n\r\nabc\r\n--${BOUNDARY}--`, "FormData parse error is missing header colon separator"],
+      [`${head}\r\nabc\r\n--${BOUNDARY}--`, "Can't decode form data from body because of incorrect MIME type/boundary", "multipart/form-data"],
+    ];
+    for (const [body, message, contentType] of cases) {
+      const error = await rejection(readMultipart(send(body, contentType)));
+      expect([error.name, error.message]).toEqual(["TypeError", message]);
+    }
+    expect((await rejection(readMultipart(send("", "text/plain")))).status).toBe(415);
+  });
+
+  test("an oversized file part fails before the rest of the body is read", async () => {
+    const model = { key: "Media", fields: [], file: { base: "file" }, fileLimits: { maxSize: 100 } } as unknown as EntityModel;
+    const settings = { storage: {}, files: { maxSize: 1024, accept: ["*/*"] } };
+    // A body that never ends: only the first chunk ever arrives.
+    const endless = (type: string, bytes: Uint8Array) =>
+      send(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new Uint8Array([...new TextEncoder().encode(`${head}Content-Type: ${type}\r\n\r\n`), ...bytes]));
+          },
+        }),
+      );
+    const big = (sample: Uint8Array) => new Uint8Array([...sample, ...new Uint8Array(200)]);
+
+    const tooLarge = await rejection(parseUpload(endless("image/png", big(fileSamples.png)), model, settings));
+    expect([tooLarge.status, tooLarge.message, tooLarge.details]).toEqual([413, "File too large", undefined]);
+    // The type mismatch is still reported first, as when the whole body is read.
+    const mismatch = await rejection(parseUpload(endless("image/gif", big(fileSamples.png)), model, settings));
+    expect([mismatch.status, mismatch.details]).toEqual([415, [{ field: "file", message: "Detected image/png, declared image/gif" }]]);
+
+    // A complete body answers the same, and a file within the limit passes.
+    const complete = multipart([filePart("file", "a.png", big(fileSamples.png), "image/png")]);
+    expect((await rejection(parseUpload(complete, model, settings))).status).toBe(413);
+    const small = await parseUpload(multipart([filePart("file", "a.png", fileSamples.png, "image/png")]), model, settings);
+    expect([small.file.type, small.file.size]).toEqual(["image/png", fileSamples.png.length]);
   });
 });

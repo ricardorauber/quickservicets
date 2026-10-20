@@ -3,8 +3,9 @@ import type { ServiceRequest } from "../hooks.ts";
 import { MEDIA_MIME_TYPES } from "../files.ts";
 import type { EntityModel, FieldModel } from "../model.ts";
 import { storageKeyFor, type StorageAdapter } from "../storage/storage.ts";
-import { declaredTypeFits, detectFileType } from "./detect.ts";
+import { declaredTypeFits, detectFileType, detectHeadType, HEAD_SIZE, isZipHead } from "./detect.ts";
 import { mimeMatches, sanitizeFilename } from "./limits.ts";
+import { boundaryOf, MultipartReader, type MultipartLimit } from "./multipart.ts";
 
 export interface UploadSettings {
   storage: Record<string, StorageAdapter>;
@@ -61,65 +62,32 @@ export function formFields(model: EntityModel, form: FormData, skip: (name: stri
   return result;
 }
 
-const CRLF = Buffer.from("\r\n");
-const HEADERS_END = Buffer.from("\r\n\r\n");
-
 /**
- * The `Content-Type` header of each file part (a part with a file name), by part name and in part order;
- * undefined where the part has none. Read from the raw body because the form parser derives types from file names.
+ * Parses a multipart body in one pass as it arrives; each file part carries the type its `Content-Type` header
+ * declared (empty when it has none). With a limit, an oversized file part can fail before the rest is read.
  */
-function declaredFileTypes(body: Buffer, contentType: string): Map<string, (string | undefined)[]> {
-  const types = new Map<string, (string | undefined)[]>();
-  const boundary = /boundary=(?:"([^"]+)"|([^;\s]+))/i.exec(contentType);
-  if (!boundary) return types;
-  const delimiter = Buffer.from(`--${boundary[1] ?? boundary[2]}`);
-  let position = body.indexOf(delimiter);
-  while (position !== -1) {
-    position += delimiter.length;
-    if (body.subarray(position, position + 2).toString() === "--") break;
-    const headersStart = body.indexOf(CRLF, position) + CRLF.length;
-    const headersEnd = body.indexOf(HEADERS_END, headersStart);
-    if (headersStart < CRLF.length || headersEnd === -1) break;
-    let name: string | undefined;
-    let isFile = false;
-    let type: string | undefined;
-    for (const line of body.subarray(headersStart, headersEnd).toString("utf8").split("\r\n")) {
-      const separator = line.indexOf(":");
-      const header = line.slice(0, separator).trim().toLowerCase();
-      const value = line.slice(separator + 1).trim();
-      if (header === "content-type") type = value;
-      if (header === "content-disposition") {
-        name = /(?:^|;)\s*name="([^"]*)"/i.exec(value)?.[1] ?? /(?:^|;)\s*name=([^;\s]+)/i.exec(value)?.[1];
-        isFile = /(?:^|;)\s*filename\*?=/i.test(value);
-      }
-    }
-    if (name !== undefined && isFile) types.set(name, [...(types.get(name) ?? []), type]);
-    position = body.indexOf(Buffer.concat([CRLF, delimiter]), headersEnd);
-    if (position !== -1) position += CRLF.length;
-  }
-  return types;
-}
-
-/** Parses a multipart body; each file part carries the type its `Content-Type` header declared (empty when it has none). */
-export async function readMultipart(req: ServiceRequest): Promise<FormData> {
+export async function readMultipart(req: ServiceRequest, limit?: MultipartLimit): Promise<FormData> {
   const type = req.headers.get("content-type") ?? "";
   if (!type.toLowerCase().startsWith("multipart/form-data")) {
     throw new HttpError(415, "Must be multipart/form-data");
   }
-  const body = Buffer.from(await req.raw.arrayBuffer());
-  const parsed = (await new Response(body, { headers: { "content-type": type } }).formData()) as unknown as FormData;
-  const declared = declaredFileTypes(body, type);
-  const seen = new Map<string, number>();
-  const form = new FormData();
-  for (const [name, value] of parsed.entries()) {
-    if (typeof value === "string") {
-      form.append(name, value);
-      continue;
+  const boundary = boundaryOf(type);
+  if (boundary === undefined) throw new TypeError("Can't decode form data from body because of incorrect MIME type/boundary");
+  const reader = new MultipartReader(boundary, Number(req.headers.get("content-length")) || 0, limit);
+  const stream = req.raw.body?.getReader();
+  if (stream) {
+    try {
+      for (let chunk = await stream.read(); !chunk.done; chunk = await stream.read()) reader.push(chunk.value);
+    } catch (error) {
+      await stream.cancel().catch(() => {});
+      throw error;
     }
-    const index = seen.get(name) ?? 0;
-    seen.set(name, index + 1);
-    const file = value as File;
-    form.append(name, new File([file], file.name, { type: declared.get(name)?.[index] ?? "" }));
+  }
+  const { body, parts } = reader.end();
+  const form = new FormData();
+  for (const part of parts) {
+    if (part.filename === undefined) form.append(part.name, body.toString("utf8", part.start, part.end));
+    else form.append(part.name, new File([body.subarray(part.start, part.end)], part.filename, { type: part.type ?? "" }));
   }
   return form;
 }
@@ -133,17 +101,30 @@ const essence = (type: string) => type.split(";")[0]!.trim().toLowerCase();
  * does not recognize.
  */
 export async function resolveUploadType<T extends Blob & { name?: string }>(file: T, path: string): Promise<File> {
-  const detected = await detectFileType(file);
-  const declared = essence(file.type);
+  const replaced = replacedType(await detectFileType(file), file.type, path);
   const name = file.name ?? "file";
-  const keep = () => (file instanceof File ? file : new File([file], name, { type: file.type }));
-  if (detected === undefined) return keep();
-  if (declared === "" || declared === "application/octet-stream" || declared === detected) return new File([file], name, { type: detected });
-  if (declaredTypeFits(detected, declared)) return keep();
+  if (replaced !== undefined) return new File([file], name, { type: replaced });
+  return file instanceof File ? file : new File([file], name, { type: file.type });
+}
+
+/** The detected type when it replaces the declared one, undefined when the declared type stays; fails on a mismatch. */
+function replacedType(detected: string | undefined, type: string, path: string): string | undefined {
+  const declared = essence(type);
+  if (detected === undefined) return undefined;
+  if (declared === "" || declared === "application/octet-stream" || declared === detected) return detected;
+  if (declaredTypeFits(detected, declared)) return undefined;
   throw new HttpError(415, "File content does not match its type", {
     details: [{ field: path, message: `Detected ${detected}, declared ${declared}` }],
   });
 }
+
+/** The size limit of a file entity's files, and of a field's files when it has its own. */
+function maxFileSize(model: EntityModel, settings: UploadSettings, fieldLimits?: { maxSize?: number }): number {
+  return Math.min(model.fileLimits?.maxSize ?? settings.files.maxSize, fieldLimits?.maxSize ?? Number.POSITIVE_INFINITY);
+}
+
+const tooLarge = (path: string) =>
+  new HttpError(413, "File too large", path === "file" ? undefined : { details: [{ field: path, message: "File too large" }] });
 
 /** Checks a file against the size and MIME limits of the entity (and of a field, when given). */
 export function assertFileAllowed(
@@ -153,10 +134,7 @@ export function assertFileAllowed(
   path: string,
   fieldLimits?: { maxSize?: number; accept?: string[] },
 ): void {
-  const maxSize = Math.min(model.fileLimits?.maxSize ?? settings.files.maxSize, fieldLimits?.maxSize ?? Number.POSITIVE_INFINITY);
-  if (file.size > maxSize) {
-    throw new HttpError(413, "File too large", path === "file" ? undefined : { details: [{ field: path, message: "File too large" }] });
-  }
+  if (file.size > maxFileSize(model, settings, fieldLimits)) throw tooLarge(path);
   const allowed =
     mimeMatches(file.type, model.fileLimits?.accept ?? settings.files.accept) &&
     (model.file?.base !== "media" || mimeMatches(file.type, MEDIA_MIME_TYPES)) &&
@@ -185,7 +163,17 @@ export async function storeFile(model: EntityModel, id: string, file: Blob & { n
 
 /** Parses an upload request to a file entity: the `file` part and the other fields. */
 export async function parseUpload(req: ServiceRequest, model: EntityModel, settings: UploadSettings): Promise<ParsedUpload> {
-  const form = await readMultipart(req);
+  // An oversized file whose type can be told from its first bytes fails as it would after reading the whole body.
+  const form = await readMultipart(req, {
+    name: "file",
+    maxSize: maxFileSize(model, settings),
+    headSize: HEAD_SIZE,
+    check({ type, head }) {
+      if (isZipHead(head)) return;
+      replacedType(detectHeadType(head), type, "file");
+      throw tooLarge("file");
+    },
+  });
   const file = form.get("file");
   if (!(file instanceof Blob)) throw invalid("file", "Is required");
   const resolved = await resolveUploadType(file, "file");

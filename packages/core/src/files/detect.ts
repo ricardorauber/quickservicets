@@ -1,7 +1,7 @@
 import { inflateRawSync } from "node:zlib";
 
 /** How many leading bytes the signatures need. */
-const HEAD_SIZE = 64;
+export const HEAD_SIZE = 64;
 
 const ZIP_TYPE = "application/zip";
 const DOCX_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -164,14 +164,23 @@ async function zipType(file: Blob): Promise<string> {
   return ZIP_TYPE;
 }
 
-/** The MIME type of a file recognized from its content, or undefined when the format is not one the server knows. */
-export async function detectFileType(file: Blob): Promise<string | undefined> {
-  const head = await read(file, 0, HEAD_SIZE);
-  if (startsWith(head, ascii("PK\x03\x04")) || startsWith(head, ascii("PK\x05\x06"))) return zipType(file);
+/** Whether a file starts as a ZIP archive, whose exact format needs more than its leading bytes. */
+export function isZipHead(head: Uint8Array): boolean {
+  return startsWith(head, ascii("PK\x03\x04")) || startsWith(head, ascii("PK\x05\x06"));
+}
+
+/** The MIME type of a file recognized from its leading bytes alone (not a ZIP archive), or undefined. */
+export function detectHeadType(head: Uint8Array): string | undefined {
   const signature = SIGNATURES.find((candidate) => startsWith(head, candidate.bytes));
   if (signature) return signature.type;
   if (isMp4(head)) return "video/mp4";
   if (isWebm(head)) return "video/webm";
   if (isMpegFrame(head)) return "audio/mpeg";
   return undefined;
+}
+
+/** The MIME type of a file recognized from its content, or undefined when the format is not one the server knows. */
+export async function detectFileType(file: Blob): Promise<string | undefined> {
+  const head = await read(file, 0, HEAD_SIZE);
+  return isZipHead(head) ? zipType(file) : detectHeadType(head);
 }

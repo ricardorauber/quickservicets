@@ -1,0 +1,16 @@
+{
+  "name": "organizations",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "quickservice dev",
+    "build": "quickservice build",
+    "migrate": "quickservice migrate",
+    "start": "bun .generated/server.ts",
+    "test": "bun test tests"
+  },
+  "dependencies": {
+    "@quickservice/core": "workspace:*",
+    "@quickservice/cli": "workspace:*"
+  }
+}

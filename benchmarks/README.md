@@ -98,6 +98,16 @@ The profile in [`analysis/quickservice-profile.md`](analysis/quickservice-profil
 | QuickService, after (`server.workers: 2`) | 6,750 | 1,576 | 12,913 | 2,919 | 61,946 | 33,976 | 1,779 | 27,323 | 922 | 3,255 |
 | Bun (same window) | 6,681 | 1,469 | 14,770 | 4,200 | 51,786 | 37,490 | 1,697 | 36,179 | 852 | 3,324 |
 
+### After the second round
+
+A second profile ([`analysis/quickservice-profile-2.md`](analysis/quickservice-profile-2.md)) led to three more changes: small multipart bodies read at once, `related(id, field)` queries whose `aggregate()` is one statement (the stats endpoint now uses it), and cached aggregate handles. Best of every measurement of the optimized code: the full rounds in `results/after-optimizations/` and `results/after-round-2/`, plus, with 2 workers, alternated A/B runs against the previous version (`results/after-round-2/ab-workers.json`, 15 s each), which showed gains on `custom` (+18%), `upload` (+32%) and `create_user` (+10%) and no regression elsewhere.
+
+| Service | `crud` | `query` | `custom` | `upload` | `health` | `get_user` | `list_users` | `create_user` | `filter_users` | `populate_orgs` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| QuickService, after (1 process) | 6,574 | 1,777 | 13,406 | 3,385 | 56,232 | 19,969 | 1,827 | 15,505 | 892 | 2,219 |
+| QuickService, after (`server.workers: 2`) | 6,925 | 1,619 | 16,186 | 4,231 | 62,945 | 37,403 | 1,805 | 29,271 | 922 | 3,255 |
+| Bun (best of every round) | 6,681 | 1,469 | 14,770 | 4,200 | 58,922 | 37,490 | 1,885 | 36,179 | 860 | 3,688 |
+
 ## Results
 
 `results/<stack>.json` holds the settings, the environment, the image size, the startup samples, idle and peak memory, the conformance counts and, per scenario, requests, req/s, latency (avg, p50, p90, p99, max in ms), error rate, average and peak CPU and memory, and the same numbers per endpoint. The raw k6 summaries stay in `benchmarks/.cache/out/<stack>/`.

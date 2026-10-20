@@ -1,0 +1,87 @@
+{
+  "description": "Alternated A/B runs of QuickService with server.workers: 2 (15 s measured, 5 s warmup, 64 VUs), previous = commit 40f46d4 (before specs 0129-0131), new = commit 81664d7. Requests per second per run, in run order.",
+  "prev": {
+    "get_user": [
+      34365,
+      37700,
+      37939
+    ],
+    "create_user": [
+      23406,
+      26067,
+      30367
+    ],
+    "crud": [
+      6432,
+      6323,
+      6817
+    ],
+    "custom": [
+      13478,
+      13061,
+      13689
+    ],
+    "upload": [
+      2796,
+      3913,
+      3183
+    ],
+    "populate_orgs": [
+      3095,
+      3084,
+      3098
+    ],
+    "query": [
+      1556,
+      1672,
+      1538
+    ],
+    "health": [
+      62262,
+      62010,
+      60296
+    ]
+  },
+  "new": {
+    "get_user": [
+      36796,
+      33693,
+      37403
+    ],
+    "create_user": [
+      27712,
+      28653,
+      29271
+    ],
+    "crud": [
+      6519,
+      6855,
+      6925
+    ],
+    "custom": [
+      12291,
+      16186,
+      15838
+    ],
+    "upload": [
+      3668,
+      4209,
+      4231
+    ],
+    "populate_orgs": [
+      3075,
+      3080,
+      3155
+    ],
+    "query": [
+      1607,
+      1614,
+      1619
+    ],
+    "health": [
+      62945,
+      60345,
+      60025
+    ]
+  }
+}

@@ -309,8 +309,7 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
     updateById(entity, id, changes, where = []) {
       return translateErrors(async () => {
         const filter = where.length > 0 ? { $and: [{ _id: id as never }, toFilter(where, entity)] } : { _id: id as never };
-        const result = await collection(entity).updateOne(filter, { $set: changes }, session());
-        return result.matchedCount > 0;
+        return toRecord(entity, await collection(entity).findOneAndUpdate(filter, { $set: changes }, { ...session(), returnDocument: "after" }));
       });
     },
     async deleteById(entity, id) {

@@ -228,6 +228,13 @@ export function createRepository(
     return hasDerived ? (await deriveRelations(model, [record], models, adapter))[0]! : record;
   };
 
+  /**
+   * The response of a write, built from the record the adapter returned. Syncing relation sides can touch the record
+   * again, so with derived sides it is read back with them.
+   */
+  const written = async (record: StoredRecord, options?: ReadOptions): Promise<EntityRecord> =>
+    present((await compute(model, [hasDerived ? await existing(record.id) : record]))[0]!, options);
+
   /** Deletes a file record that nothing references any more, queueing its object. */
   const removeUnreferencedFile = async (target: EntityModel, id: string, queue: StoredObject[]) => {
     if (await isFileReferenced(target, id, models, adapter)) return;
@@ -253,8 +260,20 @@ export function createRepository(
     }
   };
 
-  const write = (id: string, changes: Record<string, unknown>, options?: ReadOptions, queue: StoredObject[] = []): Promise<EntityRecord> =>
-    (cleansReplaced ? <T>(fn: () => Promise<T>) => adapter.transaction(fn) : atomically)(async () => {
+  // Without relation sides to sync or replaced files to remove, an update needs nothing from the stored record.
+  const writesDirectly = !syncsRelations && !cleansReplaced;
+
+  const write = async (id: string, changes: Record<string, unknown>, options?: ReadOptions, queue: StoredObject[] = []): Promise<EntityRecord> => {
+    if (writesDirectly) {
+      // One conditional update: `updatedAt` must move forward, so a record stored at or after this instant (or a
+      // missing one) falls through to the read below, which answers 404 or picks a later timestamp.
+      const at = nextTimestamp();
+      const updated = await mapUniqueViolation(() =>
+        adapter.updateById(model, id, { ...withoutDerived(model, changes), updatedAt: at }, [{ field: "updatedAt", op: "lt", value: at }]),
+      );
+      if (updated) return written(updated, options);
+    }
+    return (cleansReplaced ? <T>(fn: () => Promise<T>) => adapter.transaction(fn) : atomically)(async () => {
       const current = await existing(id);
       await releaseOneToOne(model, id, changes, adapter, touch);
       const updated = await mapUniqueViolation(() =>
@@ -263,8 +282,9 @@ export function createRepository(
       if (!updated) throw notFound();
       if (hasDerived) await mapUniqueViolation(() => writeDerived(model, id, changes, models, adapter, touch));
       await removeReplaced(current, changes, queue);
-      return present((await compute(model, [await existing(id)]))[0]!, options);
+      return written(updated, options);
     });
+  };
 
   const createRecord = async (id: string, managed: Record<string, unknown>, data: unknown, options?: ReadOptions) => {
       const value = await validate(data, "create");
@@ -278,9 +298,9 @@ export function createRepository(
       const record: StoredRecord = { ...value, ...managed, id, createdAt: at, updatedAt: at };
       return atomically(async () => {
         await releaseOneToOne(model, undefined, value, adapter, touch);
-        await mapUniqueViolation(() => adapter.insert(model, withoutDerived(model, record) as StoredRecord));
+        const inserted = await mapUniqueViolation(() => adapter.insert(model, withoutDerived(model, record) as StoredRecord));
         if (hasDerived) await mapUniqueViolation(() => writeDerived(model, record.id, value, models, adapter, touch));
-        return present((await compute(model, [await existing(record.id)]))[0]!, options);
+        return written(inserted, options);
       });
   };
 

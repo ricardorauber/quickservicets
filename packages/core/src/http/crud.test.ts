@@ -80,6 +80,18 @@ test("repository errors pass through unchanged", async () => {
   expect((await send(server, "DELETE", `/users/${Bun.randomUUIDv7()}`)).status).toBe(404);
 });
 
+test("PATCH of an unknown id validates the body before answering 404", async () => {
+  const server = serverWith();
+  const missing = Bun.randomUUIDv7();
+  expect(await send(server, "PATCH", `/users/${missing}`, { name: "Bea" })).toEqual({
+    status: 404,
+    body: { error: { code: "NOT_FOUND", message: "User not found" } },
+  });
+  const invalid = await send(server, "PATCH", `/users/${missing}`, { email: "nope" });
+  expect(invalid.status).toBe(400);
+  expect(invalid.body.error.details).toEqual([{ field: "email", message: "Must be a valid email" }]);
+});
+
 describe("list", () => {
   test("shape and pagination", async () => {
     const server = serverWith();

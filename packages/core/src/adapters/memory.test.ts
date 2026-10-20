@@ -35,7 +35,7 @@ test("unique enforcement on update ignores the record's own value", async () => 
   const adapter = await connected();
   const { id } = await adapter.insert(contractItem, contractRecord({ title: "A", code: "one" }));
   await adapter.insert(contractItem, contractRecord({ title: "B", code: "two" }));
-  expect(await adapter.updateById(contractItem, id, { code: "one", title: "A2" })).toBe(true);
+  expect(await adapter.updateById(contractItem, id, { code: "one", title: "A2" })).toMatchObject({ id, code: "one", title: "A2" });
   await expect(adapter.updateById(contractItem, id, { code: "two" })).rejects.toBeInstanceOf(UniqueViolationError);
 });
 

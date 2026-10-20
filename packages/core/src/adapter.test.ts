@@ -9,7 +9,7 @@ test("a complete stub satisfies the interface and an incomplete one does not", (
     findById: async () => null,
     findOne: async () => null,
     findMany: async () => ({ data: [], total: 0 }),
-    updateById: async () => false,
+    updateById: async () => null,
     deleteById: async () => false,
     count: async () => 0,
     aggregate: async () => ({}),

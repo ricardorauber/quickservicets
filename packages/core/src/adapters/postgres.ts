@@ -9,7 +9,7 @@ import { aggregateSelection } from "../sql/aggregates.ts";
 import { toOrderBy, toWhere, type RelationContext } from "../sql/conditions.ts";
 import { poolSizePerWorker } from "../workers.ts";
 import { buildDrizzleSchema, columnName, schemaIdentifier, type DrizzleSchema } from "../sql/schema.ts";
-import { loadRelations, splitRelations, writeRelations } from "../sql/relations.ts";
+import { loadRelations, relationFields, splitRelations, writeRelations } from "../sql/relations.ts";
 
 export interface PostgresAdapterOptions {
   url: string;
@@ -103,6 +103,9 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
     if (!db) throw new Error("The PostgreSQL adapter is not connected");
     return db.transaction((tx) => transactions.run(tx as unknown as Executor, fn));
   };
+  /** Writes of an entity with reference arrays also write junction rows, so only they need a transaction. */
+  const atomicallyWithRelations = <T>(entity: EntityModel, fn: () => Promise<T>): Promise<T> =>
+    relationFields(entity).length > 0 ? transaction(fn) : fn();
   const first = async (entity: EntityModel, rows: unknown[]): Promise<StoredRecord | null> =>
     rows[0] ? (await withRelations(entity, [rows[0] as StoredRecord]))[0]! : null;
 
@@ -133,7 +136,7 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
     },
     insert(entity, record) {
       return translateErrors(() =>
-        transaction(async () => {
+        atomicallyWithRelations(entity, async () => {
           const { columns, relations } = splitRelations(entity, record);
           const rows = await executor().insert(tableFor(entity)).values(columns).returning();
           await writeRelations(executor(), schema!, entity, record.id, relations);
@@ -164,16 +167,16 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
     },
     updateById(entity, id, changes, where = []) {
       return translateErrors(() =>
-        transaction(async () => {
+        atomicallyWithRelations(entity, async () => {
           const table = tableFor(entity);
           const { columns, relations } = splitRelations(entity, changes);
           const target = and(eq(table.id, id), toWhere(table, where, "postgres", relationContext(entity)));
           const rows =
             Object.keys(columns).length > 0
-              ? await executor().update(table).set(columns).where(target).returning({ id: table.id })
-              : await executor().select({ id: table.id }).from(table).where(target);
+              ? await executor().update(table).set(columns).where(target).returning()
+              : await executor().select().from(table).where(target);
           if (rows.length > 0) await writeRelations(executor(), schema!, entity, id, relations);
-          return rows.length > 0;
+          return first(entity, rows);
         }),
       );
     },

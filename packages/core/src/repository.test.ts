@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+import type { DatabaseAdapter } from "./adapter.ts";
 import { memoryAdapter } from "./adapters/memory.ts";
 import { HttpError } from "./errors.ts";
 import { parseListQuery } from "./query.ts";
@@ -137,4 +138,29 @@ test("nested always-hidden properties are stripped from results", async () => {
   const created = await accounts.create({ address: { city: "Rio", zip: "123" } });
   expect(created.address).toEqual({ city: "Rio" });
   expect((await accounts.findById(created.id, { includeHidden: true }))?.address).toEqual({ city: "Rio", zip: "123" });
+});
+
+test("create, update and replace of a record stored earlier answer with the written record without reading it", async () => {
+  const adapter = memoryAdapter();
+  await adapter.connect([user]);
+  const reads: string[] = [];
+  const counting: DatabaseAdapter = {
+    ...adapter,
+    findById: (entity, id) => {
+      reads.push(id);
+      return adapter.findById(entity, id);
+    },
+  };
+  const repository = createRepositories([user], counting).users as Repository;
+  // Writes in the same millisecond as the stored `updatedAt` read it first, to keep `updatedAt` increasing.
+  const later = () => Bun.sleep(2);
+  const created = await repository.create({ email: "a@b.co", passwordHash: "secret" });
+  await later();
+  const updated = await repository.update(created.id, { name: "Ann" });
+  await later();
+  const replaced = await repository.replace(created.id, { email: "c@d.co", role: "admin", tags: [] });
+  expect(reads).toEqual([]);
+  expect(created).toEqual({ id: created.id, email: "a@b.co", name: null, role: "member", tags: [], createdAt: created.createdAt, updatedAt: created.updatedAt });
+  expect(updated).toMatchObject({ email: "a@b.co", name: "Ann" });
+  expect(replaced).toEqual((await repository.findById(created.id))!);
 });

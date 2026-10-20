@@ -7,7 +7,7 @@ import { aggregateSelection } from "../sql/aggregates.ts";
 import { toOrderBy, toWhere } from "../sql/conditions.ts";
 import { buildDrizzleSchema, columnName, sqliteDefaultPrefix, type DrizzleSchema } from "../sql/schema.ts";
 import { TransactionScope } from "../sql/transaction-scope.ts";
-import { loadRelations, splitRelations, writeRelations } from "../sql/relations.ts";
+import { loadRelations, relationFields, splitRelations, writeRelations } from "../sql/relations.ts";
 
 export interface SqliteAdapterOptions {
   /** File path of the database, or `:memory:`. */
@@ -80,6 +80,9 @@ export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
   };
   const relationContext = (entity: EntityModel) => ({ entity, schema: ready().schema });
   const atomically = <T>(fn: () => Promise<T>) => scope.transaction(fn, transactionHooks);
+  /** Writes of an entity with reference arrays also write junction rows, so only they need a transaction. */
+  const atomicallyWithRelations = <T>(entity: EntityModel, fn: () => Promise<T>) =>
+    relationFields(entity).length > 0 ? atomically(fn) : scope.run(fn);
 
   return {
     kind: "sqlite",
@@ -101,11 +104,11 @@ export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
     },
     insert(entity, record) {
       return translateErrors(() =>
-        atomically(async () => {
+        atomicallyWithRelations(entity, async () => {
           const { columns, relations } = splitRelations(entity, record);
-          ready().db.insert(tableFor(entity)).values(columns).run();
+          const rows = ready().db.insert(tableFor(entity)).values(columns).returning().all() as StoredRecord[];
           await writeRelations(ready().db, ready().schema, entity, record.id, relations);
-          return (await findById(entity, record.id))!;
+          return (await withRelations(entity, rows))[0]!;
         }),
       );
     },
@@ -137,16 +140,18 @@ export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
     },
     updateById(entity, id, changes, where = []) {
       return translateErrors(() =>
-        atomically(async () => {
+        atomicallyWithRelations(entity, async () => {
           const table = tableFor(entity);
           const { columns, relations } = splitRelations(entity, changes);
           const target = and(eq(table.id, id), toWhere(table, where, "sqlite", relationContext(entity)));
-          const exists =
+          const rows = (
             Object.keys(columns).length > 0
-              ? (ready().db.update(table).set(columns).where(target).run() as unknown as RunResult).changes > 0
-              : ready().db.select({ id: table.id }).from(table).where(target).get() !== undefined;
-          if (exists) await writeRelations(ready().db, ready().schema, entity, id, relations);
-          return exists;
+              ? ready().db.update(table).set(columns).where(target).returning().all()
+              : ready().db.select().from(table).where(target).all()
+          ) as StoredRecord[];
+          if (rows.length === 0) return null;
+          await writeRelations(ready().db, ready().schema, entity, id, relations);
+          return (await withRelations(entity, rows))[0]!;
         }),
       );
     },

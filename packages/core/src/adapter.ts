@@ -45,15 +45,16 @@ export interface DatabaseAdapter {
   readonly kind?: AdapterKind;
   connect(models: EntityModel[], options?: ConnectOptions): Promise<void>;
   disconnect(): Promise<void>;
-  insert(entity: EntityModel, record: StoredRecord): Promise<StoredRecord>;
   findById(entity: EntityModel, id: string): Promise<StoredRecord | null>;
   findOne(entity: EntityModel, where: Condition[]): Promise<StoredRecord | null>;
   findMany(entity: EntityModel, options: FindManyOptions): Promise<FindManyResult>;
+  /** Stores a new record and resolves the record as stored. */
+  insert(entity: EntityModel, record: StoredRecord): Promise<StoredRecord>;
   /**
    * Updates the record with that id; with `where`, only when the record also matches those conditions, checked in the
-   * same atomic write. Resolves false when no record was updated.
+   * same atomic write. Resolves the record as stored after the update, or null when no record was updated.
    */
-  updateById(entity: EntityModel, id: string, changes: Record<string, unknown>, where?: Condition[]): Promise<boolean>;
+  updateById(entity: EntityModel, id: string, changes: Record<string, unknown>, where?: Condition[]): Promise<StoredRecord | null>;
   deleteById(entity: EntityModel, id: string): Promise<boolean>;
   count(entity: EntityModel, where: Condition[]): Promise<number>;
   /**

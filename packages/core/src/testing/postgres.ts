@@ -14,3 +14,41 @@ export async function resetPostgresTables(client: SQL, models: EntityModel[]): P
   await client.unsafe("drop schema if exists public cascade; create schema public;");
   for (const statement of await postgresDdl(models)) await client.unsafe(statement);
 }
+
+export interface StatementLog {
+  /** The statements sent so far, `begin` and `commit`/`rollback` included. */
+  readonly statements: string[];
+  clear(): void;
+}
+
+/** Records every statement a Bun.sql client sends, including those inside its transactions, to count round trips. */
+export function recordStatements(client: SQL): StatementLog {
+  const statements: string[] = [];
+  const track = (target: SQL) => {
+    const unsafe = target.unsafe.bind(target);
+    target.unsafe = ((query: string, params?: unknown[]) => {
+      statements.push(query);
+      return unsafe(query, params);
+    }) as SQL["unsafe"];
+  };
+  track(client);
+  const begin = client.begin.bind(client) as (fn: (tx: SQL) => Promise<unknown>) => Promise<unknown>;
+  client.begin = (async (fn: (tx: SQL) => Promise<unknown>) => {
+    statements.push("begin");
+    try {
+      const result = await begin(async (tx) => {
+        track(tx);
+        return fn(tx);
+      });
+      statements.push("commit");
+      return result;
+    } catch (error) {
+      statements.push("rollback");
+      throw error;
+    }
+  }) as SQL["begin"];
+  return {
+    statements,
+    clear: () => void statements.splice(0),
+  };
+}

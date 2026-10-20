@@ -91,6 +91,7 @@ export function runAdapterContract(name: string, factory: AdapterFactory): void 
       const [inserted] = await insertItems(values);
       const found = await adapter.findById(contractItem, inserted!.id);
       expect(found).toEqual({ ...values, id: inserted!.id, createdAt: inserted!.createdAt, updatedAt: inserted!.updatedAt });
+      expect(inserted).toEqual(found!);
       expect(found!.publishedAt).toBeInstanceOf(Date);
       expect(found!.createdAt).toBeInstanceOf(Date);
       expect(found!.updatedAt).toBeInstanceOf(Date);
@@ -222,9 +223,10 @@ export function runAdapterContract(name: string, factory: AdapterFactory): void 
 
     test("updates fields, clears them with null and reports misses", async () => {
       const [item] = await insertItems({ title: "A", score: 1, tags: ["x"] });
-      expect(await adapter.updateById(contractItem, item!.id, { title: "A2", score: null, tags: ["y", "z"] })).toBe(true);
-      expect(await adapter.findById(contractItem, item!.id)).toMatchObject({ title: "A2", score: null, tags: ["y", "z"] });
-      expect(await adapter.updateById(contractItem, newId(), { title: "x" })).toBe(false);
+      const updated = await adapter.updateById(contractItem, item!.id, { title: "A2", score: null, tags: ["y", "z"] });
+      expect(updated).toMatchObject({ title: "A2", score: null, tags: ["y", "z"] });
+      expect(await adapter.findById(contractItem, item!.id)).toEqual(updated);
+      expect(await adapter.updateById(contractItem, newId(), { title: "x" })).toBeNull();
     });
 
     test("conditional updates apply only to a record that still matches", async () => {
@@ -236,9 +238,9 @@ export function runAdapterContract(name: string, factory: AdapterFactory): void 
       ]);
       expect(results.filter(Boolean)).toHaveLength(1);
       expect(await adapter.findById(contractItem, item!.id)).toMatchObject(results[0] ? { score: 2, title: "first" } : { score: 3, title: "second" });
-      expect(await adapter.updateById(contractItem, item!.id, { title: "missed" }, stillOne)).toBe(false);
+      expect(await adapter.updateById(contractItem, item!.id, { title: "missed" }, stillOne)).toBeNull();
       expect((await adapter.findById(contractItem, item!.id))!.title).not.toBe("missed");
-      expect(await adapter.updateById(contractItem, item!.id, { title: "B" }, [])).toBe(true);
+      expect(await adapter.updateById(contractItem, item!.id, { title: "B" }, [])).toMatchObject({ id: item!.id, title: "B" });
     });
 
     test("deletes records and reports misses", async () => {
@@ -414,11 +416,11 @@ export function runAdapterContract(name: string, factory: AdapterFactory): void 
       test("are replaced on update, and other fields stay", async () => {
         const [a, b] = await organizations("a", "b");
         const [item] = await insertItems({ title: "A", partners: [a] });
-        expect(await adapter.updateById(contractItem, item!.id, { partners: [b, a] })).toBe(true);
+        expect(await adapter.updateById(contractItem, item!.id, { partners: [b, a] })).toMatchObject({ title: "A", partners: [b, a] });
         expect(await adapter.findById(contractItem, item!.id)).toMatchObject({ title: "A", partners: [b, a] });
         await adapter.updateById(contractItem, item!.id, { title: "A2", partners: [] });
         expect(await adapter.findById(contractItem, item!.id)).toMatchObject({ title: "A2", partners: [] });
-        expect(await adapter.updateById(contractItem, newId(), { partners: [a] })).toBe(false);
+        expect(await adapter.updateById(contractItem, newId(), { partners: [a] })).toBeNull();
       });
     });
 

@@ -195,11 +195,11 @@ export function memoryAdapter(): DatabaseAdapter {
     async updateById(entity, id, changes, where = []) {
       const table = tableFor(entity);
       const current = table.get(id);
-      if (!current || !where.every((condition) => matches(current, condition, entity))) return false;
+      if (!current || !where.every((condition) => matches(current, condition, entity))) return null;
       const updated = normalize(entity, { ...current, ...changes, id });
       assertUnique(entity, updated);
       table.set(id, updated);
-      return true;
+      return structuredClone(updated);
     },
     async deleteById(entity, id) {
       return tableFor(entity).delete(id);

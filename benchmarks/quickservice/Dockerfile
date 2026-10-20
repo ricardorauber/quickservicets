@@ -26,7 +26,7 @@ RUN sed -i '/"@quickservice\/cli"/d; s/"@quickservice\/core": "workspace:\*",/"@
 
 # 3. Runtime: Bun, the core package, the production dependencies and the built project.
 FROM oven/bun:1.4.2-alpine
-ENV NODE_ENV=production PORT=8080 UPLOAD_DIR=/data/uploads
+ENV NODE_ENV=production PORT=8080 UPLOAD_DIR=/data/uploads QS_WORKERS=1
 WORKDIR /app
 COPY --from=deps /app/node_modules node_modules
 COPY --from=deps /app/benchmarks/quickservice/node_modules benchmarks/quickservice/node_modules

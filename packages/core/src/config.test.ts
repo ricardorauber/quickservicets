@@ -148,6 +148,25 @@ describe("jobs", () => {
 describe("server.workers", () => {
   const postgres = postgresAdapter({ url: "postgres://localhost/none" });
   const twoCpus = () => 2;
+  const production = { NODE_ENV: "production" };
+
+  test("every CPU by default in production on Linux with a database server, 1 otherwise", () => {
+    const mongodb = mongodbAdapter({ url: "mongodb://localhost/none", database: "none" });
+    expect(resolveConfig({ database: postgres }, production, undefined, twoCpus, "linux").server.workers).toBe(2);
+    expect(resolveConfig({ database: mongodb }, production, undefined, twoCpus, "linux").server.workers).toBe(2);
+    expect(resolveConfig({ database: postgres, production: true }, {}, undefined, twoCpus, "linux").server.workers).toBe(2);
+    expect(resolveConfig({ database: postgres }, {}, undefined, twoCpus, "linux").server.workers).toBe(1);
+    expect(resolveConfig({ database: postgres }, production, undefined, twoCpus, "darwin").server.workers).toBe(1);
+    expect(resolveConfig({ database: postgres, production: false }, production, undefined, twoCpus, "linux").server.workers).toBe(1);
+    expect(resolveConfig({ database: memoryAdapter() }, production, undefined, twoCpus, "linux").server.workers).toBe(1);
+    expect(resolveConfig({ database: sqliteAdapter({ path: ":memory:" }) }, production, undefined, twoCpus, "linux").server.workers).toBe(1);
+  });
+
+  test("an explicit value wins over the production default", () => {
+    expect(resolveConfig({ database: postgres, server: { workers: 1 } }, production, undefined, twoCpus, "linux").server.workers).toBe(1);
+    expect(resolveConfig({ database: postgres }, { ...production, QS_WORKERS: "1" }, undefined, twoCpus, "linux").server.workers).toBe(1);
+    expect(resolveConfig({ database: postgres }, { ...production, QS_WORKERS: "" }, undefined, twoCpus, "linux").server.workers).toBe(2);
+  });
 
   test("an integer or auto, 1 by default, and QS_WORKERS overrides the config", async () => {
     expect(resolveConfig({ database: postgres }, {}).server.workers).toBe(1);

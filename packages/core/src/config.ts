@@ -22,7 +22,7 @@ export interface ServiceConfig {
     port?: number;
     /** Absolute base URL of the API, used in file URLs (default: relative URLs). */
     publicUrl?: string;
-    /** Processes serving requests on the shared port, an integer or `"auto"` for the CPUs available, read from the container's CPU quota on Linux (default 1); `QS_WORKERS` overrides it. Above 1 it needs PostgreSQL or MongoDB, and connections spread across the processes only on Linux. */
+    /** Processes serving requests on the shared port, an integer or `"auto"` for the CPUs available, read from the container's CPU quota on Linux (default `"auto"` in production on Linux with PostgreSQL or MongoDB, otherwise 1); `QS_WORKERS` overrides it. Above 1 it needs PostgreSQL or MongoDB, and connections spread across the processes only on Linux. */
     workers?: number | "auto";
   };
   /** Production mode: hides internal error details and disables the API docs (default `NODE_ENV === "production"`). */
@@ -169,9 +169,21 @@ function resolvePort(config: ServiceConfig, env: Record<string, string | undefin
 
 export const WORKERS_NEED_DATABASE_SERVER = "server.workers > 1 requires a database server (PostgreSQL or MongoDB)";
 
-function resolveWorkers(config: ServiceConfig, env: Record<string, string | undefined>, cpus: () => number): number {
+/** Production services on Linux with a database server use every CPU unless told otherwise; everything else runs one process. */
+function defaultWorkers(config: ServiceConfig, production: boolean, platform: string): number | "auto" {
+  const kind = config.database.kind;
+  return production && platform === "linux" && (kind === "postgres" || kind === "mongodb") ? "auto" : 1;
+}
+
+function resolveWorkers(
+  config: ServiceConfig,
+  env: Record<string, string | undefined>,
+  cpus: () => number,
+  production: boolean,
+  platform: string,
+): number {
   const fromEnv = env[WORKERS_ENV] !== undefined && env[WORKERS_ENV].trim() !== "";
-  const raw: unknown = fromEnv ? env[WORKERS_ENV]!.trim() : (config.server?.workers ?? 1);
+  const raw: unknown = fromEnv ? env[WORKERS_ENV]!.trim() : (config.server?.workers ?? defaultWorkers(config, production, platform));
   const value = raw === "auto" ? cpus() : fromEnv && /^\d+$/.test(raw as string) ? Number(raw) : raw;
   if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
     const source = fromEnv ? `${WORKERS_ENV} (server.workers)` : "server.workers";
@@ -271,6 +283,7 @@ export function resolveConfig(
   env: Record<string, string | undefined> = process.env,
   projectRoot = process.cwd(),
   cpus: () => number = availableCpus,
+  platform: string = process.platform,
 ): ResolvedConfig {
   if (!config || typeof config !== "object" || !config.database) {
     throw new ConfigError("Invalid config: database is required");
@@ -278,7 +291,7 @@ export function resolveConfig(
   const production = config.production ?? env.NODE_ENV === "production";
   return {
     ...config,
-    server: { ...config.server, port: resolvePort(config, env), workers: resolveWorkers(config, env, cpus) },
+    server: { ...config.server, port: resolvePort(config, env), workers: resolveWorkers(config, env, cpus, production, platform) },
     production,
     docs: { enabled: config.docs?.enabled ?? !production },
     schema: resolveSchema(config, env),

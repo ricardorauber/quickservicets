@@ -63,7 +63,9 @@ export default defineConfig({
 });
 ```
 
-`workers` is a positive integer or `"auto"`, the number of CPUs available to the process; the default is 1. On Linux, `"auto"` reads the container's CPU quota (cgroup v2 `cpu.max`), so a container started with `--cpus=2` runs 2 workers on any host. The `QS_WORKERS` variable overrides the config, so one build can run with 1 worker on a laptop and `QS_WORKERS=auto` in production.
+`workers` is a positive integer or `"auto"`, the number of CPUs available to the process. On Linux, `"auto"` reads the container's CPU quota (cgroup v2 `cpu.max`), so a container started with `--cpus=2` runs 2 workers on any host. The `QS_WORKERS` variable overrides the config.
+
+Without a value, a service in production mode (`NODE_ENV=production`, or `production: true`) on Linux with PostgreSQL or MongoDB uses `"auto"`, so a deployed container uses every CPU it is given with no setting at all. Everywhere else the default is 1: in development, on macOS (where `reusePort` does not spread connections across processes) and with the memory and SQLite adapters. Set `workers: 1` or `QS_WORKERS=1` to keep a single process in production.
 
 With more than one worker:
 

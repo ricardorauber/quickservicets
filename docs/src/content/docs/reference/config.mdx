@@ -13,7 +13,7 @@ The project configuration lives in `quickservice.config.ts` and is written with 
 | `server` | `object` | — | HTTP server settings. |
 | `server.port` | `number` | `PORT`, then 3000 | Port to listen on (default `PORT`, then 3000). |
 | `server.publicUrl` | `string` | relative URLs | Absolute base URL of the API, used in file URLs (default: relative URLs). |
-| `server.workers` | `number \| "auto"` | 1 | Processes serving requests on the shared port, an integer or `"auto"` for the CPUs available, read from the container's CPU quota on Linux (default 1); `QS_WORKERS` overrides it. Above 1 it needs PostgreSQL or MongoDB, and connections spread across the processes only on Linux. |
+| `server.workers` | `number \| "auto"` | `"auto"` in production on Linux with PostgreSQL or MongoDB, otherwise 1 | Processes serving requests on the shared port, an integer or `"auto"` for the CPUs available, read from the container's CPU quota on Linux (default `"auto"` in production on Linux with PostgreSQL or MongoDB, otherwise 1); `QS_WORKERS` overrides it. Above 1 it needs PostgreSQL or MongoDB, and connections spread across the processes only on Linux. |
 | `production` | `boolean` | `NODE_ENV === "production"` | Production mode: hides internal error details and disables the API docs (default `NODE_ENV === "production"`). |
 | `docs` | `object` | — | API docs settings. |
 | `docs.enabled` | `boolean` | enabled unless `production` | Serve the API docs at `GET /docs` and `GET /openapi.json` (default: enabled unless `production`). |

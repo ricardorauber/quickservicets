@@ -75,6 +75,7 @@ export async function runJobCommand(projectRoot: string, name: string | undefine
       sort: [{ field: "attempt", direction: "desc" }],
       limit: 1,
       offset: 0,
+      withTotal: false,
     });
     const final = (data[0] as unknown as JobRun | undefined) ?? claimed;
     if (final.status === "skipped") {
@@ -132,6 +133,7 @@ export async function listJobRunsCommand(projectRoot: string, name: string | und
       ],
       limit,
       offset: 0,
+      withTotal: false,
     });
     if (data.length === 0) return { code: 0, lines: [`No runs of ${job}`], errors: [] };
     const rows = [["ATTEMPT", "TRIGGER", "STATUS", "STARTED", "DURATION"]];

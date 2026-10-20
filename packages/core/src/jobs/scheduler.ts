@@ -351,6 +351,7 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
           sort: [{ field: "startedAt", direction: "asc" }],
           limit: 1000,
           offset: 0,
+          withTotal: false,
         });
         const marked: JobRun[] = [];
         for (const record of data as unknown as JobRun[]) {

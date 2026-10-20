@@ -122,7 +122,7 @@ export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
         return row ? (await withRelations(entity, [row]))[0]! : null;
       });
     },
-    findMany(entity, { where, sort, limit, offset }) {
+    findMany(entity, { where, sort, limit, offset, withTotal = true }) {
       return scope.run(async () => {
         const table = tableFor(entity);
         const condition = toWhere(table, where, "sqlite", relationContext(entity));
@@ -134,7 +134,7 @@ export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
           .limit(limit)
           .offset(offset)
           .all() as StoredRecord[];
-        const total = ready().db.select({ total: count() }).from(table).where(condition).get()?.total ?? 0;
+        const total = withTotal ? (ready().db.select({ total: count() }).from(table).where(condition).get()?.total ?? 0) : data.length;
         return { data: await withRelations(entity, data), total };
       });
     },

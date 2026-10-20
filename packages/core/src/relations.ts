@@ -1,7 +1,7 @@
-import type { DatabaseAdapter, StoredRecord } from "./adapter.ts";
+import { findAll, type DatabaseAdapter, type StoredRecord } from "./adapter.ts";
 import { HttpError } from "./errors.ts";
 import type { EntityModel, FieldModel } from "./model.ts";
-import { isConditionGroup, type Condition, type FieldCondition } from "./query.ts";
+import { isConditionGroup, type Condition, type FieldCondition, type SortField } from "./query.ts";
 
 type Derived = FieldModel & { relation: NonNullable<FieldModel["relation"]> };
 
@@ -29,11 +29,7 @@ export function linkFor(model: EntityModel, field: Derived, models: EntityModel[
 
 const other = (side: "left" | "right") => (side === "left" ? "right" : "left");
 
-async function all(adapter: DatabaseAdapter, model: EntityModel, where: Parameters<DatabaseAdapter["findMany"]>[1]["where"], sort: Parameters<DatabaseAdapter["findMany"]>[1]["sort"]) {
-  const total = await adapter.count(model, where);
-  if (total === 0) return [];
-  return (await adapter.findMany(model, { where, sort, limit: total, offset: 0 })).data;
-}
+const all = (adapter: DatabaseAdapter, model: EntityModel, where: Condition[], sort: SortField[]) => findAll(adapter, model, where, sort);
 
 /** Computes the derived side of every bidirectional relation of `records` (one query per field). */
 export async function deriveRelations(

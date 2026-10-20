@@ -290,10 +290,10 @@ A query does nothing until you call one of its terminal methods.
 
 ### `all`
 
-Every match. To protect the server, `all()` first counts the records it would return (after `skip` and `take`) and throws when there are more than `repositories.findAllMax` (10000 by default), without loading them:
+Every match. To protect the server, `all()` loads at most one record more than `repositories.findAllMax` (10000 by default), after `skip` and `take`, and throws when that extra record is there:
 
 ```text
-Query on User matched 3 records, more than repositories.findAllMax (2)
+Query on User matched more than repositories.findAllMax (2) records
 ```
 
 Use `take(n)` or `page()` for large tables, or raise the limit in `quickservice.config.ts`:

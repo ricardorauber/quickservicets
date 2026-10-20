@@ -145,6 +145,24 @@ if (url) {
       await adapter.disconnect();
     });
 
+    test("a page and its count are sent together, and a page without the total is one statement", async () => {
+      const { adapter, log, members } = await connected();
+      for (const name of ["a", "b", "c"]) await members.create({ email: `${name}@x.co` });
+      log.clear();
+      const query = { where: [], sort: [{ field: "email", direction: "asc" as const }], limit: 2, offset: 0 };
+      const pending = adapter.findMany(member, query);
+      // Only microtasks run here: a count sent after the page's result would need a network round trip first.
+      for (let turn = 0; turn < 50; turn++) await null;
+      expect(log.statements).toHaveLength(2);
+      const result = await pending;
+      expect(result.total).toBe(3);
+      expect(result.data.map((record) => record.email)).toEqual(["a@x.co", "b@x.co"]);
+      log.clear();
+      expect((await adapter.findMany(member, { ...query, withTotal: false })).data).toHaveLength(2);
+      expect(log.statements).toHaveLength(1);
+      await adapter.disconnect();
+    });
+
     test("unique violations map to 409 without a transaction", async () => {
       const { adapter, log, members } = await connected();
       await members.create({ email: "a@x.co" });

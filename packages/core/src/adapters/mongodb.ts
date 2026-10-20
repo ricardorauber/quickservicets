@@ -300,10 +300,10 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
     async findOne(entity, where) {
       return toRecord(entity, await collection(entity).findOne(toFilter(where, entity), session()));
     },
-    async findMany(entity, { where, sort, limit, offset }) {
+    async findMany(entity, { where, sort, limit, offset, withTotal = true }) {
       const filter = toFilter(where, entity);
       const documents = await collection(entity).find(filter, session()).sort(toSort(sort)).skip(offset).limit(limit).toArray();
-      const total = await collection(entity).countDocuments(filter, session());
+      const total = withTotal ? await collection(entity).countDocuments(filter, session()) : documents.length;
       return { data: documents.map((document) => toRecord(entity, document)!), total };
     },
     updateById(entity, id, changes, where = []) {

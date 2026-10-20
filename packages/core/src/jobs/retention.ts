@@ -62,7 +62,7 @@ export function createJobRunCleanup(options: JobRunCleanupOptions): JobRunCleanu
   const deleteExpired = async (where: Condition[]): Promise<number> => {
     let deleted = 0;
     for (;;) {
-      const { data } = await database.findMany(model, { where, sort: [{ field: "startedAt", direction: "asc" }], limit: RUN_CLEANUP_BATCH, offset: 0 });
+      const { data } = await database.findMany(model, { where, sort: [{ field: "startedAt", direction: "asc" }], limit: RUN_CLEANUP_BATCH, offset: 0, withTotal: false });
       for (const record of data) if (await database.deleteById(model, record.id)) deleted++;
       if (data.length < RUN_CLEANUP_BATCH) return deleted;
     }

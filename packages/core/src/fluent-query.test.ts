@@ -251,10 +251,11 @@ describe.each(factories)("%s", (_, factory) => {
     await adapter.disconnect();
   });
 
-  test("all() over the cap throws", async () => {
+  test("all() at the cap returns every match and over it throws", async () => {
     const { adapter, users } = await setup(factory, 2);
-    await expect(users.query().all()).rejects.toThrow("Query on User matched 3 records, more than repositories.findAllMax (2)");
+    await expect(users.query().all()).rejects.toThrow("Query on User matched more than repositories.findAllMax (2) records");
     expect(await users.where((u) => u.active.eq(true)).all()).toHaveLength(2);
+    expect(await users.query().take(2).all()).toHaveLength(2);
     await adapter.disconnect();
   });
 

@@ -352,11 +352,19 @@ export function createRepository(
     });
   };
 
+  /** A page of records; without `withTotal`, the matches are not counted and `total` is the page size. */
+  const listRecords = async (query: ListQuery, options: ReadOptions | undefined, withTotal: boolean): Promise<ListResult<EntityRecord>> => {
+    const where = await resolveDerivedConditions(model, query.where, models, adapter);
+    const { data, total } = await adapter.findMany(model, { ...query, where, withTotal });
+    const populated = await withReferences(data, options);
+    return { data: populated.map((record) => present(record, options)), total, limit: query.limit, offset: query.offset };
+  };
+
   const findAllMax = repositoryOptions.findAllMax ?? DEFAULT_FIND_ALL_MAX;
   const backend: QueryBackend = {
     model,
     findAllMax,
-    list: (query, populate) => repository.list(query, { populate }),
+    list: (query, populate, withTotal) => listRecords(query, { populate }, withTotal),
     count: async (where) => adapter.count(model, await resolveDerivedConditions(model, where, models, adapter)),
     aggregate: async (where, aggregates) => {
       const resolved: Record<string, Aggregate> = {};
@@ -385,9 +393,10 @@ export function createRepository(
       const found = new Map<string, EntityRecord>();
       for (let start = 0; start < unique.length; start += FIND_BY_IDS_BATCH) {
         const batch = unique.slice(start, start + FIND_BY_IDS_BATCH);
-        const { data } = await repository.list(
+        const { data } = await listRecords(
           { where: [{ field: "id", op: "in", value: batch }], sort: [{ field: "id", direction: "asc" }], limit: batch.length, offset: 0 },
           { populate: options.include ?? [] },
+          false,
         );
         for (const record of data) found.set(record.id, record);
       }
@@ -421,10 +430,7 @@ export function createRepository(
     },
 
     async list(query, options) {
-      const where = await resolveDerivedConditions(model, query.where, models, adapter);
-      const { data, total } = await adapter.findMany(model, { ...query, where });
-      const populated = await withReferences(data, options);
-      return { data: populated.map((record) => present(record, options)), total, limit: query.limit, offset: query.offset };
+      return listRecords(query, options, true);
     },
 
     async populate(records, paths) {

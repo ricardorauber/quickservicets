@@ -188,9 +188,10 @@ export function memoryAdapter(): DatabaseAdapter {
       const [record] = select(entity, where);
       return record ? structuredClone(record) : null;
     },
-    async findMany(entity, { where, sort, limit, offset }: FindManyOptions) {
+    async findMany(entity, { where, sort, limit, offset, withTotal = true }: FindManyOptions) {
       const records = sortRecords(select(entity, where), sort);
-      return { data: records.slice(offset, offset + limit).map((record) => structuredClone(record)), total: records.length };
+      const data = records.slice(offset, offset + limit).map((record) => structuredClone(record));
+      return { data, total: withTotal ? records.length : data.length };
     },
     async updateById(entity, id, changes, where = []) {
       const table = tableFor(entity);

@@ -185,3 +185,43 @@ test("delete reads the record once", async () => {
   expect(reads).toEqual([member.id]);
   expect(await adapter.findById(user, member.id)).toBeNull();
 });
+
+test("reads that return no total skip counting", async () => {
+  const team = entity("Team", [
+    field({ name: "lead", type: "ref", target: "User", onDelete: "setNull", optional: true }),
+    field({ name: "members", type: "refArray", target: "User", onDelete: "pull", optional: true }),
+  ]);
+  const adapter = memoryAdapter();
+  await adapter.connect([user, team]);
+  const totals: (boolean | undefined)[] = [];
+  let counts = 0;
+  const counting: DatabaseAdapter = {
+    ...adapter,
+    findMany: (entity, options) => {
+      totals.push(options.withTotal);
+      return adapter.findMany(entity, options);
+    },
+    count: (entity, where) => {
+      counts++;
+      return adapter.count(entity, where);
+    },
+  };
+  const repos = createRepositories([user, team], counting);
+  const users = repos.users as Repository;
+  const teams = repos.teams as Repository;
+  const [a, b] = [await users.create({ email: "a@b.co" }), await users.create({ email: "b@b.co" })];
+  const created = await teams.create({ lead: a.id, members: [a.id, b.id] });
+  await teams.findById(created.id, { populate: ["lead", "members"] });
+  await users.findByIds([a.id, b.id]);
+  await users.query().all();
+  await users.query().first();
+  await users.query().firstOrDefault();
+  await users.delete(a.id);
+  expect(totals.length).toBeGreaterThan(0);
+  expect(totals.every((withTotal) => withTotal === false)).toBe(true);
+  expect(counts).toBe(0);
+  totals.length = 0;
+  await users.list({ where: [], sort: [{ field: "id", direction: "asc" }], limit: 10, offset: 0 });
+  await users.query().page();
+  expect(totals).toEqual([true, true]);
+});

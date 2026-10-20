@@ -1,4 +1,4 @@
-import type { DatabaseAdapter, ReferencePull, StoredRecord } from "./adapter.ts";
+import { findAll, type DatabaseAdapter, type ReferencePull, type StoredRecord } from "./adapter.ts";
 import { HttpError, type FieldErrorDetail } from "./errors.ts";
 import type { EntityModel, FieldModel } from "./model.ts";
 import { itemCount } from "./validation.ts";
@@ -26,18 +26,10 @@ export function referencesTo(target: EntityModel, models: EntityModel[]): Refere
     );
 }
 
-const REFERENCING_BATCH = 1000;
-
-/** Every record whose `reference` field points to `id`, read in pages without counting them first. */
-async function findReferencing(adapter: DatabaseAdapter, reference: Reference, id: string): Promise<StoredRecord[]> {
+/** Every record whose `reference` field points to `id`. */
+function findReferencing(adapter: DatabaseAdapter, reference: Reference, id: string): Promise<StoredRecord[]> {
   const op = reference.field.type === "refArray" ? ("contains" as const) : ("eq" as const);
-  const where = [{ field: reference.field.name, op, value: id }];
-  const found: StoredRecord[] = [];
-  for (let offset = 0; ; offset += REFERENCING_BATCH) {
-    const { data } = await adapter.findMany(reference.model, { where, sort: [{ field: "id", direction: "asc" }], limit: REFERENCING_BATCH, offset });
-    found.push(...data);
-    if (data.length < REFERENCING_BATCH) return found;
-  }
+  return findAll(adapter, reference.model, [{ field: reference.field.name, op, value: id }], [{ field: "id", direction: "asc" }]);
 }
 
 /** Fails with 400 when a reference field points to a record that does not exist. */
@@ -61,6 +53,7 @@ export async function assertReferencesExist(
               sort: [{ field: "id", direction: "asc" }],
               limit: ids.length,
               offset: 0,
+              withTotal: false,
             })
           ).data.map((record) => record.id),
         )

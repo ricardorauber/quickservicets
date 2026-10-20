@@ -207,6 +207,15 @@ export function runAdapterContract(name: string, factory: AdapterFactory): void 
       expect(filtered.data).toHaveLength(1);
     });
 
+    test("without the total, a page has the same records and counts only them", async () => {
+      await insertItems({ title: "A" }, { title: "B" }, { title: "C" });
+      const counted = await adapter.findMany(contractItem, page([], undefined, 2, 1));
+      const uncounted = await adapter.findMany(contractItem, { ...page([], undefined, 2, 1), withTotal: false });
+      expect(uncounted.data).toEqual(counted.data);
+      expect(counted.total).toBe(3);
+      expect(uncounted.total).toBe(2);
+    });
+
     test("unique violations on insert name the field", async () => {
       await insertItems({ title: "A", code: "dup" });
       const attempt = insertItems({ title: "B", code: "dup" });

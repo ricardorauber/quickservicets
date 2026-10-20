@@ -304,7 +304,8 @@ export interface Query<T, R = Record<never, never>> {
 export interface QueryBackend {
   model: EntityModel;
   findAllMax: number;
-  list(query: ListQuery, populate: string[]): Promise<{ data: Record<string, unknown>[]; total: number }>;
+  /** A page of matches; `withTotal` false skips counting them (`total` is then the page size). */
+  list(query: ListQuery, populate: string[], withTotal: boolean): Promise<{ data: Record<string, unknown>[]; total: number }>;
   count(where: Condition[]): Promise<number>;
   aggregate(where: Condition[], aggregates: Record<string, Aggregate>): Promise<AggregateValues>;
   notFound(): Error;
@@ -365,16 +366,15 @@ export function createQuery<T, R = Record<never, never>>(backend: QueryBackend, 
   const sorted = (sort: SortField[]) => [...sort.filter((item) => item.field !== "id"), ...(sort.some((item) => item.field === "id") ? sort.filter((item) => item.field === "id") : [{ field: "id", direction: "desc" as const }])];
   const shape = (records: Record<string, unknown>[]) =>
     (state.select ? records.map((record) => project(record, { include: ["id", ...state.select!] })) : records) as T[];
-  const read = async (limit: number, offset: number) => {
+  const read = async (limit: number, offset: number, withTotal = false) => {
     const result = await backend.list(
       { where: state.where, sort: state.sort.length > 0 ? sorted(state.sort) : DEFAULT_SORT, limit, offset },
       state.include ?? [],
+      withTotal,
     );
     return { ...result, data: shape(result.data) };
   };
   const count = () => backend.count(state.where);
-  /** How many records the slice returns out of `total` matches. */
-  const sliceSize = (total: number) => Math.max(0, Math.min(state.take ?? Number.POSITIVE_INFINITY, total - state.skip));
   return {
     where: (lambda) => next({ where: [...state.where, ...conditionsOf(model, lambda)] }),
     orderBy: (lambda) => next({ sort: [{ field: keyOf(lambda), direction: "asc" }] }),
@@ -386,11 +386,14 @@ export function createQuery<T, R = Record<never, never>>(backend: QueryBackend, 
     select: (...fields) => createQuery(backend, { ...state, select: fields }) as never,
     include: (...paths) => createQuery(backend, { ...state, include: [...new Set([...(state.include ?? []), ...paths])] }) as never,
     async all() {
-      const size = sliceSize(await count());
-      if (size > findAllMax) {
-        throw new Error(`Query on ${model.entityName} matched ${size} records, more than repositories.findAllMax (${findAllMax})`);
+      // One record past the cap shows there are too many, without counting the matches.
+      const limit = Math.min(state.take ?? Number.POSITIVE_INFINITY, findAllMax + 1);
+      if (limit === 0) return [];
+      const { data } = await read(limit, state.skip);
+      if (data.length > findAllMax) {
+        throw new Error(`Query on ${model.entityName} matched more than repositories.findAllMax (${findAllMax}) records`);
       }
-      return size === 0 ? [] : (await read(size, state.skip)).data;
+      return data;
     },
     async first() {
       const record = state.take === 0 ? undefined : (await read(1, state.skip)).data[0];
@@ -410,7 +413,7 @@ export function createQuery<T, R = Record<never, never>>(backend: QueryBackend, 
       if (!Number.isInteger(offset) || offset < 0) details.push({ field: "offset", message: AT_LEAST_ZERO });
       if (details.length > 0) throw invalidPaging(details);
       const size = Math.min(limit, state.take === undefined ? limit : Math.max(0, state.take - offset));
-      const result = size === 0 ? { data: [] as T[], total: await count() } : await read(size, state.skip + offset);
+      const result = size === 0 ? { data: [] as T[], total: await count() } : await read(size, state.skip + offset, true);
       return { data: result.data, total: result.total, limit, offset };
     },
     async aggregate(lambda) {

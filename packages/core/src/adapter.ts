@@ -13,6 +13,8 @@ export interface FindManyOptions {
   sort: SortField[];
   limit: number;
   offset: number;
+  /** False skips counting the matches; `total` is then the number of records returned (default true). */
+  withTotal?: boolean;
 }
 
 export interface FindManyResult {
@@ -79,6 +81,20 @@ export interface DatabaseAdapter {
   transaction<T>(fn: () => Promise<T>): Promise<T>;
   /** Locks a record until the current transaction ends, for read-modify-write updates (optional). */
   lockForUpdate?(entity: EntityModel, id: string): Promise<void>;
+}
+
+const FIND_ALL_BATCH = 1000;
+
+/** Every record matching `where`, read in pages without counting the matches first. */
+export async function findAll(adapter: DatabaseAdapter, entity: EntityModel, where: Condition[], sort: SortField[]): Promise<StoredRecord[]> {
+  // A unique last sort key keeps the pages from overlapping.
+  const order: SortField[] = sort.some((item) => item.field === "id") ? sort : [...sort, { field: "id", direction: "asc" }];
+  const found: StoredRecord[] = [];
+  for (let offset = 0; ; offset += FIND_ALL_BATCH) {
+    const { data } = await adapter.findMany(entity, { where, sort: order, limit: FIND_ALL_BATCH, offset, withTotal: false });
+    found.push(...data);
+    if (data.length < FIND_ALL_BATCH) return found;
+  }
 }
 
 export class UniqueViolationError extends Error {

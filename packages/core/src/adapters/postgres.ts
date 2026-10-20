@@ -171,18 +171,15 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
       const table = tableFor(entity);
       return first(entity, await executor().select().from(table).where(toWhere(table, where, "postgres", relationContext(entity))).limit(1));
     },
-    async findMany(entity, { where, sort, limit, offset }) {
+    async findMany(entity, { where, sort, limit, offset, withTotal = true }) {
       const table = tableFor(entity);
       const condition = toWhere(table, where, "postgres", relationContext(entity));
-      const data = (await executor()
-        .select()
-        .from(table)
-        .where(condition)
-        .orderBy(...toOrderBy(table, sort))
-        .limit(limit)
-        .offset(offset)) as StoredRecord[];
-      const [row] = await executor().select({ total: count() }).from(table).where(condition);
-      return { data: await withRelations(entity, data), total: Number(row?.total ?? 0) };
+      // The page and the count are independent, so they run at the same time.
+      const [data, total] = await Promise.all([
+        executor().select().from(table).where(condition).orderBy(...toOrderBy(table, sort)).limit(limit).offset(offset) as unknown as Promise<StoredRecord[]>,
+        withTotal ? executor().select({ total: count() }).from(table).where(condition).then(([row]) => Number(row?.total ?? 0)) : undefined,
+      ]);
+      return { data: await withRelations(entity, data), total: total ?? data.length };
     },
     updateById(entity, id, changes, where = []) {
       return translateErrors(() =>

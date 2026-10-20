@@ -89,7 +89,7 @@ describe.each(factories)("%s", (_, factory) => {
     const { adapter, users } = await setup(factory, 2);
     expect(await users.query().take(2).all()).toHaveLength(2);
     expect(await users.query().skip(3).all()).toHaveLength(2);
-    await expect(users.query().all()).rejects.toThrow("matched 5 records, more than repositories.findAllMax (2)");
+    await expect(users.query().all()).rejects.toThrow("Query on User matched more than repositories.findAllMax (2) records");
     await adapter.disconnect();
   });
 

@@ -99,6 +99,7 @@ export async function populateRecords(
                 sort: [{ field: "id", direction: "asc" }],
                 limit: ids.length,
                 offset: 0,
+                withTotal: false,
               })
             ).data;
       const withDerived = await compute(target, await deriveRelations(target, found, models, adapter));

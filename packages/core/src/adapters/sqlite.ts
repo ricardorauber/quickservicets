@@ -5,7 +5,7 @@ import { UniqueViolationError, type AggregateValues, type DatabaseAdapter, type 
 import type { EntityModel } from "../model.ts";
 import { aggregateSelection } from "../sql/aggregates.ts";
 import { toOrderBy, toWhere } from "../sql/conditions.ts";
-import { buildDrizzleSchema, columnName, sqliteDefaultPrefix, type DrizzleSchema } from "../sql/schema.ts";
+import { buildDrizzleSchema, columnName, junctionKey, sqliteDefaultPrefix, type DrizzleSchema } from "../sql/schema.ts";
 import { TransactionScope } from "../sql/transaction-scope.ts";
 import { loadRelations, relationFields, splitRelations, writeRelations } from "../sql/relations.ts";
 
@@ -154,6 +154,21 @@ export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
           return (await withRelations(entity, rows))[0]!;
         }),
       );
+    },
+    deleteAndPull(entity, id, pulls, updatedAt) {
+      return atomically(async () => {
+        const { db, schema } = ready();
+        const junctions = pulls.map((pull) => ({ owner: pull.owner, junction: schema.junctions[junctionKey(pull.owner.key, pull.field)] }));
+        for (const [owner, ownerJunctions] of Map.groupBy(junctions, (item) => item.owner)) {
+          const holders = sql.join(ownerJunctions.map(({ junction }) => sql`select "owner_id" from ${junction} where "target_id" = ${id}`), sql` union `);
+          // A record holding its own id is deleted below, so it is not updated as well.
+          const others = owner.key === entity.key ? sql` and "id" <> ${id}` : sql``;
+          db.run(sql`update ${tableFor(owner)} set "updated_at" = max(${updatedAt.getTime()}, "updated_at" + 1) where "id" in (${holders})${others}`);
+        }
+        for (const { junction } of junctions) db.run(sql`delete from ${junction} where "target_id" = ${id}`);
+        const table = tableFor(entity);
+        return (db.delete(table).where(eq(table.id, id)).run() as unknown as RunResult).changes > 0;
+      });
     },
     deleteById(entity, id) {
       return scope.run(() => {

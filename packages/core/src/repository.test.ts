@@ -164,3 +164,24 @@ test("create, update and replace of a record stored earlier answer with the writ
   expect(updated).toMatchObject({ email: "a@b.co", name: "Ann" });
   expect(replaced).toEqual((await repository.findById(created.id))!);
 });
+
+test("delete reads the record once", async () => {
+  const team = entity("Team", [field({ name: "members", type: "refArray", target: "User", onDelete: "pull", optional: true })]);
+  const adapter = memoryAdapter();
+  await adapter.connect([user, team]);
+  const reads: string[] = [];
+  const counting: DatabaseAdapter = {
+    ...adapter,
+    findById: (entity, id) => {
+      reads.push(id);
+      return adapter.findById(entity, id);
+    },
+  };
+  const repos = createRepositories([user, team], counting);
+  const member = await (repos.users as Repository).create({ email: "a@b.co" });
+  await (repos.teams as Repository).create({ members: [member.id] });
+  reads.length = 0;
+  await (repos.users as Repository).delete(member.id);
+  expect(reads).toEqual([member.id]);
+  expect(await adapter.findById(user, member.id)).toBeNull();
+});

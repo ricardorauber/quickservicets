@@ -25,7 +25,7 @@ import {
   type Touch,
 } from "./relations.ts";
 import type { Condition, ListQuery } from "./query.ts";
-import { assertReferencesExist, executeDeletePlan, planDelete } from "./referential-integrity.ts";
+import { assertReferencesExist, cascadedEntities, executeDeletePlan, planDelete } from "./referential-integrity.ts";
 import { itemCount, ReferenceArrayChange, validateBody, type ValidationMode } from "./validation.ts";
 
 export type EntityRecord = StoredRecord;
@@ -235,12 +235,18 @@ export function createRepository(
   const written = async (record: StoredRecord, options?: ReadOptions): Promise<EntityRecord> =>
     present((await compute(model, [hasDerived ? await existing(record.id) : record]))[0]!, options);
 
+  /** Whether deleting a record of `entity` removes stored objects: its own, or those of the files it owns. */
+  const cleansFilesOf = (entity: EntityModel) =>
+    Boolean(cleanup && ((entity.file && cleanup.deleteOnRemove) || (cleanup.deleteWithOwner && ownedFileFields(entity, models).length > 0)));
+  // Deletes that can remove no stored object need neither the records' contents nor a surrounding transaction.
+  const cleansOnDelete = cascadedEntities(model, models).some(cleansFilesOf);
+
   /** Deletes a file record that nothing references any more, queueing its object. */
   const removeUnreferencedFile = async (target: EntityModel, id: string, queue: StoredObject[]) => {
     if (await isFileReferenced(target, id, models, adapter)) return;
     const record = await adapter.findById(target, id);
     if (!record) return;
-    await executeDeletePlan(await planDelete(target, id, models, adapter), adapter, nextTimestamp);
+    await executeDeletePlan(await planDelete(target, id, models, adapter, record), adapter, nextTimestamp);
     const object = objectOf(target, record);
     if (object) queue.push(object);
   };
@@ -434,23 +440,24 @@ export function createRepository(
     },
 
     async delete(id) {
-      await existing(id);
-      if (!cleanup) {
-        await executeDeletePlan(await planDelete(model, id, models, adapter), adapter, nextTimestamp);
+      const record = await existing(id);
+      if (!cleansOnDelete) {
+        await executeDeletePlan(await planDelete(model, id, models, adapter, record), adapter, nextTimestamp);
         return;
       }
       await settle((queue) =>
         adapter.transaction(async () => {
-          const plan = await planDelete(model, id, models, adapter);
+          const plan = await planDelete(model, id, models, adapter, record);
           const owned: { target: EntityModel; id: string }[] = [];
           for (const deleted of plan.deletions) {
-            const record = await adapter.findById(deleted.model, deleted.id);
-            if (!record) continue;
-            const object = deleted.model.file && cleanup.deleteOnRemove ? objectOf(deleted.model, record) : undefined;
+            if (!cleansFilesOf(deleted.model)) continue;
+            const stored = deleted.model === model && deleted.id === id ? record : await adapter.findById(deleted.model, deleted.id);
+            if (!stored) continue;
+            const object = deleted.model.file && cleanup!.deleteOnRemove ? objectOf(deleted.model, stored) : undefined;
             if (object) queue.push(object);
-            if (!cleanup.deleteWithOwner) continue;
+            if (!cleanup!.deleteWithOwner) continue;
             for (const { field, target } of ownedFileFields(deleted.model, models)) {
-              for (const fileId of referencedIds(record[field.name])) owned.push({ target, id: fileId });
+              for (const fileId of referencedIds(stored[field.name])) owned.push({ target, id: fileId });
             }
           }
           await executeDeletePlan(plan, adapter, nextTimestamp);

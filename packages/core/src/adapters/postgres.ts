@@ -1,14 +1,14 @@
 import { SQL } from "bun";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { and, count, eq } from "drizzle-orm";
+import { and, count, eq, sql } from "drizzle-orm";
 import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
-import { UniqueViolationError, type Aggregate, type AggregateValues, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
+import { UniqueViolationError, type Aggregate, type AggregateValues, type DatabaseAdapter, type ReferencePull, type StoredRecord } from "../adapter.ts";
 import type { EntityModel } from "../model.ts";
 import type { Condition } from "../query.ts";
 import { aggregateSelection } from "../sql/aggregates.ts";
 import { toOrderBy, toWhere, type RelationContext } from "../sql/conditions.ts";
 import { poolSizePerWorker } from "../workers.ts";
-import { buildDrizzleSchema, columnName, schemaIdentifier, type DrizzleSchema } from "../sql/schema.ts";
+import { buildDrizzleSchema, columnName, junctionKey, schemaIdentifier, type DrizzleSchema } from "../sql/schema.ts";
 import { loadRelations, relationFields, splitRelations, writeRelations } from "../sql/relations.ts";
 
 export interface PostgresAdapterOptions {
@@ -26,7 +26,7 @@ export interface PostgresAdapter extends DatabaseAdapter {
 
 // Tables are built at runtime from the models, so Drizzle cannot type their columns statically.
 type Table = any;
-type Executor = Pick<BunSQLDatabase, "select" | "insert" | "update" | "delete">;
+type Executor = Pick<BunSQLDatabase, "select" | "insert" | "update" | "delete" | "execute">;
 
 interface PostgresErrorLike {
   errno?: string;
@@ -106,6 +106,25 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
   /** Writes of an entity with reference arrays also write junction rows, so only they need a transaction. */
   const atomicallyWithRelations = <T>(entity: EntityModel, fn: () => Promise<T>): Promise<T> =>
     relationFields(entity).length > 0 ? transaction(fn) : fn();
+  /**
+   * Common table expressions that delete the junction rows pointing to `id` and move the `updatedAt` of their owners
+   * forward, one update per owner table so no row is changed twice in the statement.
+   */
+  const pullSteps = (entity: EntityModel, id: string, pulls: ReferencePull[], updatedAt: Date) => {
+    const at = sql`${updatedAt.toISOString()}::timestamptz`;
+    const byOwner = Map.groupBy(pulls.map((pull, index) => ({ ...pull, name: sql.identifier(`pulled_${index}`) })), (pull) => pull.owner);
+    const deletes = [...byOwner.values()].flat().map(({ owner, field, name }) => {
+      const junction = schema!.junctions[junctionKey(owner.key, field)];
+      return sql`${name} as (delete from ${junction} where "target_id" = ${id} returning "owner_id")`;
+    });
+    const updates = [...byOwner].map(([owner, ownerPulls], index) => {
+      const holders = sql.join(ownerPulls.map(({ name }) => sql`select "owner_id" from ${name}`), sql` union `);
+      // A record holding its own id is deleted by this statement, so it is not updated as well.
+      const others = owner.key === entity.key ? sql` and "id" <> ${id}` : sql``;
+      return sql`${sql.identifier(`touched_${index}`)} as (update ${tableFor(owner)} set "updated_at" = greatest(${at}, "updated_at" + interval '1 millisecond') where "id" in (${holders})${others})`;
+    });
+    return [...deletes, ...updates];
+  };
   const first = async (entity: EntityModel, rows: unknown[]): Promise<StoredRecord | null> =>
     rows[0] ? (await withRelations(entity, [rows[0] as StoredRecord]))[0]! : null;
 
@@ -188,6 +207,11 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
       const table = tableFor(entity);
       const rows = await executor().delete(table).where(eq(table.id, id)).returning({ id: table.id });
       return rows.length > 0;
+    },
+    async deleteAndPull(entity, id, pulls, updatedAt) {
+      const table = tableFor(entity);
+      const rows = await executor().execute(sql`with ${sql.join(pullSteps(entity, id, pulls, updatedAt), sql`, `)} delete from ${table} where "id" = ${id} returning "id"`);
+      return (rows as unknown[]).length > 0;
     },
     async count(entity, where) {
       const table = tableFor(entity);

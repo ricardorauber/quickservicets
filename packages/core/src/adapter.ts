@@ -31,6 +31,12 @@ export type Aggregate =
 /** Aggregate results by name: counts are numbers, the others numbers or dates, or null without values. */
 export type AggregateValues = Record<string, number | Date | null>;
 
+/** A reference array, field `field` of `owner`, from which a delete removes the deleted record's id. */
+export interface ReferencePull {
+  owner: EntityModel;
+  field: string;
+}
+
 export type AdapterKind = "memory" | "sqlite" | "postgres" | "mongodb";
 
 export interface ConnectOptions {
@@ -56,6 +62,13 @@ export interface DatabaseAdapter {
    */
   updateById(entity: EntityModel, id: string, changes: Record<string, unknown>, where?: Condition[]): Promise<StoredRecord | null>;
   deleteById(entity: EntityModel, id: string): Promise<boolean>;
+  /**
+   * Deletes the record with that id and, in the same atomic write, removes its id from the junction-stored reference
+   * arrays `pulls` without rewriting their other items. Every record that held the id gets `updatedAt`, or 1 ms after
+   * its stored `updatedAt` when that is not earlier. Resolves false when no record was deleted. Optional: without it,
+   * a delete rewrites each reference array that held the id.
+   */
+  deleteAndPull?(entity: EntityModel, id: string, pulls: ReferencePull[], updatedAt: Date): Promise<boolean>;
   count(entity: EntityModel, where: Condition[]): Promise<number>;
   /**
    * Computes every aggregate over the records matching `where` in one statement (or pipeline). Counts are 0 and the

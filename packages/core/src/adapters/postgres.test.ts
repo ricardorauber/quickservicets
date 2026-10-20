@@ -127,6 +127,24 @@ if (url) {
       await adapter.disconnect();
     });
 
+    test("deleting a record pulled from reference arrays runs one read and one statement", async () => {
+      const { adapter, log, members, teams } = await connected();
+      const loner = await members.create({ email: "a@x.co" });
+      const [first, member, last] = await Promise.all(["b", "c", "d"].map((name) => members.create({ email: `${name}@x.co` })));
+      const team = await teams.create({ name: "T", members: [first!.id, member!.id, last!.id] });
+      log.clear();
+      await members.delete(loner.id);
+      expect(log.statements).toHaveLength(2);
+      log.clear();
+      await members.delete(member!.id);
+      expect(log.statements).toHaveLength(2);
+      expect(log.statements.some((statement) => statement.startsWith("insert"))).toBe(false);
+      const after = (await teams.findById(team.id))!;
+      expect(after.members).toEqual([first!.id, last!.id]);
+      expect(after.updatedAt.getTime()).toBeGreaterThan(team.updatedAt.getTime());
+      await adapter.disconnect();
+    });
+
     test("unique violations map to 409 without a transaction", async () => {
       const { adapter, log, members } = await connected();
       await members.create({ email: "a@x.co" });

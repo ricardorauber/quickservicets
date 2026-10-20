@@ -116,3 +116,70 @@ test("deleting an owner leaves no junction rows (SQLite)", async () => {
   const client = (adapter as unknown as { client: { query(sql: string): { get(): unknown } } }).client;
   expect(client.query("select count(*) as count from organizations__members").get()).toEqual({ count: 0 });
 });
+
+describe("pulls that need no lists", () => {
+  const counted = (adapter: DatabaseAdapter) => {
+    const calls: string[] = [];
+    const spied: DatabaseAdapter = {
+      ...adapter,
+      count: (...args) => (calls.push("count"), adapter.count(...args)),
+      findMany: (...args) => (calls.push("findMany"), adapter.findMany(...args)),
+    };
+    if (adapter.deleteAndPull) spied.deleteAndPull = adapter.deleteAndPull.bind(adapter);
+    return { spied, calls };
+  };
+
+  test.each(factories)("%s: the delete counts no referencing records", async (_, factory) => {
+    const { adapter } = await setup(factory, [user, organizationWith("pull")]);
+    const { spied, calls } = counted(adapter);
+    const repos = createRepositories([user, organizationWith("pull")], spied) as Record<string, Repository>;
+    const member = await repos.users!.create({ name: "a" });
+    await repos.organizations!.create({ name: "x", members: [member.id] });
+    calls.length = 0;
+    await repos.users!.delete(member.id);
+    expect(calls).not.toContain("count");
+    // Adapters that pull in place do not read the owners at all.
+    if (adapter.deleteAndPull) expect(calls).toEqual([]);
+    await adapter.disconnect();
+  });
+});
+
+describe.each(factories.filter(([name]) => name === "sqlite" || name === "postgres"))("%s junction pull", (name, factory) => {
+  test("deletes only the matching rows, keeps the others' positions and refreshes their owners", async () => {
+    const models = [user, organizationWith("pull")];
+    const { repos, adapter } = await setup(factory, models);
+    const [a, b, c] = await Promise.all(["a", "b", "c"].map((name) => repos.users!.create({ name })));
+    const first = await repos.organizations!.create({ name: "x", members: [a!.id, b!.id, c!.id] });
+    const second = await repos.organizations!.create({ name: "y", members: [c!.id, b!.id] });
+    const untouched = await repos.organizations!.create({ name: "z", members: [a!.id] });
+    const rows = async () => {
+      const text = "select owner_id, target_id, position from organizations__members order by owner_id, position";
+      const client = (adapter as unknown as { client: unknown }).client;
+      const result = name === "sqlite" ? (client as { query(sql: string): { all(): unknown[] } }).query(text).all() : await (client as { unsafe(sql: string): Promise<unknown[]> }).unsafe(text);
+      return (result as { owner_id: string; target_id: string; position: number }[]).map((row) => [row.owner_id, row.target_id, Number(row.position)]);
+    };
+    const before = await rows();
+    await Bun.sleep(2);
+    await repos.users!.delete(b!.id);
+    expect(await rows()).toEqual(before.filter(([, target]) => target !== b!.id));
+    const [afterFirst, afterSecond, afterUntouched] = await Promise.all([first, second, untouched].map((org) => repos.organizations!.findById(org.id)));
+    expect(afterFirst!.members).toEqual([a!.id, c!.id]);
+    expect(afterSecond!.members).toEqual([c!.id]);
+    expect(afterFirst!.updatedAt.getTime()).toBeGreaterThan(first.updatedAt.getTime());
+    expect(afterSecond!.updatedAt.getTime()).toBeGreaterThan(second.updatedAt.getTime());
+    expect(afterUntouched!.updatedAt).toEqual(untouched.updatedAt);
+    await adapter.disconnect();
+  });
+
+  test("a record pulled from its own array is deleted", async () => {
+    const person = entity("Person", [field({ name: "friends", type: "refArray", target: "Person", onDelete: "pull", optional: true })]);
+    const { repos, adapter } = await setup(factory, [person]);
+    const self = await repos.persons!.create({});
+    await repos.persons!.update(self.id, { friends: [self.id] });
+    const other = await repos.persons!.create({ friends: [self.id] });
+    await repos.persons!.delete(self.id);
+    expect(await repos.persons!.findById(self.id)).toBeNull();
+    expect((await repos.persons!.findById(other.id))!.friends).toEqual([]);
+    await adapter.disconnect();
+  });
+});

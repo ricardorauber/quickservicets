@@ -1,4 +1,4 @@
-# 0030 - Aggregates cover every match and ignore skip and take
+# 0029 - Aggregates cover every match and ignore skip and take
 
 - Date: 2026-10-19
 - Spec: 0121-fluent-aggregates

@@ -1,4 +1,4 @@
-# 0028 - The PostgreSQL pool size is a `max` option of `postgresAdapter`
+# 0027 - The PostgreSQL pool size is a `max` option of `postgresAdapter`
 
 - Date: 2026-10-19
 - Spec: 0117-server-workers

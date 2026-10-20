@@ -1,4 +1,4 @@
-# 0024 - A projection returns the record uncopied only when its keys are already in the exposure's order
+# 0023 - A projection returns the record uncopied only when its keys are already in the exposure's order
 
 - Date: 2026-10-19
 - Spec: 0114-projection-without-clones

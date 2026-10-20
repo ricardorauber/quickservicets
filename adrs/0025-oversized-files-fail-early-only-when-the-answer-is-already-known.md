@@ -1,4 +1,4 @@
-# 0026 - An oversized file fails while the body is read only when no earlier rule could answer first
+# 0025 - An oversized file fails while the body is read only when no earlier rule could answer first
 
 - Date: 2026-10-19
 - Spec: 0122-single-pass-multipart

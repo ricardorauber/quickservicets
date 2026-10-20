@@ -1,4 +1,4 @@
-# 0027 - A part with `filename*` is a file part, and `filename*` wins over `filename`
+# 0026 - A part with `filename*` is a file part, and `filename*` wins over `filename`
 
 - Date: 2026-10-19
 - Spec: 0122-single-pass-multipart

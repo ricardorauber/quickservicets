@@ -1,4 +1,4 @@
-# 0029 - Worker processes run in their own process group and are told their index through the environment
+# 0028 - Worker processes run in their own process group and are told their index through the environment
 
 - Date: 2026-10-19
 - Spec: 0117-server-workers

@@ -1,4 +1,4 @@
-# 0025 - The default logger writes its buffer to stdout synchronously
+# 0024 - The default logger writes its buffer to stdout synchronously
 
 - Date: 2026-10-19
 - Spec: 0115-buffered-request-logging

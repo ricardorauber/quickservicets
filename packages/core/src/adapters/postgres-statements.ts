@@ -1,17 +1,13 @@
 import { getTableColumns } from "drizzle-orm";
 import { getTableConfig, type PgTable } from "drizzle-orm/pg-core";
-import type { StoredRecord } from "../adapter.ts";
+import type { Aggregate, AggregateValues, StoredRecord } from "../adapter.ts";
 import type { EntityModel } from "../model.ts";
-import { isConditionGroup, type Condition } from "../query.ts";
+import type { Condition, SortField } from "../query.ts";
 import { junctionKey, type DrizzleSchema } from "../sql/schema.ts";
+import { arrayLiteral, compileConditions, compileSort, encodeValue, type ColumnKind, type ConditionTarget, type TargetColumn } from "./postgres-conditions.ts";
 
 /** A quoted SQL identifier. */
 export const quote = (identifier: string): string => `"${identifier.replaceAll('"', '""')}"`;
-
-/** A PostgreSQL text array literal, bound as one `$n::text[]` parameter whatever the number of values. */
-export function textArray(values: readonly string[]): string {
-  return `{${values.map((value) => `"${value.replace(/[\\"]/g, (char) => `\\${char}`)}"`).join(",")}}`;
-}
 
 /** The quoted, schema-qualified name of a Drizzle table (unqualified tables use the connection's search path). */
 export function qualifiedName(table: PgTable): string {
@@ -19,27 +15,13 @@ export function qualifiedName(table: PgTable): string {
   return schema ? `${quote(schema)}.${quote(name)}` : quote(name);
 }
 
-type ColumnKind = "json" | "date" | "value";
-
-interface Column {
+interface Column extends TargetColumn {
   /** Field name, used as the column alias. */
   field: string;
-  /** Quoted column name. */
-  name: string;
-  kind: ColumnKind;
 }
 
 const KINDS: Record<string, ColumnKind> = { PgJsonb: "json", PgTimestamp: "date" };
-
-/** Converts a field value to the parameter PostgreSQL stores, as Drizzle's column mappers do. */
-function encode(kind: ColumnKind, value: unknown): unknown {
-  if (value === null || value === undefined) return null;
-  if (kind === "json") return JSON.stringify(value);
-  if (kind === "date" && value instanceof Date) return value.toISOString();
-  return value;
-}
-
-const SIMPLE_OPERATORS: Record<string, string> = { eq: "=", ne: "<>", gt: ">", gte: ">=", lt: "<", lte: "<=" };
+const TYPES: Record<string, string> = { PgDoublePrecision: "float8", PgTimestamp: "timestamptz", PgBoolean: "boolean", PgInteger: "int4", PgJsonb: "jsonb" };
 
 /** SQL text with its parameters. */
 export interface Statement {
@@ -63,10 +45,11 @@ export interface Junction {
  * The SQL text of one entity's statements, built once per statement shape and cached, with the conversion of values
  * to parameters and of rows back to records.
  */
-export class EntityStatements {
+export class EntityStatements implements ConditionTarget {
   readonly table: string;
   readonly junctions: Junction[];
   private readonly columns = new Map<string, Column>();
+  private readonly junctionNames: Map<string, string>;
   private readonly jsonFields: string[];
   private readonly selectList: string;
   private readonly texts = new Map<string, string>();
@@ -75,7 +58,7 @@ export class EntityStatements {
     const table = schema.tables[entity.key] as PgTable;
     this.table = qualifiedName(table);
     for (const [field, column] of Object.entries(getTableColumns(table))) {
-      this.columns.set(field, { field, name: quote(column.name), kind: KINDS[column.columnType] ?? "value" });
+      this.columns.set(field, { field, name: quote(column.name), kind: KINDS[column.columnType] ?? "value", type: TYPES[column.columnType] ?? "text" });
     }
     this.jsonFields = [...this.columns.values()].filter((column) => column.kind === "json").map((column) => column.field);
     this.selectList = [...this.columns.values()].map(({ field, name }) => (name === quote(field) ? name : `${name} as ${quote(field)}`)).join(", ");
@@ -83,6 +66,15 @@ export class EntityStatements {
       const junction = field.storage === "relation" ? (schema.junctions[junctionKey(entity.key, field.name)] as PgTable | undefined) : undefined;
       return junction ? [{ field: field.name, name: qualifiedName(junction) }] : [];
     });
+    this.junctionNames = new Map(this.junctions.map((junction) => [junction.field, junction.name]));
+  }
+
+  column(field: string): TargetColumn | undefined {
+    return this.columns.get(field);
+  }
+
+  junction(field: string): string | undefined {
+    return this.junctionNames.get(field);
   }
 
   /** The cached text for a statement shape, built the first time it is used. */
@@ -95,11 +87,31 @@ export class EntityStatements {
     return text;
   }
 
+  /** Whether the text of a statement shape is already built (exposed for tests of the cache). */
+  cached(key: string): boolean {
+    return this.texts.has(key);
+  }
+
+  /**
+   * A statement whose text depends on a WHERE clause: the conditions are translated with text only the first time the
+   * shape is seen; afterwards only their parameters are collected.
+   */
+  private withConditions(prefix: string, where: readonly Condition[], firstParam: number, build: (clause: string, paramCount: number) => string) {
+    const compiled = compileConditions(where, this, firstParam, false);
+    const key = `${prefix}|${compiled.key}`;
+    const text = this.text(key, () => build(compileConditions(where, this, firstParam).text ?? "", compiled.params.length));
+    return { key, text, params: compiled.params };
+  }
+
   /** Written columns in a stable order, skipping undefined values and keys that are not columns. */
   private written(values: Record<string, unknown>): string[] {
     return Object.keys(values)
       .filter((field) => values[field] !== undefined && this.columns.has(field))
       .sort();
+  }
+
+  private encode(field: string, value: unknown): unknown {
+    return encodeValue(this.columns.get(field)!.kind, value);
   }
 
   /** Records from result rows: JSON columns parsed when the driver returns their text. */
@@ -121,44 +133,93 @@ export class EntityStatements {
     return rows as StoredRecord[];
   }
 
-  findById(id: string) {
+  findById(id: string): Statement {
     return { text: this.text("findById", () => `select ${this.selectList} from ${this.table} where "id" = $1 limit 1`), params: [id] };
   }
 
-  insert(values: Record<string, unknown>) {
+  findOne(where: readonly Condition[]): Statement {
+    const { text, params } = this.withConditions("findOne", where, 1, (clause) => `select ${this.selectList} from ${this.table}${clause ? ` where ${clause}` : ""} limit 1`);
+    return { text, params };
+  }
+
+  /** A page of records matching `where`, in `sort` order. */
+  findMany(where: readonly Condition[], sort: readonly SortField[], limit: number, offset: number): Statement & { key: string } {
+    const order = compileSort(sort, this);
+    const { key, text, params } = this.withConditions(`findMany:${order.key}`, where, 1, (clause, at) => {
+      const filter = clause ? ` where ${clause}` : "";
+      const ordering = order.text ? ` order by ${order.text}` : "";
+      return `select ${this.selectList} from ${this.table}${filter}${ordering} limit $${at + 1} offset $${at + 2}`;
+    });
+    return { key, text, params: [...params, limit, offset] };
+  }
+
+  count(where: readonly Condition[]): Statement {
+    const { text, params } = this.withConditions("count", where, 1, (clause) => `select count(*) as "total" from ${this.table}${clause ? ` where ${clause}` : ""}`);
+    return { text, params };
+  }
+
+  /** Every aggregate in one statement; counts with conditions use `filter (where …)`. */
+  aggregate(where: readonly Condition[], aggregates: Record<string, Aggregate>): Statement & { decode(row: Record<string, unknown>): AggregateValues } {
+    const entries = Object.entries(aggregates);
+    const filters: { key: string; params: unknown[] }[] = [];
+    const expressionKeys = entries.map(([name, aggregate]) => {
+      if (aggregate.fn !== "count") return `${JSON.stringify(name)}=${aggregate.fn}(${aggregate.field})`;
+      const filter = compileConditions(aggregate.where ?? [], this, 1, false);
+      filters.push(filter);
+      return `${JSON.stringify(name)}=count(${filter.key})`;
+    });
+    const filterParams = filters.flatMap((filter) => filter.params);
+    const { text, params } = this.withConditions(`aggregate:${expressionKeys.join(",")}`, where, filterParams.length + 1, (clause) => {
+      let next = 1;
+      const expressions = entries.map(([name, aggregate]) => {
+        if (aggregate.fn === "count") {
+          const filter = compileConditions(aggregate.where ?? [], this, next);
+          next += filter.params.length;
+          return `${filter.text ? `count(*) filter (where ${filter.text})` : "count(*)"} as ${quote(name)}`;
+        }
+        const column = this.columns.get(aggregate.field);
+        if (!column) throw new Error(`Unknown column for field "${aggregate.field}"`);
+        return `${aggregate.fn}(${this.table}.${column.name}) as ${quote(name)}`;
+      });
+      return `select ${expressions.join(", ")} from ${this.table}${clause ? ` where ${clause}` : ""}`;
+    });
+    const decode = (row: Record<string, unknown>): AggregateValues => {
+      const values: AggregateValues = {};
+      for (const [name, aggregate] of entries) {
+        const value = row[name];
+        if (value === null || value === undefined) values[name] = aggregate.fn === "count" ? 0 : null;
+        else if (aggregate.fn === "count" || aggregate.fn === "sum" || aggregate.fn === "avg") values[name] = Number(value);
+        else if (this.columns.get(aggregate.field)?.kind === "date") values[name] = value instanceof Date ? value : new Date(value as string);
+        else values[name] = value as number;
+      }
+      return values;
+    };
+    return { text, params: [...filterParams, ...params], decode };
+  }
+
+  insert(values: Record<string, unknown>): Statement {
     const fields = this.written(values);
     const text = this.text(`insert:${fields.join(",")}`, () => {
       const names = fields.map((field) => this.columns.get(field)!.name).join(", ");
       const placeholders = fields.map((_, index) => `$${index + 1}`).join(", ");
       return `insert into ${this.table} (${names}) values (${placeholders}) returning ${this.selectList}`;
     });
-    return { text, params: fields.map((field) => encode(this.columns.get(field)!.kind, values[field])) };
+    return { text, params: fields.map((field) => this.encode(field, values[field])) };
   }
 
-  /**
-   * Updates the record with that id when it also matches `where`, or reads it when nothing is written. Only plain
-   * comparisons of columns with non-null values are precompiled; any other `where` returns undefined.
-   */
-  updateById(id: string, values: Record<string, unknown>, where: Condition[]) {
-    const conditions = this.simpleConditions(where);
-    if (!conditions) return undefined;
+  /** Updates the record with that id when it also matches `where`, or reads it when nothing is written. */
+  updateById(id: string, values: Record<string, unknown>, where: readonly Condition[]): Statement {
     const fields = this.written(values);
-    const shape = conditions.map(({ field, op }) => `${field}:${op}`).join(",");
-    const text = this.text(`update:${fields.join(",")}|${shape}`, () => {
-      const filters = [`"id" = $${fields.length + 1}`, ...conditions.map(({ field, op }, index) => `${this.columns.get(field)!.name} ${SIMPLE_OPERATORS[op]} $${fields.length + 2 + index}`)];
-      if (fields.length === 0) return `select ${this.selectList} from ${this.table} where ${filters.join(" and ")}`;
+    const { text, params } = this.withConditions(`update:${fields.join(",")}`, where, fields.length + 2, (clause) => {
+      const filter = `${this.table}."id" = $${fields.length + 1}${clause ? ` and ${clause}` : ""}`;
+      if (fields.length === 0) return `select ${this.selectList} from ${this.table} where ${filter}`;
       const assignments = fields.map((field, index) => `${this.columns.get(field)!.name} = $${index + 1}`).join(", ");
-      return `update ${this.table} set ${assignments} where ${filters.join(" and ")} returning ${this.selectList}`;
+      return `update ${this.table} set ${assignments} where ${filter} returning ${this.selectList}`;
     });
-    const params = [
-      ...fields.map((field) => encode(this.columns.get(field)!.kind, values[field])),
-      id,
-      ...conditions.map(({ field, value }) => encode(this.columns.get(field)!.kind, value)),
-    ];
-    return { text, params };
+    return { text, params: [...fields.map((field) => this.encode(field, values[field])), id, ...params] };
   }
 
-  deleteById(id: string) {
+  deleteById(id: string): Statement {
     return { text: this.text("deleteById", () => `delete from ${this.table} where "id" = $1 returning "id"`), params: [id] };
   }
 
@@ -166,7 +227,7 @@ export class EntityStatements {
    * Deletes the record and, in the same statement, the junction rows of `pulls` that point to it, moving the
    * `updatedAt` of their owners forward: one update per owner table, so no row is changed twice.
    */
-  deleteAndPull(id: string, pulls: PullTarget[], updatedAt: Date) {
+  deleteAndPull(id: string, pulls: PullTarget[], updatedAt: Date): Statement {
     const shape = pulls.map((pull) => `${pull.owner.table}.${pull.junction.field}`).join(",");
     const text = this.text(`deleteAndPull:${shape}`, () => {
       const owners = Map.groupBy(pulls.map((pull, index) => ({ ...pull, name: `"pulled_${index}"` })), (pull) => pull.owner);
@@ -182,26 +243,16 @@ export class EntityStatements {
     return { text, params: [id, updatedAt.toISOString()] };
   }
 
-  lockForUpdate(id: string) {
+  lockForUpdate(id: string): Statement {
     return { text: this.text("lock", () => `select "id" from ${this.table} where "id" = $1 for update`), params: [id] };
   }
 
   /** Ids of every reference array of the owners in `ids`, in position order. */
-  junctionLoad(junction: Junction, ids: readonly string[]) {
+  junctionLoad(junction: Junction, ids: readonly string[]): Statement {
     const text = this.text(
       `junction:${junction.field}`,
       () => `select "owner_id" as "ownerId", "target_id" as "targetId" from ${junction.name} where "owner_id" = any($1::text[]) order by "owner_id", "position"`,
     );
-    return { text, params: [textArray(ids)] };
-  }
-
-  private simpleConditions(where: Condition[]) {
-    const conditions: { field: string; op: string; value: unknown }[] = [];
-    for (const condition of where) {
-      if (isConditionGroup(condition) || !(condition.op in SIMPLE_OPERATORS) || !this.columns.has(condition.field)) return undefined;
-      if (condition.value === null || condition.value === undefined) return undefined;
-      conditions.push(condition);
-    }
-    return conditions;
+    return { text, params: [arrayLiteral(ids)] };
   }
 }

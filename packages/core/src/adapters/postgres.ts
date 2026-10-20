@@ -1,12 +1,8 @@
 import { SQL } from "bun";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { and, count, eq } from "drizzle-orm";
 import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
-import { UniqueViolationError, type Aggregate, type AggregateValues, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
+import { UniqueViolationError, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
 import type { EntityModel } from "../model.ts";
-import type { Condition } from "../query.ts";
-import { aggregateSelection } from "../sql/aggregates.ts";
-import { toOrderBy, toWhere, type RelationContext } from "../sql/conditions.ts";
 import { poolSizePerWorker } from "../workers.ts";
 import { buildDrizzleSchema, columnName, schemaIdentifier, type DrizzleSchema } from "../sql/schema.ts";
 import { relationFields, splitRelations, writeRelations } from "../sql/relations.ts";
@@ -54,18 +50,6 @@ export function uniqueViolationField(error: unknown, models: EntityModel[]): str
     current = current.cause as PostgresErrorLike | undefined;
   }
   return undefined;
-}
-
-/** Computes every aggregate over the matching rows in one `select`. */
-async function aggregateRow(
-  executor: Executor,
-  table: Table,
-  where: Condition[],
-  aggregates: Record<string, Aggregate>,
-  context: RelationContext,
-): Promise<AggregateValues> {
-  const [row] = await executor.select(aggregateSelection(table, aggregates, "postgres", context)).from(table).where(toWhere(table, where, "postgres", context));
-  return row as AggregateValues;
 }
 
 /** What statements run on: a transaction's connection while one is open, the pool otherwise. */
@@ -139,7 +123,6 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
     }
     return records;
   };
-  const relationContext = (entity: EntityModel) => ({ entity, schema: schema! });
   const transaction = async <T>(fn: () => Promise<T>): Promise<T> => {
     if (transactions.getStore()) return fn();
     if (!client || !drizzleFor) throw new Error("The PostgreSQL adapter is not connected");
@@ -205,17 +188,14 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
       return first(entity, await read(entity, statementsFor(entity).findById(id)));
     },
     async findOne(entity, where) {
-      const table = tableFor(entity);
-      const rows = await executor().select().from(table).where(toWhere(table, where, "postgres", relationContext(entity))).limit(1);
-      return first(entity, rows as StoredRecord[]);
+      return first(entity, await read(entity, statementsFor(entity).findOne(where)));
     },
     async findMany(entity, { where, sort, limit, offset, withTotal = true }) {
-      const table = tableFor(entity);
-      const condition = toWhere(table, where, "postgres", relationContext(entity));
+      const entityStatements = statementsFor(entity);
       // The page and the count are independent, so they run at the same time.
       const [data, total] = await Promise.all([
-        executor().select().from(table).where(condition).orderBy(...toOrderBy(table, sort)).limit(limit).offset(offset) as unknown as Promise<StoredRecord[]>,
-        withTotal ? executor().select({ total: count() }).from(table).where(condition).then(([row]) => Number(row?.total ?? 0)) : undefined,
+        read(entity, entityStatements.findMany(where, sort, limit, offset)),
+        withTotal ? run(entityStatements.count(where)).then(([row]) => Number(row?.total ?? 0)) : undefined,
       ]);
       return { data: await withRelations(entity, data), total: total ?? data.length };
     },
@@ -223,19 +203,7 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
       return translateErrors(() =>
         atomicallyWithRelations(entity, async () => {
           const { columns, relations } = splitRelations(entity, changes);
-          const precompiled = statementsFor(entity).updateById(id, columns, where);
-          let rows: StoredRecord[];
-          if (precompiled) {
-            rows = await read(entity, precompiled);
-          } else {
-            const table = tableFor(entity);
-            const target = and(eq(table.id, id), toWhere(table, where, "postgres", relationContext(entity)));
-            rows = (
-              Object.keys(columns).length > 0
-                ? await executor().update(table).set(columns).where(target).returning()
-                : await executor().select().from(table).where(target)
-            ) as StoredRecord[];
-          }
+          const rows = await read(entity, statementsFor(entity).updateById(id, columns, where));
           if (rows.length > 0) await writeRelations(executor(), schema!, entity, id, relations);
           return first(entity, rows);
         }),
@@ -255,12 +223,13 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
       return (await run(statementsFor(entity).deleteAndPull(id, targets, updatedAt))).length > 0;
     },
     async count(entity, where) {
-      const table = tableFor(entity);
-      const [row] = await executor().select({ total: count() }).from(table).where(toWhere(table, where, "postgres", relationContext(entity)));
+      const [row] = await run(statementsFor(entity).count(where));
       return Number(row?.total ?? 0);
     },
-    aggregate(entity, where, aggregates) {
-      return aggregateRow(executor(), tableFor(entity), where, aggregates, relationContext(entity));
+    async aggregate(entity, where, aggregates) {
+      const statement = statementsFor(entity).aggregate(where, aggregates);
+      const [row] = await run(statement);
+      return statement.decode(row ?? {});
     },
     transaction,
   };

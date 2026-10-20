@@ -1,10 +1,13 @@
 import { SQL } from "bun";
 import { describe, expect, test } from "bun:test";
+import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/bun-sql";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { toWhere } from "../sql/conditions.ts";
 import { buildDrizzleSchema } from "../sql/schema.ts";
 import { contractItem, contractModels, contractOrganization, contractRecord, runAdapterContract } from "../testing/adapter-contract.ts";
 import { entity, field } from "../testing/entities.ts";
+import type { StoredRecord } from "../adapter.ts";
 import { HttpError } from "../errors.ts";
 import { createRepositories, type Repository } from "../repository.ts";
 import { postgresDdl, recordStatements, resetPostgresTables } from "../testing/postgres.ts";
@@ -51,6 +54,21 @@ if (url) {
       await adapter.disconnect();
     });
 
+    test("wildcards and quotes in filter values match literally and stay out of the SQL text", async () => {
+      const adapter = await connected();
+      for (const title of ["50%_off 'today'", "50 percent off", "500_off 'today'", "50%xoff 'today'"]) await adapter.insert(contractItem, contractRecord({ title }));
+      const log = recordStatements(adapter.client!);
+      const text = (op: "contains" | "startsWith", value: string) => [{ field: "title", op, value, caseInsensitive: true as const, literal: true as const }];
+      const titles = async (op: "contains" | "startsWith", value: string) =>
+        (await adapter.findMany(contractItem, { where: text(op, value), sort: [{ field: "title", direction: "asc" }], limit: 10, offset: 0 })).data.map((record) => record.title);
+      expect(await titles("contains", "%_OFF '")).toEqual(["50%_off 'today'"]);
+      expect(await titles("startsWith", "50%")).toEqual(["50%_off 'today'", "50%xoff 'today'"]);
+      expect(await adapter.count(contractItem, text("contains", "'today'"))).toBe(3);
+      expect(log.statements.length).toBeGreaterThan(0);
+      for (const statement of log.statements) expect(statement).not.toMatch(/%|today|OFF/);
+      await adapter.disconnect();
+    });
+
     test("filter values are bound, never interpolated", async () => {
       const adapter = await connected();
       const injection = "'; DROP TABLE items; --";
@@ -82,8 +100,13 @@ if (url) {
         meta: { views: 3, lines: [{ qty: 1 }], startsAt: new Date("2026-03-01T09:30:00Z"), reminders: [] },
       };
       const inserted = await adapter.insert(contractItem, contractRecord(values));
-      // findOne still goes through Drizzle, so it shows how records were read before.
-      const viaBuilder = async () => adapter.findOne(contractItem, [{ field: "id", op: "eq", value: inserted.id }]);
+      // Drizzle's query builder shows how records were read before.
+      const table = buildDrizzleSchema(contractModels, "postgres").tables.Item as never as Record<string, never> & { id: never };
+      const builder = drizzle({ client: adapter.client! });
+      const viaBuilder = async (): Promise<StoredRecord> => {
+        const rows = (await builder.select().from(table as never).where(eq(table.id, inserted.id))) as unknown as StoredRecord[];
+        return { ...rows[0]!, partners: (await adapter.findById(contractItem, inserted.id))!.partners };
+      };
       expect(await adapter.findById(contractItem, inserted.id)).toEqual((await viaBuilder())!);
       expect(inserted).toEqual((await viaBuilder())!);
       expect(inserted.meta).toEqual({ ...values.meta, startsAt: "2026-03-01T09:30:00.000Z" });

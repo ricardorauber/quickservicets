@@ -8,8 +8,11 @@ export enum UserRole {
 }
 
 export type User = {
+    /** @unique @format email @maxLength 254 */
     email: string
+    /** @minLength 1 @maxLength 120 */
     name?: string
+    /** @accept image/png,image/jpeg,image/webp @maxSize 1MB */
     picture?: Media
 
     /** @default UserRole.basic */

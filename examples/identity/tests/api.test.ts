@@ -138,7 +138,7 @@ const crudCases: CrudCase[] = [
       const user = await create("/users", { email: `${unique("u")}@x.co` });
       return { organization: org.id, user: user.id, active: true };
     },
-    required: "active",
+    required: "user",
     wrongType: ["active", 1, "Must be a boolean"],
     change: { active: false },
   },
@@ -388,6 +388,90 @@ describe("teams and memberships", () => {
     const { org } = await world();
     const result = await post("/memberships", { organization: org.id, user: MISSING, active: true });
     expect([result.status, detail(result, "user")]).toEqual([400, "Referenced record not found"]);
+  });
+});
+
+describe("data rules", () => {
+  const conflict = (result: Result, field: string) => [result.status, result.body.error.message, detail(result, field)];
+  const long = (length: number) => "x".repeat(length);
+
+  test("emails are unique, valid and at most 254 characters", async () => {
+    const email = `${unique("twin")}@x.co`;
+    await create("/users", { email });
+    expect(conflict(await post("/users", { email }), "email")).toEqual([409, "Value already exists", "Value already exists"]);
+    const invalid = await post("/users", { email: "abc" });
+    expect([invalid.status, detail(invalid, "email")]).toEqual([400, "Must be a valid email"]);
+    expect(detail(await post("/users", { email: `${long(250)}@x.co` }), "email")).toBe("Must be at most 254 characters");
+    expect((await post("/users", { email: `${long(249)}@x.co` })).status).toBe(201);
+  });
+
+  test("user names have 1 to 120 characters", async () => {
+    expect(detail(await post("/users", { email: `${unique("u")}@x.co`, name: "" }), "name")).toBe("Must be at least 1 characters");
+    expect(detail(await post("/users", { email: `${unique("u")}@x.co`, name: long(121) }), "name")).toBe("Must be at most 120 characters");
+    expect((await post("/users", { email: `${unique("u")}@x.co`, name: long(120) })).status).toBe(201);
+  });
+
+  test.each([
+    ["/modules", (slug: string) => ({ slug })],
+    ["/organizations", (slug: string) => ({ slug, legalName: "Org" })],
+    ["/profiles", (slug: string) => ({ slug })],
+  ])("%s slugs are unique and have 2 to 64 characters", async (path, body) => {
+    const slug = unique("slug");
+    await create(path, body(slug));
+    expect(conflict(await post(path, body(slug)), "slug")).toEqual([409, "Value already exists", "Value already exists"]);
+    const short = await post(path, body("a"));
+    expect([short.status, detail(short, "slug")]).toEqual([400, "Must be at least 2 characters"]);
+    expect(detail(await post(path, body(long(65))), "slug")).toBe("Must be at most 64 characters");
+    expect((await post(path, body(`${slug}-${long(40)}`))).status).toBe(201);
+    expect((await post(path, body(unique("s").slice(0, 2)))).status).toBe(201);
+  });
+
+  test("organization legal names have 1 to 200 characters, names 1 to 120", async () => {
+    const organization = (fields: Json) => post("/organizations", { slug: unique("o"), legalName: "Org", ...fields });
+    expect(detail(await organization({ legalName: "" }), "legalName")).toBe("Must be at least 1 characters");
+    expect(detail(await organization({ legalName: long(201) }), "legalName")).toBe("Must be at most 200 characters");
+    expect((await organization({ legalName: long(200) })).status).toBe(201);
+    expect(detail(await organization({ name: "" }), "name")).toBe("Must be at least 1 characters");
+    expect(detail(await organization({ name: long(121) }), "name")).toBe("Must be at most 120 characters");
+    expect((await organization({ name: long(120) })).status).toBe(201);
+  });
+
+  test("team names have 1 to 120 characters", async () => {
+    const { org } = await world();
+    const team = (name: string) => post("/teams", { organization: org.id, name });
+    expect(detail(await team(""), "name")).toBe("Must be at least 1 characters");
+    expect(detail(await team(long(121)), "name")).toBe("Must be at most 120 characters");
+    expect((await team(long(120))).status).toBe(201);
+  });
+
+  test.each([
+    ["/users", "picture", () => [["email", `${unique("pic")}@x.co`]]],
+    ["/organizations", "logo", () => [["slug", unique("logo")], ["legalName", "Org"]]],
+    ["/teams", "picture", async () => [["organization", (await create("/organizations", { slug: unique("o"), legalName: "Org" })).id], ["name", "Team"]]],
+  ] as [string, string, () => Promise<[string, string][]> | [string, string][]][])(
+    "%s %s accepts PNG, JPEG and WebP images up to 1 MB",
+    async (path, field, fields) => {
+      for (const [name, type] of [["pic.png", "image/png"], ["pic.jpg", "image/jpeg"], ["pic.webp", "image/webp"]] as const) {
+        const accepted = await post(path, form([...(await fields()), [field, png(8, name, type)]]));
+        expect([accepted.status, (await get(`/media/${accepted.body[field]}`)).body.mimeType]).toEqual([201, type]);
+      }
+      const gif = await post(path, form([...(await fields()), [field, png(8, "pic.gif", "image/gif")]]));
+      expect([gif.status, detail(gif, field)]).toEqual([400, "File type not allowed"]);
+      const large = await post(path, form([...(await fields()), [field, png(2 * 1024 * 1024)]]));
+      expect([large.status, large.body.error.message, detail(large, field)]).toEqual([413, "File too large", "File too large"]);
+      expect((await post(path, form([...(await fields()), [field, png(1024 * 1024)]]))).status).toBe(201);
+    },
+  );
+
+  test("active defaults to true", async () => {
+    const module = await create("/modules", { slug: unique("m") });
+    const org = await create("/organizations", { slug: unique("o"), legalName: "Org" });
+    const user = await create("/users", { email: `${unique("u")}@x.co` });
+    const membership = await create("/memberships", { organization: org.id, user: user.id });
+    const team = await create("/teams", { organization: org.id, name: "Team" });
+    expect([module.active, org.active, membership.active, team.active]).toEqual([true, true, true, true]);
+    expect((await get(`/modules/${module.id}`)).body.active).toBe(true);
+    expect((await create("/modules", { slug: unique("m"), active: false })).active).toBe(false);
   });
 });
 

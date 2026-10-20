@@ -17,7 +17,9 @@ export enum ModuleAction {
 }
 
 export type Module = {
+    /** @unique @minLength 2 @maxLength 64 */
     slug: string
+    /** @default true */
     active: boolean
 }
 ```
@@ -41,10 +43,13 @@ Create `entities/Profile.ts`:
 import { Permission } from "./Permission"
 
 export type Profile = {
+    /** @unique @minLength 2 @maxLength 64 */
     slug: string
     permissions: Permission[]
 }
 ```
+
+The slug has the same tags as the module's: unique, with 2 to 64 characters.
 
 `permissions: Permission[]` is a reference array: an ordered list of permission ids. QuickService checks it for you:
 
@@ -61,17 +66,25 @@ import type { Media } from "@quickservice/core"
 import { Module } from "./Module"
 
 export type Organization = {
+    /** @unique @minLength 2 @maxLength 64 */
     slug: string
+    /** @minLength 1 @maxLength 200 */
     legalName: string
+    /** @minLength 1 @maxLength 120 */
     name?: string
+    /** @accept image/png,image/jpeg,image/webp @maxSize 1MB */
     logo?: Media;
+    /** @default true */
     active: boolean
     modules: Module[]
 }
 ```
 
-- `name?` is optional. When it has no value, responses return `null`.
-- `logo?: Media` references a built-in file entity for images, audio and video. You upload the file in the same request that creates the organization.
+- `slug` is unique, with 2 to 64 characters, like the other slugs.
+- `legalName` takes 1 to 200 characters: `@minLength 1` rejects an empty string, which a required field would otherwise accept.
+- `name?` is optional, with 1 to 120 characters when it is set. When it has no value, responses return `null`.
+- `logo?: Media` references a built-in file entity for images, audio and video. You upload the file in the same request that creates the organization. `@accept image/png,image/jpeg,image/webp` narrows it to those three image types, and `@maxSize 1MB` to files of at most 1 MB.
+- `active` defaults to `true`, like the module's.
 - `modules: Module[]` is another reference array.
 
 ## Try it
@@ -236,7 +249,7 @@ curl -X POST localhost:3000/organizations \
 }
 ```
 
-`modules` was left out, so it is `[]`. Populate the logo to get its file details and URL:
+`modules` was left out, so it is `[]`. A logo of another type, such as a GIF, fails with `400 File type not allowed`, and one over 1 MB with `413 File too large`. Populate the logo to get its file details and URL:
 
 ```bash
 curl "localhost:3000/organizations/<globex-id>?populate=logo&fields=slug,logo"

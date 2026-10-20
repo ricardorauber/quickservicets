@@ -18,12 +18,20 @@ export enum ModuleAction {
 }
 
 export type Module = {
+    /** @unique @minLength 2 @maxLength 64 */
     slug: string
+    /** @default true */
     active: boolean
 }
 ```
 
 `Module` gets the routes `/modules` and `/modules/<id>`, and every record also has `id`, `createdAt` and `updatedAt`. The file exports `ModuleAction` too, which the permission uses next. An enum is not an entity, so it gets no routes.
+
+The JSDoc comment above a field holds its **tags**, the rules QuickService checks for you:
+
+- `@unique` rejects a slug that another module already has, with `409 Value already exists`.
+- `@minLength 2` and `@maxLength 64` keep the slug between 2 and 64 characters, or the request fails with `400`.
+- `@default true` stores `true` when a create body leaves `active` out.
 
 ## An enum without initializers
 
@@ -72,7 +80,7 @@ The dev server picks up the new files. Create a module:
 curl -X POST localhost:3000/modules -d '{"slug":"billing","active":true}'
 ```
 
-It answers `201 Created`:
+It answers `201 Created`. `active` could have been left out, since it defaults to `true`:
 
 ```json
 {
@@ -136,6 +144,22 @@ curl -X POST localhost:3000/permissions -d '{"module":"nope","action":"view"}'
 }
 ```
 
+A second module with the same slug fails, because the slug is `@unique`:
+
+```bash
+curl -X POST localhost:3000/modules -d '{"slug":"billing"}'
+```
+
+```json
+{
+  "error": {
+    "code": "CONFLICT",
+    "message": "Value already exists",
+    "details": [{ "field": "slug", "message": "Value already exists" }]
+  }
+}
+```
+
 After you also create a `view` permission for `billing`, filter by the enum value:
 
 ```bash
@@ -169,7 +193,8 @@ The memory database starts empty each time the dev server restarts, for example 
 
 ## Learn more
 
-- [JSDoc tags](/reference/tags/): every tag a field can take.
+- [JSDoc tags](/reference/tags/): every tag a field can take, including `@unique`, `@minLength`, `@maxLength` and `@default`.
+- [Validation](/guides/validation/): how the tags check request bodies.
 - [HTTP query parameters](/reference/http/): the filter operators of each field type.
 - [Errors](/reference/errors/): every error code and message.
 

@@ -17,7 +17,9 @@ export enum ModuleAction {
 }
 
 export type Module = {
+    /** @unique @minLength 2 @maxLength 64 */
     slug: string
+    /** @default true */
     active: boolean
 }
 ```
@@ -35,6 +37,7 @@ export type Permission = {
 import { Permission } from "./Permission"
 
 export type Profile = {
+    /** @unique @minLength 2 @maxLength 64 */
     slug: string
     permissions: Permission[]
 }
@@ -57,8 +60,11 @@ export enum UserRole {
 }
 
 export type User = {
+    /** @unique @format email @maxLength 254 */
     email: string
+    /** @minLength 1 @maxLength 120 */
     name?: string
+    /** @accept image/png,image/jpeg,image/webp @maxSize 1MB */
     picture?: Media
 
     /** @default UserRole.basic */
@@ -69,6 +75,9 @@ export type User = {
 }
 ```
 
+- `email` is `@unique`, so two users cannot share one; `@format email` rejects anything that is not an email address (`Must be a valid email`), and `@maxLength 254` is the longest an address can be.
+- `name?` takes 1 to 120 characters when it is set.
+- `picture?` accepts PNG, JPEG and WebP images of at most 1 MB, like the organization's logo.
 - `role` is required, but `@default UserRole.basic` fills it in when a create body leaves it out. `@default` takes a member of the field's own enum, or the value itself (`@default 'basic'`).
 - `memberships` and `teams` are reference arrays. Like every non-optional reference array, they default to `[]` when you leave them out.
 
@@ -85,9 +94,12 @@ export type Membership = {
     organization: Organization
     user: User
     profiles: Profile[]
+    /** @default true */
     active: boolean
 }
 ```
+
+`active` defaults to `true`, so a new membership is active unless the body says otherwise.
 
 ## The Team entity
 
@@ -101,13 +113,18 @@ import { User } from "./User"
 
 export type Team = {
     organization: Organization
+    /** @minLength 1 @maxLength 120 */
     name: string
+    /** @accept image/png,image/jpeg,image/webp @maxSize 1MB */
     picture?: Media
     users: User[]
     profiles: Profile[]
+    /** @default true */
     active: boolean
 }
 ```
+
+The team's `name` takes 1 to 120 characters, its `picture?` follows the same image rules as the user's, and `active` defaults to `true`.
 
 ## Members of an organization
 
@@ -119,10 +136,15 @@ import { Membership } from "./Membership"
 import { Module } from "./Module"
 
 export type Organization = {
+    /** @unique @minLength 2 @maxLength 64 */
     slug: string
+    /** @minLength 1 @maxLength 200 */
     legalName: string
+    /** @minLength 1 @maxLength 120 */
     name?: string
+    /** @accept image/png,image/jpeg,image/webp @maxSize 1MB */
     logo?: Media;
+    /** @default true */
     active: boolean
     modules: Module[]
     members: Membership[]
@@ -172,7 +194,23 @@ curl -X POST localhost:3000/users -d '{"email":"ana@acme.co","name":"Ana"}'
 }
 ```
 
-A role outside the enum fails:
+An email that is already taken fails with `409 Value already exists`, and one that is not an email fails with `400`:
+
+```bash
+curl -X POST localhost:3000/users -d '{"email":"abc"}'
+```
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Invalid body",
+    "details": [{ "field": "email", "message": "Must be a valid email" }]
+  }
+}
+```
+
+A role outside the enum fails too:
 
 ```bash
 curl -X POST localhost:3000/users -d '{"email":"x@acme.co","role":"owner"}'

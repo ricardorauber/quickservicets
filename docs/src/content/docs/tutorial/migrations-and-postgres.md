@@ -79,6 +79,8 @@ The migration creates:
 
 Derived sides get nothing: `users` has no `memberships` column, because each membership stores its `user`. Enum fields become text columns with a `CHECK` on their values, like `action` above.
 
+Each `@unique` field gets a unique index, like `modules_slug_uq` and `users_email_uq`. `examples/identity` creates these in a second migration, `DataRules`, because its tags were added after its first migration; yours are all in `Initial`. Rules such as `@minLength`, `@accept` and `@default` are checked by QuickService, so they add nothing to the database.
+
 ## Apply it
 
 List the migrations first:

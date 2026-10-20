@@ -6,5 +6,6 @@ export type Membership = {
     organization: Organization
     user: User
     profiles: Profile[]
+    /** @default true */
     active: boolean
 }

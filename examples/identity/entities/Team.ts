@@ -5,9 +5,12 @@ import { User } from "./User"
 
 export type Team = {
     organization: Organization
+    /** @minLength 1 @maxLength 120 */
     name: string
+    /** @accept image/png,image/jpeg,image/webp @maxSize 1MB */
     picture?: Media
     users: User[]
     profiles: Profile[]
+    /** @default true */
     active: boolean
 }

@@ -20,11 +20,14 @@ bun test tests
 ```text
 bun test v1.4.2 (744846f84)
 
- 90 pass
+ 101 pass
+ 1 skip
  0 fail
- 391 expect() calls
-Ran 90 tests across 1 file. [1432.00ms]
+ 443 expect() calls
+Ran 102 tests across 2 files. [1570.00ms]
 ```
+
+The skipped test is in `tests/migrations.test.ts`: it applies the project's migrations one after the other on PostgreSQL, and runs only when `TEST_POSTGRES_URL` points at a database whose `public` schema it may replace.
 
 `bun run test` does the same (it is the `test` script in `package.json`). To run some of the tests, filter by name with `-t`:
 
@@ -36,10 +39,10 @@ bun test tests -t "has-permissions"
 bun test v1.4.2 (744846f84)
 
  4 pass
- 86 filtered out
+ 98 filtered out
  0 fail
  20 expect() calls
-Ran 4 tests across 1 file. [1248.00ms]
+Ran 4 tests across 2 files. [1441.00ms]
 ```
 
 ## The test file
@@ -137,7 +140,7 @@ async function world() {
   return { billing, reports, legacy, org, inactiveOrg, billingManage, reportsView, legacyManage, finance, analyst, ana, membership, team };
 }
 
-// … the CRUD cases of every entity, then entity rules, media and files …
+// … the CRUD cases of every entity, then entity rules, data rules, media and files …
 
 // ---------------------------------------------------------------------------------------------------------------
 // The custom endpoint: GET /users/:userId/has-permissions.
@@ -213,7 +216,7 @@ Nothing listens on a port: `fetchApp` is `server.fetch`.
 The file has five parts, each with a banner comment:
 
 1. **Generated CRUD routes**, checked once per entity with `describe.each(crudCases)`. Each `CrudCase` gives a valid body, a required field, a field with a wrong type (and its message) and a valid change. Every entity gets the same cases: create (201), invalid bodies (400), list with paging, sorting, filters and field selection, invalid query parameters, read (200 and 404), PATCH, PUT, DELETE (204, then 404) and unsupported methods (405 with `Allow`).
-2. **Entity rules**: defaults, derived relation sides, reference arrays, delete rules (409), uploads with a record, `populate` and its depth limit.
+2. **Entity rules**: defaults, derived relation sides, reference arrays, delete rules (409), uploads with a record, `populate` and its depth limit. Then the data rules of the field tags: duplicate emails and slugs (409), invalid emails, lengths outside their limits, pictures and logos of other types (400) or over 1 MB (413), and `active` defaulting to `true`.
 3. **Media and files**: upload, stream, rename, replace, delete, and the 413 and 415 errors.
 4. **The custom endpoint**: the query item errors shown above, then direct and team grants with `all` and `any`, inactive modules, memberships, teams and organizations, and users without grants.
 5. **Framework routes**: unknown routes (404) and the API docs.

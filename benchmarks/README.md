@@ -89,7 +89,7 @@ Requests per second (2 CPUs per service, 64 VUs, PostgreSQL with 2 CPUs), the be
 
 ## After the optimizations
 
-The profile in [`analysis/quickservice-profile.md`](analysis/quickservice-profile.md) led to twelve framework changes (single-statement writes and deletes, projection without deep clones, buffered request logging, counting only when the total is read, `server.workers`, precompiled SQL, reference arrays in the row SELECT, fluent `aggregate()`, single-pass multipart and smaller per-request costs). Requests per second, better of two rounds, same setup as above; the stats endpoint now uses `aggregate()`. Raw numbers are in `results/before-optimizations/` and `results/after-optimizations/`.
+The profile in [`analysis/quickservice-profile.md`](analysis/quickservice-profile.md) led to twelve framework changes (single-statement writes and deletes, projection without deep clones, buffered request logging, counting only when the total is read, `server.workers`, precompiled SQL, reference arrays in the row SELECT, fluent `aggregate()`, single-pass multipart and smaller per-request costs). Requests per second, better of two rounds, same setup as above; the stats endpoint now uses `aggregate()`. Raw numbers are in `results/before-optimizations/` and `results/after-optimizations/`. A second profile of the optimized service, with the opportunities that remain, is in [`analysis/quickservice-profile-2.md`](analysis/quickservice-profile-2.md).
 
 | Service | `crud` | `query` | `custom` | `upload` | `health` | `get_user` | `list_users` | `create_user` | `filter_users` | `populate_orgs` |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |

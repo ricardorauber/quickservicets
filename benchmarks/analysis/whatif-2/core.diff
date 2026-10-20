@@ -1,0 +1,496 @@
+diff -ruN a/packages/core/src/adapters/postgres-statements.ts b/packages/core/src/adapters/postgres-statements.ts
+--- a/packages/core/src/adapters/postgres-statements.ts	2026-10-20 13:20:40
++++ b/packages/core/src/adapters/postgres-statements.ts	2026-10-20 13:20:40
+@@ -4,6 +4,9 @@
+ import type { EntityModel } from "../model.ts";
+ import type { Condition, SortField } from "../query.ts";
+ import { junctionKey, type DrizzleSchema } from "../sql/schema.ts";
++import { whatif } from "../whatif.ts";
++
++const W_INSFAST = whatif("insfast");
+ import { compileConditions, compileSort, encodeValue, type ColumnKind, type ConditionTarget, type TargetColumn } from "./postgres-conditions.ts";
+ 
+ /** A quoted SQL identifier. */
+@@ -205,8 +208,17 @@
+     return { text, params: [...filterParams, ...params], decode };
+   }
+ 
++  private readonly insertFields = new Map<string, string[]>();
++
+   insert(values: Record<string, unknown>): Statement {
+-    const fields = this.written(values);
++    let fields: string[];
++    if (W_INSFAST) {
++      let key = "";
++      for (const field in values) if (values[field] !== undefined) key += `${field},`;
++      let cached = this.insertFields.get(key);
++      if (!cached) this.insertFields.set(key, (cached = this.written(values)));
++      fields = cached;
++    } else fields = this.written(values);
+     const text = this.text(`insert:${fields.join(",")}`, () => {
+       const names = fields.map((field) => this.columns.get(field)!.name).join(", ");
+       const placeholders = fields.map((_, index) => `$${index + 1}`).join(", ");
+diff -ruN a/packages/core/src/adapters/postgres.ts b/packages/core/src/adapters/postgres.ts
+--- a/packages/core/src/adapters/postgres.ts	2026-10-20 13:20:40
++++ b/packages/core/src/adapters/postgres.ts	2026-10-20 13:20:40
+@@ -7,7 +7,31 @@
+ import { buildDrizzleSchema, columnName, schemaIdentifier, type DrizzleSchema } from "../sql/schema.ts";
+ import { relationFields, splitRelations, writeRelations } from "../sql/relations.ts";
+ import { EntityStatements, type Statement } from "./postgres-statements.ts";
++import { whatif } from "../whatif.ts";
+ 
++const W_TAGGED = whatif("tagged");
++const W_INSFAST = whatif("insfast");
++
++/** What-if `tagged`: the precompiled text as a template strings array, so Bun.sql runs it as a tagged template. */
++const templates = new Map<string, { strings: TemplateStringsArray; order: number[] }>();
++function templateOf(text: string) {
++  let found = templates.get(text);
++  if (!found) {
++    const strings: string[] = [];
++    const order: number[] = [];
++    let last = 0;
++    for (const match of text.matchAll(/\$(\d+)/g)) {
++      strings.push(text.slice(last, match.index));
++      order.push(Number(match[1]) - 1);
++      last = match.index! + match[0].length;
++    }
++    strings.push(text.slice(last));
++    found = { strings: Object.assign(strings, { raw: [...strings] }) as unknown as TemplateStringsArray, order };
++    templates.set(text, found);
++  }
++  return found;
++}
++
+ export interface PostgresAdapterOptions {
+   url: string;
+   /** Most connections the pool opens (default 10); with `server.workers` above 1 it is divided across the workers. */
+@@ -81,6 +105,10 @@
+   const run = async (statement: Statement): Promise<Row[]> => {
+     const target = transactions.getStore()?.sql ?? client;
+     if (!target) throw new Error("The PostgreSQL adapter is not connected");
++    if (W_TAGGED) {
++      const { strings, order } = templateOf(statement.text);
++      return (await (target as any)(strings, ...order.map((index) => statement.params[index]))) as Row[];
++    }
+     return (await target.unsafe(statement.text, statement.params)) as Row[];
+   };
+   const tableFor = (entity: EntityModel): Table => {
+@@ -157,6 +185,10 @@
+       db = undefined;
+     },
+     insert(entity, record) {
++      if (W_INSFAST && statementsFor(entity).junctions.length === 0) {
++        // No reference arrays: one statement, no split and no junction writes.
++        return translateErrors(async () => (await read(entity, statementsFor(entity).insert(record)))[0]!);
++      }
+       return translateErrors(() =>
+         atomicallyWithRelations(entity, async () => {
+           const { columns, relations } = splitRelations(entity, record);
+diff -ruN a/packages/core/src/files/multipart.ts b/packages/core/src/files/multipart.ts
+--- a/packages/core/src/files/multipart.ts	2026-10-20 13:20:40
++++ b/packages/core/src/files/multipart.ts	2026-10-20 13:20:40
+@@ -117,6 +117,13 @@
+     this.buffer = Buffer.allocUnsafe(Math.min(Math.max(sizeHint, 1024), 16 * 1024 ** 2));
+   }
+ 
++  /** What-if `bufferbody`: takes the whole body at once, without copying it. */
++  adopt(bytes: Uint8Array): void {
++    this.buffer = Buffer.from(bytes.buffer as ArrayBuffer, bytes.byteOffset, bytes.byteLength);
++    this.length = bytes.byteLength;
++    this.advance(false);
++  }
++
+   /** Adds the next chunk of the body and reads as far as it allows. */
+   push(chunk: Uint8Array): void {
+     if (this.state === "done" || chunk.length === 0) return;
+diff -ruN a/packages/core/src/files/upload.ts b/packages/core/src/files/upload.ts
+--- a/packages/core/src/files/upload.ts	2026-10-20 13:20:40
++++ b/packages/core/src/files/upload.ts	2026-10-20 13:20:40
+@@ -6,7 +6,25 @@
+ import { declaredTypeFits, detectFileType, detectHeadType, HEAD_SIZE, isZipHead } from "./detect.ts";
+ import { mimeMatches, sanitizeFilename } from "./limits.ts";
+ import { boundaryOf, MultipartReader, type MultipartLimit } from "./multipart.ts";
++import { whatif } from "../whatif.ts";
+ 
++const W_BUFFERBODY = whatif("bufferbody");
++const W_HEADDETECT = whatif("headdetect");
++const W_NOCOPY = whatif("nocopy");
++const W_NOFILE = whatif("nofile");
++/** What-if `nofile`: the checked file part as a view of the body, without a File copy. */
++const FILE_PART = Symbol("filePart");
++interface PartFile {
++  name: string;
++  type: string;
++  size: number;
++  bytes: Uint8Array;
++}
++/** What-if `headdetect`: the leading bytes of a file part, attached to its File. */
++export const HEAD = Symbol("head");
++/** Bodies up to this much over the file limit are read at once; larger ones stream, so they can fail early. */
++const BUFFER_SLACK = 64 * 1024;
++
+ export interface UploadSettings {
+   storage: Record<string, StorageAdapter>;
+   files: { maxSize: number; accept: string[] };
+@@ -73,8 +91,11 @@
+   }
+   const boundary = boundaryOf(type);
+   if (boundary === undefined) throw new TypeError("Can't decode form data from body because of incorrect MIME type/boundary");
+-  const reader = new MultipartReader(boundary, Number(req.headers.get("content-length")) || 0, limit);
+-  const stream = req.raw.body?.getReader();
++  const declaredLength = Number(req.headers.get("content-length")) || 0;
++  const reader = new MultipartReader(boundary, W_BUFFERBODY ? 0 : declaredLength, limit);
++  const buffered = W_BUFFERBODY && declaredLength > 0 && declaredLength <= (limit?.maxSize ?? 0) + BUFFER_SLACK;
++  if (buffered) reader.adopt(await req.raw.bytes());
++  const stream = buffered ? undefined : req.raw.body?.getReader();
+   if (stream) {
+     try {
+       for (let chunk = await stream.read(); !chunk.done; chunk = await stream.read()) reader.push(chunk.value);
+@@ -85,9 +106,26 @@
+   }
+   const { body, parts } = reader.end();
+   const form = new FormData();
++  let viewed = false;
+   for (const part of parts) {
++    if (W_NOFILE && !viewed && part.filename !== undefined && part.name === limit?.name) {
++      viewed = true;
++      const bytes = body.subarray(part.start, part.end);
++      // The type as a Blob would normalize it (lower case, ASCII only).
++      const view: PartFile = { name: part.filename, type: new Blob([], { type: part.type ?? "" }).type, size: bytes.length, bytes };
++      (form as unknown as Record<symbol, PartFile>)[FILE_PART] = view;
++      continue;
++    }
+     if (part.filename === undefined) form.append(part.name, body.toString("utf8", part.start, part.end));
+-    else form.append(part.name, new File([body.subarray(part.start, part.end)], part.filename, { type: part.type ?? "" }));
++    else {
++      const file = new File([body.subarray(part.start, part.end)], part.filename, { type: part.type ?? "" });
++      if (W_HEADDETECT) {
++        // FormData hands out its own File objects, so the heads are kept on the form, by part name (first part wins).
++        const heads = ((form as unknown as Record<symbol, Map<string, Uint8Array>>)[HEAD] ??= new Map());
++        if (!heads.has(part.name)) heads.set(part.name, body.subarray(part.start, Math.min(part.end, part.start + HEAD_SIZE)));
++      }
++      form.append(part.name, file);
++    }
+   }
+   return form;
+ }
+@@ -100,9 +138,20 @@
+  * match any other one, unless that type may stand for the format; the declared type stays for formats the server
+  * does not recognize.
+  */
+-export async function resolveUploadType<T extends Blob & { name?: string }>(file: T, path: string): Promise<File> {
+-  const replaced = replacedType(await detectFileType(file), file.type, path);
++export async function resolveUploadType<T extends Blob & { name?: string }>(file: T, path: string, knownHead?: Uint8Array): Promise<File> {
++  const view = file instanceof Blob ? undefined : (file as unknown as PartFile).bytes;
++  if (view) {
++    // nofile: detection on the leading bytes; only a ZIP archive needs a Blob to look further.
++    const head = view.subarray(0, HEAD_SIZE);
++    const found = isZipHead(head) ? await detectFileType(new Blob([view])) : detectHeadType(head);
++    const changed = replacedType(found, file.type, path);
++    return (changed === undefined || changed === file.type ? file : { ...file, type: changed }) as unknown as File;
++  }
++  const head = W_HEADDETECT ? knownHead : undefined;
++  const detected = head && !isZipHead(head) ? detectHeadType(head) : await detectFileType(file);
++  const replaced = replacedType(detected, file.type, path);
+   const name = file.name ?? "file";
++  if (W_NOCOPY && file instanceof File && (replaced === undefined || replaced === file.type)) return file;
+   if (replaced !== undefined) return new File([file], name, { type: replaced });
+   return file instanceof File ? file : new File([file], name, { type: file.type });
+ }
+@@ -154,7 +203,7 @@
+   const { name, storage } = storageOf(model, settings);
+   const filename = sanitizeFilename(file.name ?? "file");
+   const storageKey = storageKeyFor(model, id, filename);
+-  await storage.put(storageKey, file, { contentType: file.type, size: file.size });
++  await storage.put(storageKey, file instanceof Blob ? file : (file as PartFile).bytes, { contentType: file.type, size: file.size });
+   return {
+     managed: { filename, mimeType: file.type, size: file.size, storage: name, storageKey },
+     discard: () => storage.delete(storageKey),
+@@ -174,9 +223,10 @@
+       throw tooLarge("file");
+     },
+   });
+-  const file = form.get("file");
+-  if (!(file instanceof Blob)) throw invalid("file", "Is required");
+-  const resolved = await resolveUploadType(file, "file");
++  const file = (W_NOFILE ? (form as unknown as Record<symbol, PartFile | undefined>)[FILE_PART] : undefined) ?? form.get("file");
++  if (!(file instanceof Blob) && !(file && typeof file === "object" && "bytes" in file)) throw invalid("file", "Is required");
++  const knownHead = W_HEADDETECT ? (form as unknown as Record<symbol, Map<string, Uint8Array> | undefined>)[HEAD]?.get("file") : undefined;
++  const resolved = await resolveUploadType(file as Blob, "file", knownHead);
+   assertFileAllowed(model, resolved, settings, "file");
+   return { file: resolved, data: formFields(model, form, (name) => name === "file") };
+ }
+diff -ruN a/packages/core/src/fluent-query.ts b/packages/core/src/fluent-query.ts
+--- a/packages/core/src/fluent-query.ts	2026-10-20 13:20:40
++++ b/packages/core/src/fluent-query.ts	2026-10-20 13:20:40
+@@ -1,4 +1,5 @@
+ import type { Aggregate, AggregateValues } from "./adapter.ts";
++import { whatif } from "./whatif.ts";
+ import { HttpError, type FieldErrorDetail } from "./errors.ts";
+ import { SYSTEM_FIELDS, type EntityModel, type FieldModel } from "./model.ts";
+ import { project } from "./projection.ts";
+@@ -191,8 +192,18 @@
+ 
+ const NUMBER_AGGREGATES = ["sum", "avg", "min", "max"] as const;
+ 
++const aggregateHandlesByModel = new WeakMap<EntityModel, Record<string, unknown>>();
++const W_AGGCACHE = whatif("aggcache");
++
+ /** The handles of an `aggregate` lambda: the field handles plus aggregate functions and `count`. */
+ function aggregateHandles(model: EntityModel): Record<string, unknown> {
++  if (!W_AGGCACHE) return buildAggregateHandles(model);
++  let handles = aggregateHandlesByModel.get(model);
++  if (!handles) aggregateHandlesByModel.set(model, (handles = buildAggregateHandles(model)));
++  return handles;
++}
++
++function buildAggregateHandles(model: EntityModel): Record<string, unknown> {
+   const handles = fieldHandles(model) as Record<string, Record<string, unknown>>;
+   const types = new Map<string, string>([
+     ["createdAt", "date"],
+diff -ruN a/packages/core/src/http/server.ts b/packages/core/src/http/server.ts
+--- a/packages/core/src/http/server.ts	2026-10-20 13:20:40
++++ b/packages/core/src/http/server.ts	2026-10-20 13:20:40
+@@ -1,10 +1,40 @@
+ import { HttpError, toErrorResponse } from "../errors.ts";
+ import type { Repositories, ServiceRequest, ServiceResponse } from "../hooks.ts";
+ import { noRequestJobs, type RequestJobs } from "../jobs/triggers.ts";
+-import { jsonLogger, safeLog, type Logger } from "../logger.ts";
++import { appendRawLine, jsonLogger, safeLog, type Logger } from "../logger.ts";
+ import { executedHooks } from "./pipeline.ts";
+ import { Router } from "./router.ts";
++import { whatif } from "../whatif.ts";
+ 
++const W_NOLOG = whatif("nolog");
++const W_FASTRESP = whatif("fastresp");
++const W_NOURL = whatif("nourl");
++const W_LOGFAST = whatif("logfast");
++const W_LOGSTR = whatif("logstr");
++
++/** What-if `logfast`: the ISO timestamp of the current millisecond, built once per millisecond. */
++let stampAt = 0;
++let stamp = "";
++function timestamp(): string {
++  if (!W_LOGFAST) return new Date().toISOString();
++  const now = Date.now();
++  if (now !== stampAt) {
++    stampAt = now;
++    stamp = new Date(now).toISOString();
++  }
++  return stamp;
++}
++
++/** What-if `nourl`: the path and a lazily parsed query of a request URL, without a URL object. */
++function splitUrl(href: string): { pathname: string; search: string } {
++  const start = href.indexOf("/", href.indexOf("//") + 2);
++  if (start === -1) return { pathname: "/", search: "" };
++  const query = href.indexOf("?", start);
++  const hash = href.indexOf("#", start);
++  const end = query === -1 ? (hash === -1 ? href.length : hash) : query;
++  return { pathname: href.slice(start, end), search: query === -1 ? "" : href.slice(query + 1, hash === -1 ? href.length : hash) };
++}
++
+ export type HandlerResult<Result> = Result | Response | undefined;
+ 
+ /** An endpoint handler: receives the repositories, the request and the response controls. */
+@@ -38,7 +68,14 @@
+ 
+ class ResponseControls implements ServiceResponse {
+   statusCode: number | undefined;
+-  readonly headers = new Headers();
++  private lazyHeaders: Headers | undefined;
++  /** Whether a handler or hook touched the headers. */
++  get touched(): boolean {
++    return this.lazyHeaders !== undefined;
++  }
++  get headers(): Headers {
++    return (this.lazyHeaders ??= new Headers());
++  }
+ 
+   status(code: number): ServiceResponse {
+     this.statusCode = code;
+@@ -69,14 +106,17 @@
+   }
+ }
+ 
+-function createRequest(raw: Request, url: URL, params: Record<string, string>, id: string, jobs: RequestJobs): ServiceRequest {
++function createRequest(raw: Request, url: { pathname: string; searchParams?: URLSearchParams; search?: string }, params: Record<string, string>, id: string, jobs: RequestJobs): ServiceRequest {
+   let body: Promise<unknown> | undefined;
++  let query = url.searchParams;
+   return {
+     id,
+     method: raw.method,
+     path: url.pathname,
+     params,
+-    query: url.searchParams,
++    get query() {
++      return (query ??= new URLSearchParams(url.search ?? ""));
++    },
+     headers: raw.headers,
+     raw,
+     context: {},
+@@ -96,8 +136,16 @@
+ }
+ 
+ /** The response for a handler's result; `status` replaces the default 200 (or 204 for `undefined`) when `res.status` was not called. */
+-export function toResponse(result: unknown, res: ResponseControls, status?: number): Response {
++export function toResponse(result: unknown, res: ResponseControls, status?: number, requestId?: string): Response {
+   if (result instanceof Response) return result;
++  if (W_FASTRESP && requestId !== undefined && !res.touched) {
++    // Plain-object headers with the request id: no Headers objects built in JavaScript, no header set afterwards.
++    if (result === undefined) return new Response(null, { status: res.statusCode ?? status ?? 204, headers: { "x-request-id": requestId } });
++    return new Response(JSON.stringify(result), {
++      status: res.statusCode ?? status ?? 200,
++      headers: { "content-type": "application/json", "x-request-id": requestId },
++    });
++  }
+   if (result === undefined) {
+     return new Response(null, { status: res.statusCode ?? status ?? 204, headers: res.headers });
+   }
+@@ -111,9 +159,9 @@
+ 
+   const logger = config.logger ?? jsonLogger;
+ 
+-  const handle = async (request: Request, requestId: string, state: { route: string | null; req?: ServiceRequest }) => {
++  const handle = async (request: Request, requestId: string, state: { route: string | null; req?: ServiceRequest; fast?: boolean }) => {
+     try {
+-      const url = new URL(request.url);
++      const url = W_NOURL ? splitUrl(request.url) : new URL(request.url);
+       const match = router.match(request.method, url.pathname);
+       if (match.kind === "notFound") throw new HttpError(404, "Route not found");
+       if (match.kind === "methodNotAllowed") {
+@@ -125,7 +173,8 @@
+       state.req = createRequest(request, url, match.params, requestId, jobs);
+       const res = new ResponseControls();
+       const result = await match.route.value.handler(repos, state.req, res);
+-      return toResponse(result, res, match.route.value.status);
++      if (W_FASTRESP && !res.touched && !(result instanceof Response)) state.fast = true;
++      return toResponse(result, res, match.route.value.status, W_FASTRESP ? requestId : undefined);
+     } catch (error) {
+       if (!(error instanceof HttpError)) {
+         const failure = error instanceof Error ? error : new Error(String(error));
+@@ -142,10 +191,20 @@
+   const fetch = async (request: Request): Promise<Response> => {
+     const startedAt = performance.now();
+     const requestId = requestIdOf(request);
+-    const state: { route: string | null; req?: ServiceRequest } = { route: null };
+-    const response = withHeader(await handle(request, requestId, state), "x-request-id", requestId);
++    const state: { route: string | null; req?: ServiceRequest; fast?: boolean } = { route: null };
++    const handled = await handle(request, requestId, state);
++    const response = state.fast ? handled : withHeader(handled, "x-request-id", requestId);
++    if (W_NOLOG) return response;
++    if (W_LOGSTR && logger === jsonLogger && response.status < 500) {
++      // The same JSON line, written as text: no entry object, no generic stringify.
++      const hooks = state.req ? executedHooks(state.req) : [];
++      appendRawLine(
++        `{"level":"info","timestamp":"${timestamp()}","requestId":"${requestId}","method":${JSON.stringify(request.method)},"route":${JSON.stringify(state.route)},"status":${response.status},"durationMs":${Math.round((performance.now() - startedAt) * 1000) / 1000},"hooks":${hooks.length === 0 ? "[]" : JSON.stringify(hooks)}}\n`,
++      );
++      return response;
++    }
+     safeLog(logger, response.status >= 500 ? "error" : "info", {
+-      timestamp: new Date().toISOString(),
++      timestamp: timestamp(),
+       requestId,
+       method: request.method,
+       route: state.route,
+diff -ruN a/packages/core/src/logger.ts b/packages/core/src/logger.ts
+--- a/packages/core/src/logger.ts	2026-10-20 13:20:40
++++ b/packages/core/src/logger.ts	2026-10-20 13:20:40
+@@ -1,5 +1,8 @@
+ import { writeSync } from "node:fs";
++import { whatif } from "./whatif.ts";
+ 
++const W_LOGFAST = whatif("logfast");
++
+ export type LogEntry = Record<string, unknown>;
+ 
+ export interface Logger {
+@@ -92,14 +95,39 @@
+   };
+ 
+   return {
+-    info: (entry) => append({ level: "info", ...entry }),
++    info: (entry) => {
++      if (!W_LOGFAST) return append({ level: "info", ...entry });
++      // The level written first without copying the entry.
++      buffer += `{"level":"info",${JSON.stringify(entry).slice(1)}\n`;
++      if (!started) {
++        started = true;
++        onFirstLine(flush);
++      }
++      if (buffer.length > LOG_FLUSH_THRESHOLD) flush();
++      else if (!scheduled) {
++        scheduled = true;
++        schedule(endOfTurn);
++      }
++    },
+     warn: (entry) => append({ level: "warn", ...entry }),
+     error: (entry) => {
+       append({ level: "error", ...entry });
+       flush();
+     },
+     flush,
+-  };
++    raw: (line: string) => {
++      buffer += line;
++      if (!started) {
++        started = true;
++        onFirstLine(flush);
++      }
++      if (buffer.length > LOG_FLUSH_THRESHOLD) flush();
++      else if (!scheduled) {
++        scheduled = true;
++        schedule(endOfTurn);
++      }
++    },
++  } as BufferedJsonLogger;
+ }
+ 
+ const defaultLogger = createBufferedJsonLogger();
+@@ -108,6 +136,9 @@
+ export const jsonLogger: Logger = defaultLogger;
+ 
+ /** Writes what the default JSON logger has buffered, before a graceful shutdown or an exit. */
++/** What-if `logstr`: appends an already serialized line to the default logger's buffer. */
++export const appendRawLine = (line: string): void => (defaultLogger as unknown as { raw(line: string): void }).raw(line);
++
+ export function flushLogs(): void {
+   defaultLogger.flush();
+ }
+diff -ruN a/packages/core/src/storage/local.ts b/packages/core/src/storage/local.ts
+--- a/packages/core/src/storage/local.ts	2026-10-20 13:20:40
++++ b/packages/core/src/storage/local.ts	2026-10-20 13:20:40
+@@ -1,7 +1,11 @@
+ import { mkdir, rm } from "node:fs/promises";
+ import { dirname, join, resolve } from "node:path";
+ import { assertSafeKey, type StorageAdapter } from "./storage.ts";
++import { whatif } from "../whatif.ts";
+ 
++const W_NOMKDIR = whatif("nomkdir");
++const W_DIRECTWRITE = whatif("directwrite");
++
+ export interface LocalStorageOptions {
+   /** Folder that holds the objects. */
+   dir: string;
+@@ -18,7 +22,11 @@
+   const storage: StorageAdapter = {
+     async put(key, body) {
+       const path = pathOf(key);
+-      await mkdir(dirname(path), { recursive: true });
++      if (!W_NOMKDIR) await mkdir(dirname(path), { recursive: true });
++      if (W_DIRECTWRITE && !(body instanceof ReadableStream)) {
++        await Bun.write(path, body as Blob);
++        return;
++      }
+       await Bun.write(path, body instanceof ReadableStream ? new Response(body) : new Response(body as ConstructorParameters<typeof Response>[0]));
+     },
+     async get(key) {
+diff -ruN a/packages/core/src/whatif.ts b/packages/core/src/whatif.ts
+--- a/packages/core/src/whatif.ts	1969-12-31 21:00:00
++++ b/packages/core/src/whatif.ts	2026-10-20 13:20:40
+@@ -0,0 +1,4 @@
++/** Round-2 what-if switches, read once from QS_WHATIF (a comma-separated list). Not part of the framework. */
++const switches = new Set((process.env.QS_WHATIF ?? "").split(",").map((name) => name.trim()).filter(Boolean));
++
++export const whatif = (name: string): boolean => switches.has(name);

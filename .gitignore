@@ -12,3 +12,6 @@ data.db
 
 # Local development specs
 specs/
+
+# Editor settings
+.vscode/

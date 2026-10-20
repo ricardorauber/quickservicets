@@ -191,23 +191,37 @@ function buildFieldHandles(model: EntityModel): FieldHandles {
 
 const NUMBER_AGGREGATES = ["sum", "avg", "min", "max"] as const;
 
-/** The handles of an `aggregate` lambda: the field handles plus aggregate functions and `count`. */
+const aggregateHandlesByModel = new WeakMap<EntityModel, Record<string, unknown>>();
+
+/** The handles of an `aggregate` lambda, built on the entity's first aggregate and reused by every later one. */
 function aggregateHandles(model: EntityModel): Record<string, unknown> {
-  const handles = fieldHandles(model) as Record<string, Record<string, unknown>>;
+  let handles = aggregateHandlesByModel.get(model);
+  if (!handles) aggregateHandlesByModel.set(model, (handles = buildAggregateHandles(model)));
+  return handles;
+}
+
+/**
+ * Builds the handles of an `aggregate` lambda: copies of the field handles with the aggregate functions added, plus
+ * `count`. The field handles themselves stay without aggregate functions, so `where` lambdas never see them.
+ */
+function buildAggregateHandles(model: EntityModel): Record<string, unknown> {
   const types = new Map<string, string>([
     ["createdAt", "date"],
     ["updatedAt", "date"],
     ...model.fields.filter((field) => field.storage === "column").map((field) => [field.name, field.type] as [string, string]),
   ]);
-  for (const [name, handle] of Object.entries(handles)) {
+  const handles: Record<string, Record<string, unknown>> = {};
+  for (const [name, fieldHandle] of Object.entries(fieldHandles(model))) {
     const type = types.get(name);
     const allowed: readonly string[] = type === "number" ? NUMBER_AGGREGATES : type === "date" ? ["min", "max"] : [];
+    const handle: Record<string, unknown> = { ...fieldHandle };
     for (const fn of NUMBER_AGGREGATES) {
       handle[fn] = () => {
         if (!allowed.includes(fn)) throw new Error(`Aggregate "${fn}" is not allowed on ${model.entityName}.${name}`);
         return new AggregateExpression({ fn, field: name });
       };
     }
+    handles[name] = handle;
   }
   const count = (condition?: QueryCondition) => {
     if (condition === undefined) return new AggregateExpression<number>({ fn: "count" });

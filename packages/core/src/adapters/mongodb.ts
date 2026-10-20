@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { MongoClient, type ClientSession, type Db, type Document, type Filter, type Sort } from "mongodb";
+import type { ClientSession, Db, Document, Filter, MongoClient, Sort } from "mongodb";
 import { UniqueViolationError, type Aggregate, type AggregateValues, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
 import type { EntityModel, FieldModel } from "../model.ts";
 import { schemaIdentifier } from "../sql/schema.ts";
@@ -228,6 +228,9 @@ export function duplicateKeyField(error: unknown): string | undefined {
 }
 
 export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
+  // The driver loads when an adapter is created, so services on other databases never load it.
+  const driver = import("mongodb");
+  driver.catch(() => {});
   let client: MongoClient | undefined;
   let db: Db | undefined;
   let supportsTransactions = false;
@@ -262,6 +265,7 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
     },
     databaseFor,
     async connect(_, connectOptions = {}) {
+      const { MongoClient } = await driver;
       client = new MongoClient(options.url);
       await client.connect();
       db = client.db(connectOptions.defaultSchema ? schemaIdentifier(connectOptions.defaultSchema) : options.database);

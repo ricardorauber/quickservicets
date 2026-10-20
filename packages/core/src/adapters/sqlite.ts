@@ -1,6 +1,6 @@
-import { Database } from "bun:sqlite";
+import type { Database } from "bun:sqlite";
 import { and, count, eq, sql } from "drizzle-orm";
-import { drizzle, type BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
+import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import { UniqueViolationError, type AggregateValues, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
 import type { EntityModel } from "../model.ts";
 import { aggregateSelection } from "../sql/aggregates.ts";
@@ -39,6 +39,9 @@ export function uniqueViolationField(error: unknown, models: EntityModel[]): str
 }
 
 export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
+  // The driver loads when an adapter is created, so services on other databases never load it.
+  const driver = Promise.all([import("bun:sqlite"), import("drizzle-orm/bun-sqlite")]);
+  driver.catch(() => {});
   let client: Database | undefined;
   let db: BunSQLiteDatabase | undefined;
   let schema: DrizzleSchema | undefined;
@@ -85,6 +88,7 @@ export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
     },
     async connect(entityModels, connectOptions = {}) {
       models = entityModels;
+      const [{ Database }, { drizzle }] = await driver;
       client = new Database(options.path, { create: true });
       client.run("PRAGMA foreign_keys = ON");
       db = drizzle(client);

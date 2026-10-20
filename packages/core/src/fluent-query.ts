@@ -150,8 +150,19 @@ function operatorsOf(field: Pick<FieldModel, "type"> | undefined): FilterOperato
 
 const SYSTEM_TYPES: Record<string, Pick<FieldModel, "type">> = { id: { type: "string" }, createdAt: { type: "date" }, updatedAt: { type: "date" } };
 
+type FieldHandles = Record<string, Record<string, (value?: unknown) => QueryCondition>>;
+
+const handlesByModel = new WeakMap<EntityModel, FieldHandles>();
+
+/** The handles of an entity, built on its first query and reused by every later one. */
+function fieldHandles(model: EntityModel): FieldHandles {
+  let handles = handlesByModel.get(model);
+  if (!handles) handlesByModel.set(model, (handles = buildFieldHandles(model)));
+  return handles;
+}
+
 /** Builds the handles for an entity; using an operator a field does not accept throws a descriptive error. */
-function fieldHandles(model: EntityModel): Record<string, Record<string, (value?: unknown) => QueryCondition>> {
+function buildFieldHandles(model: EntityModel): FieldHandles {
   const fields: [string, Pick<FieldModel, "type">][] = [
     ...SYSTEM_FIELDS.map((name) => [name, SYSTEM_TYPES[name]!] as [string, Pick<FieldModel, "type">]),
     // Computed fields (file URLs) are not stored, so they cannot be filtered.

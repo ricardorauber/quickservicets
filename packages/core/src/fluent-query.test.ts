@@ -9,7 +9,7 @@ import { mongodbAdapter } from "./adapters/mongodb.ts";
 import { postgresAdapter } from "./adapters/postgres.ts";
 import { sqliteAdapter } from "./adapters/sqlite.ts";
 import { HttpError } from "./errors.ts";
-import { conditionsOf, createQuery, type QueryBackend } from "./fluent-query.ts";
+import { conditionsOf, createQuery, type QueryBackend, type QueryFields } from "./fluent-query.ts";
 import { createServer } from "./http/server.ts";
 import type { EntityModel } from "./model.ts";
 import { createRepositories, type Repository } from "./repository.ts";
@@ -81,6 +81,23 @@ describe("compiled conditions", () => {
     expect(() => conditionsOf<UserRecord>(user, (u) => (u.role as unknown as { contains(v: string): never }).contains("a"))).toThrow(
       'Operator "contains" is not allowed on User.role',
     );
+  });
+
+  test("the handles of a model are built once and reused by every query", () => {
+    const seen: unknown[] = [];
+    const lambda = (u: QueryFields<UserRecord>) => {
+      seen.push(u);
+      return u.age.gte(18);
+    };
+    conditionsOf<UserRecord>(user, lambda);
+    conditionsOf<UserRecord>(user, lambda);
+    conditionsOf<TeamRecord>(team, (t) => {
+      seen.push(t);
+      return t.name.eq("data");
+    });
+    expect(seen[0]).toBe(seen[1]);
+    expect(seen[2]).not.toBe(seen[0]);
+    expect(conditionsOf<UserRecord>(user, lambda)).toEqual([{ field: "age", op: "gte", value: 18 }]);
   });
 });
 

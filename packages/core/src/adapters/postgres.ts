@@ -1,7 +1,7 @@
 import { SQL } from "bun";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { and, count, eq } from "drizzle-orm";
-import { drizzle, type BunSQLDatabase } from "drizzle-orm/bun-sql";
+import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
 import { UniqueViolationError, type Aggregate, type AggregateValues, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
 import type { EntityModel } from "../model.ts";
 import type { Condition } from "../query.ts";
@@ -68,6 +68,9 @@ async function aggregateRow(
 }
 
 export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapter {
+  // The driver loads when an adapter is created, so services on other databases never load it.
+  const driver = import("drizzle-orm/bun-sql");
+  driver.catch(() => {});
   let client: SQL | undefined;
   let db: BunSQLDatabase | undefined;
   let schema: DrizzleSchema | undefined;
@@ -119,6 +122,7 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
       const max = poolSizePerWorker(options.max ?? DEFAULT_POSTGRES_POOL_SIZE, connectOptions.workers);
       // The search path is a connection parameter, so every pooled connection uses the default schema.
       client = new SQL({ url: options.url, max, ...(defaultSchema ? { connection: { search_path: defaultSchema } } : {}) } as never);
+      const { drizzle } = await driver;
       db = drizzle({ client });
       schema = buildDrizzleSchema(entityModels, "postgres");
     },

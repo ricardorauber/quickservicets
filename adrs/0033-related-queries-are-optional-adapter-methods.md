@@ -1,4 +1,4 @@
-# 0035 - Related queries are optional adapter methods with a generic fallback
+# 0033 - Related queries are optional adapter methods with a generic fallback
 
 - Date: 2026-10-20
 - Spec: 0130-related-queries

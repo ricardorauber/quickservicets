@@ -7,7 +7,7 @@
 ## Context
 Spec 0103 R3 lists the job options (`retries`, `retryDelay`, `timeout`, `retention`, `timeZone`, `overlap`) and R5
 fails the build for "an option of the wrong type", but does not say what happens to a key that is not an option at
-all, such as the typo `retry`. (Dates without an offset are covered by ADR 0024.)
+all, such as the typo `retry`. (Dates without an offset are covered by ADR 0011.)
 
 ## Options considered
 - A: Fail the build with `<file>: unknown option "<key>"` — typos surface at build time instead of a job silently

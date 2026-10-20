@@ -6,7 +6,7 @@
 
 ## Context
 Spec 0109 R1 records a `manual` run with `scheduledAt` = now and `attempt: 1`, and R4 claims `code` runs with the same
-rules. Runs are claimed through the unique index on `job`, `scheduledAt` and `attempt` (spec 0105, ADR 0029), so two
+rules. Runs are claimed through the unique index on `job`, `scheduledAt` and `attempt` (spec 0105, ADR 0015), so two
 on-demand runs of a job started in the same millisecond — two requests calling `req.jobs.run` at once, or a CLI run
 racing one — hit the same key, and the second claim returns nothing. The spec does not say what happens then.
 

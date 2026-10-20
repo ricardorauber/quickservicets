@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { MongoClient, type ClientSession, type Db, type Document, type Filter, type Sort } from "mongodb";
-import { UniqueViolationError, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
+import { UniqueViolationError, type Aggregate, type AggregateValues, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
 import type { EntityModel, FieldModel } from "../model.ts";
 import { schemaIdentifier } from "../sql/schema.ts";
 import { isConditionGroup, type Condition, type FieldCondition, type SizeFilter, type SortField } from "../query.ts";
@@ -95,6 +95,45 @@ export function toFilter(conditions: Condition[], entity?: EntityModel): Filter<
     return isRelation(condition) ? translateArray(condition) : translate(condition);
   };
   return { $and: conditions.map(one) };
+}
+
+/**
+ * One pipeline computing every aggregate over the documents matching `filter`: the plain aggregates in one `$group`,
+ * and each conditional count in its own `$facet` branch.
+ */
+export function aggregatePipeline(filter: Filter<Document>, aggregates: Record<string, Aggregate>, entity?: EntityModel): Document[] {
+  const group: Document = { _id: null };
+  const facets: Document = {};
+  Object.values(aggregates).forEach((aggregate, index) => {
+    const key = `a${index}`;
+    if (aggregate.fn === "count") {
+      if (aggregate.where && aggregate.where.length > 0) facets[key] = [{ $match: toFilter(aggregate.where, entity) }, { $count: "n" }];
+      else group[key] = { $sum: 1 };
+      return;
+    }
+    const path = `$${fieldPath(aggregate.field)}`;
+    group[key] = { [`$${aggregate.fn}`]: path };
+    // $sum is 0 without values, where SQL gives null: count the values to tell the two apart.
+    if (aggregate.fn === "sum") group[`${key}values`] = { $sum: { $cond: [{ $eq: [{ $ifNull: [path, null] }, null] }, 0, 1] } };
+  });
+  return [{ $match: filter }, { $facet: { all: [{ $group: group }], ...facets } }];
+}
+
+/** Reads the result document of `aggregatePipeline` back into values by aggregate name. */
+export function aggregateValues(result: Document | undefined, aggregates: Record<string, Aggregate>): AggregateValues {
+  const totals = (result?.all as Document[] | undefined)?.[0];
+  const values: AggregateValues = {};
+  Object.entries(aggregates).forEach(([name, aggregate], index) => {
+    const key = `a${index}`;
+    if (aggregate.fn === "count") {
+      values[name] = aggregate.where && aggregate.where.length > 0 ? ((result?.[key] as Document[] | undefined)?.[0]?.n ?? 0) : (totals?.[key] ?? 0);
+    } else if (aggregate.fn === "sum") {
+      values[name] = totals && totals[`${key}values`] > 0 ? totals[key] : null;
+    } else {
+      values[name] = totals?.[key] ?? null;
+    }
+  });
+  return values;
 }
 
 export function toSort(sort: SortField[]): Sort {
@@ -275,6 +314,11 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
     },
     async count(entity, where) {
       return collection(entity).countDocuments(toFilter(where, entity), session());
+    },
+    async aggregate(entity, where, aggregates) {
+      const pipeline = aggregatePipeline(toFilter(where, entity), aggregates, entity);
+      const [result] = await collection(entity).aggregate(pipeline, session()).toArray();
+      return aggregateValues(result, aggregates);
     },
     async transaction(fn) {
       if (sessions.getStore() || !supportsTransactions || !client) return fn();

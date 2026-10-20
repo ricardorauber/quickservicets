@@ -119,7 +119,110 @@ users.where((u) => u.role.eq("owner"));
   expect(diagnostics.map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, " "))).toEqual([]);
 });
 
+test("aggregate expressions are type-checked", () => {
+  const dir = mkdtempSync(join(tmpdir(), "quickservice-aggregate-"));
+  const file = join(dir, "check.ts");
+  const core = join(import.meta.dir, "index.ts");
+  writeFileSync(
+    file,
+    `import type { Repository } from ${JSON.stringify(core)};
+type User = { id: string; createdAt: Date; updatedAt: Date; email: string; age?: number | null; role: "admin" | "member"; teams: string[] };
+declare const users: Repository<User>;
+type Equal<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false;
+const expect = <T extends true>() => {};
+async function check(ids: string[]) {
+  const stats = await users.where((u) => u.id.in(ids)).aggregate((u) => ({ members: u.count(), admins: u.count(u.role.eq("admin")), averageAge: u.age.avg() }));
+  expect<Equal<typeof stats, { members: number; admins: number; averageAge: number | null }>>();
+  const ranges = await users.query().aggregate((u) => ({ total: u.age.sum(), youngest: u.age.min(), oldest: u.age.max(), first: u.createdAt.min(), last: u.updatedAt.max() }));
+  expect<Equal<typeof ranges, { total: number | null; youngest: number | null; oldest: number | null; first: Date | null; last: Date | null }>>();
+  // @ts-expect-error strings have no sum
+  await users.query().aggregate((u) => ({ total: u.email.sum() }));
+  // @ts-expect-error enums have no avg
+  await users.query().aggregate((u) => ({ average: u.role.avg() }));
+  // @ts-expect-error dates have no sum
+  await users.query().aggregate((u) => ({ total: u.createdAt.sum() }));
+  // @ts-expect-error reference arrays have no max
+  await users.query().aggregate((u) => ({ most: u.teams.max() }));
+  // @ts-expect-error count takes a condition
+  await users.query().aggregate((u) => ({ admins: u.count("admin") }));
+  // @ts-expect-error values must be aggregate expressions
+  await users.query().aggregate((u) => ({ admins: u.role.eq("admin") }));
+}
+check;
+`,
+  );
+  const program = ts.createProgram([file], {
+    strict: true,
+    noEmit: true,
+    skipLibCheck: true,
+    lib: ["lib.esnext.d.ts"],
+    types: [],
+    target: ts.ScriptTarget.ESNext,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    allowImportingTsExtensions: true,
+  });
+  const diagnostics = ts.getPreEmitDiagnostics(program, program.getSourceFile(file));
+  expect(diagnostics.map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, " "))).toEqual([]);
+  // Expressions that escape the types fail with a descriptive error.
+  const invalid = createQuery<UserRecord>({ model: user } as QueryBackend, { where: [], sort: [], skip: 0 });
+  expect(() => invalid.aggregate((u) => ({ total: (u.email as never as { sum(): never }).sum() }))).toThrow('Aggregate "sum" is not allowed on User.email');
+  expect(() => invalid.aggregate((u) => ({ admins: u.role.eq("admin") as never }))).toThrow("An aggregate lambda on User must return an object of aggregate expressions");
+});
+
 describe.each(factories)("%s", (_, factory) => {
+  test("aggregate expressions per type", async () => {
+    const { adapter, users, ana, bob, cid } = await setup(factory);
+    const statements: string[] = [];
+    if (adapter.kind === "postgres") {
+      const client = (adapter as unknown as { client: { unsafe(query: string, params?: unknown[]): unknown } }).client;
+      const unsafe = client.unsafe.bind(client);
+      client.unsafe = (query, params) => (statements.push(query), unsafe(query, params));
+    }
+    const pair = await users
+      .where((u) => u.id.in([ana.id, bob.id]))
+      .aggregate((u) => ({ members: u.count(), admins: u.count(u.role.eq("admin")), averageAge: u.age.avg() }));
+    expect(pair).toEqual({ members: 2, admins: 1, averageAge: 23.5 });
+    if (adapter.kind === "postgres") expect(statements).toHaveLength(1);
+    const everyone = await users.query().aggregate((u) => ({
+      members: u.count(),
+      inactiveOrMinor: u.count(u.active.eq(false).or(u.age.lt(18))),
+      ageSum: u.age.sum(),
+      ageAvg: u.age.avg(),
+      youngest: u.age.min(),
+      oldest: u.age.max(),
+      firstCreated: u.createdAt.min(),
+      lastCreated: u.createdAt.max(),
+    }));
+    expect(everyone).toEqual({
+      members: 3,
+      inactiveOrMinor: 2,
+      ageSum: 47,
+      ageAvg: 23.5,
+      youngest: 17,
+      oldest: 30,
+      firstCreated: ana.createdAt,
+      lastCreated: cid.createdAt,
+    });
+    expect(everyone.firstCreated).toBeInstanceOf(Date);
+    // skip and take do not limit aggregates, like count().
+    expect(await users.query().take(1).aggregate((u) => ({ members: u.count() }))).toEqual({ members: 3 });
+    await adapter.disconnect();
+  });
+
+  test("aggregates without matches are 0 for counts and null otherwise", async () => {
+    const { adapter, users } = await setup(factory);
+    const stats = (ids: string[]) =>
+      users.where((u) => u.id.in(ids)).aggregate((u) => ({ members: u.count(), admins: u.count(u.role.eq("admin")), averageAge: u.age.avg() }));
+    expect(await stats([])).toEqual({ members: 0, admins: 0, averageAge: null });
+    expect(await stats([Bun.randomUUIDv7()])).toEqual({ members: 0, admins: 0, averageAge: null });
+    expect(await users.where((u) => u.email.eq("nobody@x.co")).aggregate((u) => ({ total: u.age.sum(), last: u.updatedAt.max() }))).toEqual({
+      total: null,
+      last: null,
+    });
+    await adapter.disconnect();
+  });
+
   test("chained where and and narrow the results", async () => {
     const { adapter, users, teams, ana, bob } = await setup(factory);
     const acmeActive = await users.where((u) => u.email.contains("ACME").and(u.active.eq(true))).all();
@@ -186,6 +289,10 @@ describe("paging errors", () => {
       count: async () => {
         calls.push("count");
         return 0;
+      },
+      aggregate: async () => {
+        calls.push("aggregate");
+        return {};
       },
       notFound: () => new HttpError(404, "User not found"),
     };

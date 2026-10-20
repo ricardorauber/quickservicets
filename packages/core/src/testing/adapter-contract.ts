@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { UniqueViolationError, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
+import { UniqueViolationError, type Aggregate, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
 import type { EntityModel } from "../model.ts";
 import type { Condition, SizeFilter, SortField } from "../query.ts";
 import { createRepositories, type Repository } from "../repository.ts";
@@ -252,6 +252,94 @@ export function runAdapterContract(name: string, factory: AdapterFactory): void 
       await insertItems({ title: "A", score: 1 }, { title: "B", score: 2 }, { title: "C", score: 3 });
       expect(await adapter.count(contractItem, [])).toBe(3);
       expect(await adapter.count(contractItem, [{ field: "score", op: "gte", value: 2 }])).toBe(2);
+    });
+
+    describe("aggregates", () => {
+      const at = (day: number) => new Date(Date.UTC(2026, 0, day));
+      const all: Record<string, Aggregate> = {
+        items: { fn: "count" },
+        published: { fn: "count", where: [{ field: "status", op: "eq", value: "published" }] },
+        scoreSum: { fn: "sum", field: "score" },
+        scoreAvg: { fn: "avg", field: "score" },
+        scoreMin: { fn: "min", field: "score" },
+        scoreMax: { fn: "max", field: "score" },
+        firstPublished: { fn: "min", field: "publishedAt" },
+        lastPublished: { fn: "max", field: "publishedAt" },
+      };
+      const setupAggregates = async () => {
+        const partner = (await adapter.insert(contractOrganization, contractRecord({ name: "p" }))).id;
+        await insertItems(
+          { title: "a", score: 1, status: "published", publishedAt: at(3), partners: [partner] },
+          { title: "b", score: 2.5, status: "draft", publishedAt: at(1) },
+          { title: "c", score: 4, status: "published", partners: [partner] },
+          { title: "d", status: "draft", publishedAt: at(9) },
+        );
+        return partner;
+      };
+
+      test("compute counts, sums, averages, minimums and maximums of the matches", async () => {
+        await setupAggregates();
+        expect(await adapter.aggregate(contractItem, [], all)).toEqual({
+          items: 4,
+          published: 2,
+          scoreSum: 7.5,
+          scoreAvg: 2.5,
+          scoreMin: 1,
+          scoreMax: 4,
+          firstPublished: at(1),
+          lastPublished: at(9),
+        });
+        const filtered = await adapter.aggregate(contractItem, [{ field: "title", op: "in", value: ["a", "b"] }], all);
+        expect(filtered).toEqual({ items: 2, published: 1, scoreSum: 3.5, scoreAvg: 1.75, scoreMin: 1, scoreMax: 2.5, firstPublished: at(1), lastPublished: at(3) });
+        expect(filtered.firstPublished).toBeInstanceOf(Date);
+      });
+
+      test("apply OR groups and reference array conditions, in the query and in counts", async () => {
+        const partner = await setupAggregates();
+        const either: Condition = {
+          group: "or",
+          conditions: [
+            { field: "score", op: "gte", value: 4 },
+            { field: "status", op: "eq", value: "draft" },
+          ],
+        };
+        expect(await adapter.aggregate(contractItem, [either], { items: { fn: "count" }, scoreSum: { fn: "sum", field: "score" } })).toEqual({
+          items: 3,
+          scoreSum: 6.5,
+        });
+        const linked: Condition[] = [{ field: "partners", op: "contains", value: partner }];
+        expect(
+          await adapter.aggregate(contractItem, linked, {
+            items: { fn: "count" },
+            highOrDraft: { fn: "count", where: [either] },
+            unlinked: { fn: "count", where: [{ field: "partners", op: "isEmpty", value: true }] },
+          }),
+        ).toEqual({ items: 2, highOrDraft: 1, unlinked: 0 });
+      });
+
+      test("are 0 for counts and null otherwise without values", async () => {
+        expect(await adapter.aggregate(contractItem, [], all)).toEqual({
+          items: 0,
+          published: 0,
+          scoreSum: null,
+          scoreAvg: null,
+          scoreMin: null,
+          scoreMax: null,
+          firstPublished: null,
+          lastPublished: null,
+        });
+        await insertItems({ title: "no values" });
+        expect(await adapter.aggregate(contractItem, [], all)).toEqual({
+          items: 1,
+          published: 0,
+          scoreSum: null,
+          scoreAvg: null,
+          scoreMin: null,
+          scoreMax: null,
+          firstPublished: null,
+          lastPublished: null,
+        });
+      });
     });
 
     describe("reference arrays", () => {

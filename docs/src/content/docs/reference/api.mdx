@@ -238,3 +238,13 @@ page(options?: PageOptions): Promise<{ data: T[]; total: number; limit: number; 
 ```
 
 `{ data, total, limit, offset }` like the generated list routes.
+
+### `aggregate`
+
+```ts
+aggregate<A extends AggregateExpressions>(lambda: (fields: AggregateFields<T>) => A): Promise<AggregateResult<A>>;
+```
+
+Counts, sums, averages, minimums and maximums of the matches in one database round trip, e.g.
+`aggregate((u) => ({ admins: u.count(u.role.eq("admin")), averageAge: u.age.avg() }))` (not limited by `skip()` and
+`take()`).

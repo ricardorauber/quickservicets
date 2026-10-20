@@ -1,4 +1,4 @@
-import { UniqueViolationError, type DatabaseAdapter, type StoredRecord } from "./adapter.ts";
+import { UniqueViolationError, type Aggregate, type DatabaseAdapter, type StoredRecord } from "./adapter.ts";
 import { HttpError } from "./errors.ts";
 import { conditionsOf, createQuery, type Query, type QueryBackend, type QueryLambda } from "./fluent-query.ts";
 import { alwaysHiddenPaths, type EntityModel } from "./model.ts";
@@ -332,6 +332,16 @@ export function createRepository(
     findAllMax,
     list: (query, populate) => repository.list(query, { populate }),
     count: async (where) => adapter.count(model, await resolveDerivedConditions(model, where, models, adapter)),
+    aggregate: async (where, aggregates) => {
+      const resolved: Record<string, Aggregate> = {};
+      for (const [name, aggregate] of Object.entries(aggregates)) {
+        resolved[name] =
+          aggregate.fn === "count" && aggregate.where
+            ? { fn: "count", where: await resolveDerivedConditions(model, aggregate.where, models, adapter) }
+            : aggregate;
+      }
+      return adapter.aggregate(model, await resolveDerivedConditions(model, where, models, adapter), resolved);
+    },
     notFound,
   };
 

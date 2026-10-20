@@ -20,6 +20,17 @@ export interface FindManyResult {
   total: number;
 }
 
+/**
+ * One aggregate computed by `DatabaseAdapter.aggregate`: the number of matches (only those that also satisfy `where`,
+ * when given), or a function over a number or date field.
+ */
+export type Aggregate =
+  | { fn: "count"; where?: Condition[] }
+  | { fn: "sum" | "avg" | "min" | "max"; field: string };
+
+/** Aggregate results by name: counts are numbers, the others numbers or dates, or null without values. */
+export type AggregateValues = Record<string, number | Date | null>;
+
 export type AdapterKind = "memory" | "sqlite" | "postgres" | "mongodb";
 
 export interface ConnectOptions {
@@ -45,6 +56,11 @@ export interface DatabaseAdapter {
   updateById(entity: EntityModel, id: string, changes: Record<string, unknown>, where?: Condition[]): Promise<boolean>;
   deleteById(entity: EntityModel, id: string): Promise<boolean>;
   count(entity: EntityModel, where: Condition[]): Promise<number>;
+  /**
+   * Computes every aggregate over the records matching `where` in one statement (or pipeline). Counts are 0 and the
+   * other aggregates null when no record has a value.
+   */
+  aggregate(entity: EntityModel, where: Condition[], aggregates: Record<string, Aggregate>): Promise<AggregateValues>;
   /** Runs `fn` atomically when the database supports transactions, or directly otherwise. */
   transaction<T>(fn: () => Promise<T>): Promise<T>;
   /** Locks a record until the current transaction ends, for read-modify-write updates (optional). */

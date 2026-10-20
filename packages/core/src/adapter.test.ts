@@ -12,6 +12,7 @@ test("a complete stub satisfies the interface and an incomplete one does not", (
     updateById: async () => false,
     deleteById: async () => false,
     count: async () => 0,
+    aggregate: async () => ({}),
     transaction: (fn) => fn(),
   };
   // @ts-expect-error count is missing

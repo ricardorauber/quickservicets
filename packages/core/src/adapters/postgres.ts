@@ -2,9 +2,11 @@ import { SQL } from "bun";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { and, count, eq } from "drizzle-orm";
 import { drizzle, type BunSQLDatabase } from "drizzle-orm/bun-sql";
-import { UniqueViolationError, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
+import { UniqueViolationError, type Aggregate, type AggregateValues, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
 import type { EntityModel } from "../model.ts";
-import { toOrderBy, toWhere } from "../sql/conditions.ts";
+import type { Condition } from "../query.ts";
+import { aggregateSelection } from "../sql/aggregates.ts";
+import { toOrderBy, toWhere, type RelationContext } from "../sql/conditions.ts";
 import { poolSizePerWorker } from "../workers.ts";
 import { buildDrizzleSchema, columnName, schemaIdentifier, type DrizzleSchema } from "../sql/schema.ts";
 import { loadRelations, splitRelations, writeRelations } from "../sql/relations.ts";
@@ -51,6 +53,18 @@ export function uniqueViolationField(error: unknown, models: EntityModel[]): str
     current = current.cause as PostgresErrorLike | undefined;
   }
   return undefined;
+}
+
+/** Computes every aggregate over the matching rows in one `select`. */
+async function aggregateRow(
+  executor: Executor,
+  table: Table,
+  where: Condition[],
+  aggregates: Record<string, Aggregate>,
+  context: RelationContext,
+): Promise<AggregateValues> {
+  const [row] = await executor.select(aggregateSelection(table, aggregates, "postgres", context)).from(table).where(toWhere(table, where, "postgres", context));
+  return row as AggregateValues;
 }
 
 export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapter {
@@ -172,6 +186,9 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
       const table = tableFor(entity);
       const [row] = await executor().select({ total: count() }).from(table).where(toWhere(table, where, "postgres", relationContext(entity)));
       return Number(row?.total ?? 0);
+    },
+    aggregate(entity, where, aggregates) {
+      return aggregateRow(executor(), tableFor(entity), where, aggregates, relationContext(entity));
     },
     transaction,
   };

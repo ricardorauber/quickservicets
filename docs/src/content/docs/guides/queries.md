@@ -1,6 +1,6 @@
 ---
 title: Fluent repository queries
-description: Query repositories from endpoints and hooks with typed where, include, ordering, OR and findByIds.
+description: Query repositories from endpoints and hooks with typed where, include, ordering, OR, aggregates and findByIds.
 sidebar:
   order: 32
 ---
@@ -333,6 +333,55 @@ export async function counts(repos: Repositories) {
   const hasAdmins = await repos.users.where((u) => u.role.eq("admin")).any(); // true
   return { active, hasAdmins };
 }
+```
+
+### `aggregate`
+
+`aggregate(lambda)` computes counts, sums, averages, minimums and maximums of the matches in one database round trip (one SQL statement, or one MongoDB pipeline), without loading records. The lambda receives the same field handles as `where`, plus `count()`, and returns an object of aggregate expressions; the result has the same keys:
+
+```ts check
+import type { Repositories } from "@quickservice/core";
+
+export async function stats(repos: Repositories) {
+  const users = await repos.users.query().aggregate((u) => ({
+    users: u.count(), // 4
+    admins: u.count(u.role.eq("admin")), // 2
+    activeOrYoung: u.count(u.active.eq(true).or(u.age.lt(30))), // 4
+    totalAge: u.age.sum(), // 128
+    averageAge: u.age.avg(), // 32
+    youngest: u.age.min(), // 25
+    oldest: u.age.max(), // 41
+    newest: u.createdAt.max(), // Dee's createdAt, a Date
+  }));
+  const acme = await repos.users.where((u) => u.email.contains("@acme.com")).aggregate((u) => ({ members: u.count(), averageAge: u.age.avg() }));
+  // { members: 2, averageAge: 31 }
+  return { users, acme };
+}
+```
+
+| Expression | On | Result |
+| --- | --- | --- |
+| `f.count()` | the query | The number of matches |
+| `f.count(condition)` | the query | The number of matches that also satisfy `condition`, written like a `where` condition (`and`, `or`) |
+| `f.<field>.sum()`, `.avg()` | number fields | A number, or `null` |
+| `f.<field>.min()`, `.max()` | number and date fields | A number or a `Date`, or `null` |
+
+Like SQL, `sum`, `avg`, `min` and `max` skip `null` values and are `null` when no match has a value; counts are `0`. The query's conditions apply, including OR groups and conditions on derived relation sides; `skip`, `take`, ordering, `select` and `include` do not.
+
+```ts check
+import type { Repositories } from "@quickservice/core";
+
+export async function noMatches(repos: Repositories) {
+  return repos.users.where((u) => u.email.contains("@initech.com")).aggregate((u) => ({ members: u.count(), averageAge: u.age.avg() }));
+  // { members: 0, averageAge: null }
+}
+```
+
+The result type follows from the expressions (`{ members: number; averageAge: number | null }` above), and expressions that do not fit the field fail to type-check:
+
+```ts
+repos.users.query().aggregate((u) => ({ total: u.email.sum() })); // Property 'sum' does not exist: email is a string.
+repos.users.query().aggregate((u) => ({ total: u.createdAt.sum() })); // Property 'sum' does not exist: dates only have min and max.
 ```
 
 ### `page`

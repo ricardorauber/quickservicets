@@ -10,21 +10,9 @@ const handler: Endpoint<unknown, Stats> = async (repos, req) => {
   const organization = await repos.organizations.findById(req.params.orgId!);
   if (!organization) throw new HttpError(404, "Organization not found");
   if (organization.members.length === 0) return { members: 0, admins: 0, averageAge: null };
-  const members = await repos.users
+  return repos.users
     .where((u) => u.id.in(organization.members))
-    .select("role", "age")
-    .all();
-  let admins = 0;
-  let ageSum = 0;
-  let ageCount = 0;
-  for (const member of members) {
-    if (member.role === "admin") admins++;
-    if (member.age !== null && member.age !== undefined) {
-      ageSum += member.age;
-      ageCount++;
-    }
-  }
-  return { members: members.length, admins, averageAge: ageCount === 0 ? null : ageSum / ageCount };
+    .aggregate((u) => ({ members: u.count(), admins: u.count(u.role.eq("admin")), averageAge: u.age.avg() }));
 };
 
 export default handler;

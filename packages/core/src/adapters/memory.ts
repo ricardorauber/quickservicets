@@ -1,4 +1,4 @@
-import { UniqueViolationError, type DatabaseAdapter, type FindManyOptions, type StoredRecord } from "../adapter.ts";
+import { UniqueViolationError, type Aggregate, type AggregateValues, type DatabaseAdapter, type FindManyOptions, type StoredRecord } from "../adapter.ts";
 import type { EntityModel } from "../model.ts";
 import { isConditionGroup, type Condition, type FieldCondition, type SizeFilter, type SortField } from "../query.ts";
 
@@ -104,6 +104,22 @@ function sortRecords(records: StoredRecord[], sort: SortField[]): StoredRecord[]
   });
 }
 
+/** Computes one aggregate like SQL does: null values are skipped, and only counts are 0 without values. */
+function aggregateOf(records: StoredRecord[], aggregate: Aggregate, entity: EntityModel): number | Date | null {
+  if (aggregate.fn === "count") {
+    const where = aggregate.where ?? [];
+    return records.filter((record) => where.every((condition) => matches(record, condition, entity))).length;
+  }
+  const values = records.map((record) => record[aggregate.field]).filter((value) => !isNullish(value));
+  if (values.length === 0) return null;
+  if (aggregate.fn === "sum" || aggregate.fn === "avg") {
+    const sum = (values as number[]).reduce((total, value) => total + value, 0);
+    return aggregate.fn === "sum" ? sum : sum / values.length;
+  }
+  const pick = values.reduce((best, value) => ((aggregate.fn === "min" ? compareValues(value, best) < 0 : compareValues(value, best) > 0) ? value : best));
+  return pick instanceof Date ? new Date(pick) : (pick as number);
+}
+
 export function memoryAdapter(): DatabaseAdapter {
   const tables = new Map<string, Table>();
 
@@ -190,6 +206,12 @@ export function memoryAdapter(): DatabaseAdapter {
     },
     async count(entity, where) {
       return select(entity, where).length;
+    },
+    async aggregate(entity, where, aggregates) {
+      const records = select(entity, where);
+      const values: AggregateValues = {};
+      for (const [name, aggregate] of Object.entries(aggregates)) values[name] = aggregateOf(records, aggregate, entity);
+      return values;
     },
     async transaction(fn) {
       return fn();

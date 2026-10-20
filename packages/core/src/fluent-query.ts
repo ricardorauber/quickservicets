@@ -1,3 +1,4 @@
+import type { Aggregate, AggregateValues } from "./adapter.ts";
 import { HttpError, type FieldErrorDetail } from "./errors.ts";
 import { SYSTEM_FIELDS, type EntityModel, type FieldModel } from "./model.ts";
 import { project } from "./projection.ts";
@@ -75,6 +76,57 @@ export type QueryFields<T> = {
 
 export type QueryLambda<T> = (fields: QueryFields<T>) => QueryCondition;
 
+/** One aggregate of a query, built in an `aggregate` lambda; `V` is the type of its result. */
+export class AggregateExpression<V> {
+  /** The type of the result, for inference only. */
+  declare readonly resultType: V;
+
+  constructor(readonly aggregate: Aggregate) {}
+}
+
+interface NumberAggregates {
+  /** The sum of the values, or null when no match has one. */
+  sum(): AggregateExpression<number | null>;
+  /** The average of the values, or null when no match has one. */
+  avg(): AggregateExpression<number | null>;
+  /** The smallest value, or null when no match has one. */
+  min(): AggregateExpression<number | null>;
+  /** The largest value, or null when no match has one. */
+  max(): AggregateExpression<number | null>;
+}
+
+interface DateAggregates {
+  /** The earliest value, or null when no match has one. */
+  min(): AggregateExpression<Date | null>;
+  /** The latest value, or null when no match has one. */
+  max(): AggregateExpression<Date | null>;
+}
+
+type AggregateHandleOf<V> = [V] extends [Date]
+  ? OrderedHandle<Date> & DateAggregates
+  : [V] extends [number]
+    ? OrderedHandle<number> & NumberAggregates
+    : HandleOf<V>;
+
+/**
+ * What an `aggregate` lambda receives: the query's field handles, with `sum`, `avg`, `min` and `max` on numbers and
+ * `min` and `max` on dates, plus `count(condition?)`.
+ */
+export type AggregateFields<T> = {
+  [K in keyof T as HandleOf<NonNullable<T[K]>> extends never ? never : K]-?: AggregateHandleOf<NonNullable<T[K]>>;
+} & {
+  /** The number of matches; with a condition, the number of matches that also satisfy it. */
+  count(condition?: QueryCondition): AggregateExpression<number>;
+};
+
+/** The aggregate expressions an `aggregate` lambda returns, by result name. */
+export type AggregateExpressions = Record<string, AggregateExpression<unknown>>;
+
+/** The result of `aggregate`: each expression's value under its name. */
+export type AggregateResult<A extends AggregateExpressions> = {
+  [K in keyof A]: A[K] extends AggregateExpression<infer V> ? V : never;
+};
+
 const SCALAR_OPERATORS: FilterOperator[] = ["eq", "ne", "in", "nin", "exists", "isNull"];
 
 /** Operators a field accepts, matching the HTTP filters; empty when the field cannot be filtered. */
@@ -124,6 +176,48 @@ function fieldHandles(model: EntityModel): Record<string, Record<string, (value?
     handles[name] = handle;
   }
   return handles;
+}
+
+const NUMBER_AGGREGATES = ["sum", "avg", "min", "max"] as const;
+
+/** The handles of an `aggregate` lambda: the field handles plus aggregate functions and `count`. */
+function aggregateHandles(model: EntityModel): Record<string, unknown> {
+  const handles = fieldHandles(model) as Record<string, Record<string, unknown>>;
+  const types = new Map<string, string>([
+    ["createdAt", "date"],
+    ["updatedAt", "date"],
+    ...model.fields.filter((field) => field.storage === "column").map((field) => [field.name, field.type] as [string, string]),
+  ]);
+  for (const [name, handle] of Object.entries(handles)) {
+    const type = types.get(name);
+    const allowed: readonly string[] = type === "number" ? NUMBER_AGGREGATES : type === "date" ? ["min", "max"] : [];
+    for (const fn of NUMBER_AGGREGATES) {
+      handle[fn] = () => {
+        if (!allowed.includes(fn)) throw new Error(`Aggregate "${fn}" is not allowed on ${model.entityName}.${name}`);
+        return new AggregateExpression({ fn, field: name });
+      };
+    }
+  }
+  const count = (condition?: QueryCondition) => {
+    if (condition === undefined) return new AggregateExpression<number>({ fn: "count" });
+    if (!(condition instanceof QueryCondition)) throw new Error(`count() on ${model.entityName} takes a condition`);
+    return new AggregateExpression<number>({ fn: "count", where: [...condition.conditions] });
+  };
+  // A field named `count` keeps its operators on the function.
+  return { ...handles, count: Object.assign(count, handles.count) };
+}
+
+/** Runs an aggregate lambda against an entity's handles and returns its aggregates by name. */
+export function aggregatesOf<T>(model: EntityModel, lambda: (fields: AggregateFields<T>) => AggregateExpressions): Record<string, Aggregate> {
+  const result: unknown = lambda(aggregateHandles(model) as unknown as AggregateFields<T>);
+  const invalid = () => new Error(`An aggregate lambda on ${model.entityName} must return an object of aggregate expressions`);
+  if (typeof result !== "object" || result === null || Array.isArray(result)) throw invalid();
+  const aggregates: Record<string, Aggregate> = {};
+  for (const [name, expression] of Object.entries(result)) {
+    if (!(expression instanceof AggregateExpression)) throw invalid();
+    aggregates[name] = expression.aggregate;
+  }
+  return aggregates;
 }
 
 /** Runs a query lambda against an entity's handles and returns its conditions. */
@@ -187,6 +281,12 @@ export interface Query<T, R = Record<never, never>> {
   any(): Promise<boolean>;
   /** `{ data, total, limit, offset }` like the generated list routes. */
   page(options?: PageOptions): Promise<{ data: T[]; total: number; limit: number; offset: number }>;
+  /**
+   * Counts, sums, averages, minimums and maximums of the matches in one database round trip, e.g.
+   * `aggregate((u) => ({ admins: u.count(u.role.eq("admin")), averageAge: u.age.avg() }))` (not limited by `skip()` and
+   * `take()`).
+   */
+  aggregate<A extends AggregateExpressions>(lambda: (fields: AggregateFields<T>) => A): Promise<AggregateResult<A>>;
 }
 
 /** What a query needs from its repository. */
@@ -195,6 +295,7 @@ export interface QueryBackend {
   findAllMax: number;
   list(query: ListQuery, populate: string[]): Promise<{ data: Record<string, unknown>[]; total: number }>;
   count(where: Condition[]): Promise<number>;
+  aggregate(where: Condition[], aggregates: Record<string, Aggregate>): Promise<AggregateValues>;
   notFound(): Error;
 }
 
@@ -300,6 +401,11 @@ export function createQuery<T, R = Record<never, never>>(backend: QueryBackend, 
       const size = Math.min(limit, state.take === undefined ? limit : Math.max(0, state.take - offset));
       const result = size === 0 ? { data: [] as T[], total: await count() } : await read(size, state.skip + offset);
       return { data: result.data, total: result.total, limit, offset };
+    },
+    async aggregate(lambda) {
+      const aggregates = aggregatesOf(model, lambda);
+      if (Object.keys(aggregates).length === 0) return {} as never;
+      return (await backend.aggregate(state.where, aggregates)) as never;
     },
   };
 }

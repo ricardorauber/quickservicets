@@ -1,8 +1,9 @@
 import { Database } from "bun:sqlite";
 import { and, count, eq, sql } from "drizzle-orm";
 import { drizzle, type BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
-import { UniqueViolationError, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
+import { UniqueViolationError, type AggregateValues, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
 import type { EntityModel } from "../model.ts";
+import { aggregateSelection } from "../sql/aggregates.ts";
 import { toOrderBy, toWhere } from "../sql/conditions.ts";
 import { buildDrizzleSchema, columnName, sqliteDefaultPrefix, type DrizzleSchema } from "../sql/schema.ts";
 import { TransactionScope } from "../sql/transaction-scope.ts";
@@ -155,6 +156,17 @@ export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
       return scope.run(() => {
         const table = tableFor(entity);
         return ready().db.select({ total: count() }).from(table).where(toWhere(table, where, "sqlite", relationContext(entity))).get()?.total ?? 0;
+      });
+    },
+    aggregate(entity, where, aggregates) {
+      return scope.run(() => {
+        const table = tableFor(entity);
+        const context = relationContext(entity);
+        return ready()
+          .db.select(aggregateSelection(table, aggregates, "sqlite", context))
+          .from(table)
+          .where(toWhere(table, where, "sqlite", context))
+          .get() as AggregateValues;
       });
     },
     transaction(fn) {

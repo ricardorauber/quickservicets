@@ -154,7 +154,7 @@ Deletes the user and removes it from every organization's `members`. In the same
 - `admins`: members whose `role` is `admin`;
 - `averageAge`: arithmetic mean of the members' non-null ages, as a double; `null` when no member has an age (or there are no members).
 
-An unknown `orgId` is `404 {"error":{"code":"NOT_FOUND","message":"Organization not found"}}`. QuickService computes this with `repos.organizations.findById` and a fluent `repos.users.where(...)` query; other stacks may compute it in SQL.
+An unknown `orgId` is `404 {"error":{"code":"NOT_FOUND","message":"Organization not found"}}`. QuickService computes this with `repos.organizations.findById` and a fluent `repos.users.where(...).aggregate(...)` query; other stacks may compute it in SQL.
 
 ### `GET /media/{id}/file`
 

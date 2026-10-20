@@ -1,15 +1,16 @@
 import { SQL } from "bun";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { and, count, eq, sql } from "drizzle-orm";
+import { and, count, eq } from "drizzle-orm";
 import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
-import { UniqueViolationError, type Aggregate, type AggregateValues, type DatabaseAdapter, type ReferencePull, type StoredRecord } from "../adapter.ts";
+import { UniqueViolationError, type Aggregate, type AggregateValues, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
 import type { EntityModel } from "../model.ts";
 import type { Condition } from "../query.ts";
 import { aggregateSelection } from "../sql/aggregates.ts";
 import { toOrderBy, toWhere, type RelationContext } from "../sql/conditions.ts";
 import { poolSizePerWorker } from "../workers.ts";
-import { buildDrizzleSchema, columnName, junctionKey, schemaIdentifier, type DrizzleSchema } from "../sql/schema.ts";
-import { loadRelations, relationFields, splitRelations, writeRelations } from "../sql/relations.ts";
+import { buildDrizzleSchema, columnName, schemaIdentifier, type DrizzleSchema } from "../sql/schema.ts";
+import { relationFields, splitRelations, writeRelations } from "../sql/relations.ts";
+import { EntityStatements, type Statement } from "./postgres-statements.ts";
 
 export interface PostgresAdapterOptions {
   url: string;
@@ -67,25 +68,50 @@ async function aggregateRow(
   return row as AggregateValues;
 }
 
+/** What statements run on: a transaction's connection while one is open, the pool otherwise. */
+interface Session {
+  sql: SQL;
+  db: Executor;
+}
+
+type Row = Record<string, unknown>;
+
 export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapter {
   // The driver loads when an adapter is created, so services on other databases never load it.
   const driver = import("drizzle-orm/bun-sql");
   driver.catch(() => {});
   let client: SQL | undefined;
   let db: BunSQLDatabase | undefined;
+  let drizzleFor: ((client: SQL) => BunSQLDatabase) | undefined;
   let schema: DrizzleSchema | undefined;
   let models: EntityModel[] = [];
-  const transactions = new AsyncLocalStorage<Executor>();
+  const transactions = new AsyncLocalStorage<Session>();
+  const statements = new Map<string, EntityStatements>();
 
   const executor = (): Executor => {
-    const current = transactions.getStore() ?? db;
+    const current = transactions.getStore()?.db ?? db;
     if (!current) throw new Error("The PostgreSQL adapter is not connected");
     return current;
+  };
+  /** Runs SQL text with its parameters on the current transaction, or on the pool. */
+  const run = async (statement: Statement): Promise<Row[]> => {
+    const target = transactions.getStore()?.sql ?? client;
+    if (!target) throw new Error("The PostgreSQL adapter is not connected");
+    return (await target.unsafe(statement.text, statement.params)) as Row[];
   };
   const tableFor = (entity: EntityModel): Table => {
     const table = schema?.tables[entity.key];
     if (!table) throw new Error(`Unknown entity ${entity.entityName}`);
     return table;
+  };
+  const statementsFor = (entity: EntityModel): EntityStatements => {
+    let found = statements.get(entity.key);
+    if (!found) {
+      tableFor(entity);
+      found = new EntityStatements(entity, schema!);
+      statements.set(entity.key, found);
+    }
+    return found;
   };
   const translateErrors = async <T>(operation: () => Promise<T>): Promise<T> => {
     try {
@@ -96,37 +122,47 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
       throw error;
     }
   };
-  const withRelations = (entity: EntityModel, rows: StoredRecord[]) => loadRelations(executor(), schema!, entity, rows);
+  /** Adds every reference array to `records`, one query per junction table, in position order. */
+  const withRelations = async (entity: EntityModel, records: StoredRecord[]): Promise<StoredRecord[]> => {
+    const entityStatements = statementsFor(entity);
+    if (entityStatements.junctions.length === 0 || records.length === 0) return records;
+    const ids = records.map((record) => record.id);
+    for (const junction of entityStatements.junctions) {
+      const byOwner = new Map<string, string[]>();
+      for (const row of await run(entityStatements.junctionLoad(junction, ids))) {
+        const owner = row.ownerId as string;
+        let list = byOwner.get(owner);
+        if (!list) byOwner.set(owner, (list = []));
+        list.push(row.targetId as string);
+      }
+      for (const record of records) record[junction.field] = byOwner.get(record.id) ?? [];
+    }
+    return records;
+  };
   const relationContext = (entity: EntityModel) => ({ entity, schema: schema! });
   const transaction = async <T>(fn: () => Promise<T>): Promise<T> => {
     if (transactions.getStore()) return fn();
-    if (!db) throw new Error("The PostgreSQL adapter is not connected");
-    return db.transaction((tx) => transactions.run(tx as unknown as Executor, fn));
+    if (!client || !drizzleFor) throw new Error("The PostgreSQL adapter is not connected");
+    const makeDrizzle = drizzleFor;
+    return client.begin((tx) => {
+      let txDb: BunSQLDatabase | undefined;
+      // Drizzle is only set up on the transaction's connection when a statement needs it.
+      const session: Session = {
+        sql: tx as unknown as SQL,
+        get db() {
+          return (txDb ??= makeDrizzle(tx as unknown as SQL));
+        },
+      };
+      return transactions.run(session, fn);
+    }) as Promise<T>;
   };
   /** Writes of an entity with reference arrays also write junction rows, so only they need a transaction. */
   const atomicallyWithRelations = <T>(entity: EntityModel, fn: () => Promise<T>): Promise<T> =>
     relationFields(entity).length > 0 ? transaction(fn) : fn();
-  /**
-   * Common table expressions that delete the junction rows pointing to `id` and move the `updatedAt` of their owners
-   * forward, one update per owner table so no row is changed twice in the statement.
-   */
-  const pullSteps = (entity: EntityModel, id: string, pulls: ReferencePull[], updatedAt: Date) => {
-    const at = sql`${updatedAt.toISOString()}::timestamptz`;
-    const byOwner = Map.groupBy(pulls.map((pull, index) => ({ ...pull, name: sql.identifier(`pulled_${index}`) })), (pull) => pull.owner);
-    const deletes = [...byOwner.values()].flat().map(({ owner, field, name }) => {
-      const junction = schema!.junctions[junctionKey(owner.key, field)];
-      return sql`${name} as (delete from ${junction} where "target_id" = ${id} returning "owner_id")`;
-    });
-    const updates = [...byOwner].map(([owner, ownerPulls], index) => {
-      const holders = sql.join(ownerPulls.map(({ name }) => sql`select "owner_id" from ${name}`), sql` union `);
-      // A record holding its own id is deleted by this statement, so it is not updated as well.
-      const others = owner.key === entity.key ? sql` and "id" <> ${id}` : sql``;
-      return sql`${sql.identifier(`touched_${index}`)} as (update ${tableFor(owner)} set "updated_at" = greatest(${at}, "updated_at" + interval '1 millisecond') where "id" in (${holders})${others})`;
-    });
-    return [...deletes, ...updates];
-  };
-  const first = async (entity: EntityModel, rows: unknown[]): Promise<StoredRecord | null> =>
-    rows[0] ? (await withRelations(entity, [rows[0] as StoredRecord]))[0]! : null;
+  /** Records read with precompiled text, whose JSON columns may come back as text. */
+  const read = async (entity: EntityModel, statement: Statement) => statementsFor(entity).records(await run(statement));
+  const first = async (entity: EntityModel, rows: StoredRecord[]): Promise<StoredRecord | null> =>
+    rows[0] ? (await withRelations(entity, [rows[0]]))[0]! : null;
 
   return {
     kind: "postgres",
@@ -135,6 +171,7 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
     },
     async connect(entityModels, connectOptions = {}) {
       models = entityModels;
+      statements.clear();
       const defaultSchema = connectOptions.defaultSchema ? schemaIdentifier(connectOptions.defaultSchema) : undefined;
       if (defaultSchema) {
         const admin = new SQL(options.url);
@@ -145,7 +182,8 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
       // The search path is a connection parameter, so every pooled connection uses the default schema.
       client = new SQL({ url: options.url, max, ...(defaultSchema ? { connection: { search_path: defaultSchema } } : {}) } as never);
       const { drizzle } = await driver;
-      db = drizzle({ client });
+      drizzleFor = (sqlClient) => drizzle({ client: sqlClient });
+      db = drizzleFor(client);
       schema = buildDrizzleSchema(entityModels, "postgres");
     },
     async disconnect() {
@@ -157,19 +195,19 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
       return translateErrors(() =>
         atomicallyWithRelations(entity, async () => {
           const { columns, relations } = splitRelations(entity, record);
-          const rows = await executor().insert(tableFor(entity)).values(columns).returning();
+          const rows = await read(entity, statementsFor(entity).insert(columns));
           await writeRelations(executor(), schema!, entity, record.id, relations);
           return (await first(entity, rows))!;
         }),
       );
     },
     async findById(entity, id) {
-      const table = tableFor(entity);
-      return first(entity, await executor().select().from(table).where(eq(table.id, id)).limit(1));
+      return first(entity, await read(entity, statementsFor(entity).findById(id)));
     },
     async findOne(entity, where) {
       const table = tableFor(entity);
-      return first(entity, await executor().select().from(table).where(toWhere(table, where, "postgres", relationContext(entity))).limit(1));
+      const rows = await executor().select().from(table).where(toWhere(table, where, "postgres", relationContext(entity))).limit(1);
+      return first(entity, rows as StoredRecord[]);
     },
     async findMany(entity, { where, sort, limit, offset, withTotal = true }) {
       const table = tableFor(entity);
@@ -184,31 +222,37 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
     updateById(entity, id, changes, where = []) {
       return translateErrors(() =>
         atomicallyWithRelations(entity, async () => {
-          const table = tableFor(entity);
           const { columns, relations } = splitRelations(entity, changes);
-          const target = and(eq(table.id, id), toWhere(table, where, "postgres", relationContext(entity)));
-          const rows =
-            Object.keys(columns).length > 0
-              ? await executor().update(table).set(columns).where(target).returning()
-              : await executor().select().from(table).where(target);
+          const precompiled = statementsFor(entity).updateById(id, columns, where);
+          let rows: StoredRecord[];
+          if (precompiled) {
+            rows = await read(entity, precompiled);
+          } else {
+            const table = tableFor(entity);
+            const target = and(eq(table.id, id), toWhere(table, where, "postgres", relationContext(entity)));
+            rows = (
+              Object.keys(columns).length > 0
+                ? await executor().update(table).set(columns).where(target).returning()
+                : await executor().select().from(table).where(target)
+            ) as StoredRecord[];
+          }
           if (rows.length > 0) await writeRelations(executor(), schema!, entity, id, relations);
           return first(entity, rows);
         }),
       );
     },
     async lockForUpdate(entity, id) {
-      const table = tableFor(entity);
-      await executor().select({ id: table.id }).from(table).where(eq(table.id, id)).for("update");
+      await run(statementsFor(entity).lockForUpdate(id));
     },
     async deleteById(entity, id) {
-      const table = tableFor(entity);
-      const rows = await executor().delete(table).where(eq(table.id, id)).returning({ id: table.id });
-      return rows.length > 0;
+      return (await run(statementsFor(entity).deleteById(id))).length > 0;
     },
     async deleteAndPull(entity, id, pulls, updatedAt) {
-      const table = tableFor(entity);
-      const rows = await executor().execute(sql`with ${sql.join(pullSteps(entity, id, pulls, updatedAt), sql`, `)} delete from ${table} where "id" = ${id} returning "id"`);
-      return (rows as unknown[]).length > 0;
+      const targets = pulls.map(({ owner, field }) => {
+        const ownerStatements = statementsFor(owner);
+        return { owner: ownerStatements, junction: ownerStatements.junctions.find((junction) => junction.field === field)! };
+      });
+      return (await run(statementsFor(entity).deleteAndPull(id, targets, updatedAt))).length > 0;
     },
     async count(entity, where) {
       const table = tableFor(entity);

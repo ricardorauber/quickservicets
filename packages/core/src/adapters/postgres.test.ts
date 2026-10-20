@@ -1,12 +1,13 @@
+import { SQL } from "bun";
 import { describe, expect, test } from "bun:test";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { toWhere } from "../sql/conditions.ts";
 import { buildDrizzleSchema } from "../sql/schema.ts";
-import { contractItem, contractModels, contractRecord, runAdapterContract } from "../testing/adapter-contract.ts";
+import { contractItem, contractModels, contractOrganization, contractRecord, runAdapterContract } from "../testing/adapter-contract.ts";
 import { entity, field } from "../testing/entities.ts";
 import { HttpError } from "../errors.ts";
 import { createRepositories, type Repository } from "../repository.ts";
-import { recordStatements, resetPostgresTables } from "../testing/postgres.ts";
+import { postgresDdl, recordStatements, resetPostgresTables } from "../testing/postgres.ts";
 import { postgresAdapter, uniqueViolationField, type PostgresAdapter } from "./postgres.ts";
 
 const url = process.env.TEST_POSTGRES_URL;
@@ -60,6 +61,69 @@ if (url) {
       expect(like).toBe(1);
       expect(await adapter.count(contractItem, [])).toBe(1);
       await adapter.disconnect();
+    });
+  });
+
+  describe("precompiled single-row statements", () => {
+    test("every field type round-trips through insert, read and update as the query builder reads it", async () => {
+      const adapter = adapterWithTables();
+      await adapter.connect(contractModels);
+      const organization = await adapter.insert(contractOrganization, contractRecord({ name: "Acme" }));
+      const values = {
+        title: "Full",
+        code: "A-1",
+        score: 4.25,
+        active: false,
+        publishedAt: new Date("2026-02-03T04:05:06.789Z"),
+        status: "published",
+        organization: organization.id,
+        partners: [organization.id],
+        tags: ["a", "b"],
+        meta: { views: 3, lines: [{ qty: 1 }], startsAt: new Date("2026-03-01T09:30:00Z"), reminders: [] },
+      };
+      const inserted = await adapter.insert(contractItem, contractRecord(values));
+      // findOne still goes through Drizzle, so it shows how records were read before.
+      const viaBuilder = async () => adapter.findOne(contractItem, [{ field: "id", op: "eq", value: inserted.id }]);
+      expect(await adapter.findById(contractItem, inserted.id)).toEqual((await viaBuilder())!);
+      expect(inserted).toEqual((await viaBuilder())!);
+      expect(inserted.meta).toEqual({ ...values.meta, startsAt: "2026-03-01T09:30:00.000Z" });
+      const updated = await adapter.updateById(contractItem, inserted.id, { score: -1.5, active: true, publishedAt: null, tags: [], meta: null, status: "draft" });
+      expect(updated).toEqual((await viaBuilder())!);
+      expect(updated).toMatchObject({ score: -1.5, active: true, publishedAt: null, tags: [], meta: null, status: "draft" });
+      expect(await adapter.findById(contractItem, inserted.id)).toEqual(updated!);
+      await adapter.disconnect();
+    });
+
+    test("explicit and default schemas", async () => {
+      const invoice = entity("Invoice", [field({ name: "total", type: "number" }), field({ name: "owners", type: "refArray", target: "Customer", onDelete: "pull", optional: true })], {
+        key: "billing/Invoice",
+        schema: "billing",
+        schemaKey: "billing",
+      });
+      const customer = entity("Customer", [field({ name: "name", type: "string" })]);
+      const models = [customer, invoice];
+      const admin = new SQL(url!);
+      await admin.unsafe("drop schema if exists billing cascade; drop schema if exists tenant_x cascade; create schema billing; create schema tenant_x");
+      const ddl = await postgresDdl(models);
+      await admin.begin(async (tx) => {
+        await tx.unsafe("set local search_path to tenant_x");
+        for (const statement of ddl) await tx.unsafe(statement.replaceAll('"public".', ""));
+      });
+      const adapter = postgresAdapter({ url: url! });
+      await adapter.connect(models, { defaultSchema: "tenant-x" });
+      const repos = createRepositories(models, adapter);
+      const buyer = await (repos.customers as Repository).create({ name: "Ann" });
+      const invoices = (repos.billing as Record<string, Repository>).invoices!;
+      const bill = await invoices.create({ total: 10, owners: [buyer.id] });
+      expect(await invoices.update(bill.id, { total: 12 })).toMatchObject({ total: 12, owners: [buyer.id] });
+      await (repos.customers as Repository).delete(buyer.id);
+      expect(await invoices.findById(bill.id)).toMatchObject({ total: 12, owners: [] });
+      await invoices.delete(bill.id);
+      const counts = (await admin.unsafe("select (select count(*) from tenant_x.customers)::int as customers, (select count(*) from billing.invoices)::int as invoices")) as { customers: number; invoices: number }[];
+      expect(counts[0]).toEqual({ customers: 0, invoices: 0 });
+      await adapter.disconnect();
+      await admin.unsafe("drop schema billing cascade; drop schema tenant_x cascade");
+      await admin.close();
     });
   });
 

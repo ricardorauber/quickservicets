@@ -185,6 +185,10 @@ The last part is plain TypeScript:
 
 Permission actions are the values of the `ModuleAction` enum, `"manage"` and `"view"`. In code, compare with the strings, as the enum has no initializers.
 
+:::note
+In `examples/identity`, steps 1 to 3 live in `lib/permissions.ts` as `grantedPermissions(repos, userId, organizationId)`, and the endpoint only does step 4. A `@requires` hook reuses the same function to protect the organization stats endpoint; the example's `README.md` describes both.
+:::
+
 ## Try it
 
 Say Ana's membership in Acme has a profile with `billing:manage`, and her "Data" team has a profile with `reports:view`. Start the server with `bun run dev` and ask:

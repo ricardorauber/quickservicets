@@ -20,11 +20,11 @@ bun test tests
 ```text
 bun test v1.4.2 (744846f84)
 
- 102 pass
+ 108 pass
  1 skip
  0 fail
- 448 expect() calls
-Ran 103 tests across 3 files. [2810.00ms]
+ 465 expect() calls
+Ran 109 tests across 3 files. [2940.00ms]
 ```
 
 Besides `tests/api.test.ts`, the folder has `tests/seed.test.ts`, which checks that the seed script (`scripts/seed.ts`, which `bun run seed` runs) can run twice without duplicating data, and `tests/migrations.test.ts`, the skipped one: it applies the project's migrations one after the other on PostgreSQL, so it runs only when `TEST_POSTGRES_URL` is set.
@@ -40,10 +40,10 @@ TEST_POSTGRES_URL=postgres://postgres:postgres@localhost:5432/identity_test bun 
 ```text
 bun test v1.4.2 (744846f84)
 
- 204 pass
+ 216 pass
  0 fail
- 896 expect() calls
-Ran 204 tests across 3 files. [8300.00ms]
+ 930 expect() calls
+Ran 216 tests across 3 files. [9250.00ms]
 ```
 
 Every API test runs once on memory and once on PostgreSQL. For the PostgreSQL run, the suite creates a schema of its own with the project's migrations (`quickservice migrate` with `DATABASE_SCHEMA` set), runs the tests in it and drops it at the end, so runs never see each other's records.
@@ -58,10 +58,10 @@ bun test tests -t "has-permissions"
 bun test v1.4.2 (744846f84)
 
  4 pass
- 99 filtered out
+ 105 filtered out
  0 fail
  20 expect() calls
-Ran 4 tests across 3 files. [1404.00ms]
+Ran 4 tests across 3 files. [1381.00ms]
 ```
 
 ## The test file
@@ -79,7 +79,7 @@ import { SQL } from "bun";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createApp, localStorage, memoryAdapter, postgresAdapter, resolveConfig, schemaIdentifier, type DatabaseAdapter, type EntityModel } from "@quickservice/core";
+import { createApp, localStorage, memoryAdapter, postgresAdapter, resolveConfig, schemaIdentifier, type App, type DatabaseAdapter, type EntityModel } from "@quickservice/core";
 
 const root = join(import.meta.dir, "..");
 type Json = Record<string, any>;
@@ -119,21 +119,23 @@ const databases: [string, (models: EntityModel[]) => Promise<TestDatabase>][] = 
   ...(process.env.TEST_POSTGRES_URL ? [["PostgreSQL", postgresDatabase] as [string, typeof postgresDatabase]] : []),
 ];
 
-let generated: { models: EntityModel[]; crudRoutes: any; endpoints: any; hooks: any; openApi: any };
+let generated: { models: EntityModel[]; crudRoutes: any; endpoints: any; hooks: any; openApi: any; jobs: any };
 let fetchApp: (request: Request) => Promise<Response>;
+let app: App;
 
 beforeAll(async () => {
   const built = Bun.spawnSync(["bun", "run", "quickservice", "build"], { cwd: root, stdout: "pipe", stderr: "pipe" });
   if (built.exitCode !== 0) throw new Error(`build failed: ${built.stderr.toString()}${built.stdout.toString()}`);
   const { models } = await import(join(root, ".generated/models.ts"));
   const { crudRoutes, endpoints, hooks } = await import(join(root, ".generated/routes.ts"));
+  const { jobs } = await import(join(root, ".generated/jobs.ts"));
   const openApi = await Bun.file(join(root, ".generated/openapi.json")).json();
-  generated = { models, crudRoutes, endpoints, hooks, openApi };
+  generated = { models, crudRoutes, endpoints, hooks, openApi, jobs };
 });
 
-/** Connects the database and starts the app on it; the tests send it requests through `fetchApp`. */
+/** Connects the database and starts the app on it; the tests send it requests through `fetchApp` and run jobs with `app`. */
 async function startApp(open: (models: EntityModel[]) => Promise<TestDatabase>): Promise<TestDatabase> {
-  const { models, crudRoutes, endpoints, hooks, openApi } = generated;
+  const { models, crudRoutes, endpoints, hooks, openApi, jobs } = generated;
   const opened = await open(models);
   const config = resolveConfig(
     {
@@ -144,8 +146,8 @@ async function startApp(open: (models: EntityModel[]) => Promise<TestDatabase>):
     },
     {},
   );
-  const { server } = createApp({ models, crudRoutes, endpoints, hooks, config, openApi });
-  fetchApp = (request) => server.fetch(request);
+  app = createApp({ models, crudRoutes, endpoints, hooks, config, openApi, jobs });
+  fetchApp = (request) => app.server.fetch(request);
   return opened;
 }
 
@@ -285,13 +287,14 @@ Nothing listens on a port: `fetchApp` is `server.fetch`.
 
 ## How the cases are organized
 
-The file has five parts, each with a banner comment:
+The file has six parts, each with a banner comment:
 
 1. **Generated CRUD routes**, checked once per entity with `describe.each(crudCases)`. Each `CrudCase` gives a valid body, a required field, a field with a wrong type (and its message) and a valid change. Every entity gets the same cases: create (201), invalid bodies (400), list with paging, sorting, filters and field selection, invalid query parameters, read (200 and 404), PATCH, PUT, DELETE (204, then 404) and unsupported methods (405 with `Allow`).
 2. **Entity rules**: defaults, derived relation sides, reference arrays, delete rules (409), uploads with a record, `populate` and its depth limit. Then the data rules of the field tags: duplicate emails and slugs (409), invalid emails, lengths outside their limits, pictures and logos of other types (400) or over 1 MB (413), and `active` defaulting to `true`.
 3. **Media and files**: upload, stream, rename, replace, delete, and the 413 and 415 errors.
 4. **The custom endpoint**: the query item errors shown above, then direct and team grants with `all` and `any`, inactive modules, memberships, teams and organizations, and users without grants.
-5. **Framework routes**: unknown routes (404) and the API docs.
+5. **The stats endpoint, its `@requires` hook and the nightly job**: 401 without `x-user-id`, 403 without `organizations:view`, the counts and the 404, and the job run in-process with `app.jobRunner`. These parts of the example go beyond this tutorial; `examples/identity/README.md` explains them.
+6. **Framework routes**: unknown routes (404) and the API docs.
 
 ## Adding a case
 

@@ -8,7 +8,7 @@ import { SQL } from "bun";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createApp, localStorage, memoryAdapter, postgresAdapter, resolveConfig, schemaIdentifier, type DatabaseAdapter, type EntityModel } from "@quickservice/core";
+import { createApp, localStorage, memoryAdapter, postgresAdapter, resolveConfig, schemaIdentifier, type App, type DatabaseAdapter, type EntityModel } from "@quickservice/core";
 
 const root = join(import.meta.dir, "..");
 type Json = Record<string, any>;
@@ -48,21 +48,23 @@ const databases: [string, (models: EntityModel[]) => Promise<TestDatabase>][] = 
   ...(process.env.TEST_POSTGRES_URL ? [["PostgreSQL", postgresDatabase] as [string, typeof postgresDatabase]] : []),
 ];
 
-let generated: { models: EntityModel[]; crudRoutes: any; endpoints: any; hooks: any; openApi: any };
+let generated: { models: EntityModel[]; crudRoutes: any; endpoints: any; hooks: any; openApi: any; jobs: any };
 let fetchApp: (request: Request) => Promise<Response>;
+let app: App;
 
 beforeAll(async () => {
   const built = Bun.spawnSync(["bun", "run", "quickservice", "build"], { cwd: root, stdout: "pipe", stderr: "pipe" });
   if (built.exitCode !== 0) throw new Error(`build failed: ${built.stderr.toString()}${built.stdout.toString()}`);
   const { models } = await import(join(root, ".generated/models.ts"));
   const { crudRoutes, endpoints, hooks } = await import(join(root, ".generated/routes.ts"));
+  const { jobs } = await import(join(root, ".generated/jobs.ts"));
   const openApi = await Bun.file(join(root, ".generated/openapi.json")).json();
-  generated = { models, crudRoutes, endpoints, hooks, openApi };
+  generated = { models, crudRoutes, endpoints, hooks, openApi, jobs };
 });
 
-/** Connects the database and starts the app on it; the tests send it requests through `fetchApp`. */
+/** Connects the database and starts the app on it; the tests send it requests through `fetchApp` and run jobs with `app`. */
 async function startApp(open: (models: EntityModel[]) => Promise<TestDatabase>): Promise<TestDatabase> {
-  const { models, crudRoutes, endpoints, hooks, openApi } = generated;
+  const { models, crudRoutes, endpoints, hooks, openApi, jobs } = generated;
   const opened = await open(models);
   const config = resolveConfig(
     {
@@ -73,8 +75,8 @@ async function startApp(open: (models: EntityModel[]) => Promise<TestDatabase>):
     },
     {},
   );
-  const { server } = createApp({ models, crudRoutes, endpoints, hooks, config, openApi });
-  fetchApp = (request) => server.fetch(request);
+  app = createApp({ models, crudRoutes, endpoints, hooks, config, openApi, jobs });
+  fetchApp = (request) => app.server.fetch(request);
   return opened;
 }
 
@@ -621,6 +623,98 @@ describe.each(databases)("on %s", (_name, open) => {
       const loner = await create("/users", { email: `${unique("loner")}@x.co` });
       expect((await check(loner.id, `organization=${org.id}&rule=any&p=${billing.slug}:view`)).body).toBe(false);
       expect((await check(MISSING, `organization=${org.id}&rule=any&p=${billing.slug}:view`)).body).toBe(false);
+    });
+  });
+
+  // ---------------------------------------------------------------------------------------------------------------
+  // The stats endpoint, its @requires hook and the nightly job.
+  // ---------------------------------------------------------------------------------------------------------------
+
+  describe("GET /organizations/:orgId/stats", () => {
+    const stats = (orgId: string, userId?: string) => call("GET", `/organizations/${orgId}/stats`, undefined, userId ? { "x-user-id": userId } : {});
+    let viewer: Json;
+    let other: Json;
+
+    beforeAll(async () => {
+      // The permission the endpoint requires names the module by slug, and slugs are unique: create it once.
+      const organizations = await create("/modules", { slug: "organizations" });
+      viewer = await create("/profiles", { slug: unique("viewer"), permissions: [(await create("/permissions", { module: organizations.id, action: "view" })).id] });
+      const billing = await create("/modules", { slug: unique("billing") });
+      other = await create("/profiles", { slug: unique("other"), permissions: [(await create("/permissions", { module: billing.id, action: "manage" })).id] });
+    });
+
+    /** An organization with three memberships (one inactive), two teams (one inactive) and two distinct profiles. */
+    async function organization() {
+      const org = await create("/organizations", { slug: unique("stats"), legalName: "Stats Ltd" });
+      const [ana, bob, cid, dee] = await Promise.all(["ana", "bob", "cid", "dee"].map((name) => create("/users", { email: `${unique(name)}@x.co` })));
+      await create("/memberships", { organization: org.id, user: ana!.id, profiles: [viewer.id] });
+      await create("/memberships", { organization: org.id, user: bob!.id, profiles: [other.id] });
+      await create("/memberships", { organization: org.id, user: cid!.id, profiles: [viewer.id], active: false });
+      await create("/teams", { organization: org.id, name: "Data", users: [dee!.id], profiles: [viewer.id] });
+      await create("/teams", { organization: org.id, name: "Old", users: [bob!.id], profiles: [viewer.id], active: false });
+      return { org, ana: ana!, bob: bob!, cid: cid!, dee: dee! };
+    }
+
+    test("@requires answers 401 without x-user-id and 403 without the permission", async () => {
+      const { org, bob, cid } = await organization();
+      const anonymous = await stats(org.id);
+      expect([anonymous.status, anonymous.body.error.code, anonymous.body.error.message]).toEqual([401, "UNAUTHORIZED", "Missing x-user-id header"]);
+      for (const userId of [bob.id, cid.id, MISSING]) {
+        const denied = await stats(org.id, userId);
+        expect([denied.status, denied.body.error.code, denied.body.error.message]).toEqual([403, "FORBIDDEN", "Missing permission organizations:view"]);
+      }
+    });
+
+    test("@requires lets members and team members with the permission through", async () => {
+      const { org, ana, dee } = await organization();
+      expect((await stats(org.id, ana.id)).status).toBe(200);
+      expect((await stats(org.id, dee.id)).status).toBe(200);
+      await patch(`/organizations/${org.id}`, { active: false });
+      expect((await stats(org.id, ana.id)).body.error.message).toBe("Missing permission organizations:view");
+    });
+
+    test("counts the memberships, teams and distinct profiles of the organization", async () => {
+      const { org, ana } = await organization();
+      await organization();
+      const result = await stats(org.id, ana.id);
+      expect([result.status, result.body]).toEqual([200, { members: 3, activeMembers: 2, teams: 2, activeTeams: 1, profiles: 2 }]);
+      const empty = await create("/organizations", { slug: unique("empty"), legalName: "Empty" });
+      const loner = await create("/users", { email: `${unique("loner")}@x.co` });
+      await create("/teams", { organization: empty.id, name: "Admins", users: [loner.id], profiles: [viewer.id] });
+      expect((await stats(empty.id, loner.id)).body).toEqual({ members: 0, activeMembers: 0, teams: 1, activeTeams: 1, profiles: 1 });
+    });
+
+    test("an unknown organization answers 404", async () => {
+      const { ana } = await organization();
+      const result = await stats(MISSING, ana.id);
+      expect([result.status, result.body.error.code, result.body.error.message]).toEqual([404, "NOT_FOUND", "Organization not found"]);
+      expect((await stats(MISSING)).status).toBe(401);
+    });
+  });
+
+  describe("job deactivate-memberships-of-inactive-organizations", () => {
+    const name = "deactivate-memberships-of-inactive-organizations";
+    let at = Date.now();
+    const runJob = async () => (await app.jobRunner.run({ job: name, trigger: "manual", scheduledAt: new Date(at++), attempt: 1 }))!;
+
+    test("deactivates the active memberships of inactive organizations and returns how many", async () => {
+      await runJob(); // Other tests leave active memberships in inactive organizations; start from none.
+      const inactive = await create("/organizations", { slug: unique("closed"), legalName: "Closed", active: false });
+      const active = await create("/organizations", { slug: unique("open"), legalName: "Open" });
+      const [ana, bob] = await Promise.all(["ana", "bob"].map((user) => create("/users", { email: `${unique(user)}@x.co` })));
+      const closed = await Promise.all([ana, bob].map((user) => create("/memberships", { organization: inactive.id, user: user!.id })));
+      const kept = await create("/memberships", { organization: active.id, user: ana!.id });
+
+      const run = await runJob();
+      expect([run.status, run.result]).toEqual(["success", 2]);
+      for (const membership of closed) expect((await get(`/memberships/${membership.id}`)).body.active).toBe(false);
+      expect((await get(`/memberships/${kept.id}`)).body.active).toBe(true);
+      expect((await runJob()).result).toBe(0);
+    });
+
+    test("is scheduled daily at 03:00 UTC", () => {
+      const listed = Bun.spawnSync(["bun", "run", "quickservice", "job", "list"], { cwd: root, stdout: "pipe", stderr: "pipe" }).stdout.toString();
+      expect(listed).toMatch(new RegExp(`${name}\\s+0 3 \\* \\* \\*\\s+UTC`));
     });
   });
 

@@ -13,6 +13,8 @@
     "entities",
     "endpoints",
     "hooks",
+    "jobs",
+    "lib",
     "scripts",
     "tests",
     ".generated/**/*.ts"

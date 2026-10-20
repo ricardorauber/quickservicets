@@ -1,0 +1,19 @@
+# Applies to builds that use examples/identity/Dockerfile (the context is the repository root).
+**/node_modules
+**/.generated
+**/uploads
+**/.env
+**/*.test.ts
+.git
+.worktrees
+specs
+adrs
+benchmarks
+docs/src
+docs/dist
+docs/public
+docs/scripts
+docs/tests
+examples/*
+!examples/identity
+examples/identity/tests

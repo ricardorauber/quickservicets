@@ -87,6 +87,17 @@ Requests per second (2 CPUs per service, 64 VUs, PostgreSQL with 2 CPUs), the be
 | PHP (Laravel Octane) | 2,229 | 1,008 | 2,386 | 1,369 | 3,290 | 2,708 | 1,456 | 2,661 | 824 | 1,286 | 158.9 | 730 |
 | C++ (Drogon) | 3,708 | 1,177 | 12,603 | 4,297 | 52,583 | 28,655 | 1,001 | 25,788 | 803 | 1,754 | 107.6 | 165 |
 
+## After the optimizations
+
+The profile in [`analysis/quickservice-profile.md`](analysis/quickservice-profile.md) led to twelve framework changes (single-statement writes and deletes, projection without deep clones, buffered request logging, counting only when the total is read, `server.workers`, precompiled SQL, reference arrays in the row SELECT, fluent `aggregate()`, single-pass multipart and smaller per-request costs). Requests per second, better of two rounds, same setup as above; the stats endpoint now uses `aggregate()`. Raw numbers are in `results/before-optimizations/` and `results/after-optimizations/`.
+
+| Service | `crud` | `query` | `custom` | `upload` | `health` | `get_user` | `list_users` | `create_user` | `filter_users` | `populate_orgs` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| QuickService, before | 3,791 | 901 | 2,561 | 2,437 | 42,040 | 10,644 | 2,007 | 5,141 | 1,046 | 533 |
+| QuickService, after (1 process) | 6,574 | 1,777 | 11,326 | 2,974 | 56,232 | 19,969 | 1,827 | 15,505 | 892 | 2,219 |
+| QuickService, after (`server.workers: 2`) | 6,750 | 1,576 | 12,913 | 2,919 | 61,946 | 33,976 | 1,779 | 27,323 | 922 | 3,255 |
+| Bun (same window) | 6,681 | 1,469 | 14,770 | 4,200 | 51,786 | 37,490 | 1,697 | 36,179 | 852 | 3,324 |
+
 ## Results
 
 `results/<stack>.json` holds the settings, the environment, the image size, the startup samples, idle and peak memory, the conformance counts and, per scenario, requests, req/s, latency (avg, p50, p90, p99, max in ms), error rate, average and peak CPU and memory, and the same numbers per endpoint. The raw k6 summaries stay in `benchmarks/.cache/out/<stack>/`.

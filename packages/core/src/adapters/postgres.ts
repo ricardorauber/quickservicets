@@ -106,23 +106,6 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
       throw error;
     }
   };
-  /** Adds every reference array to `records`, one query per junction table, in position order. */
-  const withRelations = async (entity: EntityModel, records: StoredRecord[]): Promise<StoredRecord[]> => {
-    const entityStatements = statementsFor(entity);
-    if (entityStatements.junctions.length === 0 || records.length === 0) return records;
-    const ids = records.map((record) => record.id);
-    for (const junction of entityStatements.junctions) {
-      const byOwner = new Map<string, string[]>();
-      for (const row of await run(entityStatements.junctionLoad(junction, ids))) {
-        const owner = row.ownerId as string;
-        let list = byOwner.get(owner);
-        if (!list) byOwner.set(owner, (list = []));
-        list.push(row.targetId as string);
-      }
-      for (const record of records) record[junction.field] = byOwner.get(record.id) ?? [];
-    }
-    return records;
-  };
   const transaction = async <T>(fn: () => Promise<T>): Promise<T> => {
     if (transactions.getStore()) return fn();
     if (!client || !drizzleFor) throw new Error("The PostgreSQL adapter is not connected");
@@ -144,8 +127,7 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
     relationFields(entity).length > 0 ? transaction(fn) : fn();
   /** Records read with precompiled text, whose JSON columns may come back as text. */
   const read = async (entity: EntityModel, statement: Statement) => statementsFor(entity).records(await run(statement));
-  const first = async (entity: EntityModel, rows: StoredRecord[]): Promise<StoredRecord | null> =>
-    rows[0] ? (await withRelations(entity, [rows[0]]))[0]! : null;
+
 
   return {
     kind: "postgres",
@@ -178,17 +160,19 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
       return translateErrors(() =>
         atomicallyWithRelations(entity, async () => {
           const { columns, relations } = splitRelations(entity, record);
-          const rows = await read(entity, statementsFor(entity).insert(columns));
+          const [inserted] = await read(entity, statementsFor(entity).insert(columns));
           await writeRelations(executor(), schema!, entity, record.id, relations);
-          return (await first(entity, rows))!;
+          // The arrays just written are the stored ones.
+          for (const { field } of statementsFor(entity).junctions) inserted![field] = relations[field] ?? [];
+          return inserted!;
         }),
       );
     },
     async findById(entity, id) {
-      return first(entity, await read(entity, statementsFor(entity).findById(id)));
+      return (await read(entity, statementsFor(entity).findById(id)))[0] ?? null;
     },
     async findOne(entity, where) {
-      return first(entity, await read(entity, statementsFor(entity).findOne(where)));
+      return (await read(entity, statementsFor(entity).findOne(where)))[0] ?? null;
     },
     async findMany(entity, { where, sort, limit, offset, withTotal = true }) {
       const entityStatements = statementsFor(entity);
@@ -197,15 +181,18 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
         read(entity, entityStatements.findMany(where, sort, limit, offset)),
         withTotal ? run(entityStatements.count(where)).then(([row]) => Number(row?.total ?? 0)) : undefined,
       ]);
-      return { data: await withRelations(entity, data), total: total ?? data.length };
+      return { data, total: total ?? data.length };
     },
     updateById(entity, id, changes, where = []) {
       return translateErrors(() =>
         atomicallyWithRelations(entity, async () => {
           const { columns, relations } = splitRelations(entity, changes);
-          const rows = await read(entity, statementsFor(entity).updateById(id, columns, where));
-          if (rows.length > 0) await writeRelations(executor(), schema!, entity, id, relations);
-          return first(entity, rows);
+          // The row comes back with its arrays as they were; the ones written here replace them.
+          const [updated] = await read(entity, statementsFor(entity).updateById(id, columns, where));
+          if (!updated) return null;
+          await writeRelations(executor(), schema!, entity, id, relations);
+          Object.assign(updated, relations);
+          return updated;
         }),
       );
     },

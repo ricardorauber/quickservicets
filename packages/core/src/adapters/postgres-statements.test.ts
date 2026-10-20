@@ -16,12 +16,14 @@ const invoice = entity("Invoice", [field({ name: "total", type: "number" }), fie
   key: "billing/Invoice",
   schema: "billing",
 });
+const teams = `coalesce((select array_agg("users__teams"."target_id" order by "users__teams"."position") from "users__teams" where "users__teams"."owner_id" = "users"."id"), '{}') as "teams"`;
+const columns = '"id", "created_at" as "createdAt", "updated_at" as "updatedAt", "email", "password_hash" as "passwordHash", "tags", "born_at" as "bornAt"';
 const statementsOf = (model = user) => new EntityStatements(model, buildDrizzleSchema([organization, user, invoice], "postgres"));
 
 describe("text per shape", () => {
   test("a read selects every column under its field name", () => {
     expect(statementsOf().findById("a")).toEqual({
-      text: 'select "id", "created_at" as "createdAt", "updated_at" as "updatedAt", "email", "password_hash" as "passwordHash", "tags", "born_at" as "bornAt" from "users" where "id" = $1 limit 1',
+      text: `select ${columns}, ${teams} from "users" where "id" = $1 limit 1`,
       params: ["a"],
     });
   });
@@ -41,19 +43,18 @@ describe("text per shape", () => {
     const statements = statementsOf();
     const at = new Date("2026-01-01T00:00:00Z");
     const update = statements.updateById("a", { updatedAt: at, email: "x@x.co" }, [{ field: "updatedAt", op: "lt", value: at }]);
-    expect(update.text).toBe('update "users" set "email" = $1, "updated_at" = $2 where "users"."id" = $3 and ("users"."updated_at" < $4) returning "id", "created_at" as "createdAt", "updated_at" as "updatedAt", "email", "password_hash" as "passwordHash", "tags", "born_at" as "bornAt"');
+    expect(update.text).toBe(`update "users" set "email" = $1, "updated_at" = $2 where "users"."id" = $3 and ("users"."updated_at" < $4) returning "id", "created_at" as "createdAt", "updated_at" as "updatedAt", "email", "password_hash" as "passwordHash", "tags", "born_at" as "bornAt", ${teams}`);
     expect(update.params).toEqual(["x@x.co", at.toISOString(), "a", at.toISOString()]);
     expect(statements.updateById("b", { email: "y@x.co", updatedAt: new Date() }, [{ field: "updatedAt", op: "lt", value: new Date() }])!.text).toBe(update.text);
     expect(statements.updateById("a", {}, [])!.text).toStartWith('select "id"');
   });
 
-  test("junction loads bind every owner id as one array", () => {
+  test("reads aggregate each junction-stored reference array in position order; inserts return the columns only", () => {
     const statements = statementsOf();
-    const load = statements.junctionLoad(statements.junctions[0]!, ["a", 'b"c']);
-    expect(load.text).toBe('select "owner_id" as "ownerId", "target_id" as "targetId" from "users__teams" where "owner_id" = any($1::text[]) order by "owner_id", "position"');
-    expect(load.params).toEqual(['{"a","b\\"c"}']);
-    expect(statements.junctionLoad(statements.junctions[0]!, ["x"]).text).toBe(load.text);
-    expect(arrayLiteral(["a\\b", null, 2, new Date(0)])).toBe('{"a\\\\b",NULL,"2","1970-01-01T00:00:00.000Z"}');
+    expect(statements.findById("a").text).toEndWith(`"born_at" as "bornAt", ${teams} from "users" where "id" = $1 limit 1`);
+    expect(statements.findMany([], [], 10, 0).text).toContain(teams);
+    expect(statements.updateById("a", { email: "x" }, []).text).toEndWith(`returning ${columns}, ${teams}`);
+    expect(statements.insert({ id: "a", email: "x" }).text).toEndWith(`returning ${columns}`);
   });
 });
 

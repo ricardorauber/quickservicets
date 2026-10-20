@@ -104,7 +104,7 @@ describe("sort and paging", () => {
   test("sort fields in order, then limit and offset as parameters after the filters", () => {
     const compiled = statements().findMany([{ field: "age", op: "gte", value: 30 }], [{ field: "age", direction: "desc" }, { field: "email", direction: "asc" }, { field: "id", direction: "desc" }], 20, 40);
     expect(compiled.text).toBe(
-      'select "id", "created_at" as "createdAt", "updated_at" as "updatedAt", "email", "age", "active", "born_at" as "bornAt" from "users" where ("users"."age" >= $1) order by "users"."age" desc, "users"."email" asc, "users"."id" desc limit $2 offset $3',
+      `select "id", "created_at" as "createdAt", "updated_at" as "updatedAt", "email", "age", "active", "born_at" as "bornAt", coalesce((select array_agg("users__teams"."target_id" order by "users__teams"."position") from "users__teams" where "users__teams"."owner_id" = "users"."id"), '{}') as "teams" from "users" where ("users"."age" >= $1) order by "users"."age" desc, "users"."email" asc, "users"."id" desc limit $2 offset $3`,
     );
     expect(compiled.params).toEqual([30, 20, 40]);
     expect(compileSort([], statements()).text).toBe("");

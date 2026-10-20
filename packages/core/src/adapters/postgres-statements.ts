@@ -4,7 +4,7 @@ import type { Aggregate, AggregateValues, StoredRecord } from "../adapter.ts";
 import type { EntityModel } from "../model.ts";
 import type { Condition, SortField } from "../query.ts";
 import { junctionKey, type DrizzleSchema } from "../sql/schema.ts";
-import { arrayLiteral, compileConditions, compileSort, encodeValue, type ColumnKind, type ConditionTarget, type TargetColumn } from "./postgres-conditions.ts";
+import { compileConditions, compileSort, encodeValue, type ColumnKind, type ConditionTarget, type TargetColumn } from "./postgres-conditions.ts";
 
 /** A quoted SQL identifier. */
 export const quote = (identifier: string): string => `"${identifier.replaceAll('"', '""')}"`;
@@ -51,6 +51,9 @@ export class EntityStatements implements ConditionTarget {
   private readonly columns = new Map<string, Column>();
   private readonly junctionNames: Map<string, string>;
   private readonly jsonFields: string[];
+  /** The entity's own columns, aliased to their field names. */
+  private readonly columnList: string;
+  /** The own columns plus every junction-stored reference array, aggregated in position order. */
   private readonly selectList: string;
   private readonly texts = new Map<string, string>();
 
@@ -61,11 +64,16 @@ export class EntityStatements implements ConditionTarget {
       this.columns.set(field, { field, name: quote(column.name), kind: KINDS[column.columnType] ?? "value", type: TYPES[column.columnType] ?? "text" });
     }
     this.jsonFields = [...this.columns.values()].filter((column) => column.kind === "json").map((column) => column.field);
-    this.selectList = [...this.columns.values()].map(({ field, name }) => (name === quote(field) ? name : `${name} as ${quote(field)}`)).join(", ");
+    this.columnList = [...this.columns.values()].map(({ field, name }) => (name === quote(field) ? name : `${name} as ${quote(field)}`)).join(", ");
     this.junctions = entity.fields.flatMap((field) => {
       const junction = field.storage === "relation" ? (schema.junctions[junctionKey(entity.key, field.name)] as PgTable | undefined) : undefined;
       return junction ? [{ field: field.name, name: qualifiedName(junction) }] : [];
     });
+    const arrays = this.junctions.map(
+      ({ field, name }) =>
+        `coalesce((select array_agg(${name}."target_id" order by ${name}."position") from ${name} where ${name}."owner_id" = ${this.table}."id"), '{}') as ${quote(field)}`,
+    );
+    this.selectList = [this.columnList, ...arrays].join(", ");
     this.junctionNames = new Map(this.junctions.map((junction) => [junction.field, junction.name]));
   }
 
@@ -202,7 +210,8 @@ export class EntityStatements implements ConditionTarget {
     const text = this.text(`insert:${fields.join(",")}`, () => {
       const names = fields.map((field) => this.columns.get(field)!.name).join(", ");
       const placeholders = fields.map((_, index) => `$${index + 1}`).join(", ");
-      return `insert into ${this.table} (${names}) values (${placeholders}) returning ${this.selectList}`;
+      // Reference arrays are written after the row, so they are not read back here.
+      return `insert into ${this.table} (${names}) values (${placeholders}) returning ${this.columnList}`;
     });
     return { text, params: fields.map((field) => this.encode(field, values[field])) };
   }
@@ -245,14 +254,5 @@ export class EntityStatements implements ConditionTarget {
 
   lockForUpdate(id: string): Statement {
     return { text: this.text("lock", () => `select "id" from ${this.table} where "id" = $1 for update`), params: [id] };
-  }
-
-  /** Ids of every reference array of the owners in `ids`, in position order. */
-  junctionLoad(junction: Junction, ids: readonly string[]): Statement {
-    const text = this.text(
-      `junction:${junction.field}`,
-      () => `select "owner_id" as "ownerId", "target_id" as "targetId" from ${junction.name} where "owner_id" = any($1::text[]) order by "owner_id", "position"`,
-    );
-    return { text, params: [arrayLiteral(ids)] };
   }
 }

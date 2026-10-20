@@ -150,7 +150,7 @@ if (url) {
     });
   });
 
-  describe("statements per write", () => {
+  describe("statements per operation", () => {
     const member = entity("Member", [
       field({ name: "email", type: "string", unique: true }),
       field({ name: "name", type: "string", optional: true }),
@@ -247,6 +247,47 @@ if (url) {
       log.clear();
       expect((await adapter.findMany(member, { ...query, withTotal: false })).data).toHaveLength(2);
       expect(log.statements).toHaveLength(1);
+      await adapter.disconnect();
+    });
+
+    test("a read returns reference arrays from the row's own statement, in order, or empty", async () => {
+      const { adapter, log, members, teams } = await connected();
+      const [a, b, c] = await Promise.all(["a", "b", "c"].map((name) => members.create({ email: `${name}@x.co` })));
+      const full = await teams.create({ name: "full", members: [c!.id, a!.id, b!.id] });
+      const empty = await teams.create({ name: "empty" });
+      log.clear();
+      expect((await teams.findById(full.id))!.members).toEqual([c!.id, a!.id, b!.id]);
+      expect((await teams.findById(empty.id))!.members).toEqual([]);
+      expect(log.statements).toHaveLength(2);
+      await adapter.disconnect();
+    });
+
+    test("every read path returns the same arrays without querying the junction table on its own", async () => {
+      const { adapter, log, members, teams } = await connected();
+      const [a, b, c] = await Promise.all(["a", "b", "c"].map((name) => members.create({ email: `${name}@x.co` })));
+      const full = await teams.create({ name: "full", members: [c!.id, a!.id, b!.id] });
+      const empty = await teams.create({ name: "empty" });
+      const expected = { [full.id]: [c!.id, a!.id, b!.id], [empty.id]: [] as string[] };
+      const arrays = (records: { id: string; members?: unknown }[]) => Object.fromEntries(records.map((record) => [record.id, record.members]));
+      log.clear();
+      expect(arrays([(await teams.findById(full.id))!, (await teams.findById(empty.id))!])).toEqual(expected);
+      expect(arrays((await teams.list({ where: [], sort: [{ field: "name", direction: "asc" }], limit: 10, offset: 0 })).data)).toEqual(expected);
+      expect(arrays(await teams.findByIds([full.id, empty.id]))).toEqual(expected);
+      expect(arrays(await teams.query().all())).toEqual(expected);
+      expect(arrays([await teams.where((t) => t.name.eq("full")).first(), (await teams.findOne([{ field: "name", op: "eq", value: "empty" }]))!])).toEqual(expected);
+      const owner = entity("Owner", [field({ name: "team", type: "ref", target: "Team", onDelete: "setNull", optional: true })]);
+      const populatedAdapter = adapterWithTables();
+      await populatedAdapter.connect([member, team, owner]);
+      const populateLog = recordStatements(populatedAdapter.client!);
+      const repos = createRepositories([member, team, owner], populatedAdapter);
+      const x = await (repos.members as Repository).create({ email: "x@x.co" });
+      const y = await (repos.members as Repository).create({ email: "y@x.co" });
+      const held = await (repos.teams as Repository).create({ name: "held", members: [y.id, x.id] });
+      const holder = await (repos.owners as Repository).create({ team: held.id });
+      const populated = await (repos.owners as Repository).findById(holder.id, { populate: ["team"] });
+      expect((populated!.team as { members: string[] }).members).toEqual([y.id, x.id]);
+      for (const statement of [...log.statements, ...populateLog.statements]) expect(statement).not.toMatch(/^select "owner_id"/);
+      await populatedAdapter.disconnect();
       await adapter.disconnect();
     });
 

@@ -121,7 +121,7 @@ describe("field selection under nested populate paths", () => {
     );
     const config = resolveConfig({ database: memoryAdapter(), populate: { maxDepth: 3 }, logger: { info() {}, warn() {}, error() {} } }, {});
     await config.database.connect(models);
-    const crudRoutes = models.map((model) => ({ method: "GET", path: `/${model.name}`, entity: model.key, operation: "list", hooks: [] }));
+    const crudRoutes = models.map((model) => ({ method: "GET", path: `/${model.name}`, entity: model.key, operation: "list" as const, hooks: [] }));
     const { server, repos } = createApp({ models, crudRoutes, endpoints: [], hooks: new Map(), config });
     const create = (repo: string, data: unknown) => (repos[repo] as { create(data: unknown): Promise<{ id: string }> }).create(data);
     const module = await create("modules", { key: "billing" });

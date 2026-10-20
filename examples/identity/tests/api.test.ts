@@ -10,7 +10,8 @@ import { createApp, localStorage, memoryAdapter, resolveConfig } from "@quickser
 
 const root = join(import.meta.dir, "..");
 type Json = Record<string, any>;
-type Result = { status: number; body: Json; headers: Headers };
+// The body is any JSON value: an object for most routes, a boolean for the permission check.
+type Result = { status: number; body: any; headers: Headers };
 
 let fetchApp: (request: Request) => Promise<Response>;
 

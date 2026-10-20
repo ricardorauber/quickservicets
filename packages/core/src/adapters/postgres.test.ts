@@ -165,7 +165,7 @@ if (url) {
       await adapter.connect(models);
       const log = recordStatements(adapter.client!);
       const repos = createRepositories(models, adapter);
-      return { adapter, log, members: repos.members as Repository, teams: repos.teams as Repository };
+      return { adapter, log, members: repos.members as Repository, teams: repos.teams as Repository<StoredRecord & { name: string }> };
     };
     const conflict = async (promise: Promise<unknown>) => {
       const error = await promise.then(

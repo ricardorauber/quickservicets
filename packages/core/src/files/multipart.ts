@@ -95,7 +95,7 @@ interface OpenPart {
  * each part's bytes are, without copying them. Malformed bodies fail as the runtime's own form parser fails.
  */
 export class MultipartReader {
-  private buffer: Buffer;
+  private buffer: Buffer<ArrayBuffer>;
   private length = 0;
   private state: "preamble" | "delimiter" | "headers" | "data" | "done" = "preamble";
   private cursor = 0;
@@ -131,7 +131,7 @@ export class MultipartReader {
   }
 
   /** Finishes the body: the whole body and its parts, or the error of a body that ended too early. */
-  end(): { body: Buffer; parts: MultipartPart[] } {
+  end(): { body: Buffer<ArrayBuffer>; parts: MultipartPart[] } {
     this.advance(true);
     return { body: this.buffer.subarray(0, this.length), parts: this.parts };
   }

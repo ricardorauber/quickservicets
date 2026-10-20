@@ -13,6 +13,7 @@
     "entities",
     "endpoints",
     "hooks",
+    "tests",
     ".generated/**/*.ts"
   ]
 }

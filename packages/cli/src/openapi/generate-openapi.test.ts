@@ -133,7 +133,7 @@ describe("integer fields", () => {
     }
     const size = schemaOf(doc, "ProductCreate").properties.size as JsonSchema & { properties: Record<string, JsonSchema> };
     expect(size.properties.units).toEqual({ type: "integer" });
-    expect((await validate(structuredClone(doc))).errors).toEqual([]);
+    expect((await validate(structuredClone(doc) as unknown as Record<string, unknown>)).errors).toEqual([]);
   });
 });
 

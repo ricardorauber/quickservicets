@@ -10,12 +10,13 @@
   ],
   "scripts": {
     "test": "bun test",
+    "typecheck": "bun scripts/typecheck.ts",
     "docs:dev": "bun run --cwd docs dev",
     "docs:build": "bun run --cwd docs build",
     "docs:reference": "bun docs/scripts/write-reference.ts"
   },
   "devDependencies": {
-    "@types/bun": "1.2.21",
+    "@types/bun": "1.4.2",
     "typescript": "5.9.2"
   }
 }

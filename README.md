@@ -41,3 +41,9 @@ Tests against real databases and S3 run only when these are set; otherwise they 
 - `TEST_POSTGRES_URL`
 - `TEST_MONGODB_URL`
 - `TEST_S3_BUCKET`, `TEST_S3_ENDPOINT`, `TEST_S3_ACCESS_KEY_ID`, `TEST_S3_SECRET_ACCESS_KEY`
+
+Type-check every project of the repository (the test suite runs this too):
+
+```bash
+bun run typecheck
+```

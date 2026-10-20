@@ -2,10 +2,13 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { UniqueViolationError, type Aggregate, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
 import type { EntityModel } from "../model.ts";
 import type { Condition, SizeFilter, SortField } from "../query.ts";
-import { createRepositories, type Repository } from "../repository.ts";
+import { createRepositories, type Many, type Repository } from "../repository.ts";
 import { entity, field } from "./entities.ts";
 
-export const contractOrganization = entity("Organization", [field({ name: "name", type: "string", unique: true })]);
+export const contractOrganization = entity("Organization", [
+  field({ name: "name", type: "string", unique: true }),
+  field({ name: "size", type: "number", optional: true }),
+]);
 
 export const contractItem = entity("Item", [
   field({ name: "title", type: "string" }),
@@ -430,6 +433,75 @@ export function runAdapterContract(name: string, factory: AdapterFactory): void 
         await adapter.updateById(contractItem, item!.id, { title: "A2", partners: [] });
         expect(await adapter.findById(contractItem, item!.id)).toMatchObject({ title: "A2", partners: [] });
         expect(await adapter.updateById(contractItem, newId(), { partners: [a] })).toBeNull();
+      });
+    });
+
+    describe("related queries", () => {
+      type Organization = { id: string; createdAt: Date; updatedAt: Date; name: string; size?: number | null };
+      type Item = { id: string; createdAt: Date; updatedAt: Date; title: string; partners: string[] };
+      const setupRelated = async () => {
+        const repos = createRepositories(contractModels, adapter);
+        const organizations = repos.organizations as unknown as Repository<Organization>;
+        const items = repos.items as unknown as Repository<Item, { partners: Many<Organization> }>;
+        const a = await organizations.create({ name: "a", size: 10 });
+        const b = await organizations.create({ name: "b", size: 20 });
+        const c = await organizations.create({ name: "c" });
+        await organizations.create({ name: "d", size: 40 });
+        const linked = await items.create({ title: "linked", partners: [c.id, a.id, b.id] });
+        const empty = await items.create({ title: "empty" });
+        return { items, a, linked, empty };
+      };
+      const names = (records: { name: string }[]) => records.map((record) => record.name);
+
+      test("scope every terminal to the records of the array, in the usual default order", async () => {
+        const { items, a, linked } = await setupRelated();
+        const partners = items.related(linked.id, "partners");
+        expect(names(await partners.all())).toEqual(["c", "b", "a"]);
+        const bigOrC = partners.where((o) => o.size.gte(15).or(o.name.eq("c")));
+        expect(names(await bigOrC.orderBy((o) => o.name).all())).toEqual(["b", "c"]);
+        expect(await partners.count()).toBe(3);
+        expect(await bigOrC.count()).toBe(2);
+        expect(await partners.any()).toBe(true);
+        expect(await partners.where((o) => o.name.eq("d")).any()).toBe(false);
+        expect((await partners.orderBy((o) => o.name).first()).id).toBe(a.id);
+        expect(await partners.where((o) => o.name.eq("d")).firstOrDefault()).toBeNull();
+        const page = await partners.orderBy((o) => o.name).page({ limit: 2, offset: 1 });
+        expect([names(page.data), page.total]).toEqual([["b", "c"], 3]);
+      });
+
+      test("aggregate over the records of the array, with conditions and OR groups", async () => {
+        const { items, a, linked } = await setupRelated();
+        const partners = items.related(linked.id, "partners");
+        expect(
+          await partners.aggregate((o) => ({
+            partners: o.count(),
+            bigOrC: o.count(o.size.gte(15).or(o.name.eq("c"))),
+            total: o.size.sum(),
+            average: o.size.avg(),
+            smallest: o.size.min(),
+            largest: o.size.max(),
+            first: o.createdAt.min(),
+          })),
+        ).toEqual({ partners: 3, bigOrC: 2, total: 30, average: 15, smallest: 10, largest: 20, first: a.createdAt });
+        expect(await partners.where((o) => o.name.ne("a")).aggregate((o) => ({ partners: o.count(), total: o.size.sum() }))).toEqual({ partners: 2, total: 20 });
+        expect(await partners.where((o) => o.name.eq("d")).aggregate((o) => ({ partners: o.count(), total: o.size.sum() }))).toEqual({ partners: 0, total: null });
+      });
+
+      test("have no records for a missing owner or an empty array, and aggregate null only for a missing owner", async () => {
+        const { items, empty } = await setupRelated();
+        const stats = (id: string) => items.related(id, "partners").aggregate((o) => ({ partners: o.count(), big: o.count(o.size.gte(15)), average: o.size.avg() }));
+        expect(await stats(newId())).toBeNull();
+        expect(await stats(empty.id)).toEqual({ partners: 0, big: 0, average: null });
+        expect(await items.related(newId(), "partners").aggregate(() => ({}))).toBeNull();
+        expect(await items.related(empty.id, "partners").aggregate(() => ({}))).toEqual({});
+        for (const id of [newId(), empty.id]) {
+          const partners = items.related(id, "partners");
+          expect(await partners.all()).toEqual([]);
+          expect(await partners.count()).toBe(0);
+          expect(await partners.any()).toBe(false);
+          expect(await partners.firstOrDefault()).toBeNull();
+          expect(await partners.page()).toEqual({ data: [], total: 0, limit: 20, offset: 0 });
+        }
       });
     });
 

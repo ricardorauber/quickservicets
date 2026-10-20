@@ -259,27 +259,28 @@ export type SortLambda<T> = (fields: SortFields<T>) => SortKey;
 
 /**
  * A LINQ-like query on one entity; each `where` narrows it, and a terminal method runs it. `R` maps reference fields
- * for `include`.
+ * for `include`; `M` is what `aggregate` resolves when the query has no source records at all (`null` for the records
+ * of a missing owner, see `related`).
  */
-export interface Query<T, R = Record<never, never>> {
+export interface Query<T, R = Record<never, never>, M = never> {
   /** Narrows the query with the lambda's conditions (AND with earlier calls). */
-  where(lambda: QueryLambda<T>): Query<T, R>;
+  where(lambda: QueryLambda<T>): Query<T, R, M>;
   /** Orders by a field, replacing earlier ordering. */
-  orderBy(lambda: SortLambda<T>): Query<T, R>;
+  orderBy(lambda: SortLambda<T>): Query<T, R, M>;
   /** Orders by a field in descending order, replacing earlier ordering. */
-  orderByDescending(lambda: SortLambda<T>): Query<T, R>;
+  orderByDescending(lambda: SortLambda<T>): Query<T, R, M>;
   /** Adds a further sort field. */
-  thenBy(lambda: SortLambda<T>): Query<T, R>;
+  thenBy(lambda: SortLambda<T>): Query<T, R, M>;
   /** Adds a further sort field in descending order. */
-  thenByDescending(lambda: SortLambda<T>): Query<T, R>;
+  thenByDescending(lambda: SortLambda<T>): Query<T, R, M>;
   /** Leaves out the first `count` results (not applied to `count()` and `any()`). */
-  skip(count: number): Query<T, R>;
+  skip(count: number): Query<T, R, M>;
   /** Returns at most `count` results (not applied to `count()` and `any()`). */
-  take(count: number): Query<T, R>;
+  take(count: number): Query<T, R, M>;
   /** Returns only these fields plus `id`. */
-  select<K extends keyof T & string>(...fields: K[]): Query<Pick<T, K | ("id" & keyof T)>, R>;
+  select<K extends keyof T & string>(...fields: K[]): Query<Pick<T, K | ("id" & keyof T)>, R, M>;
   /** Replaces reference paths with the referenced records, e.g. `include("profiles.permissions.module")`. */
-  include<const P extends readonly PopulatePath<R>[]>(...paths: P): Query<Populated<T, R, P[number]>>;
+  include<const P extends readonly PopulatePath<R>[]>(...paths: P): Query<Populated<T, R, P[number]>, Record<never, never>, M>;
   /** Every match; throws when there are more than `repositories.findAllMax`. */
   all(): Promise<T[]>;
   /** The first match, or 404 `<Entity> not found`. */
@@ -297,7 +298,7 @@ export interface Query<T, R = Record<never, never>> {
    * `aggregate((u) => ({ admins: u.count(u.role.eq("admin")), averageAge: u.age.avg() }))` (not limited by `skip()` and
    * `take()`).
    */
-  aggregate<A extends AggregateExpressions>(lambda: (fields: AggregateFields<T>) => A): Promise<AggregateResult<A>>;
+  aggregate<A extends AggregateExpressions>(lambda: (fields: AggregateFields<T>) => A): Promise<AggregateResult<A> | M>;
 }
 
 /** What a query needs from its repository. */
@@ -307,7 +308,8 @@ export interface QueryBackend {
   /** A page of matches; `withTotal` false skips counting them (`total` is then the page size). */
   list(query: ListQuery, populate: string[], withTotal: boolean): Promise<{ data: Record<string, unknown>[]; total: number }>;
   count(where: Condition[]): Promise<number>;
-  aggregate(where: Condition[], aggregates: Record<string, Aggregate>): Promise<AggregateValues>;
+  /** Every aggregate over the matches; null when the query has no source records (the owner of related records is missing). */
+  aggregate(where: Condition[], aggregates: Record<string, Aggregate>): Promise<AggregateValues | null>;
   notFound(): Error;
 }
 
@@ -355,9 +357,9 @@ function nonNegative(method: string, count: number): number {
 }
 
 /** A query over the backend's records with the given state; every method returns a new query. */
-export function createQuery<T, R = Record<never, never>>(backend: QueryBackend, state: QueryState): Query<T, R> {
+export function createQuery<T, R = Record<never, never>, M = never>(backend: QueryBackend, state: QueryState): Query<T, R, M> {
   const { model, findAllMax } = backend;
-  const next = (changes: Partial<QueryState>) => createQuery<T, R>(backend, { ...state, ...changes });
+  const next = (changes: Partial<QueryState>) => createQuery<T, R, M>(backend, { ...state, ...changes });
   const keyOf = (lambda: SortLambda<T>) => {
     const key = lambda(sortKeys(model) as unknown as SortFields<T>);
     if (!(key instanceof SortKey)) throw new Error(`An order lambda on ${model.entityName} must return a field`);
@@ -417,9 +419,7 @@ export function createQuery<T, R = Record<never, never>>(backend: QueryBackend, 
       return { data: result.data, total: result.total, limit, offset };
     },
     async aggregate(lambda) {
-      const aggregates = aggregatesOf(model, lambda);
-      if (Object.keys(aggregates).length === 0) return {} as never;
-      return (await backend.aggregate(state.where, aggregates)) as never;
+      return (await backend.aggregate(state.where, aggregatesOf(model, lambda))) as never;
     },
   };
 }

@@ -1,6 +1,6 @@
 ---
 title: Fluent repository queries
-description: Query repositories from endpoints and hooks with typed where, include, ordering, OR, aggregates and findByIds.
+description: Query repositories from endpoints and hooks with typed where, include, ordering, OR, aggregates, related and findByIds.
 sidebar:
   order: 32
 ---
@@ -284,6 +284,48 @@ curl localhost:3000/projects/missing
 {"error":{"code":"NOT_FOUND","message":"Project not found"}}
 ```
 
+## Querying a record's reference array: `related`
+
+`related(id, field)` starts a query over the records that the reference array `field` of record `id` lists. It replaces loading the record and then filtering by its ids, and it runs as one query:
+
+```ts check
+import type { Repositories } from "@quickservice/core";
+
+export async function relatedRecords(repos: Repositories, acmeId: string, globexId: string) {
+  const acme = await repos.organizations.related(acmeId, "members").all(); // ["Bob", "Ana"]
+  const admins = await repos.organizations.related(globexId, "members").where((u) => u.role.eq("admin")).all(); // ["Dee"]
+  const members = await repos.organizations.related(globexId, "members").count(); // 2
+  return { acme, admins, members };
+}
+```
+
+The query is over the array's target entity (`User` here), so `where`, ordering, `select`, `include` and every terminal method work as on `repos.users`. Results come in the usual default order, not in the array's order; add `orderBy` for another one. When the record does not exist or its array is empty, the query has no records: `all()` returns `[]`, `count()` 0 and `any()` `false`.
+
+`aggregate` tells the two cases apart: it returns `null` when the record does not exist, and over an empty array counts are `0` and the other aggregates `null`. An endpoint can therefore answer 404 without reading the record first:
+
+```ts check title="endpoints/organizations/[id]/stats/get.ts"
+import { HttpError, type Endpoint } from "@quickservice/core";
+
+/** Counts the members and admins of an organization and averages their ages. */
+const handler: Endpoint = async (repos, req) => {
+  const stats = await repos.organizations
+    .related(req.params.id!, "members")
+    .aggregate((u) => ({ members: u.count(), admins: u.count(u.role.eq("admin")), averageAge: u.age.avg() }));
+  if (!stats) throw new HttpError(404, "Organization not found");
+  return stats; // Acme: { members: 2, admins: 1, averageAge: 31 }
+};
+
+export default handler;
+```
+
+On PostgreSQL and SQLite this is one statement: the organization left-joined to its `members` and to the matching users. On MongoDB, the organization's array is read first and the users are then queried by it.
+
+`field` must be a reference array the entity stores (`members: User[]`). Other fields, single references and the derived sides of relations fail to type-check:
+
+```ts
+repos.organizations.related(id, "name"); // Argument of type '"name"' is not assignable to parameter of type '"members"'.
+```
+
 ## Running the query
 
 A query does nothing until you call one of its terminal methods.
@@ -414,7 +456,7 @@ export async function byIds(repos: Repositories, anaId: string, cidId: string, g
 
 ## Related reference
 
-- [Repositories and queries](/reference/api/): the signature of every `Repository` and `Query` method.
+- [Repositories and queries](/reference/api/): the signature of every `Repository` and `Query` method, including `related`.
 - [HTTP query parameters](/reference/http/): the matching filters on the generated list routes.
 - [Configuration](/reference/config/): `repositories.findAllMax` and `populate.maxDepth`.
 

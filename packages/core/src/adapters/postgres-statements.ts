@@ -29,6 +29,9 @@ export interface Statement {
   params: unknown[];
 }
 
+/** An aggregate statement and the decoding of its row into values by aggregate name. */
+export type AggregateStatement = Statement & { decode(row: Record<string, unknown>): AggregateValues };
+
 /** A reference array to pull from: the owner's statements and the junction storing the array. */
 export interface PullTarget {
   owner: EntityStatements;
@@ -166,30 +169,81 @@ export class EntityStatements implements ConditionTarget {
     return { text, params };
   }
 
+  /** The rows a junction lists for the owner id in `$1`, as a condition on this table. */
+  private listedBy(junction: string): string {
+    return `${this.table}."id" in (select "target_id" from ${junction} where "owner_id" = $1)`;
+  }
+
+  /** A page of the records `junction` lists for owner `ownerId` that match `where`, in `sort` order. */
+  findRelated(junction: string, ownerId: string, where: readonly Condition[], sort: readonly SortField[], limit: number, offset: number): Statement {
+    const order = compileSort(sort, this);
+    const { text, params } = this.withConditions(`findRelated:${junction}:${order.key}`, where, 2, (clause, at) => {
+      const ordering = order.text ? ` order by ${order.text}` : "";
+      return `select ${this.selectList} from ${this.table} where ${this.listedBy(junction)}${clause ? ` and ${clause}` : ""}${ordering} limit $${at + 2} offset $${at + 3}`;
+    });
+    return { text, params: [ownerId, ...params, limit, offset] };
+  }
+
+  /** The number of records `junction` lists for owner `ownerId` that match `where`. */
+  countRelated(junction: string, ownerId: string, where: readonly Condition[]): Statement {
+    const { text, params } = this.withConditions(`countRelated:${junction}`, where, 2, (clause) => {
+      return `select count(*) as "total" from ${this.table} where ${this.listedBy(junction)}${clause ? ` and ${clause}` : ""}`;
+    });
+    return { text, params: [ownerId, ...params] };
+  }
+
   /** Every aggregate in one statement; counts with conditions use `filter (where …)`. */
-  aggregate(where: readonly Condition[], aggregates: Record<string, Aggregate>): Statement & { decode(row: Record<string, unknown>): AggregateValues } {
+  aggregate(where: readonly Condition[], aggregates: Record<string, Aggregate>): AggregateStatement {
+    return this.aggregateOver("aggregate", where, aggregates, [], "*", (clause) => `from ${this.table}${clause ? ` where ${clause}` : ""}`);
+  }
+
+  /**
+   * Every aggregate over the records `junction` lists for owner `ownerId`, in one statement: the owner left-joined to
+   * its junction rows and to the matching records, so a missing owner gives no row and an owner without matches one
+   * row of 0 counts and null aggregates.
+   */
+  aggregateRelated(owner: string, junction: string, ownerId: string, where: readonly Condition[], aggregates: Record<string, Aggregate>): AggregateStatement {
+    return this.aggregateOver(`aggregateRelated:${owner}:${junction}`, where, aggregates, [ownerId], `${this.table}."id"`, (clause) => {
+      const matching = `${this.table}."id" = "related"."target_id"${clause ? ` and ${clause}` : ""}`;
+      return `from ${owner} as "owner" left join ${junction} as "related" on "related"."owner_id" = "owner"."id" left join ${this.table} on ${matching} where "owner"."id" = $1 group by "owner"."id"`;
+    });
+  }
+
+  /**
+   * An aggregate statement after the `leading` parameters: `counted` is what counts count (`*`, or a column that is
+   * null for rows without a match), and `source` the FROM part around the WHERE clause.
+   */
+  private aggregateOver(
+    prefix: string,
+    where: readonly Condition[],
+    aggregates: Record<string, Aggregate>,
+    leading: unknown[],
+    counted: string,
+    source: (clause: string) => string,
+  ): AggregateStatement {
     const entries = Object.entries(aggregates);
+    const first = leading.length + 1;
     const filters: { key: string; params: unknown[] }[] = [];
     const expressionKeys = entries.map(([name, aggregate]) => {
       if (aggregate.fn !== "count") return `${JSON.stringify(name)}=${aggregate.fn}(${aggregate.field})`;
-      const filter = compileConditions(aggregate.where ?? [], this, 1, false);
+      const filter = compileConditions(aggregate.where ?? [], this, first, false);
       filters.push(filter);
       return `${JSON.stringify(name)}=count(${filter.key})`;
     });
     const filterParams = filters.flatMap((filter) => filter.params);
-    const { text, params } = this.withConditions(`aggregate:${expressionKeys.join(",")}`, where, filterParams.length + 1, (clause) => {
-      let next = 1;
+    const { text, params } = this.withConditions(`${prefix}:${expressionKeys.join(",")}`, where, first + filterParams.length, (clause) => {
+      let next = first;
       const expressions = entries.map(([name, aggregate]) => {
         if (aggregate.fn === "count") {
           const filter = compileConditions(aggregate.where ?? [], this, next);
           next += filter.params.length;
-          return `${filter.text ? `count(*) filter (where ${filter.text})` : "count(*)"} as ${quote(name)}`;
+          return `${filter.text ? `count(${counted}) filter (where ${filter.text})` : `count(${counted})`} as ${quote(name)}`;
         }
         const column = this.columns.get(aggregate.field);
         if (!column) throw new Error(`Unknown column for field "${aggregate.field}"`);
         return `${aggregate.fn}(${this.table}.${column.name}) as ${quote(name)}`;
       });
-      return `select ${expressions.join(", ")} from ${this.table}${clause ? ` where ${clause}` : ""}`;
+      return `select ${expressions.join(", ")} ${source(clause)}`;
     });
     const decode = (row: Record<string, unknown>): AggregateValues => {
       const values: AggregateValues = {};
@@ -202,7 +256,7 @@ export class EntityStatements implements ConditionTarget {
       }
       return values;
     };
-    return { text, params: [...filterParams, ...params], decode };
+    return { text, params: [...leading, ...filterParams, ...params], decode };
   }
 
   insert(values: Record<string, unknown>): Statement {

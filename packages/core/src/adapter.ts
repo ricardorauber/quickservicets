@@ -39,6 +39,17 @@ export interface ReferencePull {
   field: string;
 }
 
+/**
+ * The records one record references through a reference array: those listed in field `field` of the `owner` record
+ * with id `id`, which are records of `target`.
+ */
+export interface RelatedScope {
+  owner: EntityModel;
+  id: string;
+  field: string;
+  target: EntityModel;
+}
+
 export type AdapterKind = "memory" | "sqlite" | "postgres" | "mongodb";
 
 export interface ConnectOptions {
@@ -77,6 +88,19 @@ export interface DatabaseAdapter {
    * other aggregates null when no record has a value.
    */
   aggregate(entity: EntityModel, where: Condition[], aggregates: Record<string, Aggregate>): Promise<AggregateValues>;
+  /**
+   * A page of the related records of `scope` matching `where`, like `findMany` on the target entity; no records when
+   * the owner does not exist. Optional, like `countRelated` and `aggregateRelated`: without them, related queries read
+   * the owner's array first and then filter the target by id.
+   */
+  findRelated?(scope: RelatedScope, options: FindManyOptions): Promise<FindManyResult>;
+  /** The number of related records of `scope` matching `where`; 0 when the owner does not exist. */
+  countRelated?(scope: RelatedScope, where: Condition[]): Promise<number>;
+  /**
+   * Every aggregate over the related records of `scope` matching `where`, in one statement on SQL databases. Resolves
+   * null when the owner does not exist; counts are 0 and the other aggregates null when no related record has a value.
+   */
+  aggregateRelated?(scope: RelatedScope, where: Condition[], aggregates: Record<string, Aggregate>): Promise<AggregateValues | null>;
   /** Runs `fn` atomically when the database supports transactions, or directly otherwise. */
   transaction<T>(fn: () => Promise<T>): Promise<T>;
   /** Locks a record until the current transaction ends, for read-modify-write updates (optional). */

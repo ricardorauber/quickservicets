@@ -1,8 +1,10 @@
 import type { Database } from "bun:sqlite";
-import { and, count, eq, sql } from "drizzle-orm";
+import { and, count, eq, inArray, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
-import { UniqueViolationError, type AggregateValues, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
+import { UniqueViolationError, type AggregateValues, type DatabaseAdapter, type RelatedScope, type StoredRecord } from "../adapter.ts";
 import type { EntityModel } from "../model.ts";
+import type { Condition } from "../query.ts";
 import { aggregateSelection } from "../sql/aggregates.ts";
 import { toOrderBy, toWhere } from "../sql/conditions.ts";
 import { buildDrizzleSchema, columnName, junctionKey, sqliteDefaultPrefix, type DrizzleSchema } from "../sql/schema.ts";
@@ -79,6 +81,18 @@ export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
     rollback: () => void ready().db.run(sql`rollback`),
   };
   const relationContext = (entity: EntityModel) => ({ entity, schema: ready().schema });
+  /** The junction and target tables of a related query. */
+  const relatedOf = (related: RelatedScope) => {
+    const junction = ready().schema.junctions[junctionKey(related.owner.key, related.field)] as Table;
+    if (!junction) throw new Error(`${related.owner.entityName}.${related.field} is not a stored reference array`);
+    return { junction, target: tableFor(related.target) };
+  };
+  /** The related records of `related` that match `where`, as one condition on the target table. */
+  const relatedWhere = (related: RelatedScope, where: Condition[]) => {
+    const { junction, target } = relatedOf(related);
+    const listed = inArray(target.id, ready().db.select({ id: junction.targetId }).from(junction).where(eq(junction.ownerId, related.id)));
+    return and(listed, toWhere(target, where, "sqlite", relationContext(related.target)));
+  };
   const atomically = <T>(fn: () => Promise<T>) => scope.transaction(fn, transactionHooks);
   /** Writes of an entity with reference arrays also write junction rows, so only they need a transaction. */
   const atomicallyWithRelations = <T>(entity: EntityModel, fn: () => Promise<T>) =>
@@ -136,6 +150,42 @@ export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
           .all() as StoredRecord[];
         const total = withTotal ? (ready().db.select({ total: count() }).from(table).where(condition).get()?.total ?? 0) : data.length;
         return { data: await withRelations(entity, data), total };
+      });
+    },
+    findRelated(related, { where, sort, limit, offset, withTotal = true }) {
+      return scope.run(async () => {
+        const target = tableFor(related.target);
+        const condition = relatedWhere(related, where);
+        const data = ready()
+          .db.select()
+          .from(target)
+          .where(condition)
+          .orderBy(...toOrderBy(target, sort))
+          .limit(limit)
+          .offset(offset)
+          .all() as StoredRecord[];
+        const total = withTotal ? (ready().db.select({ total: count() }).from(target).where(condition).get()?.total ?? 0) : data.length;
+        return { data: await withRelations(related.target, data), total };
+      });
+    },
+    countRelated(related, where) {
+      return scope.run(() => ready().db.select({ total: count() }).from(tableFor(related.target)).where(relatedWhere(related, where)).get()?.total ?? 0);
+    },
+    aggregateRelated(related, where, aggregates) {
+      return scope.run(() => {
+        const { junction, target } = relatedOf(related);
+        // The owner is aliased, so a reference array to its own entity joins the table twice.
+        const owner = alias(tableFor(related.owner), "owner") as Table;
+        const context = relationContext(related.target);
+        const row = ready()
+          .db.select(aggregateSelection(target, aggregates, "sqlite", context, target.id))
+          .from(owner)
+          .leftJoin(junction, eq(junction.ownerId, owner.id))
+          .leftJoin(target, and(eq(target.id, junction.targetId), toWhere(target, where, "sqlite", context)))
+          .where(eq(owner.id, related.id))
+          .groupBy(owner.id)
+          .get();
+        return (row as AggregateValues | undefined) ?? null;
       });
     },
     updateById(entity, id, changes, where = []) {

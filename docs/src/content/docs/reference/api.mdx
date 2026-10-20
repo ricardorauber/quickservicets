@@ -115,14 +115,24 @@ query(): Query<T, R>;
 
 A fluent query over every record.
 
+### `related`
+
+```ts
+related<K extends RelatedField<R>>(id: string, field: K): Query<RelatedRecord<R, K>, RelatedReferences<R, K>, null>;
+```
+
+A fluent query over the records the reference array `field` of record `id` lists, e.g.
+`related(orgId, "members")`. It has no records when that record does not exist, and its `aggregate` then resolves
+null.
+
 ## Query
 
-Returned by `where` and `query`; every method but the terminals returns a new query.
+`Query<T, R, M>`, returned by `where`, `query` and `related`; every method but the terminals returns a new query. `M` is `null` on `related` queries, whose `aggregate` resolves null when the record does not exist.
 
 ### `where`
 
 ```ts
-where(lambda: QueryLambda<T>): Query<T, R>;
+where(lambda: QueryLambda<T>): Query<T, R, M>;
 ```
 
 Narrows the query with the lambda's conditions (AND with earlier calls).
@@ -130,7 +140,7 @@ Narrows the query with the lambda's conditions (AND with earlier calls).
 ### `orderBy`
 
 ```ts
-orderBy(lambda: SortLambda<T>): Query<T, R>;
+orderBy(lambda: SortLambda<T>): Query<T, R, M>;
 ```
 
 Orders by a field, replacing earlier ordering.
@@ -138,7 +148,7 @@ Orders by a field, replacing earlier ordering.
 ### `orderByDescending`
 
 ```ts
-orderByDescending(lambda: SortLambda<T>): Query<T, R>;
+orderByDescending(lambda: SortLambda<T>): Query<T, R, M>;
 ```
 
 Orders by a field in descending order, replacing earlier ordering.
@@ -146,7 +156,7 @@ Orders by a field in descending order, replacing earlier ordering.
 ### `thenBy`
 
 ```ts
-thenBy(lambda: SortLambda<T>): Query<T, R>;
+thenBy(lambda: SortLambda<T>): Query<T, R, M>;
 ```
 
 Adds a further sort field.
@@ -154,7 +164,7 @@ Adds a further sort field.
 ### `thenByDescending`
 
 ```ts
-thenByDescending(lambda: SortLambda<T>): Query<T, R>;
+thenByDescending(lambda: SortLambda<T>): Query<T, R, M>;
 ```
 
 Adds a further sort field in descending order.
@@ -162,7 +172,7 @@ Adds a further sort field in descending order.
 ### `skip`
 
 ```ts
-skip(count: number): Query<T, R>;
+skip(count: number): Query<T, R, M>;
 ```
 
 Leaves out the first `count` results (not applied to `count()` and `any()`).
@@ -170,7 +180,7 @@ Leaves out the first `count` results (not applied to `count()` and `any()`).
 ### `take`
 
 ```ts
-take(count: number): Query<T, R>;
+take(count: number): Query<T, R, M>;
 ```
 
 Returns at most `count` results (not applied to `count()` and `any()`).
@@ -178,7 +188,7 @@ Returns at most `count` results (not applied to `count()` and `any()`).
 ### `select`
 
 ```ts
-select<K extends keyof T & string>(...fields: K[]): Query<Pick<T, K | ("id" & keyof T)>, R>;
+select<K extends keyof T & string>(...fields: K[]): Query<Pick<T, K | ("id" & keyof T)>, R, M>;
 ```
 
 Returns only these fields plus `id`.
@@ -186,7 +196,7 @@ Returns only these fields plus `id`.
 ### `include`
 
 ```ts
-include<const P extends readonly PopulatePath<R>[]>(...paths: P): Query<Populated<T, R, P[number]>>;
+include<const P extends readonly PopulatePath<R>[]>(...paths: P): Query<Populated<T, R, P[number]>, Record<never, never>, M>;
 ```
 
 Replaces reference paths with the referenced records, e.g. `include("profiles.permissions.module")`.
@@ -242,7 +252,7 @@ page(options?: PageOptions): Promise<{ data: T[]; total: number; limit: number; 
 ### `aggregate`
 
 ```ts
-aggregate<A extends AggregateExpressions>(lambda: (fields: AggregateFields<T>) => A): Promise<AggregateResult<A>>;
+aggregate<A extends AggregateExpressions>(lambda: (fields: AggregateFields<T>) => A): Promise<AggregateResult<A> | M>;
 ```
 
 Counts, sums, averages, minimums and maximums of the matches in one database round trip, e.g.

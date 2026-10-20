@@ -1,4 +1,13 @@
-import { UniqueViolationError, type Aggregate, type AggregateValues, type DatabaseAdapter, type FindManyOptions, type StoredRecord } from "../adapter.ts";
+import {
+  UniqueViolationError,
+  type Aggregate,
+  type AggregateValues,
+  type DatabaseAdapter,
+  type FindManyOptions,
+  type FindManyResult,
+  type RelatedScope,
+  type StoredRecord,
+} from "../adapter.ts";
 import type { EntityModel } from "../model.ts";
 import { isConditionGroup, type Condition, type FieldCondition, type SizeFilter, type SortField } from "../query.ts";
 
@@ -137,6 +146,31 @@ export function memoryAdapter(): DatabaseAdapter {
   const select = (entity: EntityModel, where: Condition[]): StoredRecord[] =>
     [...tableFor(entity).values()].filter((record) => where.every((condition) => matches(record, condition, entity)));
 
+  /** One page of `records`, in `sort` order. */
+  const page = (records: StoredRecord[], { sort, limit, offset, withTotal = true }: FindManyOptions): FindManyResult => {
+    const sorted = sortRecords(records, sort);
+    const data = sorted.slice(offset, offset + limit).map((record) => structuredClone(record));
+    return { data, total: withTotal ? sorted.length : data.length };
+  };
+
+  const aggregateAll = (entity: EntityModel, records: StoredRecord[], aggregates: Record<string, Aggregate>): AggregateValues => {
+    const values: AggregateValues = {};
+    for (const [name, aggregate] of Object.entries(aggregates)) values[name] = aggregateOf(records, aggregate, entity);
+    return values;
+  };
+
+  /** The related records of `scope` matching `where`, or null when the owner does not exist. */
+  const selectRelated = ({ owner, id, field, target }: RelatedScope, where: Condition[]): StoredRecord[] | null => {
+    const record = tableFor(owner).get(id);
+    if (!record) return null;
+    const records = tableFor(target);
+    const ids = new Set((record[field] as string[] | null) ?? []);
+    return [...ids].flatMap((targetId) => {
+      const found = records.get(targetId);
+      return found && where.every((condition) => matches(found, condition, target)) ? [found] : [];
+    });
+  };
+
   const assertUnique = (entity: EntityModel, record: StoredRecord): void => {
     for (const field of entity.fields) {
       if (!field.unique || isNullish(record[field.name])) continue;
@@ -188,10 +222,18 @@ export function memoryAdapter(): DatabaseAdapter {
       const [record] = select(entity, where);
       return record ? structuredClone(record) : null;
     },
-    async findMany(entity, { where, sort, limit, offset, withTotal = true }: FindManyOptions) {
-      const records = sortRecords(select(entity, where), sort);
-      const data = records.slice(offset, offset + limit).map((record) => structuredClone(record));
-      return { data, total: withTotal ? records.length : data.length };
+    async findMany(entity, options: FindManyOptions) {
+      return page(select(entity, options.where), options);
+    },
+    async findRelated(scope, options) {
+      return page(selectRelated(scope, options.where) ?? [], options);
+    },
+    async countRelated(scope, where) {
+      return selectRelated(scope, where)?.length ?? 0;
+    },
+    async aggregateRelated(scope, where, aggregates) {
+      const records = selectRelated(scope, where);
+      return records ? aggregateAll(scope.target, records, aggregates) : null;
     },
     async updateById(entity, id, changes, where = []) {
       const table = tableFor(entity);
@@ -209,10 +251,7 @@ export function memoryAdapter(): DatabaseAdapter {
       return select(entity, where).length;
     },
     async aggregate(entity, where, aggregates) {
-      const records = select(entity, where);
-      const values: AggregateValues = {};
-      for (const [name, aggregate] of Object.entries(aggregates)) values[name] = aggregateOf(records, aggregate, entity);
-      return values;
+      return aggregateAll(entity, select(entity, where), aggregates);
     },
     async transaction(fn) {
       return fn();

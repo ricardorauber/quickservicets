@@ -7,14 +7,14 @@ export type { ValidationMode, ValidationResult } from "./validation.ts";
 export { DEFAULT_LIMIT, FILTER_OPERATORS, MAX_LIMIT, MAX_LIST_VALUES, convertQueryValue, listQueryFields, OPERATORS_BY_TYPE, parseListQuery, queryableFields, SIZE_COMPARISONS } from "./query.ts";
 export type { Condition, FilterOperator, ListQuery, SizeComparison, SizeFilter, SortDirection, SortField } from "./query.ts";
 export { UniqueViolationError } from "./adapter.ts";
-export type { AdapterKind, Aggregate, AggregateValues, ConnectOptions, DatabaseAdapter, FindManyOptions, FindManyResult, ReferencePull, StoredRecord } from "./adapter.ts";
+export type { AdapterKind, Aggregate, AggregateValues, ConnectOptions, DatabaseAdapter, FindManyOptions, FindManyResult, ReferencePull, RelatedScope, StoredRecord } from "./adapter.ts";
 export { memoryAdapter } from "./adapters/memory.ts";
 export { CONFIG_FILE, ConfigError, DEFAULT_PORT, DEFAULT_POPULATE_DEPTH, defineConfig, JOB_DEFAULTS, loadConfig, resolveConfig, WORKERS_NEED_DATABASE_SERVER } from "./config.ts";
 export { availableCpus, isPrimary, poolSizePerWorker, runPrimary, runsScheduledWork, runWorkers, WORKER_INDEX_ENV, WORKERS_ENV, workerIndex } from "./workers.ts";
 export type { PrimaryOptions, WorkerProcess } from "./workers.ts";
 export type { ResolvedConfig, ServiceConfig } from "./config.ts";
 export { createRepositories, createRepository, READ_METHODS, readRepository, repositoryFor } from "./repository.ts";
-export type { EntityRecord, ListResult, Many, One, Populated, PopulatePath, ReadOptions, ReadRepository, ReferencePath, Repository, RepositoryOptions, RepositoryRegistry } from "./repository.ts";
+export type { EntityRecord, ListResult, Many, One, Populated, PopulatePath, ReadOptions, ReadRepository, ReferencePath, RelatedField, RelatedRecord, RelatedReferences, Repository, RepositoryOptions, RepositoryRegistry } from "./repository.ts";
 export { definePostHook, definePreHook, isHookDefinition } from "./hooks.ts";
 export type {
   HookCall,

@@ -94,7 +94,8 @@ export function generateInputTypes(model: EntityModel, models: EntityModel[] = [
 
 /**
  * `<Entity>References`: maps reference fields to `One`/`Many` of the referenced record type and its own references,
- * so populated reads are typed at every level.
+ * so populated reads are typed at every level. The derived sides of relations are marked, so `related` only takes
+ * stored reference arrays.
  */
 function generateReferencesType(model: EntityModel, models: EntityModel[]): string {
   const entries = model.fields.flatMap((field) => {
@@ -102,7 +103,8 @@ function generateReferencesType(model: EntityModel, models: EntityModel[]): stri
     const target = models.find((candidate) => candidate.key === field.target);
     if (!target) return [];
     const type = entityTypeName(target, models);
-    return [`  ${field.name}: ${field.type === "refArray" ? "Many" : "One"}<${type}, ${type}References>;`];
+    if (field.type === "ref") return [`  ${field.name}: One<${type}, ${type}References>;`];
+    return [`  ${field.name}: Many<${type}, ${type}References${field.storage === "derived" ? ', "derived"' : ""}>;`];
   });
   const name = `${entityTypeName(model, models)}References`;
   return entries.length > 0 ? [`export type ${name} = {`, ...entries, "};"].join("\n") : `export type ${name} = Record<never, never>;`;

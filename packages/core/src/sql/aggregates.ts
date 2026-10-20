@@ -8,19 +8,22 @@ type Columns = Record<string, unknown>;
 
 /**
  * The select list of an aggregate statement: one expression per aggregate, decoded to numbers, or to the column's
- * values for `min` and `max` (so dates come back as dates).
+ * values for `min` and `max` (so dates come back as dates). Counts count rows, or the non-null values of `counted`
+ * (a column that is null for rows without a match, under an outer join).
  */
 export function aggregateSelection(
   table: Columns,
   aggregates: Record<string, Aggregate>,
   dialect: SqlDialect,
   context?: RelationContext,
+  counted?: unknown,
 ): Record<string, SQL> {
   const selection: Record<string, SQL> = {};
+  const total = counted === undefined ? sql`count(*)` : sql`count(${counted})`;
   for (const [name, aggregate] of Object.entries(aggregates)) {
     if (aggregate.fn === "count") {
       const condition = toWhere(table, aggregate.where ?? [], dialect, context);
-      selection[name] = (condition ? sql`count(*) filter (where ${condition})` : sql`count(*)`).mapWith(Number);
+      selection[name] = (condition ? sql`${total} filter (where ${condition})` : total).mapWith(Number);
       continue;
     }
     const target = table[aggregate.field];

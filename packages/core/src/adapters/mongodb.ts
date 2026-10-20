@@ -1,6 +1,15 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { ClientSession, Db, Document, Filter, MongoClient, Sort } from "mongodb";
-import { UniqueViolationError, type Aggregate, type AggregateValues, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
+import {
+  UniqueViolationError,
+  type Aggregate,
+  type AggregateValues,
+  type DatabaseAdapter,
+  type FindManyOptions,
+  type FindManyResult,
+  type RelatedScope,
+  type StoredRecord,
+} from "../adapter.ts";
 import type { EntityModel, FieldModel } from "../model.ts";
 import { schemaIdentifier } from "../sql/schema.ts";
 import { isConditionGroup, type Condition, type FieldCondition, type SizeFilter, type SortField } from "../query.ts";
@@ -245,6 +254,22 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
     const current = sessions.getStore();
     return current ? { session: current } : {};
   };
+  /** The ids the owner's reference array lists, read alone, or null when the owner does not exist. */
+  const relatedIds = async ({ owner, id, field }: RelatedScope): Promise<string[] | null> => {
+    const document = await collection(owner).findOne({ _id: id as never }, { ...session(), projection: { [field]: 1 } });
+    return document ? ((document[field] as string[] | null | undefined) ?? []) : null;
+  };
+  /** The documents of `entity` among `ids` that match `where`. */
+  const among = (ids: string[], where: Condition[], entity: EntityModel): Filter<Document> => ({ $and: [{ _id: { $in: ids as never[] } }, toFilter(where, entity)] });
+  const findMany = async (entity: EntityModel, filter: Filter<Document>, { sort, limit, offset, withTotal = true }: FindManyOptions): Promise<FindManyResult> => {
+    const documents = await collection(entity).find(filter, session()).sort(toSort(sort)).skip(offset).limit(limit).toArray();
+    const total = withTotal ? await collection(entity).countDocuments(filter, session()) : documents.length;
+    return { data: documents.map((document) => toRecord(entity, document)!), total };
+  };
+  const aggregate = async (entity: EntityModel, filter: Filter<Document>, aggregates: Record<string, Aggregate>): Promise<AggregateValues> => {
+    const [result] = await collection(entity).aggregate(aggregatePipeline(filter, aggregates, entity), session()).toArray();
+    return aggregateValues(result, aggregates);
+  };
   const translateErrors = async <T>(operation: () => Promise<T>): Promise<T> => {
     try {
       return await operation();
@@ -300,11 +325,22 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
     async findOne(entity, where) {
       return toRecord(entity, await collection(entity).findOne(toFilter(where, entity), session()));
     },
-    async findMany(entity, { where, sort, limit, offset, withTotal = true }) {
-      const filter = toFilter(where, entity);
-      const documents = await collection(entity).find(filter, session()).sort(toSort(sort)).skip(offset).limit(limit).toArray();
-      const total = withTotal ? await collection(entity).countDocuments(filter, session()) : documents.length;
-      return { data: documents.map((document) => toRecord(entity, document)!), total };
+    async findMany(entity, options) {
+      return findMany(entity, toFilter(options.where, entity), options);
+    },
+    // A target collection can live in another database, so the owner's array is read first and the target filtered by it.
+    async findRelated(scope, options) {
+      const ids = await relatedIds(scope);
+      if (!ids || ids.length === 0) return { data: [], total: 0 };
+      return findMany(scope.target, among(ids, options.where, scope.target), options);
+    },
+    async countRelated(scope, where) {
+      const ids = await relatedIds(scope);
+      return ids && ids.length > 0 ? collection(scope.target).countDocuments(among(ids, where, scope.target), session()) : 0;
+    },
+    async aggregateRelated(scope, where, aggregates) {
+      const ids = await relatedIds(scope);
+      return ids ? aggregate(scope.target, among(ids, where, scope.target), aggregates) : null;
     },
     updateById(entity, id, changes, where = []) {
       return translateErrors(async () => {
@@ -319,9 +355,7 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
       return collection(entity).countDocuments(toFilter(where, entity), session());
     },
     async aggregate(entity, where, aggregates) {
-      const pipeline = aggregatePipeline(toFilter(where, entity), aggregates, entity);
-      const [result] = await collection(entity).aggregate(pipeline, session()).toArray();
-      return aggregateValues(result, aggregates);
+      return aggregate(entity, toFilter(where, entity), aggregates);
     },
     async transaction(fn) {
       if (sessions.getStore() || !supportsTransactions || !client) return fn();

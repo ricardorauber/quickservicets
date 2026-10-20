@@ -240,7 +240,7 @@ function apiPage(): string {
     "Endpoints and hooks receive `repos`, with one repository per entity (`repos.users`, or `repos.<schema>.<collection>`).",
     "",
     ...section("Repository", "`Repository<T, R, C, U>`: `T` is the record, `R` its references, `C` and `U` the create and update inputs.", interfaceMembers("packages/core/src/repository.ts", "Repository")),
-    ...section("Query", "Returned by `where` and `query`; every method but the terminals returns a new query.", interfaceMembers("packages/core/src/fluent-query.ts", "Query")),
+    ...section("Query", "`Query<T, R, M>`, returned by `where`, `query` and `related`; every method but the terminals returns a new query. `M` is `null` on `related` queries, whose `aggregate` resolves null when the record does not exist.", interfaceMembers("packages/core/src/fluent-query.ts", "Query")),
   ].join("\n");
 }
 

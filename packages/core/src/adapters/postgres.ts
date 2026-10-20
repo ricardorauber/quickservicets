@@ -1,7 +1,7 @@
 import { SQL } from "bun";
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
-import { UniqueViolationError, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
+import { UniqueViolationError, type DatabaseAdapter, type RelatedScope, type StoredRecord } from "../adapter.ts";
 import type { EntityModel } from "../model.ts";
 import { poolSizePerWorker } from "../workers.ts";
 import { buildDrizzleSchema, columnName, schemaIdentifier, type DrizzleSchema } from "../sql/schema.ts";
@@ -127,7 +127,13 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
     relationFields(entity).length > 0 ? transaction(fn) : fn();
   /** Records read with precompiled text, whose JSON columns may come back as text. */
   const read = async (entity: EntityModel, statement: Statement) => statementsFor(entity).records(await run(statement));
-
+  /** The owner's table and the junction storing the reference array of a related query, with the target's statements. */
+  const relatedOf = (scope: RelatedScope) => {
+    const owner = statementsFor(scope.owner);
+    const junction = owner.junction(scope.field);
+    if (!junction) throw new Error(`${scope.owner.entityName}.${scope.field} is not a stored reference array`);
+    return { owner: owner.table, junction, target: statementsFor(scope.target) };
+  };
 
   return {
     kind: "postgres",
@@ -182,6 +188,25 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
         withTotal ? run(entityStatements.count(where)).then(([row]) => Number(row?.total ?? 0)) : undefined,
       ]);
       return { data, total: total ?? data.length };
+    },
+    async findRelated(scope, { where, sort, limit, offset, withTotal = true }) {
+      const { junction, target } = relatedOf(scope);
+      const [data, total] = await Promise.all([
+        read(scope.target, target.findRelated(junction, scope.id, where, sort, limit, offset)),
+        withTotal ? run(target.countRelated(junction, scope.id, where)).then(([row]) => Number(row?.total ?? 0)) : undefined,
+      ]);
+      return { data, total: total ?? data.length };
+    },
+    async countRelated(scope, where) {
+      const { junction, target } = relatedOf(scope);
+      const [row] = await run(target.countRelated(junction, scope.id, where));
+      return Number(row?.total ?? 0);
+    },
+    async aggregateRelated(scope, where, aggregates) {
+      const { owner, junction, target } = relatedOf(scope);
+      const statement = target.aggregateRelated(owner, junction, scope.id, where, aggregates);
+      const [row] = await run(statement);
+      return row ? statement.decode(row) : null;
     },
     updateById(entity, id, changes, where = []) {
       return translateErrors(() =>

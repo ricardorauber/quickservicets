@@ -1,4 +1,12 @@
-import { UniqueViolationError, type Aggregate, type DatabaseAdapter, type StoredRecord } from "./adapter.ts";
+import {
+  UniqueViolationError,
+  type Aggregate,
+  type AggregateValues,
+  type DatabaseAdapter,
+  type FindManyResult,
+  type RelatedScope,
+  type StoredRecord,
+} from "./adapter.ts";
 import { HttpError } from "./errors.ts";
 import { conditionsOf, createQuery, type Query, type QueryBackend, type QueryLambda } from "./fluent-query.ts";
 import { alwaysHiddenPaths, type EntityModel } from "./model.ts";
@@ -64,9 +72,12 @@ export interface One<T, R = Record<never, never>> {
   readonly [reference]: { kind: "one"; record: T; refs: R };
 }
 
-/** In a references map: a reference array of `T` records, whose own references are `R`. */
-export interface Many<T, R = Record<never, never>> {
-  readonly [reference]: { kind: "many"; record: T; refs: R };
+/**
+ * In a references map: a reference array of `T` records, whose own references are `R`. `S` tells a stored array from
+ * the derived side of a relation; only stored arrays can be followed with `related`.
+ */
+export interface Many<T, R = Record<never, never>, S extends "stored" | "derived" = "stored"> {
+  readonly [reference]: { kind: "many"; record: T; refs: R; side: S };
 }
 
 type Head<P extends string> = P extends `${infer H}.${string}` ? H : P;
@@ -99,6 +110,21 @@ export type ReferencePath<R, D extends number = 5> = [D] extends [never]
 
 /** Paths a repository can populate: its reference paths, or any string when it has no typed references. */
 export type PopulatePath<R> = [keyof R] extends [never] ? string : ReferencePath<R>;
+
+/** Reference arrays `related` can follow: the stored `Many` fields of a references map, or any string without typed references. */
+export type RelatedField<R> = [keyof R] extends [never]
+  ? string
+  : { [K in keyof R & string]: R[K] extends { readonly [reference]: { kind: "many"; side: "stored" } } ? K : never }[keyof R & string];
+
+/** The record type a reference array of a references map lists. */
+export type RelatedRecord<R, K> = K extends keyof R ? (R[K] extends { readonly [reference]: { record: infer X } } ? X : EntityRecord) : EntityRecord;
+
+/** The references map of the records a reference array lists. */
+export type RelatedReferences<R, K> = K extends keyof R
+  ? R[K] extends { readonly [reference]: { refs: infer XR } }
+    ? XR
+    : Record<never, never>
+  : Record<never, never>;
 
 export type PopulateOptions<P extends readonly string[]> = Omit<ReadOptions, "populate"> & { populate?: P };
 
@@ -133,6 +159,12 @@ export interface Repository<T extends EntityRecord = EntityRecord, R = Record<ne
   where(lambda: QueryLambda<T>): Query<T, R>;
   /** A fluent query over every record. */
   query(): Query<T, R>;
+  /**
+   * A fluent query over the records the reference array `field` of record `id` lists, e.g.
+   * `related(orgId, "members")`. It has no records when that record does not exist, and its `aggregate` then resolves
+   * null.
+   */
+  related<K extends RelatedField<R>>(id: string, field: K): Query<RelatedRecord<R, K>, RelatedReferences<R, K>, null>;
 }
 
 /** The read methods of a repository, the only ones offered for records the framework writes (e.g. job runs). */
@@ -148,6 +180,12 @@ export function readRepository<T extends EntityRecord, R>(repository: Repository
 
 /** Repositories keyed by repository key; entities with an explicit schema are nested under the schema key. */
 export type RepositoryRegistry = Record<string, Repository | Record<string, Repository>>;
+
+/** Builds the query backend of a repository's entity over the related records of a scope. */
+type RelatedBackend = (scope: RelatedScope) => QueryBackend;
+
+/** The related-records backend of each repository, kept off its public methods. */
+const relatedBackends = new WeakMap<Repository, RelatedBackend>();
 
 /** Returns the current time, strictly after `previous` so ordering by update time is always meaningful. */
 function nextTimestamp(previous?: Date): Date {
@@ -352,12 +390,27 @@ export function createRepository(
     });
   };
 
+  const resolve = (where: Condition[]) => resolveDerivedConditions(model, where, models, adapter);
+
   /** A page of records; without `withTotal`, the matches are not counted and `total` is the page size. */
-  const listRecords = async (query: ListQuery, options: ReadOptions | undefined, withTotal: boolean): Promise<ListResult<EntityRecord>> => {
-    const where = await resolveDerivedConditions(model, query.where, models, adapter);
-    const { data, total } = await adapter.findMany(model, { ...query, where, withTotal });
+  const listRecords = async (
+    query: ListQuery,
+    options: ReadOptions | undefined,
+    withTotal: boolean,
+    find: (where: Condition[]) => Promise<FindManyResult> = (where) => adapter.findMany(model, { ...query, where, withTotal }),
+  ): Promise<ListResult<EntityRecord>> => {
+    const { data, total } = await find(await resolve(query.where));
     const populated = await withReferences(data, options);
     return { data: populated.map((record) => present(record, options)), total, limit: query.limit, offset: query.offset };
+  };
+
+  /** The aggregates with the conditions of their counts resolved like the query's own. */
+  const resolveAggregates = async (aggregates: Record<string, Aggregate>): Promise<Record<string, Aggregate>> => {
+    const resolved: Record<string, Aggregate> = {};
+    for (const [name, aggregate] of Object.entries(aggregates)) {
+      resolved[name] = aggregate.fn === "count" && aggregate.where ? { fn: "count", where: await resolve(aggregate.where) } : aggregate;
+    }
+    return resolved;
   };
 
   const findAllMax = repositoryOptions.findAllMax ?? DEFAULT_FIND_ALL_MAX;
@@ -365,19 +418,58 @@ export function createRepository(
     model,
     findAllMax,
     list: (query, populate, withTotal) => listRecords(query, { populate }, withTotal),
-    count: async (where) => adapter.count(model, await resolveDerivedConditions(model, where, models, adapter)),
+    count: async (where) => adapter.count(model, await resolve(where)),
     aggregate: async (where, aggregates) => {
-      const resolved: Record<string, Aggregate> = {};
-      for (const [name, aggregate] of Object.entries(aggregates)) {
-        resolved[name] =
-          aggregate.fn === "count" && aggregate.where
-            ? { fn: "count", where: await resolveDerivedConditions(model, aggregate.where, models, adapter) }
-            : aggregate;
-      }
-      return adapter.aggregate(model, await resolveDerivedConditions(model, where, models, adapter), resolved);
+      if (Object.keys(aggregates).length === 0) return {};
+      return adapter.aggregate(model, await resolve(where), await resolveAggregates(aggregates));
     },
     notFound,
   };
+
+  /**
+   * The backend over the records of this entity that a reference array of another record lists. Adapters without
+   * related queries get the same results from the owner's array: the owner is read first, then its ids are filtered.
+   */
+  const relatedBackend: RelatedBackend = (scope) => {
+    const listedIds = async (): Promise<string[] | null> => {
+      const owner = await adapter.findById(scope.owner, scope.id);
+      return owner ? ((owner[scope.field] as string[] | null) ?? []) : null;
+    };
+    const byIds = (ids: string[], where: Condition[]): Condition[] => [{ field: "id", op: "in", value: ids }, ...where];
+    const findRelated = async (query: ListQuery, where: Condition[], withTotal: boolean): Promise<FindManyResult> => {
+      if (adapter.findRelated) return adapter.findRelated(scope, { ...query, where, withTotal });
+      const ids = await listedIds();
+      if (!ids || ids.length === 0) return { data: [], total: 0 };
+      return adapter.findMany(model, { ...query, where: byIds(ids, where), withTotal });
+    };
+    const aggregateRelated = async (where: Condition[], aggregates: Record<string, Aggregate>): Promise<AggregateValues | null> => {
+      if (adapter.aggregateRelated) return adapter.aggregateRelated(scope, where, aggregates);
+      const ids = await listedIds();
+      if (!ids) return null;
+      return adapter.aggregate(model, byIds(ids, where), aggregates);
+    };
+    return {
+      model,
+      findAllMax,
+      list: (query, populate, withTotal) => listRecords(query, { populate }, withTotal, (where) => findRelated(query, where, withTotal)),
+      count: async (where) => {
+        const resolved = await resolve(where);
+        if (adapter.countRelated) return adapter.countRelated(scope, resolved);
+        const ids = await listedIds();
+        return ids && ids.length > 0 ? adapter.count(model, byIds(ids, resolved)) : 0;
+      },
+      aggregate: async (where, aggregates) => {
+        // Without expressions the result still tells whether the owner exists.
+        const empty = Object.keys(aggregates).length === 0;
+        const values = await aggregateRelated(await resolve(where), empty ? { owner: { fn: "count" } } : await resolveAggregates(aggregates));
+        return values && empty ? {} : values;
+      },
+      notFound,
+    };
+  };
+
+  /** The related-records backend of each reference array followed so far, by field name. */
+  const relatedTargets = new Map<string, RelatedBackend>();
 
   const repository: Repository = {
     where(lambda) {
@@ -386,6 +478,21 @@ export function createRepository(
 
     query() {
       return createQuery(backend, { where: [], sort: [], skip: 0 });
+    },
+
+    related(id, field) {
+      const definition = model.fields.find((candidate) => candidate.name === field);
+      if (!definition || definition.type !== "refArray" || definition.storage !== "relation") {
+        throw new Error(`related() follows the stored reference arrays of ${model.entityName}, and "${field}" is not one`);
+      }
+      const target = models.find((candidate) => candidate.key === definition.target);
+      if (!target) throw new Error(`Unknown entity ${definition.target}`);
+      let targetBackend = relatedTargets.get(field);
+      if (!targetBackend) {
+        targetBackend = relatedBackends.get(target === model ? repository : createRepository(target, adapter, models, repositoryOptions))!;
+        relatedTargets.set(field, targetBackend);
+      }
+      return createQuery(targetBackend({ owner: model, id, field, target }), { where: [], sort: [], skip: 0 }) as never;
     },
 
     async findByIds(ids, options = {}) {
@@ -473,6 +580,7 @@ export function createRepository(
     },
   };
 
+  relatedBackends.set(repository, relatedBackend);
   return repository;
 }
 

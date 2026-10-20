@@ -14,10 +14,8 @@ export type User = {
     name?: string
     /** @accept image/png,image/jpeg,image/webp @maxSize 1MB */
     picture?: Media
-
     /** @default UserRole.basic */
     role: UserRole
-
     memberships: Membership[]
     teams: Team[]
 }

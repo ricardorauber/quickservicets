@@ -29,7 +29,8 @@ From the repository root:
 ```bash
 bun benchmarks/run.ts quickservice              # one stack
 bun benchmarks/run.ts quickservice go rust      # several
-bun benchmarks/run.ts all                       # quickservice and every benchmarks/stacks/<name>
+bun benchmarks/run.ts quickservice-workers      # QuickService with server.workers = 2 (quickservice/Dockerfile.workers)
+bun benchmarks/run.ts all                       # quickservice, quickservice-workers and every benchmarks/stacks/<name>
 bun benchmarks/run.ts go --scenarios crud,query --duration 10s --warmup 5s
 ```
 
@@ -46,7 +47,7 @@ bun benchmarks/run.ts go --scenarios crud,query --duration 10s --warmup 5s
 For each stack, `run.ts`:
 
 1. starts PostgreSQL with `docker compose` (left running between stacks; `docker compose -f benchmarks/docker-compose.yml down` removes it);
-2. builds `qsbench-<stack>` from `stacks/<stack>/Dockerfile` (QuickService: `quickservice/Dockerfile`, with the repository root as context) and records the image size;
+2. builds `qsbench-<stack>` from `stacks/<stack>/Dockerfile` (QuickService: `quickservice/Dockerfile`, or `quickservice/Dockerfile.<variant>` for `quickservice-<variant>`, with the repository root as context) and records the image size;
 3. drops and recreates the schema from `schema/schema.sql` and loads the seed;
 4. creates the container with `--cpus=2 --memory=1g`, the environment from the contract and a fresh upload volume, then measures startup: `docker start` to the first `200` on `GET /health`, polled every 5 ms, over 3 cold starts (median reported; this includes Docker's own start overhead, the same for every stack);
 5. samples `docker stats` from then on: idle memory over 5 seconds, then memory and CPU per scenario;

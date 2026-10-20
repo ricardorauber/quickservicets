@@ -25,6 +25,8 @@ export type AdapterKind = "memory" | "sqlite" | "postgres" | "mongodb";
 export interface ConnectOptions {
   /** The resolved default schema (see `loadConfig`), or null for the database's own default. */
   defaultSchema?: string | null;
+  /** The server processes sharing the adapter's connection pool size, each opening its share (default 1). */
+  workers?: number;
 }
 
 export interface DatabaseAdapter {

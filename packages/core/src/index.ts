@@ -9,7 +9,9 @@ export type { Condition, FilterOperator, ListQuery, SizeComparison, SizeFilter, 
 export { UniqueViolationError } from "./adapter.ts";
 export type { AdapterKind, ConnectOptions, DatabaseAdapter, FindManyOptions, FindManyResult, StoredRecord } from "./adapter.ts";
 export { memoryAdapter } from "./adapters/memory.ts";
-export { CONFIG_FILE, ConfigError, DEFAULT_PORT, DEFAULT_POPULATE_DEPTH, defineConfig, JOB_DEFAULTS, loadConfig, resolveConfig } from "./config.ts";
+export { CONFIG_FILE, ConfigError, DEFAULT_PORT, DEFAULT_POPULATE_DEPTH, defineConfig, JOB_DEFAULTS, loadConfig, resolveConfig, WORKERS_NEED_DATABASE_SERVER } from "./config.ts";
+export { availableCpus, isPrimary, poolSizePerWorker, runPrimary, runsScheduledWork, runWorkers, WORKER_INDEX_ENV, WORKERS_ENV, workerIndex } from "./workers.ts";
+export type { PrimaryOptions, WorkerProcess } from "./workers.ts";
 export type { ResolvedConfig, ServiceConfig } from "./config.ts";
 export { createRepositories, createRepository, READ_METHODS, readRepository, repositoryFor } from "./repository.ts";
 export type { EntityRecord, ListResult, Many, One, Populated, PopulatePath, ReadOptions, ReadRepository, ReferencePath, Repository, RepositoryOptions, RepositoryRegistry } from "./repository.ts";

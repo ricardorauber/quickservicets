@@ -5,12 +5,17 @@ import { drizzle, type BunSQLDatabase } from "drizzle-orm/bun-sql";
 import { UniqueViolationError, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
 import type { EntityModel } from "../model.ts";
 import { toOrderBy, toWhere } from "../sql/conditions.ts";
+import { poolSizePerWorker } from "../workers.ts";
 import { buildDrizzleSchema, columnName, schemaIdentifier, type DrizzleSchema } from "../sql/schema.ts";
 import { loadRelations, splitRelations, writeRelations } from "../sql/relations.ts";
 
 export interface PostgresAdapterOptions {
   url: string;
+  /** Most connections the pool opens (default 10); with `server.workers` above 1 it is divided across the workers. */
+  max?: number;
 }
+
+export const DEFAULT_POSTGRES_POOL_SIZE = 10;
 
 export interface PostgresAdapter extends DatabaseAdapter {
   /** The underlying `Bun.SQL` client while connected. */
@@ -97,8 +102,9 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
         await admin.unsafe(`create schema if not exists "${defaultSchema}"`);
         await admin.close();
       }
+      const max = poolSizePerWorker(options.max ?? DEFAULT_POSTGRES_POOL_SIZE, connectOptions.workers);
       // The search path is a connection parameter, so every pooled connection uses the default schema.
-      client = defaultSchema ? new SQL({ url: options.url, connection: { search_path: defaultSchema } } as never) : new SQL(options.url);
+      client = new SQL({ url: options.url, max, ...(defaultSchema ? { connection: { search_path: defaultSchema } } : {}) } as never);
       db = drizzle({ client });
       schema = buildDrizzleSchema(entityModels, "postgres");
     },

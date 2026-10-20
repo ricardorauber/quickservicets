@@ -48,6 +48,39 @@ export const mongodb = mongodbAdapter({ url: process.env.DATABASE_URL!, database
 
 `quickservice init --db <database>` writes the matching config and a `.env` with the variables it reads.
 
+`postgresAdapter` opens up to 10 connections; `max` changes that. The total holds across all the server's workers (see below).
+
+## Using every CPU
+
+A server is one process, so it uses one CPU. `server.workers` starts several processes that share the port:
+
+```ts check title="quickservice.config.ts"
+import { defineConfig, postgresAdapter } from "@quickservice/core";
+
+export default defineConfig({
+  database: postgresAdapter({ url: process.env.DATABASE_URL!, max: 10 }),
+  server: { workers: "auto" },
+});
+```
+
+`workers` is a positive integer or `"auto"`, the number of CPUs available to the process; the default is 1. On Linux, `"auto"` reads the container's CPU quota (cgroup v2 `cpu.max`), so a container started with `--cpus=2` runs 2 workers on any host. The `QS_WORKERS` variable overrides the config, so one build can run with 1 worker on a laptop and `QS_WORKERS=auto` in production.
+
+With more than one worker:
+
+- The process started by `bun .generated/server.ts` only supervises. It starts the workers, which listen on the port with `reusePort`, and starts a worker again when it exits.
+- `SIGTERM` and `SIGINT` go to every worker, and each one shuts down gracefully, letting its running jobs finish (see [Jobs](/guides/jobs/)). The process exits once all have stopped, with 0, or 1 when a worker failed.
+- The connection pool is divided across the workers, rounded up: with `max: 10` and 2 workers each one opens up to 5.
+- Scheduled jobs, the run cleanup and the abandoned-run check run in the first worker only. `req.jobs.run` works in every worker.
+- Each worker has `QS_WORKER_INDEX`, from `0` to `workers - 1`, in its environment.
+
+Workers need a database server. The memory and SQLite adapters keep their data in the process, so the server refuses to start:
+
+```text
+server.workers > 1 requires a database server (PostgreSQL or MongoDB)
+```
+
+The operating system spreads connections across the workers only on Linux. On macOS the workers start, but one of them receives the requests, so keep the default of 1 there. Module-level state, such as an in-memory cache, is separate in each worker, and log lines from all of them share stdout.
+
 ## Environment variables
 
 Bun loads `.env` from the project folder, so values there reach `process.env` in the config. `init` adds `.env` to `.gitignore`; keep secrets there or in your host's settings.
@@ -59,6 +92,7 @@ Bun loads `.env` from the project folder, so values there reach `process.env` in
 | `DATABASE_PATH` | the config written by `init` | SQLite file path. |
 | `DATABASE_SCHEMA` | QuickService | Default database schema; overrides `schema` in the config. Must match `^[a-z][a-z0-9-]*$`. |
 | `PORT` | QuickService | Port to listen on when `server.port` is not set (default 3000). |
+| `QS_WORKERS` | QuickService | Number of server processes, or `auto`; overrides `server.workers`. |
 | `NODE_ENV` | QuickService | `production` turns on production mode when `production` is not set. |
 | `FILES_SIGNING_SECRET` | QuickService | Secret of signed file URLs when `files.signingSecret` is not set. |
 | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION`, `S3_ENDPOINT` | `s3Storage` | Credentials, region and endpoint left out of the options; the `AWS_*` versions also work. |

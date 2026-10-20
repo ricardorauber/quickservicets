@@ -3,8 +3,12 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { memoryAdapter } from "./adapters/memory.ts";
+import { mongodbAdapter } from "./adapters/mongodb.ts";
+import { postgresAdapter } from "./adapters/postgres.ts";
+import { sqliteAdapter } from "./adapters/sqlite.ts";
 import { ConfigError, defineConfig, loadConfig, resolveConfig, type ServiceConfig } from "./config.ts";
 import { jobSettings } from "./jobs/job.ts";
+import { availableCpus } from "./workers.ts";
 
 const coreEntry = join(import.meta.dir, "index.ts");
 
@@ -138,5 +142,46 @@ describe("jobs", () => {
   test("loadConfig throws naming jobs.timeout", async () => {
     const root = projectWithConfig('defineConfig({ database: memoryAdapter(), jobs: { timeout: "soon" } })');
     await expect(loadConfig(root, {})).rejects.toThrow('Invalid jobs.timeout: expected a duration like 30s, 10m or 30d, got "soon"');
+  });
+});
+
+describe("server.workers", () => {
+  const postgres = postgresAdapter({ url: "postgres://localhost/none" });
+  const twoCpus = () => 2;
+
+  test("an integer or auto, 1 by default, and QS_WORKERS overrides the config", async () => {
+    expect(resolveConfig({ database: postgres }, {}).server.workers).toBe(1);
+    expect(resolveConfig({ database: postgres, server: { workers: 4 } }, {}).server.workers).toBe(4);
+    expect(resolveConfig({ database: postgres, server: { workers: "auto" } }, {}, undefined, twoCpus).server.workers).toBe(2);
+    expect(resolveConfig({ database: postgres, server: { workers: 4 } }, { QS_WORKERS: "3" }).server.workers).toBe(3);
+    expect(resolveConfig({ database: postgres }, { QS_WORKERS: "auto" }, undefined, twoCpus).server.workers).toBe(2);
+    expect(resolveConfig({ database: postgres, server: { workers: 3 } }, { QS_WORKERS: "" }).server.workers).toBe(3);
+    for (const workers of [0, -1, 1.5, "x", "2"]) {
+      expect(() => resolveConfig({ database: postgres, server: { workers: workers as never } }, {})).toThrow(
+        `Invalid server.workers: expected a positive integer or "auto", got ${JSON.stringify(workers)}`,
+      );
+    }
+    expect(() => resolveConfig({ database: postgres }, { QS_WORKERS: "0" })).toThrow('Invalid QS_WORKERS (server.workers): expected a positive integer or "auto", got "0"');
+    await expect(loadConfig(projectWithConfig('defineConfig({ database: memoryAdapter(), server: { workers: "x" } })'), {})).rejects.toThrow("Invalid server.workers");
+    // "auto" reads the container's CPU quota, then the host's CPUs.
+    const host = () => 8;
+    expect(availableCpus(() => "200000 100000\n", host)).toBe(2);
+    expect(availableCpus(() => "150000 100000", host)).toBe(2);
+    expect(availableCpus(() => "50000 100000", host)).toBe(1);
+    expect(availableCpus(() => "1600000 100000", host)).toBe(8);
+    expect(availableCpus(() => "max 100000", host)).toBe(8);
+    expect(availableCpus(() => undefined, host)).toBe(8);
+    expect(availableCpus(() => "garbage", host)).toBe(8);
+    expect(availableCpus()).toBeGreaterThanOrEqual(1);
+  });
+
+  test("more than one worker needs a database server", async () => {
+    const message = "server.workers > 1 requires a database server (PostgreSQL or MongoDB)";
+    expect(() => resolveConfig({ database: memoryAdapter(), server: { workers: 2 } }, {})).toThrow(message);
+    expect(() => resolveConfig({ database: sqliteAdapter({ path: ":memory:" }) }, { QS_WORKERS: "2" })).toThrow(message);
+    expect(() => resolveConfig({ database: memoryAdapter() }, { QS_WORKERS: "auto" }, undefined, twoCpus)).toThrow(message);
+    expect(resolveConfig({ database: sqliteAdapter({ path: ":memory:" }), server: { workers: 1 } }, {}).server.workers).toBe(1);
+    expect(resolveConfig({ database: mongodbAdapter({ url: "mongodb://localhost/none", database: "none" }), server: { workers: 2 } }, {}).server.workers).toBe(2);
+    await expect(loadConfig(projectWithConfig("defineConfig({ database: memoryAdapter(), server: { workers: 2 } })"), {})).rejects.toThrow(message);
   });
 });

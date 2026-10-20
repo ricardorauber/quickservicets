@@ -1,9 +1,7 @@
 # syntax=docker/dockerfile:1
 # QuickService benchmark service. Build from the repository root:
-#   docker build -f benchmarks/quickservice/Dockerfile -t qsbench-quickservice .
-
-# EXPERIMENT, not the shipped framework: two processes sharing the port with reusePort, 5 database connections each.
-# The patch below is applied to a copy of the core package inside the image only.
+#   docker build -f benchmarks/quickservice/Dockerfile.workers -t qsbench-quickservice-workers .
+# The same service as Dockerfile, run with two worker processes (server.workers through QS_WORKERS).
 
 # 1. Install every dependency and run `quickservice build`, which writes .generated/.
 FROM oven/bun:1.4.2-alpine AS build
@@ -14,9 +12,6 @@ COPY packages/core packages/core
 COPY packages/cli packages/cli
 COPY benchmarks/quickservice benchmarks/quickservice
 RUN bun install --frozen-lockfile --filter quickservice-benchmark
-RUN sed -i "s/return Bun.serve({ port, fetch });/return Bun.serve({ port, fetch, reusePort: true });/" packages/core/src/http/server.ts \
-  && sed -i "s/: new SQL(options.url);/: new SQL({ url: options.url, max: 5 });/" packages/core/src/adapters/postgres.ts \
-  && grep -q "reusePort: true" packages/core/src/http/server.ts && grep -q "max: 5" packages/core/src/adapters/postgres.ts
 RUN cd benchmarks/quickservice && bun run build
 
 # 2. Production dependencies of the service only: the CLI is a build tool and stays out of the image.
@@ -32,14 +27,14 @@ RUN sed -i '/"@quickservice\/cli"/d; s/"@quickservice\/core": "workspace:\*",/"@
 
 # 3. Runtime: Bun, the core package, the production dependencies and the built project.
 FROM oven/bun:1.4.2-alpine
-ENV NODE_ENV=production PORT=8080 UPLOAD_DIR=/data/uploads
+ENV NODE_ENV=production PORT=8080 UPLOAD_DIR=/data/uploads QS_WORKERS=2
 WORKDIR /app
 COPY --from=deps /app/node_modules node_modules
 COPY --from=deps /app/benchmarks/quickservice/node_modules benchmarks/quickservice/node_modules
 COPY --from=deps /app/packages/core/node_modules packages/core/node_modules
 COPY package.json ./
 COPY packages/core/package.json packages/core/
-COPY --from=build /app/packages/core/src packages/core/src
+COPY packages/core/src packages/core/src
 COPY --from=build /app/benchmarks/quickservice/package.json /app/benchmarks/quickservice/quickservice.config.ts benchmarks/quickservice/
 COPY --from=build /app/benchmarks/quickservice/.generated benchmarks/quickservice/.generated
 COPY --from=build /app/benchmarks/quickservice/endpoints benchmarks/quickservice/endpoints
@@ -47,5 +42,4 @@ RUN mkdir -p /data/uploads && chown -R bun:bun /data
 USER bun
 WORKDIR /app/benchmarks/quickservice
 EXPOSE 8080
-COPY benchmarks/quickservice/launch-2proc.ts ./
-CMD ["bun", "launch-2proc.ts"]
+CMD ["bun", ".generated/server.ts"]

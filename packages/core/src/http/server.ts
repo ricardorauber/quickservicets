@@ -26,7 +26,7 @@ export interface Route {
 export interface ServerOptions {
   routes: Route[];
   repos: Repositories;
-  config: { production: boolean; server?: { port: number }; logger?: Logger };
+  config: { production: boolean; server?: { port: number; workers?: number }; logger?: Logger };
   /** `req.jobs` of every request (default: no jobs). */
   jobs?: RequestJobs;
 }
@@ -159,7 +159,8 @@ export function createServer({ routes, repos, config, jobs = noRequestJobs }: Se
   return {
     fetch,
     listen(port = config.server?.port) {
-      return Bun.serve({ port, fetch });
+      // Worker processes share the port; on Linux the kernel spreads the connections across them.
+      return Bun.serve({ port, fetch, ...((config.server?.workers ?? 1) > 1 ? { reusePort: true } : {}) });
     },
   };
 }

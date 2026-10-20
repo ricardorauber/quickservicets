@@ -256,7 +256,7 @@ Ordered by expected gain per unit of effort. Gains are for one process unless st
 
 ### P5. Multi-core: reusePort workers
 
-- **Evidence:** the experimental 2-process image (`Dockerfile.2proc`: `reusePort: true` and 5 connections per process) measured these req/s:
+- **Evidence:** the experimental 2-process image (`Dockerfile.2proc`, since replaced by `Dockerfile.workers` and `server.workers`: `reusePort: true` and 5 connections per process) measured these req/s:
 
   | Scenario | 1 process | 2 processes | Change |
   | --- | ---: | ---: | ---: |

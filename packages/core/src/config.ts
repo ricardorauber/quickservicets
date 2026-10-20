@@ -6,6 +6,7 @@ import { DEFAULT_MAX_FILE_SIZE, parseSize } from "./files/limits.ts";
 import { parseDuration } from "./jobs/job.ts";
 import { assertTimeZone, ScheduleError } from "./jobs/schedule.ts";
 import { localStorage } from "./storage/local.ts";
+import { availableCpus, WORKERS_ENV } from "./workers.ts";
 import type { StorageAdapter } from "./storage/storage.ts";
 
 export const CONFIG_FILE = "quickservice.config.ts";
@@ -21,6 +22,8 @@ export interface ServiceConfig {
     port?: number;
     /** Absolute base URL of the API, used in file URLs (default: relative URLs). */
     publicUrl?: string;
+    /** Processes serving requests on the shared port, an integer or `"auto"` for the CPUs available, read from the container's CPU quota on Linux (default 1); `QS_WORKERS` overrides it. Above 1 it needs PostgreSQL or MongoDB, and connections spread across the processes only on Linux. */
+    workers?: number | "auto";
   };
   /** Production mode: hides internal error details and disables the API docs (default `NODE_ENV === "production"`). */
   production?: boolean;
@@ -101,7 +104,8 @@ export const DEFAULT_POPULATE_DEPTH = 2;
 export interface ResolvedConfig
   extends Omit<ServiceConfig, "server" | "production" | "schema" | "populate" | "storage" | "files" | "docs" | "jobs"> {
   docs: { enabled: boolean };
-  server: { port: number; publicUrl?: string };
+  /** `workers` is the resolved number of processes, `"auto"` included. */
+  server: { port: number; publicUrl?: string; workers: number };
   files: {
     maxSize: number;
     accept: string[];
@@ -161,6 +165,22 @@ function resolvePort(config: ServiceConfig, env: Record<string, string | undefin
     throw new ConfigError(`Invalid server.port: expected an integer between 1 and 65535, got ${String(config.server?.port ?? env.PORT)}`);
   }
   return raw;
+}
+
+export const WORKERS_NEED_DATABASE_SERVER = "server.workers > 1 requires a database server (PostgreSQL or MongoDB)";
+
+function resolveWorkers(config: ServiceConfig, env: Record<string, string | undefined>, cpus: () => number): number {
+  const fromEnv = env[WORKERS_ENV] !== undefined && env[WORKERS_ENV].trim() !== "";
+  const raw: unknown = fromEnv ? env[WORKERS_ENV]!.trim() : (config.server?.workers ?? 1);
+  const value = raw === "auto" ? cpus() : fromEnv && /^\d+$/.test(raw as string) ? Number(raw) : raw;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
+    const source = fromEnv ? `${WORKERS_ENV} (server.workers)` : "server.workers";
+    throw new ConfigError(`Invalid ${source}: expected a positive integer or "auto", got ${JSON.stringify(raw)}`);
+  }
+  // Memory and SQLite hold their data in the process, so separate processes would not share it.
+  const kind = config.database.kind;
+  if (value > 1 && (kind === "memory" || kind === "sqlite")) throw new ConfigError(WORKERS_NEED_DATABASE_SERVER);
+  return value;
 }
 
 export const DEFAULT_STORAGE_DIR = "uploads";
@@ -250,6 +270,7 @@ export function resolveConfig(
   config: ServiceConfig,
   env: Record<string, string | undefined> = process.env,
   projectRoot = process.cwd(),
+  cpus: () => number = availableCpus,
 ): ResolvedConfig {
   if (!config || typeof config !== "object" || !config.database) {
     throw new ConfigError("Invalid config: database is required");
@@ -257,7 +278,7 @@ export function resolveConfig(
   const production = config.production ?? env.NODE_ENV === "production";
   return {
     ...config,
-    server: { ...config.server, port: resolvePort(config, env) },
+    server: { ...config.server, port: resolvePort(config, env), workers: resolveWorkers(config, env, cpus) },
     production,
     docs: { enabled: config.docs?.enabled ?? !production },
     schema: resolveSchema(config, env),

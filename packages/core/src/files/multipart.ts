@@ -91,8 +91,8 @@ interface OpenPart {
 }
 
 /**
- * Reads a multipart/form-data body in one pass as its chunks arrive: the boundary, each part's headers and where
- * each part's bytes are, without copying them. Malformed bodies fail as the runtime's own form parser fails.
+ * Reads a multipart/form-data body in one pass, as its chunks arrive or all at once: the boundary, each part's
+ * headers and where each part's bytes are, without copying them. Malformed bodies fail as the runtime's own form parser fails.
  */
 export class MultipartReader {
   private buffer: Buffer<ArrayBuffer>;
@@ -115,6 +115,17 @@ export class MultipartReader {
     this.delimiter = Buffer.from(`--${boundary}`);
     this.next = Buffer.from(`\r\n--${boundary}`);
     this.buffer = Buffer.allocUnsafe(Math.min(Math.max(sizeHint, 1024), 16 * 1024 ** 2));
+  }
+
+  /**
+   * Takes the whole body at once and reads it as far as it allows, keeping a view of the given bytes instead of a
+   * copy, so they must not change afterwards. A reader that already holds bytes adds them as the next chunk instead.
+   */
+  adopt(bytes: Uint8Array): void {
+    if (this.length > 0 || this.state === "done") return this.push(bytes);
+    this.buffer = Buffer.from(bytes.buffer as ArrayBuffer, bytes.byteOffset, bytes.byteLength);
+    this.length = bytes.byteLength;
+    this.advance(false);
   }
 
   /** Adds the next chunk of the body and reads as far as it allows. */

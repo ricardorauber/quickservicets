@@ -62,19 +62,27 @@ export function formFields(model: EntityModel, form: FormData, skip: (name: stri
   return result;
 }
 
+/** How far a body may exceed the largest file it can carry, for its other parts and headers, and still be read at once. */
+const BUFFERED_ALLOWANCE = 64 * 1024;
+
 /**
- * Parses a multipart body in one pass as it arrives; each file part carries the type its `Content-Type` header
- * declared (empty when it has none). With a limit, an oversized file part can fail before the rest is read.
+ * Parses a multipart body in one pass; each file part carries the type its `Content-Type` header declared (empty
+ * when it has none). A body whose `Content-Length` is at most `maxFileSize` (by default the limit's size) plus a small
+ * allowance is read at once; any other body is read as it arrives, so with a limit an oversized file part can fail
+ * before the rest is read.
  */
-export async function readMultipart(req: ServiceRequest, limit?: MultipartLimit): Promise<FormData> {
+export async function readMultipart(req: ServiceRequest, limit?: MultipartLimit, maxFileSize = limit?.maxSize ?? 0): Promise<FormData> {
   const type = req.headers.get("content-type") ?? "";
   if (!type.toLowerCase().startsWith("multipart/form-data")) {
     throw new HttpError(415, "Must be multipart/form-data");
   }
   const boundary = boundaryOf(type);
   if (boundary === undefined) throw new TypeError("Can't decode form data from body because of incorrect MIME type/boundary");
-  const reader = new MultipartReader(boundary, Number(req.headers.get("content-length")) || 0, limit);
-  const stream = req.raw.body?.getReader();
+  const declared = Number(req.headers.get("content-length")) || 0;
+  const buffered = declared > 0 && declared <= maxFileSize + BUFFERED_ALLOWANCE;
+  const reader = new MultipartReader(boundary, buffered ? 0 : declared, limit);
+  if (buffered) reader.adopt(await req.raw.bytes());
+  const stream = buffered ? undefined : req.raw.body?.getReader();
   if (stream) {
     try {
       for (let chunk = await stream.read(); !chunk.done; chunk = await stream.read()) reader.push(chunk.value);
@@ -119,7 +127,7 @@ function replacedType(detected: string | undefined, type: string, path: string):
 }
 
 /** The size limit of a file entity's files, and of a field's files when it has its own. */
-function maxFileSize(model: EntityModel, settings: UploadSettings, fieldLimits?: { maxSize?: number }): number {
+export function maxFileSize(model: EntityModel, settings: UploadSettings, fieldLimits?: { maxSize?: number }): number {
   return Math.min(model.fileLimits?.maxSize ?? settings.files.maxSize, fieldLimits?.maxSize ?? Number.POSITIVE_INFINITY);
 }
 

@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { connect } from "node:net";
 import { HttpError } from "../errors.ts";
 import type { ServiceRequest } from "../hooks.ts";
 import { fileSamples } from "../testing/file-samples.ts";
 import type { EntityModel } from "../model.ts";
-import { parseUpload, readMultipart, resolveUploadType } from "./upload.ts";
+import { parseUpload, readMultipart, resolveUploadType, type ParsedUpload } from "./upload.ts";
 
 const BOUNDARY = "sample-boundary";
 
@@ -196,5 +197,185 @@ describe("malformed bodies and limits", () => {
     expect((await rejection(parseUpload(complete, model, settings))).status).toBe(413);
     const small = await parseUpload(multipart([filePart("file", "a.png", fileSamples.png, "image/png")]), model, settings);
     expect([small.file.type, small.file.size]).toEqual(["image/png", fileSamples.png.length]);
+  });
+});
+
+describe("bodies read at once or as they arrive", () => {
+  const encoder = new TextEncoder();
+  const contentType = `multipart/form-data; boundary=${BOUNDARY}`;
+  const fileBody = (bytes: Uint8Array | string, type = "image/png", preamble = "") =>
+    new Uint8Array(
+      Buffer.concat([
+        encoder.encode(`${preamble}--${BOUNDARY}\r\nContent-Disposition: form-data; name="file"; filename="a.png"\r\nContent-Type: ${type}\r\n\r\n`),
+        typeof bytes === "string" ? encoder.encode(bytes) : bytes,
+        encoder.encode(`\r\n--${BOUNDARY}\r\nContent-Disposition: form-data; name="alt"\r\n\r\nLogo\r\n--${BOUNDARY}--\r\n`),
+      ]),
+    );
+  /** A body of exactly `size` bytes, padded with an ignored preamble. */
+  const sized = (size: number) => {
+    const bare = fileBody("abc");
+    return fileBody("abc", "image/png", "p".repeat(size - bare.length));
+  };
+  const chunked = (bytes: Uint8Array, cut?: Error) =>
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (let start = 0; start < bytes.length; start += 1000) controller.enqueue(bytes.subarray(start, start + 1000));
+        if (cut) controller.error(cut);
+        else controller.close();
+      },
+    });
+
+  /** A request that records whether its body was read at once (`bytes`) or as a stream. */
+  function tracked(body: Uint8Array | ReadableStream<Uint8Array>, contentLength?: number) {
+    const headers: Record<string, string> = { "content-type": contentType };
+    if (contentLength !== undefined) headers["content-length"] = String(contentLength);
+    const raw = new Request("http://x/media", { method: "POST", headers, body });
+    const reads: string[] = [];
+    const spy = {
+      headers: raw.headers,
+      get body() {
+        reads.push("stream");
+        return raw.body;
+      },
+      bytes() {
+        reads.push("bytes");
+        return raw.bytes();
+      },
+    };
+    return { req: { headers: raw.headers, raw: spy } as unknown as ServiceRequest, reads };
+  }
+
+  /** What a parse ends with: the form's entries, or the error's kind, message, status and details. */
+  async function outcome(promise: Promise<FormData | { file: Blob; data: unknown }>) {
+    try {
+      const result = await promise;
+      const values = result instanceof FormData ? [...result.entries()] : [["file", result.file] as const, ["data", JSON.stringify(result.data)] as const];
+      return await Promise.all(
+        values.map(async ([name, value]) =>
+          typeof value === "string" ? [name, value] : [name, value.type, value.size, Buffer.from(await value.arrayBuffer()).toString("base64")],
+        ),
+      );
+    } catch (error) {
+      const failure = error as HttpError;
+      return { error: [failure.name, failure.message, failure.status, failure.details] };
+    }
+  }
+
+  const model = { key: "Media", fields: [], file: { base: "file" }, fileLimits: { maxSize: 100 } } as unknown as EntityModel;
+  const settings = { storage: {}, files: { maxSize: 1024, accept: ["*/*"] } };
+  const oversized = new Uint8Array([...fileSamples.png, ...new Uint8Array(200)]);
+
+  test("a body with a Content-Length is read at once, with the same outcome as when it streams", async () => {
+    const cases: [Uint8Array, (req: ServiceRequest) => Promise<FormData | ParsedUpload>][] = [
+      [fileBody(fileSamples.png), (req) => readMultipart(req)],
+      [fileBody(fileSamples.png), (req) => parseUpload(req, model, settings)],
+      [fileBody(oversized), (req) => parseUpload(req, model, settings)],
+      [fileBody(oversized, "image/gif"), (req) => parseUpload(req, model, settings)],
+      [fileBody("abc").subarray(0, 120), (req) => readMultipart(req)],
+      [encoder.encode(`--${BOUNDARY}\r\nno colon\r\n\r\nabc\r\n--${BOUNDARY}--`), (req) => readMultipart(req)],
+    ];
+    for (const [body, parse] of cases) {
+      const atOnce = tracked(body, body.length);
+      const streamed = tracked(chunked(body));
+      const expected = await outcome(parse(streamed.req));
+      expect(await outcome(parse(atOnce.req))).toEqual(expected);
+      expect([atOnce.reads, streamed.reads]).toEqual([["bytes"], ["stream"]]);
+    }
+  });
+
+  test("the threshold, missing and wrong Content-Length and truncated bodies", async () => {
+    const limit = 1000;
+    const threshold = limit + 64 * 1024;
+    const largest = sized(threshold);
+    const expected = await outcome(readMultipart(tracked(chunked(largest)).req, undefined, limit));
+    expect(expected).toEqual([
+      ["file", "image/png", 3, "YWJj"],
+      ["alt", "Logo"],
+    ]);
+
+    // Up to the threshold the body is read at once; past it, and without a Content-Length, it streams.
+    const at = tracked(largest, largest.length);
+    expect(await outcome(readMultipart(at.req, undefined, limit))).toEqual(expected);
+    const past = tracked(sized(threshold + 1), threshold + 1);
+    expect(await outcome(readMultipart(past.req, undefined, limit))).toEqual(expected);
+    const missing = tracked(largest);
+    expect(await outcome(readMultipart(missing.req, undefined, limit))).toEqual(expected);
+    const zero = tracked(largest, 0);
+    expect(await outcome(readMultipart(zero.req, undefined, limit))).toEqual(expected);
+    expect([at.reads, past.reads, missing.reads, zero.reads]).toEqual([["bytes"], ["stream"], ["stream"], ["stream"]]);
+
+    // A Content-Length that does not match the body changes the path, never the outcome.
+    const body = fileBody(fileSamples.png);
+    const streamed = await outcome(readMultipart(tracked(chunked(body)).req));
+    for (const declared of [1, body.length - 1, body.length + 1, 70 * 1024]) {
+      const wrong = tracked(body, declared);
+      expect(await outcome(readMultipart(wrong.req))).toEqual(streamed);
+      expect(wrong.reads).toEqual([declared <= 64 * 1024 ? "bytes" : "stream"]);
+    }
+
+    // A body that breaks off fails with its stream's error, and one that ends early with the parser's.
+    const cut = new Error("The connection was closed.");
+    for (const declared of [body.length, undefined]) {
+      expect(await outcome(readMultipart(tracked(chunked(body.subarray(0, 150), cut), declared).req))).toEqual({
+        error: ["Error", "The connection was closed.", undefined, undefined],
+      });
+      expect(await outcome(readMultipart(tracked(chunked(body.subarray(0, 150)), declared).req))).toEqual({
+        error: ["TypeError", "FormData parse error missing final boundary", undefined, undefined],
+      });
+    }
+  });
+
+  test("an oversized file past the threshold still fails as soon as its head arrives", async () => {
+    // A 2 MB file to a 1 MB limit, as a body that never ends: only its first megabyte and a bit ever arrive.
+    const limited = { ...model, fileLimits: { maxSize: 1024 * 1024 } } as EntityModel;
+    const start = fileBody(new Uint8Array([...fileSamples.png, ...new Uint8Array(1024 * 1024)]));
+    const endless = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(start.subarray(0, start.length - 100));
+      },
+    });
+    const { req, reads } = tracked(endless, 2 * 1024 * 1024);
+    expect(await outcome(parseUpload(req, limited, settings))).toEqual({ error: ["HttpError", "File too large", 413, undefined] });
+    expect(reads).toEqual(["stream"]);
+  });
+
+  test("on a real connection, both paths answer the same to a wrong or a truncated Content-Length", async () => {
+    const results: unknown[] = [];
+    using server = Bun.serve({
+      port: 0,
+      async fetch(raw) {
+        const maxFileSize = raw.url.endsWith("/at-once") ? 1024 * 1024 : 0;
+        results.push(await outcome(readMultipart({ headers: raw.headers, raw } as unknown as ServiceRequest, undefined, maxFileSize)));
+        return new Response("done");
+      },
+    });
+    // Bodies over the allowance, so a file limit of 0 makes them stream.
+    const body = sized(70 * 1024);
+    const send = (path: string, declared: number, bytes: Uint8Array) =>
+      new Promise<void>((resolve) => {
+        const socket = connect(server.port!, "127.0.0.1", () => {
+          socket.write(`POST ${path} HTTP/1.1\r\nHost: x\r\nContent-Type: ${contentType}\r\nContent-Length: ${declared}\r\n\r\n`);
+          socket.write(bytes, () => {
+            if (declared > bytes.length) setTimeout(() => socket.end(), 50);
+          });
+        });
+        socket.on("data", () => socket.end());
+        socket.on("close", () => resolve());
+        socket.on("error", () => resolve());
+      });
+    for (const path of ["/at-once", "/streamed"]) {
+      await send(path, body.length, body);
+      await send(path, body.length - 10, body);
+      await send(path, body.length, body.subarray(0, 40 * 1024));
+    }
+    while (results.length < 6) await Bun.sleep(10);
+    const [whole, short, truncated] = results;
+    expect(results.slice(3)).toEqual(results.slice(0, 3));
+    expect(whole).toEqual([
+      ["file", "image/png", 3, "YWJj"],
+      ["alt", "Logo"],
+    ]);
+    expect(short).toEqual({ error: ["TypeError", "FormData parse error missing final boundary", undefined, undefined] });
+    expect(truncated).toEqual({ error: ["AbortError", "The connection was closed.", undefined, undefined] });
   });
 });

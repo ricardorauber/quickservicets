@@ -3,7 +3,7 @@ import type { ServiceRequest } from "../hooks.ts";
 import type { EntityModel } from "../model.ts";
 import { repositoryFor, type RepositoryRegistry } from "../repository.ts";
 import { fileTargetOf, type FileReference } from "./field-limits.ts";
-import { assertFileAllowed, formFields, readMultipart, resolveUploadType, storeFile, type UploadSettings } from "./upload.ts";
+import { assertFileAllowed, formFields, maxFileSize, readMultipart, resolveUploadType, storeFile, type UploadSettings } from "./upload.ts";
 
 const invalid = (field: string, message: string) => new HttpError(400, "Invalid body", { details: [{ field, message }] });
 
@@ -21,6 +21,16 @@ export interface EntityUpload {
 /** How uploaded ids combine with a field's value: `create`/`replace` set the list, `patch` adds to it. */
 export type UploadMode = "create" | "replace" | "patch";
 
+/** The largest file any of the entity's file fields accepts, or 0 when it has none. */
+function largestFileSize(model: EntityModel, models: EntityModel[], settings: UploadSettings): number {
+  let largest = 0;
+  for (const field of model.fields) {
+    const target = fileTargetOf(field, models);
+    if (target) largest = Math.max(largest, maxFileSize(target, settings, field.fileLimits));
+  }
+  return largest;
+}
+
 /** Reads a multipart body of a regular entity: fields as form values or a `data` part, and file parts per reference field. */
 export async function parseEntityUpload(
   req: ServiceRequest,
@@ -28,7 +38,7 @@ export async function parseEntityUpload(
   models: EntityModel[],
   settings: UploadSettings,
 ): Promise<EntityUpload> {
-  const form = await readMultipart(req);
+  const form = await readMultipart(req, undefined, largestFileSize(model, models, settings));
   const fileNames = [...new Set([...form.keys()])].filter((name) => form.getAll(name).some((value) => value instanceof Blob));
   const data = formFields(model, form, (name) => fileNames.includes(name));
   const files: EntityUpload["files"] = [];

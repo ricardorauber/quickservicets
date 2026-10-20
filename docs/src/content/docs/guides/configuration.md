@@ -152,6 +152,8 @@ The server writes one log entry per request, as a JSON line on stdout:
 
 Entries never contain bodies, query values, path parameter values or headers other than the request id, so they are safe to ship to a log service.
 
+The default logger collects the lines of one event-loop turn and writes them to stdout together, at the end of the turn or as soon as they pass 64 KB, instead of one write per request. The lines and their order do not change. `error` entries are written right away, and the buffer is written when the process exits and on a graceful shutdown (`SIGTERM` or `SIGINT`), so no line is lost when the server stops. A process killed with `SIGKILL` can lose the lines of its last turn.
+
 Two other kinds of entries exist. An unexpected error (anything thrown that is not an `HttpError`) is logged at `error` with its name, message and stack, in every mode, before the request's entry:
 
 ```json

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { availableParallelism } from "node:os";
-import { jsonLogger, safeLog, type Logger } from "./logger.ts";
+import { flushLogs, jsonLogger, safeLog, type Logger } from "./logger.ts";
 
 /** Overrides `server.workers`: a positive integer or `auto`. */
 export const WORKERS_ENV = "QS_WORKERS";
@@ -95,6 +95,7 @@ export function runPrimary({ workers, spawn, logger = jsonLogger, target = proce
     if (!stopping || running.size > 0) return;
     const code = failed ? 1 : 0;
     finish(code);
+    flushLogs();
     target.exit(code);
   };
 

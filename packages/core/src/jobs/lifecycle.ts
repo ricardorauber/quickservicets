@@ -1,6 +1,6 @@
 import { abortReason, startTimer } from "./attempts.ts";
 import type { JobRun } from "./job-run.ts";
-import { safeLog, type Logger } from "../logger.ts";
+import { flushLogs, safeLog, type Logger } from "../logger.ts";
 import { systemClock, type JobClock, type JobRunner } from "./scheduler.ts";
 
 /** How often each instance looks for runs whose instance stopped sending heartbeats. */
@@ -43,17 +43,21 @@ export const shutdownError = (): Error => abortReason(SHUTDOWN_MESSAGE, "AbortEr
 export type SignalTarget = Pick<NodeJS.Process, "once" | "exit">;
 
 /**
- * Runs `shutdown` once on the first `SIGTERM` or `SIGINT`, then exits with 0 (1 when the shutdown fails). A second signal while shutting down
- * waits for the same shutdown.
+ * Runs `shutdown` once on the first `SIGTERM` or `SIGINT`, writes the buffered log lines, then exits with 0 (1 when the
+ * shutdown fails). A second signal while shutting down waits for the same shutdown.
  */
 export function handleShutdownSignals(shutdown: () => Promise<void>, target: SignalTarget = process): void {
   let running: Promise<void> | undefined;
+  const exit = (code: number) => {
+    flushLogs();
+    target.exit(code);
+  };
   const onSignal = () => {
     running ??= shutdown().then(
-      () => target.exit(0),
+      () => exit(0),
       (error: unknown) => {
         console.error(error instanceof Error ? error.message : String(error));
-        target.exit(1);
+        exit(1);
       },
     );
   };

@@ -4,6 +4,7 @@ import type { ServiceRequest } from "./hooks.ts";
 import { DURATION_UNITS, parseDuration } from "./jobs/job.ts";
 import { CIDR_EXPECTATION, isCidr } from "./cidr.ts";
 import { RATE_EXPECTATION, rateOf } from "./rates.ts";
+import { HOOK_PATH } from "./feature-hooks.ts";
 
 /** The kinds of option schema nodes. */
 export type OptionKind =
@@ -22,7 +23,8 @@ export type OptionKind =
   | "toggle"
   | "record"
   | "rate"
-  | "cidr";
+  | "cidr"
+  | "hook";
 
 /**
  * What a per-request option function receives: the request, undefined outside one (jobs, queues, setup code), and the
@@ -129,6 +131,18 @@ export interface ToggleOptionSchema<S extends Record<string, AnyOptionSchema>> e
   readonly __toggle: S;
 }
 
+/**
+ * A hook of a feature: called with the step's value and context; a before-hook may return a changed value (undefined
+ * keeps it) or throw to cancel the step.
+ */
+export type FeatureHook<V = unknown, C = unknown> = (value: V, ctx: C) => V | void | undefined | Promise<V | void | undefined>;
+
+/** A hook option: a function or a list of functions in the input, always a list once resolved. */
+export interface HookOptionSchema<V, C> extends BaseOptionSchema<FeatureHook<V, C>[]> {
+  /** The hook's function type, for type inference only. */
+  readonly __hook: FeatureHook<V, C>;
+}
+
 /** A map of user-named entries, each resolved with the value schema. */
 export interface RecordOptionSchema<I extends AnyOptionSchema> extends BoundedOptionSchema<Record<string, InputValue<I>>> {
   /** The value schema, for type inference only. */
@@ -143,7 +157,9 @@ type IsPerRequest<S> = S extends PerRequest ? true : false;
 
 /** The value a schema validates, without per-request functions. */
 type PlainValue<S> =
-  S extends { readonly __toggle: infer Shape extends Record<string, AnyOptionSchema> }
+  S extends { readonly __hook: infer F }
+    ? F[]
+    : S extends { readonly __toggle: infer Shape extends Record<string, AnyOptionSchema> }
     ? Simplify<ResolvedShape<Shape> & { enabled: boolean }>
     : S extends { readonly __record: infer I }
       ? Record<string, PlainValue<I>>
@@ -153,7 +169,9 @@ type PlainValue<S> =
           ? PlainValue<I>[]
           : ValueOf<S>;
 type InputValue<S> =
-  S extends { readonly __toggle: infer Shape extends Record<string, AnyOptionSchema> }
+  S extends { readonly __hook: infer F }
+    ? F | F[]
+    : S extends { readonly __toggle: infer Shape extends Record<string, AnyOptionSchema> }
     ? boolean | Simplify<InputShape<Shape> & { enabled?: boolean }>
     : S extends { readonly __record: infer I }
       ? Record<string, InputValue<I>>
@@ -178,10 +196,10 @@ type InputShape<Shape extends Record<string, AnyOptionSchema>> = Simplify<
 >;
 
 /** The input a schema accepts: keys with a default or `.optional()` may be left out; `.perRequest()` keys take functions. */
-export type OptionsInput<S> = S extends { readonly __toggle: unknown } | { readonly __record: unknown } ? WithFunction<S, InputValue<S>> : S extends ObjectOptionSchema<infer Shape> ? InputShape<Shape> : WithFunction<S, InputValue<S>>;
+export type OptionsInput<S> = S extends { readonly __toggle: unknown } | { readonly __record: unknown } | { readonly __hook: unknown } ? WithFunction<S, InputValue<S>> : S extends ObjectOptionSchema<infer Shape> ? InputShape<Shape> : WithFunction<S, InputValue<S>>;
 
 /** The value `resolveOptions` returns: keys with a default are always present. */
-export type Options<S> = S extends { readonly __toggle: unknown } | { readonly __record: unknown } ? WithFunction<S, PlainValue<S>> : S extends ObjectOptionSchema<infer Shape> ? ResolvedShape<Shape> : WithFunction<S, PlainValue<S>>;
+export type Options<S> = S extends { readonly __toggle: unknown } | { readonly __record: unknown } | { readonly __hook: unknown } ? WithFunction<S, PlainValue<S>> : S extends ObjectOptionSchema<infer Shape> ? ResolvedShape<Shape> : WithFunction<S, PlainValue<S>>;
 
 const DURATION_EXAMPLES = Object.keys(DURATION_UNITS);
 
@@ -313,6 +331,15 @@ export function cidr(): OptionSchema<string> {
   return node("cidr") as never;
 }
 
+/**
+ * A hook option: a function or a list of functions, resolved to a list (empty when absent). Name it `before<Step>`
+ * (may change the value or cancel), `after<Step>` (observes the result) or `on<Event>` (observes something that
+ * happened), and run it with `runBeforeHooks` or `runAfterHooks`. Never set by environment variables.
+ */
+export function hook<V = unknown, C = unknown>(): HookOptionSchema<V, C> & Defaulted {
+  return node("hook") as never;
+}
+
 /** ` of 1 to 5 characters`, ` of at least 3 items`, or ` between 1 and 5` for numbers (no unit). */
 function bounds(settings: OptionSettings, unit?: string): string {
   const { min, max } = settings;
@@ -359,6 +386,8 @@ export function expectationOf(schema: AnyOptionSchema): string {
       return RATE_EXPECTATION;
     case "cidr":
       return CIDR_EXPECTATION;
+    case "hook":
+      return "a function or a list of functions";
   }
 }
 
@@ -431,6 +460,12 @@ function validate(schema: AnyOptionSchema, value: unknown, path: string, problem
     problems.push(`Invalid ${path}: expected ${expectationOf({ kind: schema.kind, settings: { ...settings, ...broken } })}, got ${shown(schema, value)}`);
     return false;
   };
+  if (schema.kind === "hook") {
+    const hooks = typeof value === "function" ? [value] : Array.isArray(value) && value.every((entry) => typeof entry === "function") ? [...value] : undefined;
+    if (!hooks) return invalid();
+    Object.defineProperty(hooks, HOOK_PATH, { value: path, enumerable: false });
+    return hooks;
+  }
   if (typeof value === "function") {
     if (!settings.perRequest) return invalid();
     const checked: CheckedFunction = (ctx) => (value as OptionFunction<unknown>)(ctx);
@@ -518,6 +553,7 @@ function resolveValue(schema: AnyOptionSchema, value: unknown, path: string, pro
   // A required object or toggle without input still gets its own defaults; a required record is empty.
   if (schema.kind === "object" || schema.kind === "toggle") return { set: true, value: resolveShape(settings.shape!, {}, path, problems) };
   if (schema.kind === "record") return { set: true, value: {} };
+  if (schema.kind === "hook") return { set: true, value: validate(schema, [], path, problems) };
   problems.push(`Invalid ${path}: expected ${expectationOf(schema)}, got undefined`);
   return { set: false };
 }

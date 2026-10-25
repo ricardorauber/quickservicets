@@ -1,5 +1,5 @@
 import type { ResolvedConfig } from "./config.ts";
-import type { ResolvedFeature } from "./features.ts";
+import type { FeatureApis, ResolvedFeature } from "./features.ts";
 import type { HookCall, Repositories } from "./hooks.ts";
 import type { Endpoint, Server } from "./http/server.ts";
 import { parseDuration } from "./jobs/job.ts";
@@ -78,6 +78,16 @@ export interface FeatureSetupContext<O = Record<string, unknown>> {
    * `Path <path> leaves the generated folder of <key>` for paths outside it.
    */
   generated(relativePath: string): string;
+  /**
+   * The public API of the enabled feature `key`, typed through `FeatureApis`. The calling feature must list `key` in
+   * `requires`, `after` or `enables`, so that feature's setup ran first.
+   */
+  feature<K extends string>(key: K): K extends keyof FeatureApis ? FeatureApis[K] : unknown;
+  /**
+   * Appends a hook to one of this feature's `hook()` options, after the hooks written in the config; feature APIs
+   * offer it to other features as `addHook`. Throws `Unknown hook <name> of <key>` for a name the feature does not declare.
+   */
+  addHook(name: string, fn: (value: never, ctx: never) => unknown): void;
 }
 
 /** A lifecycle step that failed: the feature, the phase and the error. */
@@ -168,6 +178,8 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
   const routes: RuntimeRoute[] = [];
   const middleware: OwnedMiddleware[] = [];
   const started: Registered[] = [];
+  const apis = new Map<string, object>();
+  const enabledKeys = new Set(features.map((feature) => feature.key));
 
   const logFailure = (error: LifecycleError) => logLifecycleFailure(logger, error);
 
@@ -215,11 +227,28 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
           worker,
           app,
           generated: (relativePath) => generatedPath(join(generatedDir, feature.key), relativePath, feature.key),
+          feature: ((key: string) => {
+            if (!enabledKeys.has(key)) throw new Error(`${feature.key} uses ${key}, which is not enabled; add ${key}: {} to quickservice.config.ts`);
+            const { requires, after, enables } = feature.definition;
+            if (!requires.some((requirement) => requirement.name === key) && !after.includes(key) && !enables.includes(key)) {
+              throw new Error(`${feature.key} uses ${key}; add it to requires or after`);
+            }
+            const api = apis.get(key);
+            if (!api) throw new Error(`${key} has no feature API`);
+            return api;
+          }) as FeatureSetupContext["feature"],
+          addHook: (name, fn) => {
+            const list = (feature.options as Record<string, unknown>)[name];
+            if (feature.definition.schema.settings.shape?.[name]?.kind !== "hook" || !Array.isArray(list)) throw new Error(`Unknown hook ${name} of ${feature.key}`);
+            if (typeof fn !== "function") throw new Error(`Hook ${name} of ${feature.key} must be a function`);
+            list.push(fn);
+          },
         };
         extendContext?.(context, feature);
-        const setup = feature.definition.setup;
+        const { setup, api } = feature.definition;
         try {
           if (setup) await around(feature.key, "setup", () => withTimeout(() => setup(context as never), startTimeout, `${feature.key} setup`));
+          if (api) apis.set(feature.key, await around(feature.key, "setup", () => withTimeout(() => api(context as never), startTimeout, `${feature.key} api`)));
         } catch (error) {
           throw new LifecycleError(feature.key, "setup", error);
         } finally {

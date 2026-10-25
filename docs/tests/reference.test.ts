@@ -6,7 +6,7 @@ import { documentedEntityTags } from "../../packages/cli/src/entities/entity-tag
 import { documentedFieldTags } from "../../packages/cli/src/entities/field-tags.ts";
 import { documentedEndpointTags } from "../../packages/cli/src/hooks/endpoint-tags.ts";
 import { defineFeature, registerNative, unregisterNative } from "../../packages/core/src/features.ts";
-import { object, string } from "../../packages/core/src/options.ts";
+import { hook, object, string } from "../../packages/core/src/options.ts";
 import { configKeys, configPage, CONTENT, REPO, referencePages } from "../scripts/reference.ts";
 
 const pages = referencePages();
@@ -69,6 +69,17 @@ describe("config variables", () => {
       expect(section).toContain("#### `@audit`\n\nSets how one entity or route is audited.\n\n**Applies to:** entities, endpoints\n\n**Options:** `greeting`");
       expect(section).toContain('```ts\n/** @audit greeting="Good day" */\n```');
       expect(section.indexOf("| `audit.greeting`")).toBeLessThan(section.indexOf("#### `@audit`"));
+    } finally {
+      unregisterNative("audit");
+    }
+  });
+});
+
+describe("hook options", () => {
+  test("a hook option's row shows type hook and that it is not overridable", () => {
+    registerNative(defineFeature({ key: "audit", options: object({ beforeWrite: hook().describe("Runs before each write.") }), docs: { summary: "Audits." } }));
+    try {
+      expect(configPage()).toContain("| `audit.beforeWrite` | `hook` | — | not overridable | Runs before each write. |");
     } finally {
       unregisterNative("audit");
     }

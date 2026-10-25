@@ -246,6 +246,46 @@ HI, ANA!
 
 `setup(ctx)` runs in each server process before the database connects, in feature order. Through `ctx.app` it registers `onStart` (after the app is created, before the server listens, with working repositories), `onShutdown` (when a shutdown signal arrives) and `onStop` (after the listener closed and jobs drained) callbacks, as the definition above does. A failing or slow `setup` or `onStart` stops the service with exit code 1; `lifecycle.startTimeout` and `lifecycle.stopTimeout` bound each call.
 
+### Hooks and feature APIs
+
+A `hook()` option lets the project run code around one of the feature's steps, written as a function or a list of functions in the config. Name it `before<Step>` (it may return a changed value, or throw to cancel the step), `after<Step>` (it observes the result) or `on<Event>` (it observes something that happened); other names fail `defineFeature`. Hooks resolve to a list and have no environment variable. `runBeforeHooks(list, value, ctx)` passes each hook's returned value to the next and rejects when one throws; `runAfterHooks(list, value, ctx)` logs a failing hook as `feature.hook.failed` and keeps going. Skip both when the list is empty, so an unused hook costs nothing.
+
+`api(ctx)` returns the feature's public API, built once per process after its `setup`. Another feature that lists it in `requires` or `after` reaches it with `ctx.feature(key)`, typed by augmenting `FeatureApis`, and `ctx.addHook(name, fn)` appends a hook after the config's:
+
+```ts check
+import { defineFeature, hook, object, runBeforeHooks, type FeatureHook } from "@quickservice/core";
+
+type Note = { text: string };
+
+export interface NotesApi {
+  addHook(name: "beforeSave", fn: FeatureHook<Note>): void;
+  save(note: Note): Promise<Note>;
+}
+
+declare module "@quickservice/core" {
+  interface FeatureApis {
+    notes: NotesApi;
+  }
+}
+
+export const notes = defineFeature({
+  key: "notes",
+  options: object({ beforeSave: hook<Note>().describe("Runs before a note is saved.") }),
+  api: (ctx) => ({
+    addHook: ctx.addHook,
+    save: async (note: Note) => (ctx.options.beforeSave.length === 0 ? note : runBeforeHooks(ctx.options.beforeSave, note, undefined)),
+  }),
+});
+
+export const shouting = defineFeature({
+  key: "shouting",
+  requires: ["notes"],
+  setup(ctx) {
+    ctx.feature("notes").addHook("beforeSave", (note) => ({ text: note.text.toUpperCase() }));
+  },
+});
+```
+
 ### Routes
 
 `ctx.app.route(method, path, handler)` adds a route at runtime, with `[param]` segments and a trailing `[...rest]` segment that receives the rest of the path. An endpoint file with the same method and path wins over it.

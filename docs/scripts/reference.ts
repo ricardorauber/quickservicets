@@ -140,7 +140,7 @@ function nativeSections(): string[] {
     "| --- | --- | --- | --- | --- |",
     ...describeOptions(native.schema, native.key).map(
       (option) =>
-        `| ${code(option.path)} | ${code(option.type)} | ${option.default === undefined ? "—" : code(JSON.stringify(option.default))} | ${code(envNameFor(option.path))} | ${option.description ?? ""} |`,
+        `| ${code(option.path)} | ${code(option.type)} | ${option.default === undefined ? "—" : code(JSON.stringify(option.default))} | ${option.type === "hook" ? "not overridable" : code(envNameFor(option.path))} | ${option.description ?? ""} |`,
     ),
     "",
     ...nativeTagLines(native),

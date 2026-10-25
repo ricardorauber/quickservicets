@@ -10,6 +10,7 @@ import { availableCpus, SERVER_WORKERS_ENV, WORKERS_ENV } from "./workers.ts";
 import type { StorageAdapter } from "./storage/storage.ts";
 import { ConfigError } from "./config-error.ts";
 import { applyEnvironment } from "./environment.ts";
+import { setHookLogger } from "./feature-hooks.ts";
 import { declaredVariables, readVariables, setEnvValues, type DeclaredVariable } from "./env-vars.ts";
 import { maskSecrets } from "./secrets.ts";
 import type { AnyOptionSchema } from "./options.ts";
@@ -354,6 +355,7 @@ export function resolveConfig(
     jobs: resolveJobs(config),
     lifecycle: resolveLifecycle(config),
   };
+  setHookLogger(resolved.logger);
   // Published last, so `env` only ever holds the variables of a configuration that resolved.
   publishEnv(envValues, variables);
   if (resolved.files.signingSecret) maskSecrets(resolved.files as unknown as Record<string, unknown>, ["signingSecret"]);

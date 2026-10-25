@@ -149,6 +149,7 @@ export {
   suggestion,
   parseOptionString,
   provider,
+  hook,
   rate,
   record,
   cidr,
@@ -168,6 +169,8 @@ export type {
   ObjectOptionSchema,
   RecordOptionSchema,
   ToggleOptionSchema,
+  FeatureHook,
+  HookOptionSchema,
   OptionContext,
   OptionDescription,
   OptionFunction,
@@ -199,13 +202,15 @@ export {
   activeFeatureDefinitions,
   resolveFeatures,
   scopedOptionSchema,
+  hookOptionNames,
 } from "./features.ts";
 export { prepareFeatureTargets, tagsOf } from "./feature-targets.ts";
 export type { OptionsTarget } from "./feature-targets.ts";
-export type { FeatureConfig, FeatureDefinition, FeatureDocs, FeatureEntities, FeatureBuild, FeatureEntitiesContext, FeatureFolder, FeatureInput, FeatureOpenApi, FeatureSetup, FeatureTag, FeatureTagTarget, TargetOptions, FeatureOptions, FeatureRequirement, NativeFeatures, ProjectFeatureModule, ResolvedFeature } from "./features.ts";
+export type { FeatureApi, FeatureApis, FeatureConfig, FeatureDefinition, FeatureDocs, FeatureEntities, FeatureBuild, FeatureEntitiesContext, FeatureFolder, FeatureInput, FeatureOpenApi, FeatureSetup, FeatureTag, FeatureTagTarget, TargetOptions, FeatureOptions, FeatureRequirement, NativeFeatures, ProjectFeatureModule, ResolvedFeature } from "./features.ts";
 export { applyEnvironment, CONFIG_OVERRIDES, configVariable, envNameFor, featureVariables, logConfigWarnings, NOT_OVERRIDABLE, optionLeaves, overrideVariables, unknownVariableWarnings } from "./environment.ts";
 export { maskSecrets, SECRET_MASK } from "./secrets.ts";
 export type { ConfigOverride, EnvAlias, EnvironmentResult, OptionLeaf } from "./environment.ts";
+export { runAfterHooks, runBeforeHooks } from "./feature-hooks.ts";
 export { parseRate } from "./rates.ts";
 export type { Rate } from "./rates.ts";
 export { matchesCidr } from "./cidr.ts";

@@ -12,6 +12,7 @@ import type { ServiceRequest } from "./hooks.ts";
 import type { FeatureOpenApiContext, OpenApiDoc } from "./openapi.ts";
 import { isCommandDefinition, type CommandDefinition } from "./commands.ts";
 import type { FeatureBuildContext } from "./build-steps.ts";
+import { HOOK_NAME } from "./feature-hooks.ts";
 import { boolean, object, resolveOptions, type AnyOptionSchema, type ObjectOptionSchema, type Options, type OptionsInput } from "./options.ts";
 
 /**
@@ -26,6 +27,20 @@ import { boolean, object, resolveOptions, type AnyOptionSchema, type ObjectOptio
  * ```
  */
 export interface NativeFeatures {}
+
+/**
+ * The public setup APIs of features, by key, as `ctx.feature(key)` returns them. A feature with an `api` declares its
+ * type by augmenting it:
+ *
+ * ```ts
+ * declare module "@quickservice/core" {
+ *   interface FeatureApis {
+ *     history: HistoryApi;
+ *   }
+ * }
+ * ```
+ */
+export interface FeatureApis {}
 
 /** Where a feature is documented. */
 export interface FeatureDocs {
@@ -103,7 +118,15 @@ export interface FeatureInput<S extends AnyOptionSchema> {
    * order; `quickservice dev` runs it again when its folders or `watch` paths change.
    */
   build?: FeatureBuild<FeatureOptions<S>>;
+  /**
+   * The feature's public API, built once per worker after its own `setup` from the same context; other features reach
+   * it with `ctx.feature(key)` and type it by augmenting `FeatureApis`.
+   */
+  api?: FeatureApi<FeatureOptions<S>>;
 }
+
+/** The `api` field of a feature definition. */
+export type FeatureApi<O = Record<string, unknown>> = Bivariant<(ctx: FeatureSetupContext<O>) => object | Promise<object>>;
 
 /** The `build` field of a feature definition. */
 export type FeatureBuild<O = Record<string, unknown>> = Bivariant<(ctx: FeatureBuildContext<O>) => void | Promise<void>>;
@@ -219,6 +242,8 @@ export interface FeatureDefinition<S extends AnyOptionSchema = AnyOptionSchema> 
   readonly commands?: readonly CommandDefinition[];
   /** The feature's build step. */
   readonly build?: FeatureBuild<FeatureOptions<S>>;
+  /** Builds the feature's public API after its setup. */
+  readonly api?: FeatureApi<FeatureOptions<S>>;
   /**
    * The feature's resolved options, once a configuration enabling it has been resolved in this process; throws
    * otherwise. The feature's own code reads its typed options here instead of receiving the config.
@@ -284,6 +309,9 @@ export function defineFeature<S extends AnyOptionSchema = ObjectOptionSchema<{}>
   const schema = object({ ...(options.settings.shape as AnyShape), enabled: enabledOption() } as AnyShape & EnabledShape);
   // Each option is set by one environment variable, so two options may not share a name.
   featureVariables(key, schema);
+  for (const name of hookOptionNames(schema)) {
+    if (!HOOK_NAME.test(name.split(".").at(-1)!)) throw invalid(`hook option ${name} must be named before<Step>, after<Step> or on<Event>`);
+  }
   const keyList = (field: "after" | "enables", entries: readonly unknown[] = []): readonly string[] => {
     if (!Array.isArray(entries)) throw invalid(`${field} must be a list of feature keys`);
     for (const entry of entries) if (typeof entry !== "string" || !FEATURE_KEY.test(entry)) throw invalid(`${field} has an invalid key ${JSON.stringify(entry)}`);
@@ -317,6 +345,7 @@ export function defineFeature<S extends AnyOptionSchema = ObjectOptionSchema<{}>
     ...(input.openapi !== undefined ? { openapi: functionField(input.openapi, "openapi", invalid) } : {}),
     ...(input.commands !== undefined ? { commands: commandsField(input.commands, invalid) } : {}),
     ...(input.build !== undefined ? { build: functionField(input.build, "build", invalid) } : {}),
+    ...(input.api !== undefined ? { api: functionField(input.api, "api", invalid) } : {}),
     options() {
       const resolved = resolvedOptions.get(definition as FeatureDefinition);
       if (!resolved) throw new Error(`${key} is not enabled; add ${key}: {} to quickservice.config.ts`);
@@ -328,6 +357,13 @@ export function defineFeature<S extends AnyOptionSchema = ObjectOptionSchema<{}>
   };
   Object.defineProperty(definition, FEATURE_BRAND, { value: true });
   return Object.freeze(definition);
+}
+
+/** The paths of a schema's `hook()` options, nested ones included, relative to it. */
+export function hookOptionNames(schema: AnyOptionSchema, path = ""): string[] {
+  if (schema.kind === "hook") return [path];
+  if (schema.kind !== "object" && schema.kind !== "toggle") return [];
+  return Object.entries(schema.settings.shape!).flatMap(([key, child]) => hookOptionNames(child, path ? `${path}.${key}` : key));
 }
 
 /** The contribution folders a definition declares, each a path relative to the feature's folder. */

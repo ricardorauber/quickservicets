@@ -55,7 +55,11 @@ It is enabled by default; turn it off with `security: false` or `QS_SECURITY_ENA
 | `security.loadShedding.enabled` | `boolean` | `true` | `QS_SECURITY_LOAD_SHEDDING_ENABLED` | no | Refuses new requests with 503 while a worker has too many in flight, so it stays responsive under overload. Turns it off when false. |
 | `security.loadShedding.maxInFlight` | `integer` | `1000` | `QS_SECURITY_LOAD_SHEDDING_MAX_IN_FLIGHT` | no | The most requests one worker serves at once; more are refused with 503. |
 | `security.loadShedding.retryAfter` | `duration` | `"1s"` | `QS_SECURITY_LOAD_SHEDDING_RETRY_AFTER` | no | The Retry-After of a refusal, sent in whole seconds. |
-| `security.rateLimit.enabled` | `boolean` | `true` | `QS_SECURITY_RATE_LIMIT_ENABLED` | no | Limits how many requests each client makes in a time window, answering 429. Turns it off when false. |
+| `security.rateLimit.enabled` | `boolean` | `true` | `QS_SECURITY_RATE_LIMIT_ENABLED` | no | Limits how many requests each client address makes in a time window, answering 429 with RateLimit headers. Turns it off when false. |
+| `security.rateLimit.limit` | `rate` | `"1000/min"` | `QS_SECURITY_RATE_LIMIT_LIMIT` | no | The requests each bucket may make per window, like 1000/min or 10/s. |
+| `security.rateLimit.by` | `("route" \| "ip" \| "user" \| "tenant")[]` | `["ip"]` | `QS_SECURITY_RATE_LIMIT_BY` | no | What a bucket is per: the client address (ip), the route, the user or the tenant, combined. |
+| `security.rateLimit.store` | `"memory"` | `"memory"` | `QS_SECURITY_RATE_LIMIT_STORE` | no | Where the counters live: memory keeps them per worker. |
+| `security.rateLimit.memory.maxKeys` | `integer` | `100000` | `QS_SECURITY_RATE_LIMIT_MEMORY_MAX_KEYS` | no | The most buckets the memory store keeps; the least recently used one is evicted. |
 | `security.ip.enabled` | `boolean` | `true` | `QS_SECURITY_IP_ENABLED` | no | Accepts or refuses requests by client address. Turns it off when false. |
 | `security.masking.enabled` | `boolean` | `true` | `QS_SECURITY_MASKING_ENABLED` | no | Keeps secret values and sensitive fields out of logs and error responses. Turns it off when false. |
 | `security.enabled` | `boolean` | `true` | `QS_SECURITY_ENABLED` | no | Turns the feature off when false. |

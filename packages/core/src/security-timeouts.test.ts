@@ -134,7 +134,8 @@ describe("read deadlines", () => {
 
 describe("timer cleanup", () => {
   test("after 1000 fast requests no read timer is pending", async () => {
-    const server = await serve();
+    // One test client makes them all, so the rate limit stays out of the way.
+    const server = await serve({ security: { rateLimit: false } });
     const pending = new Set<unknown>();
     const realSet = globalThis.setTimeout;
     const realClear = globalThis.clearTimeout;

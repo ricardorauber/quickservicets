@@ -1,4 +1,4 @@
-import { boolean, cidr, defineFeature, duration, integer, list, object, oneOf, parseDuration, parseSize, safeLog, size, string, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext } from "../public.ts";
+import { boolean, cidr, defineFeature, duration, integer, list, object, oneOf, parseDuration, parseSize, peerAddress, rate, safeLog, size, string, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext } from "../public.ts";
 import type { SecurityApi } from "./api.ts";
 import { corsProblems, corsStep, ownOptionsRoutes, routeCorsOptions } from "./cors.ts";
 import { Exemptions } from "./exempt.ts";
@@ -7,7 +7,9 @@ import { DEFAULT_CSP, DEFAULT_DOCS_CSP, headersStep } from "./headers.ts";
 import { bodyStep, FORM_OVERHEAD, largestUpload, limitsStep } from "./limits.ts";
 import { SECURITY_ITEMS, securityMiddlewares, type SecurityStep } from "./pipeline.ts";
 import { proxyResolver } from "./proxy.ts";
+import { KEY_PARTS, rateLimitStep, routePatterns } from "./rate-limit.ts";
 import { loadSheddingStep } from "./shedding.ts";
+import { memoryRateLimitStore } from "./store.ts";
 import { buildRouteIndex, type RouteIndex } from "./routes.ts";
 
 const options = object({
@@ -59,7 +61,14 @@ const options = object({
     maxInFlight: integer().min(1).default(1000).describe("The most requests one worker serves at once; more are refused with 503."),
     retryAfter: duration().default("1s").describe("The Retry-After of a refusal, sent in whole seconds."),
   }).describe("Refuses new requests with 503 while a worker has too many in flight, so it stays responsive under overload."),
-  rateLimit: toggle({}).describe("Limits how many requests each client makes in a time window, answering 429."),
+  rateLimit: toggle({
+    limit: rate().default("1000/min").describe("The requests each bucket may make per window, like 1000/min or 10/s."),
+    by: list(oneOf(KEY_PARTS)).default(["ip"]).describe("What a bucket is per: the client address (ip), the route, the user or the tenant, combined."),
+    store: oneOf(["memory"]).default("memory").describe("Where the counters live: memory keeps them per worker."),
+    memory: object({
+      maxKeys: integer().min(1).default(100_000).describe("The most buckets the memory store keeps; the least recently used one is evicted."),
+    }),
+  }).describe("Limits how many requests each client address makes in a time window, answering 429 with RateLimit headers."),
   ip: toggle({}).describe("Accepts or refuses requests by client address."),
   masking: toggle({}).describe("Keeps secret values and sensitive fields out of logs and error responses."),
 });
@@ -75,9 +84,17 @@ function idleProblems(idle: string): string[] {
 const exemptionsOf = new WeakMap<object, Exemptions>();
 
 /** The steps of the enabled items, in no particular order; the pipeline orders them. */
-function itemSteps(ctx: FeatureSetupContext<SecurityOptions>, index: () => RouteIndex | undefined): SecurityStep[] {
+function itemSteps(ctx: FeatureSetupContext<SecurityOptions>, index: () => RouteIndex | undefined, ipOf: (request: Request) => string): SecurityStep[] {
   const { options } = ctx;
   const steps: SecurityStep[] = [];
+  if (options.rateLimit.enabled) {
+    const { rateLimit } = options;
+    const store = memoryRateLimitStore({ maxKeys: rateLimit.memory.maxKeys });
+    if (Math.max(ctx.worker.count, ctx.config.server.workers) > 1) {
+      safeLog(ctx.logger, "warn", { timestamp: new Date().toISOString(), message: 'security.rateLimit uses per-worker memory counters; set security.rateLimit.store to "database" to share them' });
+    }
+    steps.push(rateLimitStep(rateLimit, { store, ipOf, ...(rateLimit.by.includes("route") ? { routes: routePatterns(taggedRoutes()) } : {}) }));
+  }
   if (options.headers.enabled) steps.push(headersStep(options.headers, ctx.config.production));
   if (options.loadShedding.enabled) {
     const shedding = loadSheddingStep(options.loadShedding, ctx.logger);
@@ -134,7 +151,24 @@ const securityFeature = defineFeature({
     const index: RouteIndex | undefined = buildRouteIndex(taggedRoutes(), Object.keys(securityFeature.tags ?? {}));
     const problems = (index?.routes ?? []).flatMap((route) => (route.tags.cors?.on ? corsProblems(routeCorsOptions(ctx.options.cors, route), `@cors of ${route.method} ${route.path}`) : []));
     if (problems.length > 0) throw new Error(problems.join("\n"));
-    const steps = itemSteps(ctx, () => index);
+    const proxy = ctx.options.proxy;
+    // Without trusted proxies, req.ip is the peer address; production still checks for forwarded headers to warn once.
+    let ipOf: (request: Request) => string = peerAddress;
+    if (proxy.enabled && (proxy.trust.length > 0 || ctx.config.production)) {
+      const untrusted = (peer: string) =>
+        safeLog(ctx.logger, "warn", { timestamp: new Date().toISOString(), message: "security.proxy.untrusted", peer, header: proxy.header, hint: "set security.proxy.trust if the service runs behind a proxy" });
+      const resolve = proxyResolver(proxy, ctx.config.production ? untrusted : undefined);
+      // Items before routing and req.ip read the same address, computed once per request.
+      const resolved = new WeakMap<Request, string>();
+      const clientIp = (request: Request, peer: string) => {
+        let ip = resolved.get(request);
+        if (ip === undefined) resolved.set(request, (ip = resolve(request, peer)));
+        return ip;
+      };
+      ctx.app.configureServer({ clientIp });
+      ipOf = (request) => clientIp(request, peerAddress(request));
+    }
+    const steps = itemSteps(ctx, () => index, ipOf);
     if (ctx.options.limits.enabled) {
       // The socket refuses bodies no route could accept: larger than the body limit and than any upload the model allows.
       const upload = largestUpload(ctx.models, ctx.config.files.maxSize);
@@ -142,13 +176,6 @@ const securityFeature = defineFeature({
     }
     if (ctx.options.timeouts.enabled) ctx.app.configureServer({ idleTimeout: Math.ceil(parseDuration(ctx.options.timeouts.idle)! / 1000) });
     if (ctx.options.files.enabled) ctx.app.configureServer({ fileHeaders: fileHeaders(ctx.options.files.attachmentTypes) });
-    const proxy = ctx.options.proxy;
-    // Without trusted proxies, req.ip is the peer address; production still checks for forwarded headers to warn once.
-    if (proxy.enabled && (proxy.trust.length > 0 || ctx.config.production)) {
-      const untrusted = (peer: string) =>
-        safeLog(ctx.logger, "warn", { timestamp: new Date().toISOString(), message: "security.proxy.untrusted", peer, header: proxy.header, hint: "set security.proxy.trust if the service runs behind a proxy" });
-      ctx.app.configureServer({ clientIp: proxyResolver(proxy, ctx.config.production ? untrusted : undefined) });
-    }
     if (steps.length > 0) {
       const middlewares = securityMiddlewares(steps, exemptions, () => index);
       ctx.app.use(middlewares.request);
@@ -168,3 +195,5 @@ export default securityFeature;
 export { securityFeature };
 export type { SecurityApi } from "./api.ts";
 export type { ExemptibleItem } from "./exempt.ts";
+export { memoryRateLimitStore, slidingWindowHit } from "./store.ts";
+export type { MemoryRateLimitStore, RateLimitHit, RateLimitResult, RateLimitStore, WindowCounts } from "./store.ts";

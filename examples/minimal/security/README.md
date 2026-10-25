@@ -27,6 +27,16 @@ QS_SECURITY_CORS_ENABLED=false bun .generated/server.ts
 QS_SECURITY_LIMITS_BODY=5MB bun .generated/server.ts
 ```
 
+Every client address gets 1000 requests a minute; change the limit, or switch the rate limit off behind a gateway that already limits:
+
+```ts
+export default defineConfig({ database: memoryAdapter(), security: { rateLimit: { limit: "300/min" } } });
+```
+
+```bash
+QS_SECURITY_RATE_LIMIT_LIMIT=300/min bun .generated/server.ts
+```
+
 Open CORS to the origins of the project's browser apps; it is closed by default:
 
 ```ts

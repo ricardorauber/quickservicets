@@ -1,6 +1,7 @@
 import type { HandlerMiddleware, RequestMiddleware, RequestStageContext, ServiceRequest } from "../public.ts";
 import type { Exemptions } from "./exempt.ts";
 import type { RouteIndex, SecurityRoute } from "./routes.ts";
+import type { RateLimitResult } from "./store.ts";
 
 /** The security items, as the native's option keys. */
 export const SECURITY_ITEMS = ["proxy", "headers", "files", "cors", "limits", "timeouts", "loadShedding", "rateLimit", "ip", "masking"] as const;
@@ -44,6 +45,8 @@ export class SecurityState {
   values: Record<string, unknown> | undefined;
   /** Whether load shedding counts the request among those in flight. */
   counted = false;
+  /** The rate limit decision whose headers the response carries: the bucket with the fewest requests left. */
+  rateLimit: RateLimitResult | undefined;
 }
 
 /** One step of the security middlewares, implemented by an item. */

@@ -42,6 +42,8 @@ export class SecurityState {
 
   /** Values steps hand to later steps or to the way out, by name. */
   values: Record<string, unknown> | undefined;
+  /** Whether load shedding counts the request among those in flight. */
+  counted = false;
 }
 
 /** One step of the security middlewares, implemented by an item. */

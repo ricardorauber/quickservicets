@@ -99,7 +99,9 @@ Every option, tag, command and hook of `security` is on [its reference page](/re
 | `security.timeouts.idle` | `duration` | `"30s"` | `QS_SECURITY_TIMEOUTS_IDLE` | How long a connection may stay idle before it is closed, at most 255s (the Bun limit); 0s turns it off. |
 | `security.timeouts.read` | `duration` | `"30s"` | `QS_SECURITY_TIMEOUTS_READ` | How long a request body other than an upload has to arrive, from the first read. |
 | `security.timeouts.upload` | `duration` | `"10m"` | `QS_SECURITY_TIMEOUTS_UPLOAD` | How long a multipart upload has to arrive, from the first read. |
-| `security.loadShedding.enabled` | `boolean` | `true` | `QS_SECURITY_LOAD_SHEDDING_ENABLED` | Refuses new requests with 503 while a worker has too many in flight. Turns it off when false. |
+| `security.loadShedding.enabled` | `boolean` | `true` | `QS_SECURITY_LOAD_SHEDDING_ENABLED` | Refuses new requests with 503 while a worker has too many in flight, so it stays responsive under overload. Turns it off when false. |
+| `security.loadShedding.maxInFlight` | `integer` | `1000` | `QS_SECURITY_LOAD_SHEDDING_MAX_IN_FLIGHT` | The most requests one worker serves at once; more are refused with 503. |
+| `security.loadShedding.retryAfter` | `duration` | `"1s"` | `QS_SECURITY_LOAD_SHEDDING_RETRY_AFTER` | The Retry-After of a refusal, sent in whole seconds. |
 | `security.rateLimit.enabled` | `boolean` | `true` | `QS_SECURITY_RATE_LIMIT_ENABLED` | Limits how many requests each client makes in a time window, answering 429. Turns it off when false. |
 | `security.ip.enabled` | `boolean` | `true` | `QS_SECURITY_IP_ENABLED` | Accepts or refuses requests by client address. Turns it off when false. |
 | `security.masking.enabled` | `boolean` | `true` | `QS_SECURITY_MASKING_ENABLED` | Keeps secret values and sensitive fields out of logs and error responses. Turns it off when false. |

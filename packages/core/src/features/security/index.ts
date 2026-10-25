@@ -7,6 +7,7 @@ import { DEFAULT_CSP, DEFAULT_DOCS_CSP, headersStep } from "./headers.ts";
 import { bodyStep, FORM_OVERHEAD, largestUpload, limitsStep } from "./limits.ts";
 import { SECURITY_ITEMS, securityMiddlewares, type SecurityStep } from "./pipeline.ts";
 import { proxyResolver } from "./proxy.ts";
+import { loadSheddingStep } from "./shedding.ts";
 import { buildRouteIndex, type RouteIndex } from "./routes.ts";
 
 const options = object({
@@ -54,7 +55,10 @@ const options = object({
     read: duration().default("30s").describe("How long a request body other than an upload has to arrive, from the first read."),
     upload: duration().default("10m").describe("How long a multipart upload has to arrive, from the first read."),
   }).describe("Closes idle connections and refuses requests whose body arrives too slowly with 408."),
-  loadShedding: toggle({}).describe("Refuses new requests with 503 while a worker has too many in flight."),
+  loadShedding: toggle({
+    maxInFlight: integer().min(1).default(1000).describe("The most requests one worker serves at once; more are refused with 503."),
+    retryAfter: duration().default("1s").describe("The Retry-After of a refusal, sent in whole seconds."),
+  }).describe("Refuses new requests with 503 while a worker has too many in flight, so it stays responsive under overload."),
   rateLimit: toggle({}).describe("Limits how many requests each client makes in a time window, answering 429."),
   ip: toggle({}).describe("Accepts or refuses requests by client address."),
   masking: toggle({}).describe("Keeps secret values and sensitive fields out of logs and error responses."),
@@ -75,6 +79,11 @@ function itemSteps(ctx: FeatureSetupContext<SecurityOptions>, index: () => Route
   const { options } = ctx;
   const steps: SecurityStep[] = [];
   if (options.headers.enabled) steps.push(headersStep(options.headers, ctx.config.production));
+  if (options.loadShedding.enabled) {
+    const shedding = loadSheddingStep(options.loadShedding, ctx.logger);
+    ctx.app.onStop(() => shedding.stop());
+    steps.push(shedding);
+  }
   if (options.cors.enabled) steps.push(corsStep(options.cors, ownOptionsRoutes(taggedRoutes()), index));
   if (options.limits.enabled) steps.push(limitsStep(options.limits));
   if (options.limits.enabled || options.timeouts.enabled) {

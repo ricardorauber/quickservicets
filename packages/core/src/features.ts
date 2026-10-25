@@ -4,6 +4,7 @@ import { ConfigError } from "./config-error.ts";
 import { featureVariables, optionLeaves } from "./environment.ts";
 import { maskSecrets } from "./secrets.ts";
 import { jsonLogger, safeLog, type Logger } from "./logger.ts";
+import type { EntityModel } from "./model.ts";
 import { boolean, object, resolveOptions, type AnyOptionSchema, type ObjectOptionSchema, type Options, type OptionsInput } from "./options.ts";
 
 /**
@@ -47,7 +48,27 @@ export interface FeatureInput<S extends AnyOptionSchema> {
   enables?: readonly string[];
   /** Environment variables the feature needs, read and checked at startup with the project's (see `env`). */
   env?: Readonly<Record<string, AnyOptionSchema>>;
+  /**
+   * Entities the feature adds to the project's model: a folder of entity files relative to the feature's folder
+   * (`"./entities"`), a list of `entityModel(...)` objects, or a function of the project's models and the feature's
+   * options returning models.
+   */
+  entities?: FeatureEntities<FeatureOptions<S>>;
 }
+
+/** What a function form of `entities` receives. */
+export interface FeatureEntitiesContext<O = Record<string, unknown>> {
+  /** The project's entities and the entities of feature folders, parsed. */
+  models: readonly EntityModel[];
+  /** The feature's resolved options. */
+  options: O;
+}
+
+/** The `entities` field of a feature definition. */
+export type FeatureEntities<O = Record<string, unknown>> = string | readonly EntityModel[] | Bivariant<(context: FeatureEntitiesContext<O>) => EntityModel[]>;
+
+/** A function type whose parameter is checked bivariantly, so a definition typed with its options stays assignable to `FeatureDefinition`. */
+type Bivariant<F extends (...args: never[]) => unknown> = { method(...args: Parameters<F>): ReturnType<F> }["method"];
 
 /** A required native, with a hint on why it is needed. */
 export interface FeatureRequirement {
@@ -70,6 +91,8 @@ export interface FeatureDefinition<S extends AnyOptionSchema = AnyOptionSchema> 
   readonly enables: readonly string[];
   /** The environment variables the feature declares. */
   readonly env?: Readonly<Record<string, AnyOptionSchema>>;
+  /** The entities the feature contributes. */
+  readonly entities?: FeatureEntities<FeatureOptions<S>>;
   /**
    * The feature's resolved options, once a configuration enabling it has been resolved in this process; throws
    * otherwise. The feature's own code reads its typed options here instead of receiving the config.
@@ -151,6 +174,7 @@ export function defineFeature<S extends AnyOptionSchema = ObjectOptionSchema<{}>
     after: keyList("after", input.after),
     enables: keyList("enables", input.enables),
     ...(input.env ? { env: Object.freeze({ ...input.env }) } : {}),
+    ...(input.entities !== undefined ? { entities: entitiesField(input.entities, invalid) } : {}),
     options() {
       const resolved = resolvedOptions.get(definition as FeatureDefinition);
       if (!resolved) throw new Error(`${key} is not enabled; add ${key}: {} to quickservice.config.ts`);
@@ -159,6 +183,12 @@ export function defineFeature<S extends AnyOptionSchema = ObjectOptionSchema<{}>
   };
   Object.defineProperty(definition, FEATURE_BRAND, { value: true });
   return Object.freeze(definition);
+}
+
+function entitiesField<O>(entities: FeatureEntities<O>, invalid: (reason: string) => Error): FeatureEntities<O> {
+  if (typeof entities === "string" || typeof entities === "function") return entities;
+  if (Array.isArray(entities)) return Object.freeze([...entities]);
+  throw invalid("entities must be a folder, a list of entity models or a function");
 }
 
 /** Marks the values `defineFeature` returns, shared by every copy of the core loaded in a process. */
@@ -396,6 +426,14 @@ export function logEnabledFeatures(config: { features: readonly ResolvedFeature[
 
 /** The folder of project features, at the project root. */
 export const FEATURES_DIR = "features";
+
+/** The folder holding each native feature's code, `packages/core/src/features/<key>/`. */
+export const NATIVE_FEATURES_DIR = join(import.meta.dir, "features");
+
+/** The folder of an enabled feature: `features/<key>/` for a project feature, the core's folder for a native. */
+export function featureDir(feature: Pick<ResolvedFeature, "key" | "project">, projectRoot: string): string {
+  return feature.project ? join(projectRoot, FEATURES_DIR, feature.key) : join(NATIVE_FEATURES_DIR, feature.key);
+}
 
 /** The folders of `features/` that hold an `index.ts`, sorted. */
 export function projectFeatureFolders(projectRoot: string): string[] {

@@ -170,6 +170,8 @@ export interface EntityModel {
    * API docs, and their repository offers only read methods.
    */
   system?: true;
+  /** The key of the feature that contributed the entity; absent on the project's own entities. */
+  feature?: string;
 }
 
 /** An index over several fields of an entity. */

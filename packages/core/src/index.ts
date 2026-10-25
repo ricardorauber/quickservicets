@@ -45,6 +45,9 @@ export type { CrudRoute } from "./http/crud.ts";
 export { createApp } from "./app.ts";
 export type { App, AppEndpoint, AppOptions, CrudRouteEntry } from "./app.ts";
 export { jsonLogger, safeLog } from "./logger.ts";
+export { entityModel, field } from "./entity-model.ts";
+export type { EntityModelOptions, FieldDefinition, FieldInput } from "./entity-model.ts";
+export { deriveCollectionName, isValidCollectionName, pluralize, splitWords, toCamelCase, toSnakeCase } from "./naming.ts";
 export type { LogEntry, Logger } from "./logger.ts";
 export { buildDrizzleSchema, columnName, schemaIdentifier, SQLITE_DEFAULT_SCHEMA_TOKEN, sqliteDefaultPrefix } from "./sql/schema.ts";
 export type { DrizzleSchema, DrizzleSchemaOptions, SqlDialect } from "./sql/schema.ts";
@@ -146,7 +149,9 @@ export {
   BUILT_IN_CONFIG_KEYS,
   defineFeature,
   FEATURES_DIR,
+  featureDir,
   isFeatureDefinition,
+  NATIVE_FEATURES_DIR,
   loadProjectFeatures,
   logEnabledFeatures,
   projectFeatureFolders,
@@ -158,7 +163,7 @@ export {
   activeFeatureDefinitions,
   resolveFeatures,
 } from "./features.ts";
-export type { FeatureConfig, FeatureDefinition, FeatureDocs, FeatureInput, FeatureOptions, FeatureRequirement, NativeFeatures, ProjectFeatureModule, ResolvedFeature } from "./features.ts";
+export type { FeatureConfig, FeatureDefinition, FeatureDocs, FeatureEntities, FeatureEntitiesContext, FeatureInput, FeatureOptions, FeatureRequirement, NativeFeatures, ProjectFeatureModule, ResolvedFeature } from "./features.ts";
 export { applyEnvironment, CONFIG_OVERRIDES, configVariable, envNameFor, featureVariables, logConfigWarnings, NOT_OVERRIDABLE, optionLeaves, overrideVariables, unknownVariableWarnings } from "./environment.ts";
 export { maskSecrets, SECRET_MASK } from "./secrets.ts";
 export type { ConfigOverride, EnvAlias, EnvironmentResult, OptionLeaf } from "./environment.ts";

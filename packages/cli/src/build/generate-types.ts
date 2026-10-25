@@ -149,7 +149,7 @@ function enumImports(models: EntityModel[]): { imports: EnumImports; lines: stri
     taken.add(local);
     imports.set(key, local);
     const specifier = local === declaration.name ? local : `${declaration.name} as ${local}`;
-    lines.push(`import type { ${specifier} } from ${JSON.stringify(`../${declaration.file}`)};`);
+    lines.push(`import type { ${specifier} } from ${JSON.stringify(declaration.file.startsWith("@") ? declaration.file : `../${declaration.file}`)};`);
   }
   return { imports, lines };
 }

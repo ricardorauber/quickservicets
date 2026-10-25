@@ -20,7 +20,7 @@ import {
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import ts from "typescript";
-import { parseProjectEntities as parseEntities } from "../entities/parse-entities.ts";
+import { parseProjectModels } from "../entities/parse-entities.ts";
 import { BuildError } from "../errors.ts";
 import { scanEndpoints, type EndpointRoute } from "../endpoints/scan-endpoints.ts";
 import { parseEndpointTags, type EndpointMetadata } from "../hooks/endpoint-tags.ts";
@@ -286,8 +286,9 @@ export async function build(projectRoot: string): Promise<BuildSummary> {
   const config = await loadConfig(projectRoot);
   const featureKeys = registeredProjectFeatures().map((feature) => feature.key);
   const variables = declaredVariables(config.env, config.features.map((feature) => ({ key: feature.key, env: feature.definition.env })));
-  const overrides = replacedNatives().map(overrideLine);
-  const models = parseEntities(projectRoot);
+  const parsed = parseProjectModels(projectRoot, config.features);
+  const overrides = [...replacedNatives().map(overrideLine), ...parsed.overrides];
+  const models = parsed.models;
   const hooks = await scanHooks(projectRoot);
   const jobs = await scanJobs(projectRoot);
   const endpoints: ScannedEndpoint[] = scanEndpoints(projectRoot).map((route) => ({

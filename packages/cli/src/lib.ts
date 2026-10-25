@@ -1,4 +1,5 @@
-export { parseEntities, parseProjectEntities, withBuiltInEntities } from "./entities/parse-entities.ts";
+export { parseEntities, parseProjectEntities, parseProjectModels, withBuiltInEntities } from "./entities/parse-entities.ts";
+export type { ProjectModels } from "./entities/parse-entities.ts";
 export { EntityParseError } from "./entities/errors.ts";
 export { BuildError } from "./errors.ts";
 export { ENDPOINT_METHODS, scanEndpoints } from "./endpoints/scan-endpoints.ts";

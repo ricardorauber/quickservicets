@@ -371,7 +371,7 @@ function planSteps(files: MigrationFile[], applied: AppliedMigration[], target: 
 async function withDriver<T>(projectRoot: string, work: (driver: MigrationDriver, config: ResolvedConfig) => Promise<T>): Promise<T> {
   const config = await loadConfig(projectRoot);
   if (config.database.kind === "memory") throw new BuildError("Migrations are not used with the memory adapter");
-  const models = parseEntities(projectRoot);
+  const models = parseEntities(projectRoot, config.features);
   await config.database.connect(models, { defaultSchema: config.schema });
   try {
     return await work(driverFor(config), config);
@@ -422,7 +422,7 @@ export async function migrate(projectRoot: string, options: MigrateOptions = {})
       );
     }
 
-    const repos = createRepositories(parseEntities(projectRoot), resolved.database) as unknown as Repositories;
+    const repos = createRepositories(parseEntities(projectRoot, resolved.features), resolved.database) as unknown as Repositories;
     const result: MigrateResult = { applied: [], reverted: [], messages: [], warnings: driver.warnings };
     for (const { migration, direction } of steps) {
       const module = (await import(migration.file)) as MigrationModule;

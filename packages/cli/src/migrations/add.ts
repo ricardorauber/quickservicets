@@ -217,7 +217,7 @@ async function migrationProject(projectRoot: string): Promise<{ dialect: SqlDial
   if (config.database.kind === "memory") throw new BuildError("Migrations are not used with the memory adapter");
   const dialect = config.database.kind === "mongodb" ? "mongodb" : sqlDialectOf(config.database.kind);
   if (!dialect) throw new BuildError(`Migrations are not supported for the ${config.database.kind ?? "configured"} adapter`);
-  return { dialect, models: parseEntities(projectRoot) };
+  return { dialect, models: parseEntities(projectRoot, config.features) };
 }
 
 async function planFor(projectRoot: string): Promise<AnyPlan> {

@@ -3,6 +3,9 @@ import { join, relative, resolve, sep } from "node:path";
 import ts from "typescript";
 import {
   builtInFileEntity,
+  featureDir,
+  NATIVE_FEATURES_DIR,
+  type ResolvedFeature,
   jobRunEntity,
   FILE_BASE_FIELDS,
   hiddenPathsFor,
@@ -19,6 +22,7 @@ import {
 } from "@quickservice/core";
 import { listJobFiles } from "../jobs/scan-jobs.ts";
 import { EntityParseError } from "./errors.ts";
+import { withContributedEntities } from "./feature-entities.ts";
 import { applyEntityTags, type EntityTagTarget } from "./entity-tags.ts";
 import { applyFieldTags } from "./field-tags.ts";
 import { findTag, readTags, type DocTag } from "./jsdoc.ts";
@@ -37,6 +41,8 @@ interface EntitySource {
   folder?: string;
   /** Set when the file name is not PascalCase, which only shared enum files may use. */
   invalidName?: true;
+  /** The key of the feature whose folder holds the file. */
+  feature?: string;
 }
 
 type EntityDeclaration = ts.InterfaceDeclaration | ts.TypeAliasDeclaration;
@@ -45,11 +51,25 @@ interface ParseContext {
   checker: ts.TypeChecker;
   source: EntitySource;
   sourcesByFile: Map<string, EntitySource>;
+  projectRoot: string;
 }
 
-export function parseEntities(projectRoot: string): EntityModel[] {
+/** The entities of the project and of its enabled features, with the override lines of project entities replacing feature ones. */
+export interface ProjectModels {
+  models: EntityModel[];
+  overrides: string[];
+}
+
+/** The entities of `/entities` and of the given features' entity folders, and their link entities. */
+export function parseEntities(projectRoot: string, features: readonly ResolvedFeature[] = []): EntityModel[] {
+  return parseSources(projectRoot, features).models;
+}
+
+function parseSources(projectRoot: string, features: readonly ResolvedFeature[]): ProjectModels {
   const entitiesDir = join(projectRoot, "entities");
-  const files = listEntitySources(projectRoot, entitiesDir);
+  const projectFiles = listEntitySources(projectRoot, entitiesDir);
+  const { sources: featureFiles, overrides } = featureEntitySources(projectRoot, features, projectFiles);
+  const files = [...projectFiles, ...featureFiles];
   const program = ts.createProgram(
     files.map((source) => source.file),
     {
@@ -72,7 +92,11 @@ export function parseEntities(projectRoot: string): EntityModel[] {
   if (misnamed) throw new EntityParseError(`${misnamed.relativeFile}: entity file names must be PascalCase (e.g. User.ts)`);
   const sourcesByFile = new Map(sources.map((source) => [source.file, source]));
 
-  const models = sources.map((source) => parseEntity(program, { checker, source, sourcesByFile }));
+  const models = sources.map((source) => {
+    const model = parseEntity(program, { checker, source, sourcesByFile, projectRoot });
+    return source.feature ? { ...model, feature: source.feature } : model;
+  });
+  assertNoFeatureClashes(models);
   assertUniqueCollectionNames(models, sources);
   const links = pairRelations(models);
   assertUniqueTableNames(models, links, sources);
@@ -109,8 +133,66 @@ export function parseEntities(projectRoot: string): EntityModel[] {
       if (error) throw new EntityParseError(`${sources[index]!.relativeFile}: invalid @populate: ${error}`);
     }
   });
-  return [...models, ...links];
+  return { models: [...models, ...links], overrides };
 }
+
+/** How the build names a file of a feature folder: project-relative, or through the core package for a native. */
+export function featureFileName(projectRoot: string, file: string): string {
+  const inNative = relative(NATIVE_FEATURES_DIR, file);
+  if (!inNative.startsWith("..") && !inNative.startsWith(sep) && !/^[A-Za-z]:/.test(inNative)) {
+    return `@quickservice/core/features/${inNative.split(sep).join("/")}`;
+  }
+  return relative(projectRoot, file).split(sep).join("/");
+}
+
+/** The entity files of the features' `entities` folders; a project file of the same name replaces a feature's. */
+function featureEntitySources(
+  projectRoot: string,
+  features: readonly ResolvedFeature[],
+  projectSources: EntitySource[],
+): { sources: EntitySource[]; overrides: string[] } {
+  const projectByKey = new Map(projectSources.map((source) => [source.key, source]));
+  const owners = new Map<string, EntitySource>();
+  const sources: EntitySource[] = [];
+  const overrides: string[] = [];
+  for (const feature of features) {
+    const entities = feature.definition.entities;
+    if (typeof entities !== "string") continue;
+    const dir = resolve(featureDir(feature, projectRoot), entities);
+    for (const source of listEntitySources(projectRoot, dir)) {
+      const named: EntitySource = { ...source, relativeFile: featureFileName(projectRoot, source.file), feature: feature.key };
+      const replacement = projectByKey.get(named.key);
+      if (replacement && !named.invalidName) {
+        overrides.push(entityOverrideLine(replacement.relativeFile, named.key, feature.key));
+        continue;
+      }
+      const previous = owners.get(named.key);
+      if (previous && !named.invalidName) {
+        throw new EntityParseError(`Features ${previous.feature} and ${feature.key} both contribute the entity ${named.key} (${previous.relativeFile} and ${named.relativeFile})`);
+      }
+      if (!named.invalidName) owners.set(named.key, named);
+      sources.push(named);
+    }
+  }
+  return { sources, overrides };
+}
+
+/** Fails when entity files of two features use the same collection or table name in one schema. */
+function assertNoFeatureClashes(models: EntityModel[]): void {
+  const seen = new Map<string, string>();
+  for (const model of models) {
+    if (!model.feature) continue;
+    for (const [kind, value] of [["collection name", model.name], ["table name", model.tableName]] as const) {
+      const id = `${kind}\u0000${model.schema ?? ""}\u0000${value}`;
+      const owner = seen.get(id);
+      if (owner && owner !== model.feature) throw new EntityParseError(`Features ${owner} and ${model.feature} both contribute the ${kind} "${value}"`);
+      seen.set(id, model.feature);
+    }
+  }
+}
+
+/** The line the build prints when a project entity file replaces a feature's entity. */
+export const entityOverrideLine = (projectFile: string, name: string, key: string) => `Override: ${projectFile} replaces ${name} from ${key}`;
 
 /** Adds the built-in `File` and `Media` entities unless `/entities` defines them. */
 export function withBuiltInEntities(models: EntityModel[]): EntityModel[] {
@@ -135,12 +217,22 @@ export function withJobRunEntity(models: EntityModel[]): EntityModel[] {
 }
 
 /**
- * Every entity of the project: the ones in `/entities`, their link entities, the built-in file entities, and the
- * built-in `JobRun` entity when the project has jobs.
+ * Every entity of the project: the ones in `/entities`, the ones the enabled features contribute, their link
+ * entities, the built-in file entities, and the built-in `JobRun` entity when the project has jobs.
  */
-export function parseProjectEntities(projectRoot: string): EntityModel[] {
-  const models = withBuiltInEntities(parseEntities(projectRoot));
-  return listJobFiles(projectRoot).length > 0 ? withJobRunEntity(models) : models;
+export function parseProjectEntities(projectRoot: string, features: readonly ResolvedFeature[] = []): EntityModel[] {
+  return parseProjectModels(projectRoot, features).models;
+}
+
+/** `parseProjectEntities` with the override lines of project entities replacing feature entities. */
+export function parseProjectModels(projectRoot: string, features: readonly ResolvedFeature[] = []): ProjectModels {
+  const parsed = parseSources(projectRoot, features);
+  const contributed = withContributedEntities(parsed.models, features);
+  const models = withBuiltInEntities(contributed.models);
+  return {
+    models: listJobFiles(projectRoot).length > 0 ? withJobRunEntity(models) : models,
+    overrides: [...parsed.overrides, ...contributed.overrides],
+  };
 }
 
 function listEntitySources(projectRoot: string, entitiesDir: string): EntitySource[] {
@@ -542,8 +634,7 @@ function namedEnumOf(typeNode: ts.TypeReferenceNode, path: string, context: Pars
   const name = (declaration as ts.EnumDeclaration | ts.TypeAliasDeclaration).name.text;
   const fail = (reason: string) => new EntityParseError(`${source.relativeFile}: field "${path}" uses ${reason}`);
   if (!isExported(declaration)) throw fail(`${name}, which must be exported`);
-  const root = source.file.slice(0, source.file.length - source.relativeFile.length);
-  const file = relative(root, declaration.getSourceFile().fileName).split(sep).join("/");
+  const file = featureFileName(context.projectRoot, resolve(declaration.getSourceFile().fileName));
   if (!ts.isEnumDeclaration(declaration)) {
     return { type: "enum", values: stringLiteralsOf((declaration as ts.TypeAliasDeclaration).type as ts.UnionTypeNode)!, declaration: { name, file } };
   }

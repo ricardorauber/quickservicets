@@ -49,7 +49,7 @@ async function withJobApp<T>(
   jobs: ReadonlyMap<string, JobDefinition>,
   work: (app: App, model: EntityModel) => Promise<T>,
 ): Promise<T> {
-  const models = parseProjectEntities(projectRoot);
+  const models = parseProjectEntities(projectRoot, config.features);
   await config.database.connect(models, { defaultSchema: config.schema });
   try {
     const app = createApp({ models, crudRoutes: [], endpoints: [], hooks: new Map(), config, jobs });

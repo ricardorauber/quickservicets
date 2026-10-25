@@ -1,5 +1,5 @@
 import type { FieldErrorDetail } from "./errors.ts";
-import { SYSTEM_FIELDS, type EntityModel, type FieldConstraints, type NestedFieldModel, type TypeDescriptor } from "./model.ts";
+import { SYSTEM_FIELDS, type EntityModel, type FieldConstraints, type FieldModel, type NestedFieldModel, type TypeDescriptor } from "./model.ts";
 
 type ValueSpec = TypeDescriptor & FieldConstraints;
 
@@ -123,6 +123,13 @@ function validateFields(
     if (field.type === "refArray" && requireAll === "none" && isPlainObject(raw)) {
       const change = validateChange(raw, path, errors);
       if (change) output[field.name] = change;
+      continue;
+    }
+    const vector = (field as Partial<FieldModel>).vector;
+    if (vector) {
+      const valid = Array.isArray(raw) && raw.length === vector.dimensions && raw.every((item) => typeof item === "number" && Number.isFinite(item));
+      if (valid) output[field.name] = [...(raw as number[])];
+      else errors.add(path, `Must be a list of ${vector.dimensions} numbers`);
       continue;
     }
     const value = validateValue(field, raw, path, errors);

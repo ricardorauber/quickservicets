@@ -325,6 +325,16 @@ With `replace`, linking a 1-1 target that is already linked moves the link inste
 /** @onConflict replace */ badge: Badge
 ```
 
+### `@vector`
+
+Stores embeddings of `<dimensions>` numbers (1 to 16000): a pgvector `vector` column on PostgreSQL, a number array elsewhere. Writes need exactly that many numbers (`Must be a list of <n> numbers`); list and read routes return the field only when `fields` selects it, and it cannot be filtered or sorted. Options: `metric=cosine|l2|ip` (default `cosine`) and `index=none|hnsw` (default `none`; `hnsw` builds an approximate index on PostgreSQL, up to 2000 dimensions).
+
+**Applies to:** Top-level `number[]` fields
+
+```ts
+/** @vector 1536 index=hnsw */ embedding?: number[]
+```
+
 ### `@hidden`
 
 Never returns the field in responses; `@hidden:list` or `@hidden:read` hides it only there.

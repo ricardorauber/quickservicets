@@ -12,6 +12,7 @@ import {
   text as pgText,
   timestamp,
   uniqueIndex as pgUniqueIndex,
+  vector as pgVector,
   type PgTableWithColumns,
 } from "drizzle-orm/pg-core";
 import {
@@ -25,7 +26,7 @@ import {
   uniqueIndex as sqliteUniqueIndex,
   type SQLiteTableWithColumns,
 } from "drizzle-orm/sqlite-core";
-import type { EntityModel, FieldModel, OnDeleteAction } from "../model.ts";
+import type { EntityModel, FieldModel, OnDeleteAction, VectorMetric } from "../model.ts";
 
 export type SqlDialect = "sqlite" | "postgres";
 
@@ -95,8 +96,12 @@ function sqliteColumn(field: FieldModel): ColumnBuilder {
   }
 }
 
+/** pgvector operator classes of HNSW indexes, by metric. */
+export const VECTOR_OPERATOR_CLASSES: Record<VectorMetric, string> = { cosine: "vector_cosine_ops", l2: "vector_l2_ops", ip: "vector_ip_ops" };
+
 function postgresColumn(field: FieldModel): ColumnBuilder {
   const name = columnName(field.name);
+  if (field.vector) return pgVector(name, { dimensions: field.vector.dimensions });
   if (field.storage === "json") return jsonb(name);
   switch (field.type) {
     case "number":
@@ -173,6 +178,10 @@ export function buildDrizzleSchema(models: EntityModel[], dialect: SqlDialect, o
         if (field.index) extras.push(index(`${prefix}_${column}_idx`).on(table[field.name] as never));
         if (field.type === "enum") {
           extras.push(check(`${prefix}_${column}_check`, enumCheck(table[field.name], field.values)));
+        }
+        if (!isSqlite && field.vector?.index === "hnsw") {
+          const target = (table[field.name] as { op(name: string): unknown }).op(VECTOR_OPERATOR_CLASSES[field.vector.metric]);
+          extras.push(pgIndex(`${prefix}_${column}_hnsw`).using("hnsw", target as never));
         }
       }
       for (const { fields, unique } of model.indexes ?? []) {

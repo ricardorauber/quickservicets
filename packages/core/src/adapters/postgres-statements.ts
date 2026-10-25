@@ -20,8 +20,9 @@ interface Column extends TargetColumn {
   field: string;
 }
 
-const KINDS: Record<string, ColumnKind> = { PgJsonb: "json", PgTimestamp: "date" };
-const TYPES: Record<string, string> = { PgDoublePrecision: "float8", PgTimestamp: "timestamptz", PgBoolean: "boolean", PgInteger: "int4", PgJsonb: "jsonb" };
+// pgvector reads and writes vectors as JSON-like text (`[1,2,3]`), so they are encoded and decoded like JSON.
+const KINDS: Record<string, ColumnKind> = { PgJsonb: "json", PgTimestamp: "date", PgVector: "json" };
+const TYPES: Record<string, string> = { PgDoublePrecision: "float8", PgTimestamp: "timestamptz", PgBoolean: "boolean", PgInteger: "int4", PgJsonb: "jsonb", PgVector: "vector" };
 
 /** SQL text with its parameters. */
 export interface Statement {
@@ -58,6 +59,9 @@ export class EntityStatements implements ConditionTarget {
   private readonly columnList: string;
   /** The own columns plus every junction-stored reference array, aggregated in position order. */
   private readonly selectList: string;
+  private readonly arrayList: string[];
+  /** Select lists leaving out some columns, by the omitted fields. */
+  private readonly partialLists = new Map<string, string>();
   private readonly texts = new Map<string, string>();
 
   constructor(entity: EntityModel, schema: DrizzleSchema) {
@@ -76,8 +80,24 @@ export class EntityStatements implements ConditionTarget {
       ({ field, name }) =>
         `coalesce((select array_agg(${name}."target_id" order by ${name}."position") from ${name} where ${name}."owner_id" = ${this.table}."id"), '{}') as ${quote(field)}`,
     );
+    this.arrayList = arrays;
     this.selectList = [this.columnList, ...arrays].join(", ");
     this.junctionNames = new Map(this.junctions.map((junction) => [junction.field, junction.name]));
+  }
+
+  /** The select list without the omitted columns, and the suffix that keys its statements in the cache. */
+  private selection(omit: readonly string[] | undefined): { key: string; list: string } {
+    const omitted = omit?.filter((field) => field !== "id" && this.columns.has(field)) ?? [];
+    if (omitted.length === 0) return { key: "", list: this.selectList };
+    const key = [...new Set(omitted)].sort().join(",");
+    let list = this.partialLists.get(key);
+    if (list === undefined) {
+      const kept = [...this.columns.values()].filter((column) => !omitted.includes(column.field));
+      const columns = kept.map(({ field, name }) => (name === quote(field) ? name : `${name} as ${quote(field)}`));
+      list = [...columns, ...this.arrayList].join(", ");
+      this.partialLists.set(key, list);
+    }
+    return { key: `-${key}`, list };
   }
 
   column(field: string): TargetColumn | undefined {
@@ -144,8 +164,9 @@ export class EntityStatements implements ConditionTarget {
     return rows as StoredRecord[];
   }
 
-  findById(id: string): Statement {
-    return { text: this.text("findById", () => `select ${this.selectList} from ${this.table} where "id" = $1 limit 1`), params: [id] };
+  findById(id: string, omit?: readonly string[]): Statement {
+    const { key, list } = this.selection(omit);
+    return { text: this.text(`findById${key}`, () => `select ${list} from ${this.table} where "id" = $1 limit 1`), params: [id] };
   }
 
   findOne(where: readonly Condition[]): Statement {
@@ -154,12 +175,13 @@ export class EntityStatements implements ConditionTarget {
   }
 
   /** A page of records matching `where`, in `sort` order. */
-  findMany(where: readonly Condition[], sort: readonly SortField[], limit: number, offset: number): Statement & { key: string } {
+  findMany(where: readonly Condition[], sort: readonly SortField[], limit: number, offset: number, omit?: readonly string[]): Statement & { key: string } {
     const order = compileSort(sort, this);
-    const { key, text, params } = this.withConditions(`findMany:${order.key}`, where, 1, (clause, at) => {
+    const selection = this.selection(omit);
+    const { key, text, params } = this.withConditions(`findMany${selection.key}:${order.key}`, where, 1, (clause, at) => {
       const filter = clause ? ` where ${clause}` : "";
       const ordering = order.text ? ` order by ${order.text}` : "";
-      return `select ${this.selectList} from ${this.table}${filter}${ordering} limit $${at + 1} offset $${at + 2}`;
+      return `select ${selection.list} from ${this.table}${filter}${ordering} limit $${at + 1} offset $${at + 2}`;
     });
     return { key, text, params: [...params, limit, offset] };
   }

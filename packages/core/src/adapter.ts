@@ -8,7 +8,16 @@ export type StoredRecord = Record<string, unknown> & {
   updatedAt: Date;
 };
 
-export interface FindManyOptions {
+/** Columns a read may skip. */
+export interface ReadColumns {
+  /**
+   * Top-level fields not to read from the database (stored as the entity's own columns); the returned records leave
+   * them out. Adapters that cannot skip columns may return them.
+   */
+  omit?: readonly string[];
+}
+
+export interface FindManyOptions extends ReadColumns {
   where: Condition[];
   sort: SortField[];
   limit: number;
@@ -64,7 +73,7 @@ export interface DatabaseAdapter {
   readonly kind?: AdapterKind;
   connect(models: EntityModel[], options?: ConnectOptions): Promise<void>;
   disconnect(): Promise<void>;
-  findById(entity: EntityModel, id: string): Promise<StoredRecord | null>;
+  findById(entity: EntityModel, id: string, options?: ReadColumns): Promise<StoredRecord | null>;
   findOne(entity: EntityModel, where: Condition[]): Promise<StoredRecord | null>;
   findMany(entity: EntityModel, options: FindManyOptions): Promise<FindManyResult>;
   /** Stores a new record and resolves the record as stored. */

@@ -1,9 +1,9 @@
 import { HttpError } from "../errors.ts";
-import { entityRoutePath, type CrudOperation, type EntityModel } from "../model.ts";
+import { entityRoutePath, vectorFields, type CrudOperation, type EntityModel } from "../model.ts";
 import { parseListQuery } from "../query.ts";
 import { repositoryFor, type RepositoryRegistry } from "../repository.ts";
 import { patternOf } from "./router.ts";
-import { parseClientSelection, selectFields } from "./selection.ts";
+import { parseClientSelection, selectFields, type ClientSelection } from "./selection.ts";
 import { parsePopulateParam } from "../populate.ts";
 import { parseUpload, storeFile, type UploadSettings } from "../files/upload.ts";
 import { isMultipart, parseEntityUpload, withUploadedFiles, type UploadMode } from "../files/references.ts";
@@ -21,6 +21,19 @@ export interface CrudRoute extends Route {
 /** Default `@populate` paths of an operation plus the request's `populate` parameter. */
 export function populatePaths(model: EntityModel, operation: "list" | "read", params: URLSearchParams): string[] {
   return [...new Set([...(model.populate?.[operation] ?? []), ...parsePopulateParam(params)])];
+}
+
+/** Vector fields the selection does not ask for: they are neither read nor returned. */
+function unselectedVectors(vectors: readonly string[], selection: ClientSelection): string[] {
+  if (vectors.length === 0) return vectors as string[];
+  return vectors.filter((name) => !selection.fields?.some((path) => path === name || path.startsWith(`${name}.`)));
+}
+
+function withoutFields<T>(record: T, fields: readonly string[]): T {
+  if (fields.length === 0 || !record || typeof record !== "object") return record;
+  const copy = { ...(record as Record<string, unknown>) };
+  for (const field of fields) delete copy[field];
+  return copy as T;
 }
 
 export interface CrudOptions {
@@ -52,6 +65,7 @@ export function createCrudRoutes(models: EntityModel[], repos: RepositoryRegistr
     .filter((model) => !model.internal)
     .flatMap((model) => {
       const repo = repositoryFor(repos, model);
+      const vectors = vectorFields(model).map((field) => field.name);
       const collection = entityRoutePath(model);
       const item = `${collection}/[id]`;
       const id = (params: Record<string, string>) => params.id!;
@@ -70,8 +84,9 @@ export function createCrudRoutes(models: EntityModel[], repos: RepositoryRegistr
           async (_, req) => {
             const populate = populatePaths(model, "list", req.query);
             const selection = parseClientSelection(model, "list", req.query, { populated: populate, models });
-            const result = await repo.list(parseListQuery(model, req.query), { populate });
-            return { ...result, data: result.data.map((record) => selectFields(record, model.exposure.list, selection)) };
+            const omit = unselectedVectors(vectors, selection);
+            const result = await repo.list(parseListQuery(model, req.query), omit.length > 0 ? { populate, omit } : { populate });
+            return { ...result, data: result.data.map((record) => selectFields(withoutFields(record, omit), model.exposure.list, selection)) };
           },
         ],
         [
@@ -81,9 +96,10 @@ export function createCrudRoutes(models: EntityModel[], repos: RepositoryRegistr
           async (_, req) => {
             const populate = populatePaths(model, "read", req.query);
             const selection = parseClientSelection(model, "read", req.query, { populated: populate, models });
-            const record = await repo.findById(id(req.params), { populate });
+            const omit = unselectedVectors(vectors, selection);
+            const record = await repo.findById(id(req.params), omit.length > 0 ? { populate, omit } : { populate });
             if (!record) throw new HttpError(404, `${model.entityName} not found`);
-            return selectFields(record, model.exposure.read, selection);
+            return selectFields(withoutFields(record, omit), model.exposure.read, selection);
           },
         ],
         [

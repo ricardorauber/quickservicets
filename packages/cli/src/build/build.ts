@@ -259,6 +259,14 @@ export function joinTableWarnings(models: EntityModel[], kind: string | undefine
   );
 }
 
+export const HNSW_ONLY_ON_POSTGRES = "@vector index=hnsw is used only on PostgreSQL";
+
+/** One warning when a vector field asks for an HNSW index on a database that does not build one. */
+export function vectorIndexWarnings(models: EntityModel[], kind: string | undefined): string[] {
+  if (kind === "postgres") return [];
+  return models.some((model) => model.fields.some((field) => field.vector?.index === "hnsw")) ? [HNSW_ONLY_ON_POSTGRES] : [];
+}
+
 /** Builds the project at `projectRoot` into `.generated/`, replacing the previous output only on success. */
 export async function build(projectRoot: string): Promise<BuildSummary> {
   const config = await loadConfig(projectRoot);
@@ -326,7 +334,7 @@ export async function build(projectRoot: string): Promise<BuildSummary> {
   // Earlier versions wrote through a staging folder.
   rmSync(join(projectRoot, `${GENERATED_DIR}.staging`), { recursive: true, force: true });
 
-  const warnings: string[] = joinTableWarnings(models, config.database.kind);
+  const warnings: string[] = [...joinTableWarnings(models, config.database.kind), ...vectorIndexWarnings(models, config.database.kind)];
   const tsconfigWarning = generatedIncludeWarning(projectRoot);
   if (tsconfigWarning) warnings.push(tsconfigWarning);
   warnings.push(...endpointDocs.warnings);

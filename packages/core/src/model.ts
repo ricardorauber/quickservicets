@@ -61,6 +61,22 @@ export type FieldStorage = "column" | "json" | "relation" | "derived" | "compute
 
 export type RelationKind = "1-1" | "1-N" | "N-N";
 
+/** Distance a vector index is built for: cosine distance, Euclidean (`l2`) distance or inner product (`ip`). */
+export type VectorMetric = "cosine" | "l2" | "ip";
+
+/** `@vector <dimensions> metric=<metric> index=<index>` on a `number[]` field holding embeddings. */
+export interface VectorSettings {
+  dimensions: number;
+  metric: VectorMetric;
+  /** `hnsw` builds an approximate nearest-neighbor index on PostgreSQL; other adapters ignore it. */
+  index: "none" | "hnsw";
+}
+
+/** Top-level fields holding vectors, which list and read routes return only when selected with `fields`. */
+export function vectorFields(model: Pick<EntityModel, "fields">): FieldModel[] {
+  return model.fields.filter((field) => field.vector !== undefined);
+}
+
 export type FileAccessMode = "direct" | "proxy" | "signed";
 
 /** One side of a bidirectional relation between two reference fields. */
@@ -94,6 +110,8 @@ export type FieldModel = NestedFieldModel & {
   fileLimits?: { maxSize?: number; accept?: string[]; maxTotalSize?: number };
   /** `@keepFile`: the referenced file is never removed when replaced or when this record is deleted. */
   keepFile?: boolean;
+  /** `@vector`: the field (a `number[]`) holds vectors of a fixed length. */
+  vector?: VectorSettings;
 };
 
 /** The paths a read operation returns: keep `include`, then remove `exclude` (see `project`). */

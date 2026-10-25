@@ -1,4 +1,4 @@
-import { parseSize, type FieldModel, type NestedFieldModel, type StringFormat, type TypeDescriptor } from "@quickservice/core";
+import { parseSize, type FieldModel, type NestedFieldModel, type StringFormat, type TypeDescriptor, type VectorMetric } from "@quickservice/core";
 import { tagDocRegistry } from "../tag-docs.ts";
 import { EntityParseError } from "./errors.ts";
 import type { DocTag } from "./jsdoc.ts";
@@ -9,7 +9,7 @@ export interface FieldTagContext {
   topLevel: boolean;
 }
 
-type FieldUnderConstruction = NestedFieldModel & Partial<Pick<FieldModel, "unique" | "index" | "inverse" | "owner" | "onConflict" | "joinTable" | "fileLimits" | "keepFile">>;
+type FieldUnderConstruction = NestedFieldModel & Partial<Pick<FieldModel, "unique" | "index" | "inverse" | "owner" | "onConflict" | "joinTable" | "fileLimits" | "keepFile" | "vector">>;
 
 type FieldTagHandler = (field: FieldUnderConstruction, tag: DocTag, context: FieldTagContext) => void;
 
@@ -231,6 +231,33 @@ registerFieldTag("onConflict", (field, tag, context) => {
   if (tag.text !== "replace") throw fieldTagError(context, tag, "expects replace");
   field.onConflict = "replace";
 });
+/** Largest vector pgvector stores, and largest one its HNSW index takes. */
+export const MAX_VECTOR_DIMENSIONS = 16000;
+export const MAX_HNSW_DIMENSIONS = 2000;
+const VECTOR_METRICS: VectorMetric[] = ["cosine", "l2", "ip"];
+
+registerFieldTag("vector", (field, tag, context) => {
+  if (!context.topLevel || field.type !== "array" || field.items.type !== "number") {
+    throw new EntityParseError(`${context.relativeFile}: @vector needs a number[] field`);
+  }
+  const [shorthand, ...options] = tag.text.split(/\s+/).filter((part) => part !== "");
+  if (!shorthand || !/^\d+$/.test(shorthand) || Number(shorthand) < 1 || Number(shorthand) > MAX_VECTOR_DIMENSIONS) {
+    throw fieldTagError(context, tag, `expects the dimensions, an integer from 1 to ${MAX_VECTOR_DIMENSIONS}`);
+  }
+  const vector: NonNullable<FieldModel["vector"]> = { dimensions: Number(shorthand), metric: "cosine", index: "none" };
+  for (const option of options) {
+    const [key, value] = option.split("=", 2);
+    if (key === "metric" && VECTOR_METRICS.includes(value as VectorMetric)) vector.metric = value as VectorMetric;
+    else if (key === "index" && (value === "none" || value === "hnsw")) vector.index = value;
+    else if (key === "metric") throw fieldTagError(context, tag, `metric expects ${VECTOR_METRICS.join(", ")}`);
+    else if (key === "index") throw fieldTagError(context, tag, "index expects none or hnsw");
+    else throw fieldTagError(context, tag, `unknown option "${option}" (use metric= or index=)`);
+  }
+  if (vector.index === "hnsw" && vector.dimensions > MAX_HNSW_DIMENSIONS) {
+    throw new EntityParseError(`${context.relativeFile}: @vector index=hnsw supports at most ${MAX_HNSW_DIMENSIONS} dimensions`);
+  }
+  field.vector = vector;
+});
 registerFieldTag("hidden", (field, tag, context) => {
   if (tag.text === "") {
     field.hidden = true;
@@ -346,6 +373,12 @@ describeFieldTag("onConflict", {
   description: "With `replace`, linking a 1-1 target that is already linked moves the link instead of failing with 409.",
   appliesTo: "Single references in a 1-1 relation",
   example: "/** @onConflict replace */ badge: Badge",
+});
+describeFieldTag("vector", {
+  description:
+    "Stores embeddings of `<dimensions>` numbers (1 to 16000): a pgvector `vector` column on PostgreSQL, a number array elsewhere. Writes need exactly that many numbers (`Must be a list of <n> numbers`); list and read routes return the field only when `fields` selects it, and it cannot be filtered or sorted. Options: `metric=cosine|l2|ip` (default `cosine`) and `index=none|hnsw` (default `none`; `hnsw` builds an approximate index on PostgreSQL, up to 2000 dimensions).",
+  appliesTo: "Top-level `number[]` fields",
+  example: "/** @vector 1536 index=hnsw */ embedding?: number[]",
 });
 describeFieldTag("hidden", {
   description: "Never returns the field in responses; `@hidden:list` or `@hidden:read` hides it only there.",

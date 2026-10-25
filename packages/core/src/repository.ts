@@ -42,6 +42,8 @@ export interface ReadOptions {
   includeHidden?: boolean;
   /** Reference paths to replace with the referenced records, e.g. `organization` or `organization.logo`. */
   populate?: readonly string[];
+  /** Top-level fields stored in the entity's own columns that are not read, such as vectors no one asked for. */
+  omit?: readonly string[];
 }
 
 export interface RepositoryOptions {
@@ -397,7 +399,8 @@ export function createRepository(
     query: ListQuery,
     options: ReadOptions | undefined,
     withTotal: boolean,
-    find: (where: Condition[]) => Promise<FindManyResult> = (where) => adapter.findMany(model, { ...query, where, withTotal }),
+    find: (where: Condition[]) => Promise<FindManyResult> = (where) =>
+      adapter.findMany(model, { ...query, where, withTotal, ...(options?.omit?.length ? { omit: options.omit } : {}) }),
   ): Promise<ListResult<EntityRecord>> => {
     const { data, total } = await find(await resolve(query.where));
     const populated = await withReferences(data, options);
@@ -523,7 +526,7 @@ export function createRepository(
     },
 
     async findById(id, options) {
-      const record = await adapter.findById(model, id);
+      const record = await adapter.findById(model, id, options?.omit?.length ? { omit: options.omit } : undefined);
       if (!record) return null;
       const [populated] = await withReferences([record], options);
       return present(populated!, options);

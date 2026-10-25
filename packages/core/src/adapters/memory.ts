@@ -129,6 +129,12 @@ function aggregateOf(records: StoredRecord[], aggregate: Aggregate, entity: Enti
   return pick instanceof Date ? new Date(pick) : (pick as number);
 }
 
+/** The record without the omitted fields. */
+function without(record: StoredRecord, omit: readonly string[] | undefined): StoredRecord {
+  for (const field of omit ?? []) delete record[field];
+  return record;
+}
+
 export function memoryAdapter(): DatabaseAdapter {
   const tables = new Map<string, Table>();
 
@@ -147,9 +153,9 @@ export function memoryAdapter(): DatabaseAdapter {
     [...tableFor(entity).values()].filter((record) => where.every((condition) => matches(record, condition, entity)));
 
   /** One page of `records`, in `sort` order. */
-  const page = (records: StoredRecord[], { sort, limit, offset, withTotal = true }: FindManyOptions): FindManyResult => {
+  const page = (records: StoredRecord[], { sort, limit, offset, withTotal = true, omit }: FindManyOptions): FindManyResult => {
     const sorted = sortRecords(records, sort);
-    const data = sorted.slice(offset, offset + limit).map((record) => structuredClone(record));
+    const data = sorted.slice(offset, offset + limit).map((record) => without(structuredClone(record), omit));
     return { data, total: withTotal ? sorted.length : data.length };
   };
 
@@ -214,9 +220,9 @@ export function memoryAdapter(): DatabaseAdapter {
       tableFor(entity).set(stored.id, stored);
       return structuredClone(stored);
     },
-    async findById(entity, id) {
+    async findById(entity, id, options) {
       const record = tableFor(entity).get(id);
-      return record ? structuredClone(record) : null;
+      return record ? without(structuredClone(record), options?.omit) : null;
     },
     async findOne(entity, where) {
       const [record] = select(entity, where);

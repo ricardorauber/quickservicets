@@ -160,15 +160,19 @@ function toDocument(entity: EntityModel, record: StoredRecord): Document {
   return document;
 }
 
-function toRecord(entity: EntityModel, document: Document | null): StoredRecord | null {
+function toRecord(entity: EntityModel, document: Document | null, omit?: readonly string[]): StoredRecord | null {
   if (!document) return null;
   const { _id, ...rest } = document;
   const record = { id: _id, ...rest } as StoredRecord;
   for (const field of entity.fields) {
-    if (record[field.name] === undefined) record[field.name] = field.type === "refArray" ? [] : null;
+    if (record[field.name] === undefined && !omit?.includes(field.name)) record[field.name] = field.type === "refArray" ? [] : null;
   }
   return record;
 }
+
+/** A projection leaving out the omitted fields, or none. */
+const projectionWithout = (omit: readonly string[] | undefined) =>
+  omit && omit.length > 0 ? { projection: Object.fromEntries(omit.map((field) => [field, 0])) } : {};
 
 const BSON_TYPES: Record<FieldModel["type"], string> = {
   string: "string",
@@ -261,10 +265,10 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
   };
   /** The documents of `entity` among `ids` that match `where`. */
   const among = (ids: string[], where: Condition[], entity: EntityModel): Filter<Document> => ({ $and: [{ _id: { $in: ids as never[] } }, toFilter(where, entity)] });
-  const findMany = async (entity: EntityModel, filter: Filter<Document>, { sort, limit, offset, withTotal = true }: FindManyOptions): Promise<FindManyResult> => {
-    const documents = await collection(entity).find(filter, session()).sort(toSort(sort)).skip(offset).limit(limit).toArray();
+  const findMany = async (entity: EntityModel, filter: Filter<Document>, { sort, limit, offset, withTotal = true, omit }: FindManyOptions): Promise<FindManyResult> => {
+    const documents = await collection(entity).find(filter, { ...session(), ...projectionWithout(omit) }).sort(toSort(sort)).skip(offset).limit(limit).toArray();
     const total = withTotal ? await collection(entity).countDocuments(filter, session()) : documents.length;
-    return { data: documents.map((document) => toRecord(entity, document)!), total };
+    return { data: documents.map((document) => toRecord(entity, document, omit)!), total };
   };
   const aggregate = async (entity: EntityModel, filter: Filter<Document>, aggregates: Record<string, Aggregate>): Promise<AggregateValues> => {
     const [result] = await collection(entity).aggregate(aggregatePipeline(filter, aggregates, entity), session()).toArray();
@@ -319,8 +323,8 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
         return toRecord(entity, await collection(entity).findOne({ _id: record.id as never }, session()))!;
       });
     },
-    async findById(entity, id) {
-      return toRecord(entity, await collection(entity).findOne({ _id: id as never }, session()));
+    async findById(entity, id, options) {
+      return toRecord(entity, await collection(entity).findOne({ _id: id as never }, { ...session(), ...projectionWithout(options?.omit) }), options?.omit);
     },
     async findOne(entity, where) {
       return toRecord(entity, await collection(entity).findOne(toFilter(where, entity), session()));

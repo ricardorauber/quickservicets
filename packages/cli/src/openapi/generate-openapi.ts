@@ -12,6 +12,7 @@ import {
   type HookCall,
   type HookDocs,
   type HookPhase,
+  type FieldModel,
   type NestedFieldModel,
   type Projection,
   type QueryItem,
@@ -182,6 +183,8 @@ function descriptorSchema(descriptor: TypeDescriptor, visible: (field: NestedFie
   }
 }
 
+export const VECTOR_RESPONSE_NOTE = "Returned only when selected with fields.";
+
 function fieldSchema(field: NestedFieldModel, visible: (field: NestedFieldModel) => boolean, mode: WriteMode | "response"): JsonSchema {
   const schema = descriptorSchema(field, visible, mode);
   if (field.type === "number" && field.integer) schema.type = "integer";
@@ -192,6 +195,12 @@ function fieldSchema(field: NestedFieldModel, visible: (field: NestedFieldModel)
   if (field.max !== undefined) schema.maximum = field.max;
   if (field.format) schema.format = field.format === "url" ? "uri" : field.format;
   if (field.default !== undefined) schema.default = field.default;
+  const vector = (field as Partial<FieldModel>).vector;
+  if (vector) {
+    schema.minItems = vector.dimensions;
+    schema.maxItems = vector.dimensions;
+    if (mode === "response") schema.description = VECTOR_RESPONSE_NOTE;
+  }
   if (field.type === "refArray" && mode !== "response") return referenceArrayBody(schema, field.optional, mode);
   return field.optional ? withNull(schema) : schema;
 }

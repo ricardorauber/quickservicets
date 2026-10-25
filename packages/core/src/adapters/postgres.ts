@@ -174,17 +174,17 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
         }),
       );
     },
-    async findById(entity, id) {
-      return (await read(entity, statementsFor(entity).findById(id)))[0] ?? null;
+    async findById(entity, id, options) {
+      return (await read(entity, statementsFor(entity).findById(id, options?.omit)))[0] ?? null;
     },
     async findOne(entity, where) {
       return (await read(entity, statementsFor(entity).findOne(where)))[0] ?? null;
     },
-    async findMany(entity, { where, sort, limit, offset, withTotal = true }) {
+    async findMany(entity, { where, sort, limit, offset, withTotal = true, omit }) {
       const entityStatements = statementsFor(entity);
       // The page and the count are independent, so they run at the same time.
       const [data, total] = await Promise.all([
-        read(entity, entityStatements.findMany(where, sort, limit, offset)),
+        read(entity, entityStatements.findMany(where, sort, limit, offset, omit)),
         withTotal ? run(entityStatements.count(where)).then(([row]) => Number(row?.total ?? 0)) : undefined,
       ]);
       return { data, total: total ?? data.length };

@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { and, count, eq, inArray, sql } from "drizzle-orm";
+import { and, count, eq, getTableColumns, inArray, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import { UniqueViolationError, type AggregateValues, type DatabaseAdapter, type RelatedScope, type StoredRecord } from "../adapter.ts";
@@ -70,9 +70,16 @@ export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
   };
   const withRelations = async (entity: EntityModel, rows: StoredRecord[]) =>
     loadRelations(ready().db, ready().schema, entity, rows);
-  const findById = async (entity: EntityModel, id: string) => {
+  /** The columns to select: every column, or all but the omitted fields. */
+  const columnsOf = (table: Table, omit: readonly string[] | undefined) => {
+    if (!omit || omit.length === 0) return undefined;
+    return Object.fromEntries(Object.entries(getTableColumns(table)).filter(([field]) => !omit.includes(field))) as Table;
+  };
+  const findById = async (entity: EntityModel, id: string, omit?: readonly string[]) => {
     const table = tableFor(entity);
-    const row = ready().db.select().from(table).where(eq(table.id, id)).get() as StoredRecord | undefined;
+    const columns = columnsOf(table, omit);
+    const selection = columns ? ready().db.select(columns) : ready().db.select();
+    const row = selection.from(table).where(eq(table.id, id)).get() as StoredRecord | undefined;
     return row ? (await withRelations(entity, [row]))[0]! : null;
   };
   const transactionHooks = {
@@ -126,8 +133,8 @@ export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
         }),
       );
     },
-    findById(entity, id) {
-      return scope.run(() => findById(entity, id));
+    findById(entity, id, options) {
+      return scope.run(() => findById(entity, id, options?.omit));
     },
     findOne(entity, where) {
       return scope.run(async () => {
@@ -136,12 +143,12 @@ export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
         return row ? (await withRelations(entity, [row]))[0]! : null;
       });
     },
-    findMany(entity, { where, sort, limit, offset, withTotal = true }) {
+    findMany(entity, { where, sort, limit, offset, withTotal = true, omit }) {
       return scope.run(async () => {
         const table = tableFor(entity);
         const condition = toWhere(table, where, "sqlite", relationContext(entity));
-        const data = ready()
-          .db.select()
+        const columns = columnsOf(table, omit);
+        const data = (columns ? ready().db.select(columns) : ready().db.select())
           .from(table)
           .where(condition)
           .orderBy(...toOrderBy(table, sort))

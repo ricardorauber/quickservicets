@@ -63,7 +63,16 @@ async function generate(dialect: SqlDialect, from: DrizzleSnapshot, to: DrizzleS
  */
 export async function diffSnapshots(dialect: SqlDialect, from: DrizzleSnapshot, to: DrizzleSnapshot): Promise<string[]> {
   const intermediate = withoutRemovals(from, to);
-  return [...(await generate(dialect, from, intermediate)), ...(await generate(dialect, intermediate, to))];
+  const statements = [...(await generate(dialect, from, intermediate)), ...(await generate(dialect, intermediate, to))];
+  // pgvector columns need the extension, which the first migration adding one creates.
+  if (dialect === "postgres" && !hasVectorColumn(from) && hasVectorColumn(to)) statements.unshift(CREATE_VECTOR_EXTENSION);
+  return statements;
+}
+
+export const CREATE_VECTOR_EXTENSION = "CREATE EXTENSION IF NOT EXISTS vector;";
+
+function hasVectorColumn(snapshot: DrizzleSnapshot): boolean {
+  return Object.values(snapshot.tables).some((table) => Object.values(table.columns).some((column) => /^vector\(/.test(String((column as { type?: unknown }).type))));
 }
 
 const DATA_LOSS = /\bDROP TABLE\b|\bDROP COLUMN\b|\bSET DATA TYPE\b/i;

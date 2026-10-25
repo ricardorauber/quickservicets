@@ -9,7 +9,7 @@ import type { DocumentedTag } from "../../packages/cli/src/tag-docs.ts";
 import { CODES_BY_STATUS } from "../../packages/core/src/errors.ts";
 import { DEFAULT_LIMIT, MAX_LIMIT, MAX_LIST_VALUES, OPERATORS_BY_TYPE } from "../../packages/core/src/query.ts";
 import { configVariable, envNameFor, NOT_OVERRIDABLE } from "../../packages/core/src/environment.ts";
-import { registeredNatives } from "../../packages/core/src/features.ts";
+import { registeredNatives, type FeatureTag } from "../../packages/core/src/features.ts";
 import { describeOptions, type AnyOptionSchema } from "../../packages/core/src/options.ts";
 import type { CommandDefinition } from "../../packages/core/src/commands.ts";
 
@@ -99,6 +99,17 @@ function variableOf(key: ConfigKey): string {
 
 const TARGET_TITLES: Record<string, string> = { entity: "entities", field: "fields", endpoint: "endpoints" };
 
+/** How a feature tag is written: `@limit <rate> [by=…]` with a shorthand, `@audit [greeting=…]` without, `@flag` for a flag. */
+export function tagSyntax(name: string, tag: FeatureTag): string {
+  const keyed = (tag.options ?? []).filter((option) => option !== tag.shorthand).map((option) => `[${option}=…]`);
+  return [`@${name}`, ...(tag.shorthand ? [`<${tag.shorthand}>`] : []), ...keyed].join(" ");
+}
+
+/** The option paths a tag sets, relative to the feature: `rateLimit.limit` for a tag scoped to `rateLimit`. */
+export function tagOptionPaths(tag: FeatureTag): string[] {
+  return (tag.options ?? []).map((option) => (tag.scope ? `${tag.scope}.${option}` : option));
+}
+
 /** The tags of a native, listed under its options. */
 function nativeTagLines(native: ReturnType<typeof registeredNatives>[number]): string[] {
   return Object.entries(native.tags ?? {}).flatMap(([name, tag]) => [
@@ -108,7 +119,9 @@ function nativeTagLines(native: ReturnType<typeof registeredNatives>[number]): s
     "",
     `**Applies to:** ${tag.on.map((target) => TARGET_TITLES[target]).join(", ")}`,
     "",
-    `**Options:** ${tag.options && tag.options.length > 0 ? tag.options.map((option) => code(option)).join(", ") : "none (a flag: \`@" + name + "\` or \`@" + name + " off\`)"}`,
+    `**Options:** ${tag.options && tag.options.length > 0 ? tagOptionPaths(tag).map((option) => code(option)).join(", ") : "none (a flag: \`@" + name + "\` or \`@" + name + " off\`)"}`,
+    "",
+    `**Syntax:** ${code(tagSyntax(name, tag))} or ${code(`@${name} off`)}`,
     "",
     "```ts",
     tag.example,

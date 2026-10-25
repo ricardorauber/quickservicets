@@ -2,6 +2,7 @@ import {
   ConfigError,
   parseOptionString,
   registeredNatives,
+  scopedOptionSchema,
   suggestion,
   type FeatureTag,
   type FeatureTagTarget,
@@ -73,30 +74,46 @@ export function assertNoHookConflicts(set: FeatureTagSet, hooks: ReadonlyMap<str
 
 const TARGET_NAMES: Record<FeatureTagTarget, string> = { entity: "entities", field: "fields", endpoint: "endpoints" };
 const PAIR = /^([A-Za-z_$][\w$]*)=("((?:[^"\\]|\\.)*)"|[^\s"]*)(?:\s+|$)/;
+/** A bare first value: a quoted text, or a word without `=`. */
+const BARE = /^(?:"((?:[^"\\]|\\.)*)"|([^\s"=]+))(?:\s+|$)/;
 
-/** Parses `@name`, `@name off` or `@name key=value key2="a quoted value"` written on a target, or throws the reason. */
+const unquote = (quoted: string) => quoted.replace(/\\(.)/g, "$1");
+
+/**
+ * Parses `@name`, `@name off`, `@name <shorthand value>` or `@name key=value key2="a quoted value"` written on a
+ * target, or throws the reason. Keys are relative to the tag's scope and parsed with the scoped object's schema.
+ */
 function parseTagText(entry: FeatureTagEntry, text: string): ParsedTag {
   if (text === "") return { on: true, options: {} };
   if (text === "off") return { on: false, options: {} };
   const allowed = entry.tag.options ?? [];
-  const shape = entry.feature.definition.schema.settings.shape!;
+  const shape = scopedOptionSchema(entry.feature.definition.schema, entry.tag.scope)!.settings.shape!;
   const options: Record<string, unknown> = {};
-  let rest = text;
-  while (rest !== "") {
-    const match = PAIR.exec(rest);
-    if (!match) throw new Error(`expects off or key=value pairs, got "${rest}"`);
-    rest = rest.slice(match[0].length);
-    const [, key = "", , quoted] = match;
-    const raw = quoted !== undefined ? quoted.replace(/\\(.)/g, "$1") : match[2]!;
-    if (!allowed.includes(key)) {
-      throw new Error(allowed.length === 0 ? `takes no options, got ${key}` : `unknown option ${key}${suggestion(key, allowed)}`);
-    }
+  const parse = (key: string, raw: string) => {
+    if (key === entry.tag.shorthand && Object.hasOwn(options, key)) throw new Error(`${key} is given twice`);
     try {
       options[key] = parseOptionString(shape[key]!, raw, key);
     } catch (error) {
       if (error instanceof ConfigError) throw new Error(error.message.replace(/^Invalid /, ""));
       throw error;
     }
+  };
+  let rest = text;
+  const bare = entry.tag.shorthand !== undefined ? BARE.exec(rest) : null;
+  if (bare) {
+    rest = rest.slice(bare[0].length);
+    parse(entry.tag.shorthand!, bare[1] !== undefined ? unquote(bare[1]) : bare[2]!);
+  }
+  while (rest !== "") {
+    const match = PAIR.exec(rest);
+    if (!match) throw new Error(`expects off or key=value pairs, got "${rest}"`);
+    rest = rest.slice(match[0].length);
+    const [, key = "", , quoted] = match;
+    const raw = quoted !== undefined ? unquote(quoted) : match[2]!;
+    if (!allowed.includes(key)) {
+      throw new Error(allowed.length === 0 ? `takes no options, got ${key}` : `unknown option ${key}${suggestion(key, allowed)}`);
+    }
+    parse(key, raw);
   }
   return { on: true, options };
 }

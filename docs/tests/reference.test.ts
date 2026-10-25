@@ -75,6 +75,21 @@ describe("config variables", () => {
   });
 });
 
+describe("tag syntax", () => {
+  test("a tag's syntax line shows its shorthand, and its options name their scoped paths", () => {
+    const options = object({ rateLimit: object({ rate: string().default("100/min"), by: string().default("ip") }) });
+    const tags = { limit: { on: ["endpoint"] as const, scope: "rateLimit", shorthand: "rate", options: ["rate", "by"], description: "Limits a route.", example: "/** @limit 10/min */" } };
+    registerNative(defineFeature({ key: "guard", options, tags }));
+    try {
+      const section = configPage().slice(configPage().indexOf("#### `@limit`"));
+      expect(section).toContain("**Options:** `rateLimit.rate`, `rateLimit.by`");
+      expect(section).toContain("**Syntax:** `@limit <rate> [by=…]` or `@limit off`");
+    } finally {
+      unregisterNative("guard");
+    }
+  });
+});
+
 describe("cli", () => {
   test("every command the CLI handles is documented", () => {
     const handled = [...BUILT_IN_COMMANDS.map((command) => command.name), "--version"];

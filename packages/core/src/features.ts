@@ -131,8 +131,21 @@ export type FeatureTagTarget = "entity" | "field" | "endpoint";
 export interface FeatureTag {
   /** The targets the tag may be written on. */
   on: readonly FeatureTagTarget[];
-  /** The feature's option keys the tag may set (default: none, which makes the tag a flag). */
+  /**
+   * The feature's option keys the tag may set (default: none, which makes the tag a flag); with `scope`, keys of the
+   * scoped object.
+   */
   options?: readonly string[];
+  /**
+   * The option a bare first value sets: with `shorthand: "limit"`, `@rateLimit 10/min by=user` equals
+   * `@rateLimit limit=10/min by=user`. Must be one of `options`.
+   */
+  shorthand?: string;
+  /**
+   * A dot path to a nested object of the feature's options (`"rateLimit"`): the tag's options are then keys of that
+   * object, and `optionsFor` merges them into it only.
+   */
+  scope?: string;
   /** One sentence on what the tag does, for the reference. */
   description: string;
   /** A short sample of the tag in use, for the reference. */
@@ -295,7 +308,7 @@ export function defineFeature<S extends AnyOptionSchema = ObjectOptionSchema<{}>
     ...(input.env ? { env: Object.freeze({ ...input.env }) } : {}),
     ...(input.entities !== undefined ? { entities: entitiesField(input.entities, invalid) } : {}),
     ...folderFields(input, invalid),
-    ...(input.tags !== undefined ? { tags: tagsField(input.tags, schema, invalid) } : {}),
+    ...(input.tags !== undefined ? { tags: tagsField(key, input.tags, schema, invalid) } : {}),
     ...(input.folders !== undefined ? { folders: foldersField(input.folders, invalid) } : {}),
     ...(input.watch !== undefined ? { watch: watchField(input.watch, invalid) } : {}),
     ...(input.setup !== undefined ? { setup: functionField(input.setup, "setup", invalid) } : {}),
@@ -310,7 +323,7 @@ export function defineFeature<S extends AnyOptionSchema = ObjectOptionSchema<{}>
       return resolved as FeatureOptions<S>;
     },
     optionsFor(target) {
-      return optionsForTarget(definition.options() as Record<string, unknown>, definition.tags, tagsOf(target)) as TargetOptions<FeatureOptions<S>>;
+      return optionsForTarget(definition.options() as Record<string, unknown>, schema, definition.tags, tagsOf(target)) as TargetOptions<FeatureOptions<S>>;
     },
   };
   Object.defineProperty(definition, FEATURE_BRAND, { value: true });
@@ -399,32 +412,88 @@ export function assertFeatureFolders(features: readonly Pick<ResolvedFeature, "k
 const TAG_NAME = /^[a-z][a-zA-Z0-9]*$/;
 const TAG_TARGETS: readonly FeatureTagTarget[] = ["entity", "field", "endpoint"];
 
-/** Checks a definition's tags: names like hook names, known targets, and option keys of the feature's schema. */
-function tagsField(tags: Readonly<Record<string, FeatureTag>>, schema: AnyOptionSchema, invalid: (reason: string) => Error): Readonly<Record<string, FeatureTag>> {
+/** Whether a schema node holds named options: an `object()`. */
+function holdsOptions(schema: AnyOptionSchema | undefined): schema is AnyOptionSchema {
+  return schema !== undefined && schema.kind === "object" && schema.settings.shape !== undefined;
+}
+
+/**
+ * The nested options object a tag's `scope` path names inside a feature's schema, or the schema itself without a
+ * scope; undefined when the path does not name an object of the schema.
+ */
+export function scopedOptionSchema(schema: AnyOptionSchema, scope: string | undefined): AnyOptionSchema | undefined {
+  if (scope === undefined) return schema;
+  let current: AnyOptionSchema | undefined = schema;
+  for (const segment of scope.split(".")) {
+    current = holdsOptions(current) && Object.hasOwn(current.settings.shape!, segment) ? current.settings.shape![segment] : undefined;
+    if (!holdsOptions(current)) return undefined;
+  }
+  return current;
+}
+
+/**
+ * Checks a definition's tags: names like hook names, known targets, option keys of the feature's schema (or of the
+ * scoped object), and a shorthand among the tag's options.
+ */
+function tagsField(key: string, tags: Readonly<Record<string, FeatureTag>>, schema: AnyOptionSchema, invalid: (reason: string) => Error): Readonly<Record<string, FeatureTag>> {
   if (typeof tags !== "object" || tags === null || Array.isArray(tags)) throw invalid("tags must map tag names to tag definitions");
-  const shape = schema.settings.shape!;
   const checked: Record<string, FeatureTag> = {};
   for (const [name, tag] of Object.entries(tags)) {
     if (!TAG_NAME.test(name)) throw invalid(`tag @${name}: names must match ^[a-z][a-zA-Z0-9]*$`);
     if (!Array.isArray(tag?.on) || tag.on.length === 0 || !tag.on.every((target) => TAG_TARGETS.includes(target))) {
       throw invalid(`tag @${name}: on must list entity, field or endpoint`);
     }
+    const invalidTag = (reason: string) => new Error(`Invalid tag @${name} of ${key}: ${reason}`);
+    if (tag.scope !== undefined && (typeof tag.scope !== "string" || tag.scope === "")) throw invalidTag("scope must be a dot path to an object of the options");
+    const scoped = scopedOptionSchema(schema, tag.scope);
+    if (!scoped) throw invalidTag(`scope ${tag.scope} is not an object of the options`);
+    const shape = scoped.settings.shape!;
     for (const option of tag.options ?? []) {
-      if (option === "enabled" || !Object.hasOwn(shape, option)) throw invalid(`tag @${name}: ${option} is not an option of the feature`);
+      if (tag.scope === undefined) {
+        if (option === "enabled" || !Object.hasOwn(shape, option)) throw invalid(`tag @${name}: ${option} is not an option of the feature`);
+      } else if (!Object.hasOwn(shape, option)) {
+        throw invalidTag(`${option} is not an option of ${tag.scope}`);
+      }
     }
+    if (tag.shorthand !== undefined && !(tag.options ?? []).includes(tag.shorthand)) throw invalidTag(`shorthand ${tag.shorthand} is not one of its options`);
     checked[name] = Object.freeze({ ...tag, on: Object.freeze([...tag.on]), ...(tag.options ? { options: Object.freeze([...tag.options]) } : {}) });
   }
   return Object.freeze(checked);
 }
 
-/** The options for one target: the feature's tags written on it applied over the resolved options. */
-function optionsForTarget(options: Record<string, unknown>, tags: Readonly<Record<string, FeatureTag>> | undefined, written: ReturnType<typeof tagsOf>): Record<string, unknown> {
+/** `value` with `patch` merged into the object at `path`, copying only the objects on the path. */
+function mergeAt(value: Record<string, unknown>, path: readonly string[], patch: Record<string, unknown>): Record<string, unknown> {
+  if (path.length === 0) return { ...value, ...patch };
+  const [head, ...rest] = path as [string, ...string[]];
+  const child = value[head];
+  return { ...value, [head]: mergeAt(typeof child === "object" && child !== null ? (child as Record<string, unknown>) : {}, rest, patch) };
+}
+
+/** Whether a scoped options object is a switchable section, which `@<tag> off` turns off for its target. */
+function isSwitchable(schema: AnyOptionSchema): boolean {
+  return schema.settings.shape?.enabled?.kind === "boolean";
+}
+
+/**
+ * The options for one target: the feature's tags written on it applied over the resolved options, each into its
+ * scoped object only; `off` on a switchable scope also sets its `enabled` to false.
+ */
+function optionsForTarget(
+  options: Record<string, unknown>,
+  schema: AnyOptionSchema,
+  tags: Readonly<Record<string, FeatureTag>> | undefined,
+  written: ReturnType<typeof tagsOf>,
+): Record<string, unknown> {
   let on: boolean | undefined;
   let merged = options;
-  for (const name of Object.keys(tags ?? {})) {
+  for (const [name, definition] of Object.entries(tags ?? {})) {
     const tag = written?.[name];
     if (!tag) continue;
-    merged = { ...merged, ...tag.options };
+    if (definition.scope === undefined) merged = { ...merged, ...tag.options };
+    else {
+      const switchable = !tag.on && isSwitchable(scopedOptionSchema(schema, definition.scope)!);
+      merged = mergeAt(merged, definition.scope.split("."), switchable ? { ...tag.options, enabled: false } : tag.options);
+    }
     on = on === true || tag.on;
   }
   return { ...merged, on };

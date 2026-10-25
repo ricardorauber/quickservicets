@@ -192,6 +192,7 @@ export {
   replacedNatives,
   activeFeatureDefinitions,
   resolveFeatures,
+  scopedOptionSchema,
 } from "./features.ts";
 export { prepareFeatureTargets, tagsOf } from "./feature-targets.ts";
 export type { OptionsTarget } from "./feature-targets.ts";

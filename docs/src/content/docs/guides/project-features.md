@@ -198,6 +198,8 @@ export type Post = { title: string };
 
 The feature reads the options of a target with `greeting.optionsFor(...)`: an entity key or model, a field (`{ entity, field }`), an endpoint (`{ method, path }`) or a request, as the `stamp` hook above does. The result has `on`: `true` with the tag, `false` with `@greeting off`, and undefined without it.
 
+Two fields of a tag definition make tags shorter. `shorthand: "text"` lets the first value be written bare, so `@greeting "Good day" style=loud` equals `@greeting text="Good day" style=loud`; giving the shorthand option twice fails the build. `scope: "<path>"` points the tag at a nested `object()` of the options: with `scope: "rateLimit"`, `@limit by=user` sets `rateLimit.by`, and `optionsFor` merges the tag's values into that object only, keeping its other keys and every other option as the config and the environment set them. `@limit off` on a scope with an `enabled` option also sets its `enabled` to false for that target.
+
 ### Folders
 
 `folders` gives the project a convention folder. The build scans `greetings/**/*.ts` in the project and in the feature's folder, checks each default export, and hands them to the feature as `ctx.folders.greetings`, a map by file name:

@@ -211,7 +211,7 @@ export { applyEnvironment, CONFIG_OVERRIDES, configVariable, envNameFor, feature
 export { maskSecrets, SECRET_MASK } from "./secrets.ts";
 export type { ConfigOverride, EnvAlias, EnvironmentResult, OptionLeaf } from "./environment.ts";
 export { runAfterHooks, runBeforeHooks } from "./feature-hooks.ts";
-export { afterCommit, inTransaction, onRollback, transaction } from "./transactions.ts";
+export { afterCommit, inTransaction, onRollback, runInTransaction, transaction } from "./transactions.ts";
 export { changedFields, observeWrites } from "./write-observers.ts";
 export type { WriteCause, WriteChange, WriteObserver } from "./write-observers.ts";
 export { currentOperation, disableOperationContext, enableOperationContext, operationContextEnabled, operationMiddleware, withOperation } from "./operation-context.ts";
@@ -225,7 +225,8 @@ export type { DeclaredVariable, EnvVars } from "./env-vars.ts";
 // Natives register themselves when imported; they come last, after every export they use.
 import type { eventsFeature } from "./features/events/index.ts";
 import type { FeatureConfig as NativeConfig } from "./features.ts";
-export { events, eventsFeature, listen } from "./features/events/index.ts";
+export { addOutboxPatterns, events, eventsFeature, listen, readOutbox, tailOutbox } from "./features/events/index.ts";
+export type { OutboxRecord } from "./features/events/index.ts";
 export type { EventListener, Events, ListenerContext, ListenerFile, ListenerPhase, ListenOptions } from "./features/events/index.ts";
 
 declare module "./features.ts" {

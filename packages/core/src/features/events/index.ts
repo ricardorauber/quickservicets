@@ -1,5 +1,10 @@
 import {
   defineFeature,
+  duration,
+  list,
+  object,
+  string,
+  toggle,
   disableOperationContext,
   enableOperationContext,
   observeWrites,
@@ -10,6 +15,10 @@ import {
 } from "../public.ts";
 import { events, pendingDeliveries, publish, startBus, stopBus, toEvent, type EventListener } from "./bus.ts";
 import { isListenerFile, type ListenerContext } from "./listen.ts";
+import { cleanOutbox, outboxEventEntity, outboxPatterns, startOutbox, stopOutbox } from "./outbox.ts";
+
+/** How often every worker that runs scheduled work deletes outbox rows past their retention. */
+export const OUTBOX_CLEANUP_INTERVAL = 3_600_000;
 
 /**
  * The `events` native: every write of a non-system entity becomes a `WriteEvent`, delivered to listeners inside the
@@ -18,6 +27,16 @@ import { isListenerFile, type ListenerContext } from "./listen.ts";
 export const eventsFeature = defineFeature({
   key: "events",
   docs: { summary: "Write events for every entity, delivered to listeners inside the write's transaction or after its commit." },
+  options: object({
+    outbox: toggle({
+      events: list(string()).default(["*"]).describe("The event patterns stored in the outbox."),
+      retention: duration().default("7d").describe("How long outbox rows are kept."),
+    })
+      .default(false)
+      .describe("Stores the chosen events in the write's transaction, so any worker or replica reads every committed event."),
+  }),
+  // The outbox rows are a system entity, part of the model only while the outbox is on.
+  entities: ({ options }) => (options.outbox.enabled ? [outboxEventEntity()] : []),
   middleware: [operationMiddleware],
   folders: {
     events: {
@@ -46,6 +65,32 @@ export const eventsFeature = defineFeature({
       needsBefore: true,
       write: (change) => publish(toEvent(change)),
     });
+    const outbox = ctx.options.outbox;
+    if (outbox.enabled) {
+      const model = ctx.models.find((candidate) => candidate.key === "OutboxEvent" && candidate.system);
+      if (!model) throw new Error("The outbox needs the OutboxEvent entity; run quickservice build after turning the outbox on");
+      startOutbox(ctx.config.database, model, outbox.events);
+      const retentionMs = parseDuration(outbox.retention) ?? 7 * 86_400_000;
+      let cleanup: ReturnType<typeof setInterval> | undefined;
+      const clean = async () => {
+        try {
+          const count = await cleanOutbox({ retentionMs, now: Date.now() });
+          safeLog(ctx.logger, "info", { timestamp: new Date().toISOString(), message: "events.outbox.cleanup", count });
+        } catch (error) {
+          safeLog(ctx.logger, "error", { timestamp: new Date().toISOString(), message: "events.outbox.cleanup.failed", error: { message: (error as Error)?.message ?? String(error) } });
+        }
+      };
+      ctx.app.onStart(() => {
+        safeLog(ctx.logger, "info", { timestamp: new Date().toISOString(), message: "events.outbox", patterns: outboxPatterns() });
+        if (!ctx.worker.runsScheduledWork) return;
+        void clean();
+        cleanup = setInterval(() => void clean(), OUTBOX_CLEANUP_INTERVAL);
+      });
+      ctx.app.onStop(() => {
+        clearInterval(cleanup);
+        stopOutbox();
+      });
+    }
     const stopTimeout = parseDuration(ctx.config.lifecycle.stopTimeout) ?? 10_000;
     ctx.app.onShutdown(async () => {
       // Within the shutdown limit, so the lifecycle's own timeout never cuts the report short.
@@ -72,5 +117,7 @@ registerNative(eventsFeature);
 
 export { events } from "./bus.ts";
 export { listen } from "./listen.ts";
+export { addOutboxPatterns, cleanOutbox, readOutbox, tailOutbox } from "./outbox.ts";
+export type { OutboxRecord } from "./outbox.ts";
 export type { EventListener, Events, ListenerPhase, ListenOptions } from "./bus.ts";
 export type { ListenerContext, ListenerFile } from "./listen.ts";

@@ -14,6 +14,7 @@ import {
   type WriteEvent,
 } from "../public.ts";
 import * as patterns from "./patterns.ts";
+import { inOutboxTransaction, insertOutboxRow, storesType } from "./outbox.ts";
 
 /** When a listener runs: inside the write's transaction (awaited, may veto it) or after the commit (the default). */
 export type ListenerPhase = "afterCommit" | "inTransaction";
@@ -172,13 +173,25 @@ export function toEvent(change: WriteChange): WriteEvent {
   } as WriteEvent;
 }
 
+/** The steps of an event inside its transaction: the `inTransaction` listeners, then the outbox row when stored. */
+async function insideTransaction(event: AnyEvent, store: boolean): Promise<void> {
+  for (const registration of listenersOf(event.type, "inTransaction")) await registration.listener(event);
+  if (store) await insertOutboxRow(event);
+}
+
 /**
- * Publishes an event: the `inTransaction` listeners run at once, awaited in registration order, and the after-commit
- * listeners get it once the transaction commits (at once outside one).
+ * Publishes an event: the `inTransaction` listeners run at once, awaited in registration order, then the event is
+ * stored in the outbox when its type is chosen, and the after-commit listeners get it once the transaction commits.
+ * Outside a transaction, a stored event gets a transaction of its own, and the after-commit listeners get it at once.
  */
 export async function publish(event: AnyEvent): Promise<void> {
-  for (const registration of listenersOf(event.type, "inTransaction")) await registration.listener(event);
-  if (listenersOf(event.type, "afterCommit").length === 0) return;
-  if (inTransaction()) await afterCommit(() => deliver(event));
-  else deliver(event);
+  const store = storesType(event.type);
+  if (inTransaction()) {
+    await insideTransaction(event, store);
+    if (listenersOf(event.type, "afterCommit").length > 0) await afterCommit(() => deliver(event));
+    return;
+  }
+  if (store) await inOutboxTransaction(() => insideTransaction(event, true));
+  else await insideTransaction(event, false);
+  deliver(event);
 }

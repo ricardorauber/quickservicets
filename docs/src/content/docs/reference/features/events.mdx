@@ -21,4 +21,7 @@ It is not enabled by default: turn it on with `events: {}` or `QS_EVENTS_ENABLED
 
 | Key | Type | Default | Environment variable | Per request | Description |
 | --- | --- | --- | --- | --- | --- |
+| `events.outbox.enabled` | `boolean` | `true` | `QS_EVENTS_OUTBOX_ENABLED` | no | Turns this section off when false. |
+| `events.outbox.events` | `string[]` | `["*"]` | `QS_EVENTS_OUTBOX_EVENTS` | no | The event patterns stored in the outbox. |
+| `events.outbox.retention` | `duration` | `"7d"` | `QS_EVENTS_OUTBOX_RETENTION` | no | How long outbox rows are kept. |
 | `events.enabled` | `boolean` | `true` | `QS_EVENTS_ENABLED` | no | Turns the feature off when false. |

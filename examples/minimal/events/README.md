@@ -22,10 +22,14 @@ export default listen("user.written", async (event, { repos }) => {
 
 ## Level 1: options and environment
 
-`QS_EVENTS_ENABLED=true` turns the native on without its config key, and `QS_EVENTS_ENABLED=false` turns it off:
+`outbox: true` stores every event in the write's transaction, kept 7 days; every option has a `QS_*` variable, and `QS_EVENTS_ENABLED` turns the native on or off without its config key:
+
+```ts
+export default defineConfig({ database: memoryAdapter(), events: { outbox: true } });
+```
 
 ```bash
-QS_EVENTS_ENABLED=true bun .generated/server.ts
+QS_EVENTS_OUTBOX_RETENTION=1d bun .generated/server.ts
 ```
 
 ## Level 2: tags

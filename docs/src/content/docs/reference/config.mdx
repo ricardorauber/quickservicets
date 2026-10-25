@@ -68,4 +68,7 @@ Every option, tag, command and hook of `events` is on [its reference page](/refe
 
 | Key | Type | Default | Environment variable | Description |
 | --- | --- | --- | --- | --- |
+| `events.outbox.enabled` | `boolean` | `true` | `QS_EVENTS_OUTBOX_ENABLED` | Turns this section off when false. |
+| `events.outbox.events` | `string[]` | `["*"]` | `QS_EVENTS_OUTBOX_EVENTS` | The event patterns stored in the outbox. |
+| `events.outbox.retention` | `duration` | `"7d"` | `QS_EVENTS_OUTBOX_RETENTION` | How long outbox rows are kept. |
 | `events.enabled` | `boolean` | `true` | `QS_EVENTS_ENABLED` | Turns the feature off when false. |

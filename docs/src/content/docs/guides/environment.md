@@ -133,6 +133,13 @@ Every config key that holds a value can be set by a variable named `QS_` plus it
 
 A feature's options follow the same rule under its key: the `text` option of a `greeting` feature is `QS_GREETING_TEXT`, and a nested `limits.max` option is `QS_GREETING_LIMITS_MAX`. Keys that hold code (`database`, `logger`, `storage`, `middleware`, `env`, `docs.openapi`) have no variable. The [configuration reference](/reference/config/) lists every variable.
 
+Two kinds of options have more than one variable:
+
+- A switchable section, declared with `toggle({...})`, takes `true`, `false` or an object in the config. `QS_<PATH>` sets the whole section from `true`, `false`, `1`, `0` or JSON, then `QS_<PATH>_ENABLED` and the variables of its keys apply on top: `QS_SECURITY_CORS=false` turns a `security.cors` section off, and `QS_SECURITY_CORS_ENABLED=true` set as well turns it back on.
+- A map of named entries, declared with `record(...)`, gets variables for the entries written in the config, with the entry name in upper case and hyphens as underscores: the `url` of a `billing` entry of `http.services` is `QS_HTTP_SERVICES_BILLING_URL`. `QS_<PATH>` sets the whole map from JSON first (`QS_HTTP_SERVICES='{"crm":{"url":"https://c.dev"}}'`).
+
+Rates (`rate()`) are written `<count>/<window>`, like `100/min` or `5/10s`, and IP options (`cidr()`) take an address, a block like `10.0.0.0/8` or the names `loopback`, `private` and `linklocal`; a list of them is comma-separated (`10.0.0.0/8, loopback`).
+
 A `QS_*` variable that matches no key is not an error, since environments are often shared: the server logs it once at startup, and `build` and `env check` print a warning with the closest name.
 
 ## Turning features on and off with `QS_<KEY>_ENABLED`

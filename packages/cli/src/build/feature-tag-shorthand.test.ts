@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { boolean, defineFeature, list, object, oneOf, registerNative, registerProjectFeatures, string, type EntityModel } from "@quickservice/core";
+import { boolean, defineFeature, list, object, oneOf, registerNative, registerProjectFeatures, string, toggle, type EntityModel } from "@quickservice/core";
 import { unregisterNative } from "../../../core/src/features.ts";
 import { createLinkedProject } from "../testing/project.ts";
 import { serveBuilt } from "../testing/serve.ts";
@@ -126,5 +126,27 @@ describe("optionsFor", () => {
     expect(off.rateLimit).toMatchObject({ enabled: false, rate: "100/min" });
     expect((guard.optionsFor("On") as unknown as { rateLimit: { enabled: boolean } }).rateLimit.enabled).toBe(true);
     expect((guard.options() as unknown as { rateLimit: { enabled: boolean } }).rateLimit.enabled).toBe(true);
+  });
+});
+
+describe("toggle scopes", () => {
+  test("a tag scoped to a toggle sets its keys, and off turns the toggle off, for its target only", async () => {
+    const guard = registerNative(
+      defineFeature({
+        key: "guard",
+        options: object({ cors: toggle({ origins: list(string()).default([]) }) }),
+        tags: { cors: { on: ["endpoint"], scope: "cors", shorthand: "origins", options: ["origins"], description: "Sets CORS.", example: "/** @cors https://a.dev */" } },
+      }),
+    );
+    registered = true;
+    const root = project({
+      "endpoints/open/get.ts": "/** @cors https://a.dev,https://b.dev */\nexport default () => 1;\n",
+      "endpoints/closed/get.ts": "/** @cors off */\nexport default () => 1;\n",
+    });
+    await build(root);
+    await serveBuilt(root);
+    expect(guard.optionsFor({ method: "GET", path: "/open" }).cors).toEqual({ enabled: true, origins: ["https://a.dev", "https://b.dev"] });
+    expect(guard.optionsFor({ method: "GET", path: "/closed" }).cors).toEqual({ enabled: false, origins: [] });
+    expect(guard.options().cors).toEqual({ enabled: true, origins: [] });
   });
 });

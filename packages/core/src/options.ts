@@ -2,6 +2,8 @@ import { ConfigError } from "./config-error.ts";
 import { parseSize } from "./files/limits.ts";
 import type { ServiceRequest } from "./hooks.ts";
 import { DURATION_UNITS, parseDuration } from "./jobs/job.ts";
+import { CIDR_EXPECTATION, isCidr } from "./cidr.ts";
+import { RATE_EXPECTATION, rateOf } from "./rates.ts";
 
 /** The kinds of option schema nodes. */
 export type OptionKind =
@@ -16,7 +18,11 @@ export type OptionKind =
   | "list"
   | "object"
   | "secret"
-  | "provider";
+  | "provider"
+  | "toggle"
+  | "record"
+  | "rate"
+  | "cidr";
 
 /**
  * What a per-request option function receives: the request, undefined outside one (jobs, queues, setup code), and the
@@ -44,9 +50,9 @@ export interface OptionSettings {
   readonly max?: number;
   /** `oneOf` values. */
   readonly values?: readonly (string | number | boolean)[];
-  /** `list` item schema. */
+  /** `list` item schema, and `record` value schema. */
   readonly item?: AnyOptionSchema;
-  /** `object` shape. */
+  /** `object` shape, and `toggle` shape with its `enabled` option. */
   readonly shape?: Readonly<Record<string, AnyOptionSchema>>;
   /** `url` protocols, without the colon. */
   readonly protocols?: readonly string[];
@@ -117,6 +123,18 @@ export interface ObjectOptionSchema<S extends Record<string, AnyOptionSchema>> e
   readonly __shape: S;
 }
 
+/** A switchable section: `true`, `false` or an object of its shape, always resolved to an object with `enabled`. */
+export interface ToggleOptionSchema<S extends Record<string, AnyOptionSchema>> extends OptionSchema<boolean | (InputShape<S> & { enabled?: boolean })> {
+  /** The shape, for type inference only. */
+  readonly __toggle: S;
+}
+
+/** A map of user-named entries, each resolved with the value schema. */
+export interface RecordOptionSchema<I extends AnyOptionSchema> extends BoundedOptionSchema<Record<string, InputValue<I>>> {
+  /** The value schema, for type inference only. */
+  readonly __record: I;
+}
+
 type Simplify<T> = { [K in keyof T]: T[K] } & {};
 type ValueOf<S> = S extends { readonly __value: infer T } ? T : never;
 type IsOptional<S> = S extends Optional ? true : false;
@@ -125,9 +143,25 @@ type IsPerRequest<S> = S extends PerRequest ? true : false;
 
 /** The value a schema validates, without per-request functions. */
 type PlainValue<S> =
-  S extends ObjectOptionSchema<infer Shape> ? ResolvedShape<Shape> : S extends ListOptionSchema<infer I> ? PlainValue<I>[] : ValueOf<S>;
+  S extends { readonly __toggle: infer Shape extends Record<string, AnyOptionSchema> }
+    ? Simplify<ResolvedShape<Shape> & { enabled: boolean }>
+    : S extends { readonly __record: infer I }
+      ? Record<string, PlainValue<I>>
+      : S extends ObjectOptionSchema<infer Shape>
+        ? ResolvedShape<Shape>
+        : S extends ListOptionSchema<infer I>
+          ? PlainValue<I>[]
+          : ValueOf<S>;
 type InputValue<S> =
-  S extends ObjectOptionSchema<infer Shape> ? InputShape<Shape> : S extends ListOptionSchema<infer I> ? InputValue<I>[] : ValueOf<S>;
+  S extends { readonly __toggle: infer Shape extends Record<string, AnyOptionSchema> }
+    ? boolean | Simplify<InputShape<Shape> & { enabled?: boolean }>
+    : S extends { readonly __record: infer I }
+      ? Record<string, InputValue<I>>
+      : S extends ObjectOptionSchema<infer Shape>
+        ? InputShape<Shape>
+        : S extends ListOptionSchema<infer I>
+          ? InputValue<I>[]
+          : ValueOf<S>;
 
 type WithFunction<S, T> = IsPerRequest<S> extends true ? T | OptionFunction<T> : T;
 
@@ -144,10 +178,10 @@ type InputShape<Shape extends Record<string, AnyOptionSchema>> = Simplify<
 >;
 
 /** The input a schema accepts: keys with a default or `.optional()` may be left out; `.perRequest()` keys take functions. */
-export type OptionsInput<S> = S extends ObjectOptionSchema<infer Shape> ? InputShape<Shape> : WithFunction<S, InputValue<S>>;
+export type OptionsInput<S> = S extends { readonly __toggle: unknown } | { readonly __record: unknown } ? WithFunction<S, InputValue<S>> : S extends ObjectOptionSchema<infer Shape> ? InputShape<Shape> : WithFunction<S, InputValue<S>>;
 
 /** The value `resolveOptions` returns: keys with a default are always present. */
-export type Options<S> = S extends ObjectOptionSchema<infer Shape> ? ResolvedShape<Shape> : WithFunction<S, PlainValue<S>>;
+export type Options<S> = S extends { readonly __toggle: unknown } | { readonly __record: unknown } ? WithFunction<S, PlainValue<S>> : S extends ObjectOptionSchema<infer Shape> ? ResolvedShape<Shape> : WithFunction<S, PlainValue<S>>;
 
 const DURATION_EXAMPLES = Object.keys(DURATION_UNITS);
 
@@ -254,10 +288,36 @@ export function provider<T extends object>(name: string, methods: readonly (keyo
   return node("provider", { name, methods: Object.freeze([...methods]) }) as never;
 }
 
+/**
+ * A switchable section: accepts `true` (every default of `shape`), `false` (the same, off) or an object of `shape`, and
+ * always resolves to an object with `enabled` (default true) and the keys of `shape`. `.default(false)` makes the
+ * section off unless given.
+ */
+export function toggle<S extends Record<string, AnyOptionSchema>>(shape: S): ToggleOptionSchema<S> & Defaulted {
+  if (Object.hasOwn(shape, "enabled")) throw new Error("toggle() declares enabled itself; remove enabled from its shape");
+  return node("toggle", { shape: Object.freeze({ enabled: boolean().default(true).describe("Turns this section off when false."), ...shape }) }) as never;
+}
+/**
+ * A map of user-named entries (keys like `billing` or `my-api`), each resolved with `value`, empty when absent;
+ * `.min(n)` and `.max(n)` bound the count.
+ */
+export function record<I extends AnyOptionSchema>(value: I): RecordOptionSchema<I> & Defaulted {
+  return node("record", { item: value }) as never;
+}
+/** A request rate like `100/min`, `10/s`, `1000/h` or `5/10s`; read it with `parseRate`. */
+export function rate(): OptionSchema<string> {
+  return node("rate") as never;
+}
+/** An IP address, a CIDR block (`10.0.0.0/8`, `fd00::/8`) or `loopback`, `private` or `linklocal`; match with `matchesCidr`. */
+export function cidr(): OptionSchema<string> {
+  return node("cidr") as never;
+}
+
 /** ` of 1 to 5 characters`, ` of at least 3 items`, or ` between 1 and 5` for numbers (no unit). */
 function bounds(settings: OptionSettings, unit?: string): string {
   const { min, max } = settings;
-  const counted = (n: number) => (unit ? `${n} ${unit}${n === 1 ? "" : "s"}` : String(n));
+  const plural = (word: string) => (word.endsWith("y") ? `${word.slice(0, -1)}ies` : `${word}s`);
+  const counted = (n: number) => (unit ? `${n} ${n === 1 ? unit : plural(unit)}` : String(n));
   if (min !== undefined && max !== undefined) return unit ? ` of ${min} to ${counted(max)}` : ` between ${min} and ${max}`;
   if (min !== undefined) return ` of at least ${counted(min)}`;
   if (max !== undefined) return ` of at most ${counted(max)}`;
@@ -291,6 +351,14 @@ export function expectationOf(schema: AnyOptionSchema): string {
       return "an object";
     case "provider":
       return `a ${settings.name} with the methods ${settings.methods!.join(", ")}`;
+    case "toggle":
+      return "true, false or an object";
+    case "record":
+      return `an object of named entries${bounds(settings, "entry")}`;
+    case "rate":
+      return RATE_EXPECTATION;
+    case "cidr":
+      return CIDR_EXPECTATION;
   }
 }
 
@@ -406,6 +474,28 @@ function validate(schema: AnyOptionSchema, value: unknown, path: string, problem
     }
     case "object":
       return isPlainObject(value) ? resolveShape(settings.shape!, value, path, problems) : invalid();
+    case "toggle":
+      if (typeof value === "boolean") return resolveShape(settings.shape!, value ? {} : { enabled: false }, path, problems);
+      return isPlainObject(value) ? resolveShape(settings.shape!, value, path, problems) : invalid();
+    case "record": {
+      if (!isPlainObject(value)) return invalid();
+      const keys = Object.keys(value);
+      if (!bounded(keys.length)) return undefined;
+      const entries: Record<string, unknown> = {};
+      for (const key of keys) {
+        if (!RECORD_KEY.test(key)) {
+          problems.push(`Invalid ${path}: the entry name ${JSON.stringify(key)} must match ${RECORD_KEY.source}`);
+          continue;
+        }
+        const resolved = resolveValue(settings.item!, value[key], join(path, key), problems);
+        if (resolved.set) entries[key] = resolved.value;
+      }
+      return entries;
+    }
+    case "rate":
+      return rateOf(value) ? value : invalid();
+    case "cidr":
+      return isCidr(value) ? value : invalid();
     case "provider":
       return (typeof value === "object" || typeof value === "function") &&
         value !== null &&
@@ -416,6 +506,8 @@ function validate(schema: AnyOptionSchema, value: unknown, path: string, problem
 }
 
 const join = (path: string, key: string) => (path ? `${path}.${key}` : key);
+/** The names a record's entries may have. */
+const RECORD_KEY = /^[A-Za-z][A-Za-z0-9_-]*$/;
 const copy = (value: unknown): unknown => (typeof value === "object" && value !== null ? structuredClone(value) : value);
 
 function resolveValue(schema: AnyOptionSchema, value: unknown, path: string, problems: string[]): { set: boolean; value?: unknown } {
@@ -423,8 +515,9 @@ function resolveValue(schema: AnyOptionSchema, value: unknown, path: string, pro
   if (value !== undefined) return { set: true, value: validate(schema, value, path, problems) };
   if (settings.hasDefault) return { set: true, value: validate(schema, copy(settings.default), path, problems) };
   if (settings.optional) return { set: false };
-  // A required object without input still gets its own defaults.
-  if (schema.kind === "object") return { set: true, value: resolveShape(settings.shape!, {}, path, problems) };
+  // A required object or toggle without input still gets its own defaults; a required record is empty.
+  if (schema.kind === "object" || schema.kind === "toggle") return { set: true, value: resolveShape(settings.shape!, {}, path, problems) };
+  if (schema.kind === "record") return { set: true, value: {} };
   problems.push(`Invalid ${path}: expected ${expectationOf(schema)}, got undefined`);
   return { set: false };
 }
@@ -473,7 +566,14 @@ function convertString(schema: AnyOptionSchema, raw: string): unknown {
         .filter((item) => item !== "")
         .map((item) => convertString(schema.settings.item!, item));
     case "object":
+    case "record":
       return parseJson(raw);
+    case "toggle": {
+      const text = raw.trim().toLowerCase();
+      if (text === "true" || text === "1") return true;
+      if (text === "false" || text === "0") return false;
+      return parseJson(raw);
+    }
     case "oneOf": {
       const match = schema.settings.values!.find((value) => String(value) === raw);
       return match === undefined ? raw : match;
@@ -571,6 +671,8 @@ export function optionTypeOf(schema: AnyOptionSchema): string {
     }
     case "provider":
       return settings.name!;
+    case "record":
+      return `record of ${optionTypeOf(settings.item!)}`;
     default:
       return schema.kind;
   }
@@ -578,8 +680,11 @@ export function optionTypeOf(schema: AnyOptionSchema): string {
 
 /** One flat entry per leaf option of `schema`, in declaration order, with paths under `path`. */
 export function describeOptions(schema: AnyOptionSchema, path: string): OptionDescription[] {
-  if (schema.kind === "object") {
+  if (schema.kind === "object" || schema.kind === "toggle") {
     return Object.entries(schema.settings.shape!).flatMap(([key, child]) => describeOptions(child, join(path, key)));
+  }
+  if (schema.kind === "record") {
+    return describeOptions(schema.settings.item!, join(path, "<name>")).map((entry) => ({ ...entry, type: `record of ${entry.type}` }));
   }
   const { settings } = schema;
   const secret = schema.kind === "secret";

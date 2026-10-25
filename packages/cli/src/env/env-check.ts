@@ -125,13 +125,13 @@ export async function envCheck(projectRoot: string, processEnv: Record<string, s
     ok = false;
   }
 
-  const overrides = overrideVariables(definitions);
+  const overrides = overrideVariables(definitions, applied);
   for (const name of Object.keys(environment).sort()) {
     const override = overrides.get(name);
     const raw = environment[name];
     if (!override || raw === undefined || raw === "") continue;
     lines.push(`${name} sets ${override.path} = ${override.secret ? SECRET_MASK : raw}`);
   }
-  for (const warning of unknownVariableWarnings(environment, definitions)) errors.push(`Warning: ${warning}`);
+  for (const warning of unknownVariableWarnings(environment, definitions, [], applied)) errors.push(`Warning: ${warning}`);
   return { code: ok ? 0 : 1, lines, errors };
 }

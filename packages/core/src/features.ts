@@ -412,9 +412,9 @@ export function assertFeatureFolders(features: readonly Pick<ResolvedFeature, "k
 const TAG_NAME = /^[a-z][a-zA-Z0-9]*$/;
 const TAG_TARGETS: readonly FeatureTagTarget[] = ["entity", "field", "endpoint"];
 
-/** Whether a schema node holds named options: an `object()`. */
+/** Whether a schema node holds named options: an `object()` or a `toggle()`. */
 function holdsOptions(schema: AnyOptionSchema | undefined): schema is AnyOptionSchema {
-  return schema !== undefined && schema.kind === "object" && schema.settings.shape !== undefined;
+  return schema !== undefined && (schema.kind === "object" || schema.kind === "toggle") && schema.settings.shape !== undefined;
 }
 
 /**
@@ -670,7 +670,7 @@ export function resolveFeatures(config: Record<string, unknown>, definitions: re
       continue;
     }
     const options = enabled.get(definition.key)!;
-    maskSecrets(options, secretPaths(definition.schema));
+    maskSecrets(options, secretPaths(definition.schema, options));
     resolvedOptions.set(definition, options);
   }
   for (const key of replacedNatives()) resolvedOptions.delete(natives.get(key)!);
@@ -770,9 +770,9 @@ export async function loadProjectFeatures(projectRoot: string): Promise<FeatureD
   return registeredProjectFeatures();
 }
 
-/** The paths of a schema's secret options, relative to it. */
-function secretPaths(schema: AnyOptionSchema): string[] {
-  return optionLeaves(schema, "")
+/** The paths of a schema's secret options, relative to it, record entries of `value` included. */
+function secretPaths(schema: AnyOptionSchema, value?: unknown): string[] {
+  return optionLeaves(schema, "", value)
     .filter((leaf) => leaf.schema.kind === "secret")
     .map((leaf) => leaf.path.slice(1));
 }

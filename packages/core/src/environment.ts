@@ -6,15 +6,20 @@ import { WORKER_INDEX_ENV, workerIndex, WORKERS_ENV } from "./workers.ts";
 
 /** The environment variable of a config path: `server.port` is `QS_SERVER_PORT`, `rate-limits.window` is `QS_RATE_LIMITS_WINDOW`. */
 export function envNameFor(path: string): string {
-  const segments = path.split(".").map((segment) =>
-    segment
-      .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
-      .replace(/([A-Z])([A-Z][a-z])/g, "$1_$2")
-      .replaceAll("-", "_")
-      .toUpperCase(),
-  );
-  return `QS_${segments.join("_")}`;
+  return `QS_${path.split(".").map(segmentName).join("_")}`;
 }
+
+/** One path segment of a variable name: `rateLimit` is `RATE_LIMIT`, `rate-limits` is `RATE_LIMITS`. */
+function segmentName(segment: string): string {
+  return segment
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/([A-Z])([A-Z][a-z])/g, "$1_$2")
+    .replaceAll("-", "_")
+    .toUpperCase();
+}
+
+/** The segment of a record entry's name: matched case-insensitively, with hyphens written as underscores. */
+const entryName = (entry: string) => entry.replaceAll("-", "_").toUpperCase();
 
 /** A variable kept from before the `QS_*` names, which a `QS_*` variable overrides. */
 export interface EnvAlias {
@@ -70,35 +75,59 @@ export const NOT_OVERRIDABLE: readonly string[] = ["database", "logger", "storag
 /** Variables the framework sets or reads itself, which are not config overrides but are not unknown either. */
 const INTERNAL_VARIABLES = [WORKER_INDEX_ENV];
 
-/** One leaf option of a schema with its path. */
+/** One option of a schema that a variable sets, with its path and its variable's name. */
 export interface OptionLeaf {
   path: string;
   schema: AnyOptionSchema;
+  /** The variable's name: `envNameFor(path)`, with record entry names upper-cased as written. */
+  name: string;
 }
 
-/** The leaf options of a schema, with their paths under `path`. */
-export function optionLeaves(schema: AnyOptionSchema, path: string): OptionLeaf[] {
-  if (schema.kind !== "object") return [{ path, schema }];
-  return Object.entries(schema.settings.shape!).flatMap(([key, child]) => optionLeaves(child, `${path}.${key}`));
+/** The value at `key` of a config value; `enabled` of a toggle written as `true` or `false`. */
+function childOf(value: unknown, key: string): unknown {
+  if (isObject(value)) return value[key];
+  return typeof value === "boolean" && key === "enabled" ? value : undefined;
 }
 
-/** The variables of a feature's options, throwing when two options would share one. */
-export function featureVariables(key: string, schema: AnyOptionSchema): Map<string, OptionLeaf> {
+/**
+ * The options of a schema that variables set, with their paths under `path`, parents before children: every leaf, each
+ * toggle (set whole by `QS_<PATH>`) before its `enabled` and keys, and each record (set whole from JSON) before the
+ * keys of its entries present in `value`. Hooks are not overridable and have no variable.
+ */
+export function optionLeaves(schema: AnyOptionSchema, path: string, value?: unknown): OptionLeaf[] {
+  const leaves: OptionLeaf[] = [];
+  const visit = (node: AnyOptionSchema, nodePath: string, name: string, current: unknown) => {
+    if ((node.kind as string) === "hook") return;
+    if (node.kind !== "object") leaves.push({ path: nodePath, schema: node, name });
+    if (node.kind === "object" || node.kind === "toggle") {
+      for (const [key, child] of Object.entries(node.settings.shape!)) visit(child, `${nodePath}.${key}`, `${name}_${segmentName(key)}`, childOf(current, key));
+    } else if (node.kind === "record" && isObject(current)) {
+      for (const [entry, entryValue] of Object.entries(current)) visit(node.settings.item!, `${nodePath}.${entry}`, `${name}_${entryName(entry)}`, entryValue);
+    }
+  };
+  visit(schema, path, envNameFor(path), value);
+  return leaves;
+}
+
+/**
+ * The variables of a feature's options (with the record entries of `value`, the feature's config value), throwing
+ * when two options would share one.
+ */
+export function featureVariables(key: string, schema: AnyOptionSchema, value?: unknown): Map<string, OptionLeaf> {
   const variables = new Map<string, OptionLeaf>();
-  for (const leaf of optionLeaves(schema, key)) {
-    const name = envNameFor(leaf.path);
-    const taken = variables.get(name);
-    if (taken) throw new Error(`Invalid feature ${key}: options ${taken.path} and ${leaf.path} both map to ${name}`);
-    variables.set(name, leaf);
+  for (const leaf of optionLeaves(schema, key, value)) {
+    const taken = variables.get(leaf.name);
+    if (taken) throw new Error(`Invalid feature ${key}: options ${taken.path} and ${leaf.path} both map to ${leaf.name}`);
+    variables.set(leaf.name, leaf);
   }
   return variables;
 }
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 
-/** A copy of `target` with `value` at `segments`, copying every object on the way. */
+/** A copy of `target` with `value` at `segments`, copying every object on the way; a toggle's `true` or `false` becomes `{ enabled }`. */
 function withValue(target: unknown, segments: string[], value: unknown): Record<string, unknown> {
-  const copy = isObject(target) ? { ...target } : {};
+  const copy: Record<string, unknown> = isObject(target) ? { ...target } : typeof target === "boolean" ? { enabled: target } : {};
   const [head, ...rest] = segments;
   copy[head!] = rest.length === 0 ? value : withValue(copy[head!], rest, value);
   return copy;
@@ -168,20 +197,40 @@ export function applyEnvironment(
   }
 
   for (const definition of definitions) {
-    const variables = featureVariables(definition.key, definition.schema);
     const enabledName = envNameFor(`${definition.key}.enabled`);
-    const options: [string[], unknown][] = [];
     let enabled: boolean | undefined;
-    for (const [name, leaf] of variables) {
-      const raw = env[name];
-      if (!set(raw)) continue;
-      const parsed = parse(leaf.schema, raw, `${name} (${leaf.path})`, problems);
-      if (!parsed.ok) continue;
-      if (name === enabledName) enabled = parsed.value as boolean;
-      else options.push([leaf.path.split(".").slice(1), parsed.value]);
+    if (set(env[enabledName])) {
+      const parsed = parse(boolean(), env[enabledName]!, `${enabledName} (${definition.key}.enabled)`, problems);
+      if (parsed.ok) enabled = parsed.value as boolean;
     }
-    if (enabled === undefined && options.length === 0) continue;
     const value = config[definition.key];
+    // Variables apply in order, parents first, so a whole toggle or record is set before its keys; the leaves of
+    // record entries are listed from the value the record has once its own variable applied.
+    let featureOptions: Record<string, unknown> = isObject(value) ? value : {};
+    let changed = false;
+    const applyLeaves = (schema: AnyOptionSchema, path: string, current: unknown) => {
+      for (const leaf of optionLeaves(schema, path, current)) {
+        if (leaf.path === `${definition.key}.enabled`) continue;
+        const raw = env[leaf.name];
+        if (!set(raw)) continue;
+        const parsed = parse(leaf.schema, raw, `${leaf.name} (${leaf.path})`, problems);
+        if (!parsed.ok) continue;
+        featureOptions = withValue(featureOptions, leaf.path.split(".").slice(1), parsed.value);
+        changed = true;
+        if (leaf.schema.kind === "record") {
+          // Entries the variable defined get their own variables, applied after it.
+          const segments = leaf.path.split(".").slice(1);
+          const entries = segments.reduce<unknown>((at, segment) => childOf(at, segment), featureOptions);
+          for (const entry of optionLeaves(leaf.schema, leaf.path, entries)) {
+            if (entry.path === leaf.path || !set(env[entry.name])) continue;
+            const entryParsed = parse(entry.schema, env[entry.name]!, `${entry.name} (${entry.path})`, problems);
+            if (entryParsed.ok) featureOptions = withValue(featureOptions, entry.path.split(".").slice(1), entryParsed.value);
+          }
+        }
+      }
+    };
+    applyLeaves(definition.schema, definition.key, featureOptions);
+    if (enabled === undefined && !changed) continue;
     if (enabled === false) {
       config = { ...config, [definition.key]: false };
       continue;
@@ -189,20 +238,26 @@ export function applyEnvironment(
     // Option variables apply to a feature that is on; on their own they do not turn it on.
     const on = enabled === true || isObject(value) || value === true || (value === undefined && definition.enabledByDefault);
     if (!on) continue;
-    let featureOptions: Record<string, unknown> = isObject(value) ? value : {};
-    for (const [segments, option] of options) featureOptions = withValue(featureOptions, segments, option);
     if (enabled === true && isObject(value) && value.enabled === false) featureOptions = { ...featureOptions, enabled: true };
     config = { ...config, [definition.key]: featureOptions };
   }
 
   if (problems.length > 0) throw new ConfigError(problems.join("\n"));
 
-  return { config, warnings: unknownVariableWarnings(env, definitions, declared) };
+  return { config, warnings: unknownVariableWarnings(env, definitions, declared, config) };
 }
 
-/** `Unknown environment variable …` warnings for the set `QS_*` variables that match no config key, with the closest name. */
-export function unknownVariableWarnings(env: Record<string, string | undefined>, definitions: readonly FeatureDefinition[], declared: readonly string[] = []): string[] {
-  const known = new Set<string>([...INTERNAL_VARIABLES, ...declared, ...overrideVariables(definitions).keys()]);
+/**
+ * `Unknown environment variable …` warnings for the set `QS_*` variables that match no config key, with the closest
+ * name; the record entries of `config` have variables too.
+ */
+export function unknownVariableWarnings(
+  env: Record<string, string | undefined>,
+  definitions: readonly FeatureDefinition[],
+  declared: readonly string[] = [],
+  config: Record<string, unknown> = {},
+): string[] {
+  const known = new Set<string>([...INTERNAL_VARIABLES, ...declared, ...overrideVariables(definitions, config).keys()]);
   const warnings: string[] = [];
   const names = [...known];
   for (const name of Object.keys(env).sort()) {
@@ -234,8 +289,11 @@ export function logConfigWarnings(config: { warnings: readonly string[]; logger?
   for (const warning of config.warnings) safeLog(config.logger ?? jsonLogger, "warn", { timestamp: new Date().toISOString(), message: "config.warning", warning });
 }
 
-/** Every `QS_*` variable that sets a config key, with the key: the core's, their `QS_*` aliases and every feature option. */
-export function overrideVariables(definitions: readonly FeatureDefinition[]): Map<string, { path: string; secret: boolean }> {
+/**
+ * Every `QS_*` variable that sets a config key, with the key: the core's, their `QS_*` aliases and every feature
+ * option, with the record entries of `config`.
+ */
+export function overrideVariables(definitions: readonly FeatureDefinition[], config: Record<string, unknown> = {}): Map<string, { path: string; secret: boolean }> {
   const variables = new Map<string, { path: string; secret: boolean }>();
   for (const override of CONFIG_OVERRIDES) {
     const entry = { path: override.path, secret: override.schema.kind === "secret" };
@@ -243,7 +301,7 @@ export function overrideVariables(definitions: readonly FeatureDefinition[]): Ma
     if (override.alias?.name.startsWith("QS_")) variables.set(override.alias.name, entry);
   }
   for (const definition of definitions) {
-    for (const [name, leaf] of featureVariables(definition.key, definition.schema)) variables.set(name, { path: leaf.path, secret: leaf.schema.kind === "secret" });
+    for (const [name, leaf] of featureVariables(definition.key, definition.schema, config[definition.key])) variables.set(name, { path: leaf.path, secret: leaf.schema.kind === "secret" });
   }
   return variables;
 }

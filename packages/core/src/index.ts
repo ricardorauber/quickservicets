@@ -149,6 +149,10 @@ export {
   suggestion,
   parseOptionString,
   provider,
+  rate,
+  record,
+  cidr,
+  toggle,
   resolveOption,
   resolveOptions,
   secret,
@@ -162,6 +166,8 @@ export type {
   BoundedOptionSchema,
   ListOptionSchema,
   ObjectOptionSchema,
+  RecordOptionSchema,
+  ToggleOptionSchema,
   OptionContext,
   OptionDescription,
   OptionFunction,
@@ -200,5 +206,8 @@ export type { FeatureConfig, FeatureDefinition, FeatureDocs, FeatureEntities, Fe
 export { applyEnvironment, CONFIG_OVERRIDES, configVariable, envNameFor, featureVariables, logConfigWarnings, NOT_OVERRIDABLE, optionLeaves, overrideVariables, unknownVariableWarnings } from "./environment.ts";
 export { maskSecrets, SECRET_MASK } from "./secrets.ts";
 export type { ConfigOverride, EnvAlias, EnvironmentResult, OptionLeaf } from "./environment.ts";
+export { parseRate } from "./rates.ts";
+export type { Rate } from "./rates.ts";
+export { matchesCidr } from "./cidr.ts";
 export { declaredVariables, env, readVariables, variableType } from "./env-vars.ts";
 export type { DeclaredVariable, EnvVars } from "./env-vars.ts";

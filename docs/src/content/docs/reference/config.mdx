@@ -111,8 +111,26 @@ Every option, tag, command and hook of `security` is on [its reference page](/re
 | `security.ip.enabled` | `boolean` | `true` | `QS_SECURITY_IP_ENABLED` | Accepts or refuses requests by client address (req.ip), for the whole service or with tags for single routes. Turns it off when false. |
 | `security.ip.allow` | `cidr[]` | `[]` | `QS_SECURITY_IP_ALLOW` | When not empty, only these addresses are served: addresses, CIDR blocks or loopback, private and linklocal. |
 | `security.ip.deny` | `cidr[]` | `[]` | `QS_SECURITY_IP_DENY` | Addresses refused with 403; a deny match wins over an allow match. |
-| `security.masking.enabled` | `boolean` | `true` | `QS_SECURITY_MASKING_ENABLED` | Keeps secret values and sensitive fields out of logs and error responses. Turns it off when false. |
+| `security.masking.enabled` | `boolean` | `true` | `QS_SECURITY_MASKING_ENABLED` | Keeps secret values and fields tagged @sensitive out of log entries, job run records and development error responses. Turns it off when false. |
+| `security.masking.keys` | `string[]` | `["password","passwd","secret","token","apikey","authorization","cookie","setcookie","privatekey","clientsecret","signature","creditcard","cardnumber","cvv"]` | `QS_SECURITY_MASKING_KEYS` | A logged property whose name contains one of these (ignoring case, - and _) shows [secret] instead of its value. |
 | `security.enabled` | `boolean` | `true` | `QS_SECURITY_ENABLED` | Turns the feature off when false. |
+
+#### `@sensitive`
+
+Marks a field whose value never appears in log entries or job run records, shown there as [sensitive]; API responses keep it (use @hidden to leave it out).
+
+**Applies to:** fields
+
+**Options:** none (a flag: `@sensitive` or `@sensitive off`)
+
+**Syntax:** `@sensitive` or `@sensitive off`
+
+```ts
+export type Customer = {
+  /** @sensitive */
+  taxId: string;
+};
+```
 
 #### `@ipAllow`
 

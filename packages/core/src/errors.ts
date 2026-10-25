@@ -50,6 +50,8 @@ export class HttpError extends Error {
 
 export interface ErrorResponseOptions {
   production: boolean;
+  /** Changes the stack text a development response shows, like masking secret values in it. */
+  redact?: (text: string) => string;
 }
 
 interface ErrorBody {
@@ -72,7 +74,8 @@ export function toErrorResponse(error: unknown, options: ErrorResponseOptions): 
 
   const body: ErrorBody = { error: { code: codeForStatus(500), message: "Internal server error" } };
   if (!options.production) {
-    body.error.details = { stack: error instanceof Error ? error.stack : String(error) };
+    const stack = error instanceof Error ? error.stack : String(error);
+    body.error.details = { stack: stack !== undefined && options.redact ? options.redact(stack) : stack };
   }
   return jsonResponse(500, body);
 }

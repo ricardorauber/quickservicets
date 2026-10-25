@@ -3,7 +3,7 @@ import { withJobOperation } from "../operation-context.ts";
 import type { ResolvedConfig } from "../config.ts";
 import { parseSize } from "../files/limits.ts";
 import type { Repositories } from "../hooks.ts";
-import { safeLog, type Logger } from "../logger.ts";
+import { safeLog, type LogMasker, type Logger } from "../logger.ts";
 import type { EntityModel } from "../model.ts";
 import { retryDelayOf, startTimer, timeoutError } from "./attempts.ts";
 import { heartbeatInterval, isAbandoned, shutdownError, SHUTDOWN_MESSAGE, startRepeating } from "./lifecycle.ts";
@@ -45,6 +45,8 @@ export interface JobRunnerOptions {
   production: boolean;
   logger: Logger;
   clock?: JobClock;
+  /** Masks the log lines, result and error of each run before they are stored. */
+  mask?: LogMasker;
 }
 
 /** Identifies the run to claim: one record per job, scheduled time and attempt. */
@@ -159,6 +161,7 @@ export function createLogCollector(limit: number, now: () => number) {
 /** Claims, executes and records job runs; scheduled, retried and on-demand runs all go through it. */
 export function createJobRunner(options: JobRunnerOptions): JobRunner {
   const { jobs, database, repos, files, config, production, logger } = options;
+  const masked = <T>(value: T): T => (options.mask ? options.mask.entry(value) : value);
   const model = options.model ?? jobRunEntity();
   const clock = options.clock ?? systemClock;
   const active = new Map<string, ActiveRun>();
@@ -273,7 +276,7 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
     const logs = createLogCollector(config.limits.logLines, clock.now);
     const write = (level: JobRunLog["level"]) => (message: string, fields?: JobLogFields) => {
       const stored = jsonFields(fields);
-      logs.add({ level, message: String(message), at: timestamp(), ...(stored ? { fields: stored } : {}) });
+      logs.add(masked({ level, message: String(message), at: timestamp(), ...(stored ? { fields: stored } : {}) }));
       safeLog(logger, level, { timestamp: timestamp(), message: String(message), ...fields, job: run.job, runId: run.id });
     };
     const log: JobLogger = { info: write("info"), warn: write("warn"), error: write("error") };
@@ -318,9 +321,9 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
               if (settled) return;
               const { result, note } = storableResult(value, config.limits.result);
               if (note) log.warn(note);
-              settle({ status: "success", ...(result !== undefined ? { result } : {}) });
+              settle({ status: "success", ...(result !== undefined ? { result: masked(result) } : {}) });
             },
-            (error: unknown) => settle({ status: "failed", error: runError(error, production) }),
+            (error: unknown) => settle({ status: "failed", error: masked(runError(error, production)) }),
           );
       });
       const finishedAt = new Date(clock.now());

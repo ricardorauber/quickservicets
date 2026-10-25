@@ -104,13 +104,21 @@ export function readVariables(variables: readonly DeclaredVariable[], source: Re
 let resolved = false;
 /** Holds the variables as own properties, so inspecting `env` shows them, with secrets masked. */
 const store: Record<string, unknown> = {};
+/** The names of the stored variables declared as secrets. */
+let secretNames: readonly string[] = [];
 
 /** Stores the variables of the configuration just resolved, read through `env`; `secrets` are masked when printed. */
 export function setEnvValues(values: Record<string, unknown>, secrets: readonly string[] = []): void {
   for (const name of Reflect.ownKeys(store)) delete store[name as string];
   for (const [name, value] of Object.entries(values)) Object.defineProperty(store, name, { value, enumerable: true, configurable: true, writable: false });
-  maskSecrets(store, secrets.filter((name) => values[name] !== undefined));
+  secretNames = secrets.filter((name) => values[name] !== undefined);
+  maskSecrets(store, secretNames);
   resolved = true;
+}
+
+/** The values of the declared secret variables of the configuration just resolved. */
+export function secretVariableValues(): string[] {
+  return secretNames.map((name) => store[name]).filter((value): value is string => typeof value === "string");
 }
 
 const readOnly = () => {

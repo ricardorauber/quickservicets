@@ -1,7 +1,7 @@
 import { HttpError, toErrorResponse } from "../errors.ts";
 import type { Repositories, ServiceRequest, ServiceResponse } from "../hooks.ts";
 import { noRequestJobs, type RequestJobs } from "../jobs/triggers.ts";
-import { jsonLogger, safeLog, type Logger } from "../logger.ts";
+import { jsonLogger, REQUEST_LOG, safeLog, type LogMasker, type Logger } from "../logger.ts";
 import { executedHooks } from "./pipeline.ts";
 import { composeHandlerStage, composeRequestStage, type MiddlewareStages } from "../middleware.ts";
 import { Router } from "./router.ts";
@@ -37,6 +37,8 @@ export interface ServerSettings {
   maxRequestBodySize?: number;
   /** Seconds a connection may stay idle before the socket closes it, 0 for never (default: Bun's). */
   idleTimeout?: number;
+  /** Masks what the service logs, stores in job runs and shows in development error responses. */
+  mask?: LogMasker;
 }
 
 export interface ServerOptions extends ServerSettings {
@@ -174,7 +176,9 @@ function withRequestProperties(req: ServiceRequest, properties: ReadonlyMap<stri
   return req;
 }
 
-export function createServer({ routes, repos, config, jobs = noRequestJobs, middleware, requestProperties, clientIp, maxRequestBodySize, idleTimeout }: ServerOptions): Server {
+export function createServer({ routes, repos, config: serverConfig, jobs = noRequestJobs, middleware, requestProperties, clientIp, maxRequestBodySize, idleTimeout, mask }: ServerOptions): Server {
+  // Development error responses show the stack with known secret values masked.
+  const config = mask ? { ...serverConfig, redact: (text: string) => mask.text(text) } : serverConfig;
   const handlerStage = middleware?.handler ?? [];
   const errorStage = middleware?.error ?? [];
   const requestStage = middleware?.request ?? [];
@@ -255,6 +259,7 @@ export function createServer({ routes, repos, config, jobs = noRequestJobs, midd
     const state: State = { route: null };
     const response = withHeader(await pipeline(request, requestId, state), "x-request-id", requestId);
     safeLog(logger, response.status >= 500 ? "error" : "info", {
+      [REQUEST_LOG]: true,
       timestamp: new Date().toISOString(),
       requestId,
       method: request.method,

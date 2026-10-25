@@ -112,6 +112,26 @@ export function flushLogs(): void {
   defaultLogger.flush();
 }
 
+/**
+ * Marks the request log entries the server writes: they hold no free-form values, so a masking logger passes them on
+ * without walking them.
+ */
+export const REQUEST_LOG = Symbol.for("quickservice.requestLog");
+
+/** Masks secrets and sensitive values in what the service logs, stores in job runs and returns in development errors. */
+export interface LogMasker {
+  /** A copy of a log entry (or a stored value) with its secrets masked, or the value itself when nothing changed. */
+  entry<T>(value: T): T;
+  /** Text with known secret values masked. */
+  text(value: string): string;
+}
+
+/** A logger passing every entry through the masker first, except the server's request log entries. */
+export function maskedLogger(logger: Logger, masker: LogMasker): Logger {
+  const write = (level: keyof Logger) => (entry: LogEntry) => logger[level]((entry as Record<symbol, unknown>)[REQUEST_LOG] ? entry : masker.entry(entry));
+  return { info: write("info"), warn: write("warn"), error: write("error") };
+}
+
 /** Calls the logger without ever letting a logging failure escape. */
 export function safeLog(logger: Logger, level: keyof Logger, entry: LogEntry): void {
   try {

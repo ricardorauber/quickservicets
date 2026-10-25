@@ -65,6 +65,16 @@ export default handler;
 export default handler;
 ```
 
+`@sensitive` keeps a field's value out of every log entry and job run record, while the API still returns it:
+
+```ts
+export type Customer = {
+  name: string;
+  /** @sensitive */
+  taxId: string;
+};
+```
+
 `@securityHeaders` changes the security headers of one endpoint or of an entity's routes, and `@securityHeaders off` sends none there:
 
 ```ts

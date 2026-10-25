@@ -72,11 +72,11 @@ export type { RunningService, StartServiceOptions } from "./service.ts";
 export { createFeatureLifecycle, featureLogger, LifecycleError, logLifecycleFailure, withTimeout } from "./lifecycle.ts";
 export type { FeatureApp, FeatureLifecycle, FeatureLifecycleOptions, FeatureSetupContext, LifecyclePhase, RuntimeRoute, RuntimeRouteOptions, StartContext, WorkerInfo } from "./lifecycle.ts";
 export type { App, AppEndpoint, AppOptions, CrudRouteEntry, FeatureFolderRegistry } from "./app.ts";
-export { jsonLogger, safeLog } from "./logger.ts";
+export { jsonLogger, maskedLogger, REQUEST_LOG, safeLog } from "./logger.ts";
 export { entityModel, field } from "./entity-model.ts";
 export type { EntityModelOptions, FieldDefinition, FieldInput } from "./entity-model.ts";
 export { deriveCollectionName, isValidCollectionName, pluralize, splitWords, toCamelCase, toSnakeCase } from "./naming.ts";
-export type { LogEntry, Logger } from "./logger.ts";
+export type { LogEntry, LogMasker, Logger } from "./logger.ts";
 export { buildDrizzleSchema, columnName, schemaIdentifier, SQLITE_DEFAULT_SCHEMA_TOKEN, sqliteDefaultPrefix } from "./sql/schema.ts";
 export type { DrizzleSchema, DrizzleSchemaOptions, SqlDialect } from "./sql/schema.ts";
 export { sqliteAdapter } from "./adapters/sqlite.ts";
@@ -222,7 +222,7 @@ export type { AnyEvent, CustomEvent, EventActor, EventFor, EventMap, EventOf, Pa
 export { parseRate } from "./rates.ts";
 export type { Rate } from "./rates.ts";
 export { cidrMatcher, matchesCidr, normalizeAddress } from "./cidr.ts";
-export { declaredVariables, env, readVariables, variableType } from "./env-vars.ts";
+export { declaredVariables, env, readVariables, secretVariableValues, variableType } from "./env-vars.ts";
 export type { DeclaredVariable, EnvVars } from "./env-vars.ts";
 // The natives the core ships, registered when the core loads; they come last, after every export they use.
 import eventsNative, { type EventsApi } from "./features/events/index.ts";
@@ -233,8 +233,8 @@ registerShippedNative(eventsNative);
 export { addOutboxPatterns, events, eventsFeature, listen, memoryEventBus, readOutbox, tailOutbox } from "./features/events/index.ts";
 export type { ConsumerOptions, DeliveryContext, DeliveryStatus, OutboxRecord } from "./features/events/index.ts";
 export type { EventBus, EventListener, Events, EventsApi, ListenerContext, ListenerFile, ListenerPhase, ListenOptions, MemoryEventBus } from "./features/events/index.ts";
-export { memoryRateLimitStore, securityFeature, slidingWindowHit } from "./features/security/index.ts";
-export type { ExemptibleItem, MemoryRateLimitStore, RateLimitHit, RateLimitResult, RateLimitStore, SecurityApi, WindowCounts } from "./features/security/index.ts";
+export { maskEntry, maskText, maskUrl, memoryRateLimitStore, securityFeature, slidingWindowHit } from "./features/security/index.ts";
+export type { ExemptibleItem, MaskingRules, MemoryRateLimitStore, RateLimitHit, RateLimitResult, RateLimitStore, SecurityApi, WindowCounts } from "./features/security/index.ts";
 
 declare module "./features.ts" {
   interface NativeFeatures {

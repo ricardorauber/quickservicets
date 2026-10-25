@@ -1,7 +1,8 @@
-import { boolean, cidr, defineFeature, duration, integer, list, object, oneOf, parseDuration, parseSize, peerAddress, rate, safeLog, size, string, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext } from "../public.ts";
+import { secretVariableValues, boolean, cidr, defineFeature, duration, integer, list, object, oneOf, parseDuration, parseSize, peerAddress, rate, safeLog, size, string, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext } from "../public.ts";
 import type { SecurityApi } from "./api.ts";
 import { corsProblems, corsStep, ownOptionsRoutes, routeCorsOptions } from "./cors.ts";
 import { Exemptions } from "./exempt.ts";
+import { DEFAULT_MASKED_KEYS, masker, secretOptionValues, sensitiveFieldNames } from "./masking.ts";
 import { ipStep } from "./ip.ts";
 import { DEFAULT_ATTACHMENT_TYPES, fileHeaders } from "./files.ts";
 import { DEFAULT_CSP, DEFAULT_DOCS_CSP, headersStep } from "./headers.ts";
@@ -81,7 +82,11 @@ const options = object({
     allow: list(cidr()).default([]).describe("When not empty, only these addresses are served: addresses, CIDR blocks or loopback, private and linklocal."),
     deny: list(cidr()).default([]).describe("Addresses refused with 403; a deny match wins over an allow match."),
   }).describe("Accepts or refuses requests by client address (req.ip), for the whole service or with tags for single routes."),
-  masking: toggle({}).describe("Keeps secret values and sensitive fields out of logs and error responses."),
+  masking: toggle({
+    keys: list(string())
+      .default(DEFAULT_MASKED_KEYS)
+      .describe("A logged property whose name contains one of these (ignoring case, - and _) shows [secret] instead of its value."),
+  }).describe("Keeps secret values and fields tagged @sensitive out of log entries, job run records and development error responses."),
 });
 
 /** The longest idle timeout Bun accepts, in seconds. */
@@ -176,6 +181,11 @@ const securityFeature = defineFeature({
   entities: ({ options }) => (options.rateLimit.enabled && options.rateLimit.store === "database" ? [rateLimitCounterEntity()] : []),
   validate: (resolved) => [...(resolved.cors.enabled ? corsProblems(resolved.cors, "security.cors") : []), ...(resolved.timeouts.enabled ? idleProblems(resolved.timeouts.idle) : [])],
   tags: {
+    sensitive: {
+      on: ["field"],
+      description: "Marks a field whose value never appears in log entries or job run records, shown there as [sensitive]; API responses keep it (use @hidden to leave it out).",
+      example: "export type Customer = {\n  /** @sensitive */\n  taxId: string;\n};",
+    },
     ipAllow: {
       on: ["endpoint", "entity"],
       scope: "ip",
@@ -246,6 +256,14 @@ const securityFeature = defineFeature({
       const upload = largestUpload(ctx.models, ctx.config.files.maxSize);
       ctx.app.configureServer({ maxRequestBodySize: Math.max(parseSize(ctx.options.limits.body)!, upload > 0 ? upload + FORM_OVERHEAD : 0) });
     }
+    if (ctx.options.masking.enabled) {
+      const secrets = [
+        ...secretVariableValues(),
+        ...ctx.config.features.flatMap((feature) => secretOptionValues(feature.definition.schema, feature.options)),
+        ...(ctx.config.files?.signingSecret ? [ctx.config.files.signingSecret] : []),
+      ];
+      ctx.app.configureServer({ mask: masker({ keys: ctx.options.masking.keys, sensitive: sensitiveFieldNames(ctx.models), secrets }) });
+    }
     if (ctx.options.timeouts.enabled) ctx.app.configureServer({ idleTimeout: Math.ceil(parseDuration(ctx.options.timeouts.idle)! / 1000) });
     if (ctx.options.files.enabled) ctx.app.configureServer({ fileHeaders: fileHeaders(ctx.options.files.attachmentTypes) });
     if (steps.length > 0) {
@@ -268,6 +286,8 @@ export { securityFeature };
 export type { SecurityApi } from "./api.ts";
 export type { ExemptibleItem } from "./exempt.ts";
 export { memoryRateLimitStore, slidingWindowHit } from "./store.ts";
+export { maskEntry, maskText, maskUrl } from "./masking.ts";
+export type { MaskingRules } from "./masking.ts";
 export { databaseRateLimitStore } from "./db-store.ts";
 export type { DatabaseRateLimitStore } from "./db-store.ts";
 export type { MemoryRateLimitStore, RateLimitHit, RateLimitResult, RateLimitStore, WindowCounts } from "./store.ts";

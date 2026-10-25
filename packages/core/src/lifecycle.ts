@@ -4,7 +4,7 @@ import { events, type Events } from "./features/events/bus.ts";
 import type { HookCall, Repositories } from "./hooks.ts";
 import type { Endpoint, Server, ServerSettings } from "./http/server.ts";
 import { parseDuration } from "./jobs/job.ts";
-import { jsonLogger, safeLog, type Logger } from "./logger.ts";
+import { jsonLogger, maskedLogger, safeLog, type Logger } from "./logger.ts";
 import type { EntityModel } from "./model.ts";
 import { join } from "node:path";
 import { generatedPath } from "./build-steps.ts";
@@ -189,7 +189,11 @@ interface Registered {
 
 /** Runs the enabled features' setups and the callbacks they register, with the `lifecycle` time limits. */
 export function createFeatureLifecycle({ features, config, models, featureFolders = {}, worker, generatedDir = join(process.cwd(), ".generated"), extendContext, endpoints = [], crudRoutes = [], around = (_feature, _phase, run) => run() }: FeatureLifecycleOptions): FeatureLifecycle {
-  const logger = config.logger ?? jsonLogger;
+  const baseLogger = config.logger ?? jsonLogger;
+  let masked: Logger | undefined;
+  // Once a feature gives the server a masker, every entry logged through the features' loggers is masked too.
+  const current = () => (server.mask ? (masked ??= maskedLogger(baseLogger, server.mask)) : baseLogger);
+  const logger: Logger = { info: (entry) => current().info(entry), warn: (entry) => current().warn(entry), error: (entry) => current().error(entry) };
   const startTimeout = parseDuration(config.lifecycle.startTimeout) ?? 30_000;
   const stopTimeout = parseDuration(config.lifecycle.stopTimeout) ?? 10_000;
   const registered: Registered[] = features.map((feature) => ({ feature, onStart: [], onShutdown: [], onStop: [] }));

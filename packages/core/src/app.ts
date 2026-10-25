@@ -1,6 +1,6 @@
 import type { ResolvedConfig } from "./config.ts";
 import { configureTransactions } from "./transactions.ts";
-import { jsonLogger, safeLog, type Logger } from "./logger.ts";
+import { jsonLogger, maskedLogger, safeLog, type Logger } from "./logger.ts";
 import type { HookCall, HookDefinition, Repositories } from "./hooks.ts";
 import { createCrudRoutes, mergeRoutes, type CrudRoute } from "./http/crud.ts";
 import { withHooks } from "./http/pipeline.ts";
@@ -184,15 +184,17 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
     ? new Map([...allJobs].filter(([, definition]) => definition.feature === undefined || enabledFeatures.has(definition.feature)))
     : allJobs;
   prepareFeatureTargets(models, endpoints, crudRoutes);
+  // A feature masking logs (the security native) wraps the logger of the server, the jobs and the file cleanup.
+  const logger = settings.mask ? maskedLogger(config.logger ?? jsonLogger, settings.mask) : (config.logger ?? jsonLogger);
   const fileAccess = { storage: config.storage, files: config.files, publicUrl: config.server.publicUrl, ...(settings.fileHeaders ? { fileHeaders: settings.fileHeaders } : {}) };
   const fileCleanup = {
     storage: config.storage,
     deleteOnRemove: config.files.deleteOnRemove,
     deleteReplaced: config.files.deleteReplaced,
     deleteWithOwner: config.files.deleteWithOwner,
-    logger: config.logger ?? jsonLogger,
+    logger,
   };
-  configureTransactions(config.database, config.logger ?? jsonLogger);
+  configureTransactions(config.database, logger);
   const repos = createRepositories(models, config.database, {
     populateMaxDepth: config.populate?.maxDepth,
     fileAccess,
@@ -227,7 +229,6 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
     ...(endpoint.status !== undefined ? { status: endpoint.status } : {}),
   }));
   const docs = openApi && config.docs?.enabled ? docsRoutes(openApi) : [];
-  const logger = config.logger ?? jsonLogger;
   const routes = mergeRoutes(generated, custom);
   const runtime: Route[] = runtimeRoutesOf(runtimeRoutes, routes, logger).map((route) => ({
     method: route.method,
@@ -245,11 +246,12 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
     production: config.production,
     logger,
     clock,
+    ...(settings.mask ? { mask: settings.mask } : {}),
   });
   const server = createServer({
     routes: [...routes, ...runtime, ...docs],
     repos: repos as unknown as Repositories,
-    config,
+    config: { production: config.production, server: config.server, logger },
     jobs: createRequestJobs(jobRunner, { logger, clock }),
     middleware: stagesOf(config, middleware),
     requestProperties: requestPropertiesOf(config),

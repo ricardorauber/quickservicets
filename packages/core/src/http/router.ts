@@ -122,9 +122,13 @@ function moreSpecific<T>(candidate: CompiledRoute<T>, current: CompiledRoute<T>)
 }
 
 function decodeSegment(segment: string): string {
+  let decoded: string;
   try {
-    return decodeURIComponent(segment);
+    decoded = decodeURIComponent(segment);
   } catch {
     throw new HttpError(400, "Invalid path");
   }
+  // No stored id or name holds U+0000, and PostgreSQL rejects it in every text parameter.
+  if (decoded.includes("\u0000")) throw new HttpError(400, "Invalid path");
+  return decoded;
 }

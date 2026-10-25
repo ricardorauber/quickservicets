@@ -208,7 +208,7 @@ The same body without `name` succeeds and returns `"age": null`.
 
 | Field type | Message |
 | --- | --- |
-| `string` | `Must be a string` |
+| `string` | `Must be a string`; `Must not contain NUL characters` for a value holding U+0000 |
 | `number` | `Must be a number` (also for `NaN` and infinite values) |
 | `boolean` | `Must be a boolean` |
 | `Date` | `Must be an ISO 8601 date` |

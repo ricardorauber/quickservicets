@@ -27,6 +27,9 @@ export type ValidationResult =
   | { ok: false; details: FieldErrorDetail[] };
 
 const ISO_8601 = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?)?$/;
+/** Text columns of PostgreSQL cannot hold U+0000 and SQLite's LIKE stops at it, so no string value may contain it. */
+export const NUL = "\u0000";
+export const NUL_MESSAGE = "Must not contain NUL characters";
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
@@ -136,6 +139,7 @@ function validateValue(field: ValueSpec, raw: unknown, path: string, errors: Col
   switch (field.type) {
     case "string": {
       if (typeof raw !== "string") return errors.add(path, "Must be a string");
+      if (raw.includes(NUL)) return errors.add(path, NUL_MESSAGE);
       if (field.minLength !== undefined && raw.length < field.minLength) {
         return errors.add(path, `Must be at least ${field.minLength} characters`);
       }
@@ -208,7 +212,8 @@ export function validateBody(model: EntityModel, body: unknown, mode: Validation
     return { ok: false, details: [{ field: "", message: "Body must be a JSON object" }] };
   }
   const errors = new Collector();
-  const writable: Record<string, unknown> = {};
+  // Without a prototype, a `__proto__` key stays an own property and is reported as an unknown field.
+  const writable: Record<string, unknown> = Object.create(null);
   for (const [key, value] of Object.entries(body)) {
     if ((SYSTEM_FIELDS as readonly string[]).includes(key)) errors.add(key, "Field is read-only");
     else writable[key] = value;

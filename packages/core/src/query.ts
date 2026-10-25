@@ -1,5 +1,6 @@
 import { HttpError, type FieldErrorDetail } from "./errors.ts";
 import type { EntityModel } from "./model.ts";
+import { NUL, NUL_MESSAGE } from "./validation.ts";
 
 export const FILTER_OPERATORS = [
   "eq",
@@ -154,7 +155,7 @@ export function convertQueryValue(raw: string, type: string, values?: string[]):
     case "enum":
       return values?.includes(raw) ? { value: raw } : { error: `Must be one of: ${values?.join(", ")}` };
     default:
-      return { value: raw };
+      return raw.includes(NUL) ? { error: NUL_MESSAGE } : { value: raw };
   }
 }
 

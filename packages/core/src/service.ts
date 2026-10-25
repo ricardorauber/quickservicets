@@ -105,6 +105,7 @@ export async function startService(options: StartServiceOptions): Promise<Runnin
       featureFolders: options.featureFolders,
       runtimeRoutes: lifecycle.routes,
       middleware: lifecycle.middleware,
+      server: lifecycle.server,
     });
     await lifecycle.start({ repos: app.repos as never, server: app.server });
   } catch (error) {

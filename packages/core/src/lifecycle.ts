@@ -2,7 +2,7 @@ import type { ResolvedConfig } from "./config.ts";
 import type { FeatureApis, ResolvedFeature } from "./features.ts";
 import { events, type Events } from "./features/events/bus.ts";
 import type { HookCall, Repositories } from "./hooks.ts";
-import type { Endpoint, Server } from "./http/server.ts";
+import type { Endpoint, Server, ServerSettings } from "./http/server.ts";
 import { parseDuration } from "./jobs/job.ts";
 import { jsonLogger, safeLog, type Logger } from "./logger.ts";
 import type { EntityModel } from "./model.ts";
@@ -62,6 +62,11 @@ export interface FeatureApp {
   route(method: string, path: string, handler: Endpoint, options?: RuntimeRouteOptions): void;
   /** Adds a middleware of the `request`, `handler` or `error` stage. Only available during setup. */
   use(middleware: Middleware): void;
+  /**
+   * Gives the HTTP server settings, like how `req.ip` is computed; two features setting the same one fail. Only
+   * available during setup.
+   */
+  configureServer(settings: ServerSettings): void;
 }
 
 /** What a feature's `setup(ctx)` receives. */
@@ -163,6 +168,8 @@ export interface FeatureLifecycle {
   readonly routes: RuntimeRoute[];
   /** The middlewares the features added during setup, in feature order. */
   readonly middleware: OwnedMiddleware[];
+  /** The server settings the features gave during setup. */
+  readonly server: ServerSettings;
   /** Runs each feature's `setup` in order; throws a `LifecycleError` on the first failure or timeout. */
   setup(): Promise<void>;
   /** Runs the `onStart` callbacks in feature order; throws a `LifecycleError` on the first failure or timeout. */
@@ -188,6 +195,8 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
   const registered: Registered[] = features.map((feature) => ({ feature, onStart: [], onShutdown: [], onStop: [] }));
   const routes: RuntimeRoute[] = [];
   const middleware: OwnedMiddleware[] = [];
+  const server: ServerSettings = {};
+  const serverOwners = new Map<string, string>();
   const started: Registered[] = [];
   const apis = new Map<string, object>();
   const enabledKeys = new Set(features.map((feature) => feature.key));
@@ -209,6 +218,7 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
   return {
     routes,
     middleware,
+    server,
     async setup() {
       prepareFeatureTargets(
         models,
@@ -232,6 +242,16 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
           use: (entry) => {
             duringSetup("use");
             middleware.push({ owner: feature.key, middleware: entry });
+          },
+          configureServer: (settings) => {
+            duringSetup("configureServer");
+            for (const [name, value] of Object.entries(settings) as [keyof ServerSettings, never][]) {
+              if (value === undefined) continue;
+              const owner = serverOwners.get(name);
+              if (owner !== undefined && owner !== feature.key) throw new Error(`Server setting ${name} is set by both ${owner} and ${feature.key}`);
+              serverOwners.set(name, feature.key);
+              server[name] = value;
+            }
           },
         };
         const context: FeatureSetupContext = {

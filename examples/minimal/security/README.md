@@ -26,6 +26,12 @@ export default defineConfig({ database: memoryAdapter(), security: { cors: false
 QS_SECURITY_CORS_ENABLED=false bun .generated/server.ts
 ```
 
+Behind a load balancer, trust it so `req.ip` is the client's address from `x-forwarded-for` instead of the balancer's:
+
+```ts
+export default defineConfig({ database: memoryAdapter(), security: { proxy: { trust: ["10.0.0.0/8"] } } });
+```
+
 ## Level 2: tags
 
 Not applicable: the items bring their tags with them; this version of the native has none yet.

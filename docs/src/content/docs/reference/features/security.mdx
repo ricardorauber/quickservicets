@@ -22,6 +22,8 @@ It is enabled by default; turn it off with `security: false` or `QS_SECURITY_ENA
 | Key | Type | Default | Environment variable | Per request | Description |
 | --- | --- | --- | --- | --- | --- |
 | `security.proxy.enabled` | `boolean` | `true` | `QS_SECURITY_PROXY_ENABLED` | no | Resolves the client address in req.ip through the proxies the project trusts. Turns it off when false. |
+| `security.proxy.trust` | `cidr[]` | `[]` | `QS_SECURITY_PROXY_TRUST` | no | The proxies whose forwarding headers are read: addresses, CIDR blocks or loopback, private and linklocal. |
+| `security.proxy.header` | `string` | `"x-forwarded-for"` | `QS_SECURITY_PROXY_HEADER` | no | The header trusted proxies put the client address in: x-forwarded-for, forwarded (RFC 7239) or another comma-separated list. |
 | `security.headers.enabled` | `boolean` | `true` | `QS_SECURITY_HEADERS_ENABLED` | no | Sends the standard security headers on every response. Turns it off when false. |
 | `security.files.enabled` | `boolean` | `true` | `QS_SECURITY_FILES_ENABLED` | no | Sends headers on served files that keep a browser from running them as pages of the service. Turns it off when false. |
 | `security.cors.enabled` | `boolean` | `true` | `QS_SECURITY_CORS_ENABLED` | no | Answers cross-origin requests and preflights of the allowed origins. Turns it off when false. |

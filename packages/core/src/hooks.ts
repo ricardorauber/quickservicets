@@ -45,6 +45,11 @@ export interface ServiceRequest<Body = unknown> extends RequestExtensions {
   readonly jobs: RequestJobs;
   /** The matched route's path pattern, like `/users/[id]`. */
   readonly route: string;
+  /**
+   * The client's address, computed on first read: the socket's peer address, or the address forwarding headers give
+   * when the peer is a proxy the project trusts (`security.proxy`); `unknown` without a socket.
+   */
+  readonly ip: string;
   /** The signed-in user, set by a middleware. */
   user: RequestUser | undefined;
   /** The request's tenant, set by a middleware. */
@@ -54,7 +59,7 @@ export interface ServiceRequest<Body = unknown> extends RequestExtensions {
 }
 
 /** The properties every request has, which a feature's `request` field may not use. */
-export const REQUEST_PROPERTIES = ["id", "method", "path", "params", "query", "headers", "raw", "context", "json", "queryItems", "jobs", "route", "user", "tenant", "flags"] as const;
+export const REQUEST_PROPERTIES = ["id", "method", "path", "params", "query", "headers", "raw", "context", "json", "queryItems", "jobs", "route", "ip", "user", "tenant", "flags"] as const;
 
 /** Lets endpoints and hooks set the status and headers of a data response. */
 export interface ServiceResponse {

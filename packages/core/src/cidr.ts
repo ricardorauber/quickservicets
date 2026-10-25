@@ -116,3 +116,57 @@ export function matchesCidr(address: string, block: string): boolean {
   const parsed = parseAddress(address);
   return parsed !== undefined && blocks.some((candidate) => inBlock(parsed, candidate));
 }
+
+/** The text form of an address: dotted IPv4, or lowercase IPv6 with the longest run of zero groups compressed. */
+function formatAddress(address: Address): string {
+  if (address.bits === 32) return [24n, 16n, 8n, 0n].map((shift) => String((address.value >> shift) & 0xffn)).join(".");
+  const groups = Array.from({ length: 8 }, (_, index) => Number((address.value >> BigInt(112 - index * 16)) & 0xffffn));
+  // RFC 5952: the longest run of two or more zero groups (the first of equal ones) becomes `::`.
+  let best = { start: -1, length: 0 };
+  for (let start = 0; start < 8; ) {
+    if (groups[start] !== 0) {
+      start++;
+      continue;
+    }
+    let end = start;
+    while (end < 8 && groups[end] === 0) end++;
+    if (end - start > best.length && end - start >= 2) best = { start, length: end - start };
+    start = end;
+  }
+  const hex = (list: number[]) => list.map((group) => group.toString(16)).join(":");
+  if (best.start < 0) return hex(groups);
+  return `${hex(groups.slice(0, best.start))}::${hex(groups.slice(best.start + best.length))}`;
+}
+
+/**
+ * An address in its normal form, or undefined when the text is not one: brackets and a port removed
+ * (`[2001:db8::1]:4711`, `203.0.113.5:8080`), IPv4-mapped IPv6 as IPv4, IPv6 lowercase and compressed.
+ */
+export function normalizeAddress(text: string): string | undefined {
+  let candidate = text.trim();
+  const bracketed = /^\[([^\]]+)\](?::\d+)?$/.exec(candidate);
+  if (bracketed) candidate = bracketed[1]!;
+  else if (/^[\d.]+:\d+$/.test(candidate)) candidate = candidate.slice(0, candidate.lastIndexOf(":"));
+  const address = parseAddress(candidate);
+  return address ? formatAddress(address) : undefined;
+}
+
+/**
+ * A matcher of addresses against a list of entries (addresses, CIDR blocks or `loopback`, `private` and `linklocal`),
+ * parsed once; an address that is not one matches nothing. Throws for an invalid entry.
+ */
+export function cidrMatcher(entries: readonly string[]): (address: string) => boolean {
+  const blocks = entries.flatMap((entry) => {
+    const parsed = parseBlocks(entry);
+    if (!parsed) throw new Error(`Invalid block ${JSON.stringify(entry)}: expected ${CIDR_EXPECTATION}`);
+    return parsed;
+  });
+  const v4 = blocks.filter((block) => block.bits === 32).map((block) => ({ shift: BigInt(32 - block.prefix), base: block.base >> BigInt(32 - block.prefix) }));
+  const v6 = blocks.filter((block) => block.bits === 128).map((block) => ({ shift: BigInt(128 - block.prefix), base: block.base >> BigInt(128 - block.prefix) }));
+  return (text) => {
+    const address = parseAddress(text);
+    if (!address) return false;
+    for (const block of address.bits === 32 ? v4 : v6) if (address.value >> block.shift === block.base) return true;
+    return false;
+  };
+}

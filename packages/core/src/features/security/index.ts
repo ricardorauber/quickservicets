@@ -1,11 +1,15 @@
-import { defineFeature, object, safeLog, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext } from "../public.ts";
+import { cidr, defineFeature, list, object, safeLog, string, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext } from "../public.ts";
 import type { SecurityApi } from "./api.ts";
 import { Exemptions } from "./exempt.ts";
 import { SECURITY_ITEMS, securityMiddlewares, type SecurityStep } from "./pipeline.ts";
+import { proxyResolver } from "./proxy.ts";
 import { buildRouteIndex, type RouteIndex } from "./routes.ts";
 
 const options = object({
-  proxy: toggle({}).describe("Resolves the client address in req.ip through the proxies the project trusts."),
+  proxy: toggle({
+    trust: list(cidr()).default([]).describe("The proxies whose forwarding headers are read: addresses, CIDR blocks or loopback, private and linklocal."),
+    header: string().default("x-forwarded-for").describe("The header trusted proxies put the client address in: x-forwarded-for, forwarded (RFC 7239) or another comma-separated list."),
+  }).describe("Resolves the client address in req.ip through the proxies the project trusts."),
   headers: toggle({}).describe("Sends the standard security headers on every response."),
   files: toggle({}).describe("Sends headers on served files that keep a browser from running them as pages of the service."),
   cors: toggle({}).describe("Answers cross-origin requests and preflights of the allowed origins."),
@@ -41,6 +45,13 @@ const securityFeature = defineFeature({
     exemptionsOf.set(ctx.app, exemptions);
     const enabled = SECURITY_ITEMS.filter((item) => ctx.options[item].enabled);
     const steps = itemSteps(ctx);
+    const proxy = ctx.options.proxy;
+    // Without trusted proxies, req.ip is the peer address; production still checks for forwarded headers to warn once.
+    if (proxy.enabled && (proxy.trust.length > 0 || ctx.config.production)) {
+      const untrusted = (peer: string) =>
+        safeLog(ctx.logger, "warn", { timestamp: new Date().toISOString(), message: "security.proxy.untrusted", peer, header: proxy.header, hint: "set security.proxy.trust if the service runs behind a proxy" });
+      ctx.app.configureServer({ clientIp: proxyResolver(proxy, ctx.config.production ? untrusted : undefined) });
+    }
     // Routes are indexed only when one carries a security tag, so other requests do no lookup.
     const index: RouteIndex | undefined = buildRouteIndex(taggedRoutes(), Object.keys(securityFeature.tags ?? {}));
     if (steps.length > 0) {

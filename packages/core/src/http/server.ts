@@ -5,6 +5,7 @@ import { jsonLogger, safeLog, type Logger } from "../logger.ts";
 import { executedHooks } from "./pipeline.ts";
 import { composeHandlerStage, composeRequestStage, type MiddlewareStages } from "../middleware.ts";
 import { Router } from "./router.ts";
+import { normalizeAddress } from "../cidr.ts";
 
 export type HandlerResult<Result> = Result | Response | undefined;
 
@@ -24,7 +25,13 @@ export interface Route {
   status?: number;
 }
 
-export interface ServerOptions {
+/** Settings features give the HTTP server during setup, with `ctx.app.configureServer`. */
+export interface ServerSettings {
+  /** Computes `req.ip` from the request and its peer address, when `req.ip` is first read (default: the peer address). */
+  clientIp?: (request: Request, peer: string) => string;
+}
+
+export interface ServerOptions extends ServerSettings {
   routes: Route[];
   repos: Repositories;
   config: { production: boolean; server?: { port: number; workers?: number }; logger?: Logger };
@@ -36,8 +43,14 @@ export interface ServerOptions {
   requestProperties?: ReadonlyMap<string, (req: ServiceRequest) => unknown>;
 }
 
+/** What `server.fetch` takes besides the request. */
+export interface FetchOptions {
+  /** The address of the client socket, as tests give it; a request without one has the peer `unknown`. */
+  peer?: string;
+}
+
 export interface Server {
-  fetch(request: Request): Promise<Response>;
+  fetch(request: Request, options?: FetchOptions): Promise<Response>;
   listen(port?: number): ReturnType<typeof Bun.serve>;
 }
 
@@ -74,9 +87,31 @@ function withHeader(response: Response, name: string, value: string): Response {
   }
 }
 
-function createRequest(raw: Request, url: URL, params: Record<string, string>, id: string, jobs: RequestJobs, route: string): ServiceRequest {
+/** Where the peer address of each request comes from: the address itself, or the Bun server that accepted it. */
+const peers = new WeakMap<Request, string | { requestIP(request: Request): { address: string } | null }>();
+
+/**
+ * The address of the socket a request came from, normalized (`::ffff:203.0.113.5` reads `203.0.113.5`), or `unknown`
+ * for a request without one, like a request built in a test without the `peer` option.
+ */
+export function peerAddress(request: Request): string {
+  const source = peers.get(request);
+  if (source === undefined) return "unknown";
+  if (typeof source === "string") return source;
+  const address = source.requestIP(request)?.address;
+  const peer = address === undefined ? "unknown" : (normalizeAddress(address) ?? address);
+  peers.set(request, peer);
+  return peer;
+}
+
+function createRequest(raw: Request, url: URL, params: Record<string, string>, id: string, jobs: RequestJobs, route: string, clientIp: ServerSettings["clientIp"]): ServiceRequest {
   let body: Promise<unknown> | undefined;
   return {
+    get ip() {
+      const value = clientIp ? clientIp(raw, peerAddress(raw)) : peerAddress(raw);
+      Object.defineProperty(this, "ip", { value, configurable: true, enumerable: true, writable: true });
+      return value;
+    },
     id,
     route,
     user: undefined,
@@ -131,7 +166,7 @@ function withRequestProperties(req: ServiceRequest, properties: ReadonlyMap<stri
   return req;
 }
 
-export function createServer({ routes, repos, config, jobs = noRequestJobs, middleware, requestProperties }: ServerOptions): Server {
+export function createServer({ routes, repos, config, jobs = noRequestJobs, middleware, requestProperties, clientIp }: ServerOptions): Server {
   const handlerStage = middleware?.handler ?? [];
   const errorStage = middleware?.error ?? [];
   const requestStage = middleware?.request ?? [];
@@ -183,7 +218,7 @@ export function createServer({ routes, repos, config, jobs = noRequestJobs, midd
         return response;
       }
       state.route = match.route.value.path;
-      const req = createRequest(request, url, match.params, requestId, jobs, match.route.value.path);
+      const req = createRequest(request, url, match.params, requestId, jobs, match.route.value.path, clientIp);
       state.req = properties ? withRequestProperties(req, properties) : req;
       const res = new ResponseControls();
       const result = await match.route.value.handler(repos, state.req, res);
@@ -205,7 +240,8 @@ export function createServer({ routes, repos, config, jobs = noRequestJobs, midd
           return run({ request, url, requestId, errorResponse: fail }).catch(fail);
         };
 
-  const fetch = async (request: Request): Promise<Response> => {
+  const fetch = async (request: Request, options?: FetchOptions): Promise<Response> => {
+    if (options?.peer !== undefined) peers.set(request, normalizeAddress(options.peer) ?? options.peer);
     const startedAt = performance.now();
     const requestId = requestIdOf(request);
     const state: State = { route: null };
@@ -226,7 +262,15 @@ export function createServer({ routes, repos, config, jobs = noRequestJobs, midd
     fetch,
     listen(port = config.server?.port) {
       // Worker processes share the port; on Linux the kernel spreads the connections across them.
-      return Bun.serve({ port, fetch, ...((config.server?.workers ?? 1) > 1 ? { reusePort: true } : {}) });
+      return Bun.serve({
+        port,
+        fetch: (request, server) => {
+          // The peer address is read from the server only when a request asks for it.
+          peers.set(request, server);
+          return fetch(request);
+        },
+        ...((config.server?.workers ?? 1) > 1 ? { reusePort: true } : {}),
+      });
     },
   };
 }

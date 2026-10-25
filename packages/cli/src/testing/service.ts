@@ -25,8 +25,11 @@ export interface TestServiceOptions {
 
 /** A project running in the test process. */
 export interface TestService {
-  /** Calls the running app without opening a port; `path` is like `/posts?limit=5`. */
-  fetch(path: string, init?: RequestInit): Promise<Response>;
+  /**
+   * Calls the running app without opening a port; `path` is like `/posts?limit=5`, and `peer` is the client socket's
+   * address (default: none, so `req.ip` is `unknown`).
+   */
+  fetch(path: string, init?: RequestInit & { peer?: string }): Promise<Response>;
   repos: Repositories;
   /** The temporary project folder. */
   root: string;
@@ -146,7 +149,7 @@ export async function startTestService({ files, env = {} }: TestServiceOptions):
       await lifecycle.setup();
       await config.database.connect(models, { defaultSchema: config.schema });
       connected = true;
-      const app = createApp({ models, crudRoutes, endpoints, hooks, config, openApi, jobs, featureFolders, runtimeRoutes: lifecycle.routes, middleware: lifecycle.middleware });
+      const app = createApp({ models, crudRoutes, endpoints, hooks, config, openApi, jobs, featureFolders, runtimeRoutes: lifecycle.routes, middleware: lifecycle.middleware, server: lifecycle.server });
       started = {
         app,
         async stop() {
@@ -171,7 +174,7 @@ export async function startTestService({ files, env = {} }: TestServiceOptions):
   return {
     root,
     repos: app.repos as unknown as Repositories,
-    fetch: (path, init) => app.server.fetch(new Request(new URL(path, "http://localhost").href, init)),
+    fetch: (path, init) => app.server.fetch(new Request(new URL(path, "http://localhost").href, init), init?.peer === undefined ? undefined : { peer: init.peer }),
     async stop() {
       try {
         await started.stop();

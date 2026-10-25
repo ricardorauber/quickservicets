@@ -34,8 +34,8 @@ export type {
   ServiceRequest,
   ServiceResponse,
 } from "./hooks.ts";
-export { createServer, toResponse } from "./http/server.ts";
-export type { Endpoint, HandlerResult, Route, Server, ServerOptions } from "./http/server.ts";
+export { createServer, peerAddress, toResponse } from "./http/server.ts";
+export type { Endpoint, FetchOptions, HandlerResult, Route, Server, ServerOptions, ServerSettings } from "./http/server.ts";
 export { Router, patternOf, splitPath } from "./http/router.ts";
 export type { RouteMatch, RoutePattern } from "./http/router.ts";
 export { executedHooks, operationForRoute, resolveRouteHooks, withHooks } from "./http/pipeline.ts";
@@ -219,7 +219,7 @@ export type { OperationInfo } from "./operation-context.ts";
 export type { AnyEvent, CustomEvent, EventActor, EventFor, EventMap, EventOf, PatternMatches, PayloadOf, WriteEvent, WriteOperation } from "./event-types.ts";
 export { parseRate } from "./rates.ts";
 export type { Rate } from "./rates.ts";
-export { matchesCidr } from "./cidr.ts";
+export { cidrMatcher, matchesCidr, normalizeAddress } from "./cidr.ts";
 export { declaredVariables, env, readVariables, variableType } from "./env-vars.ts";
 export type { DeclaredVariable, EnvVars } from "./env-vars.ts";
 // The natives the core ships, registered when the core loads; they come last, after every export they use.

@@ -6,7 +6,7 @@ import { createCrudRoutes, mergeRoutes, type CrudRoute } from "./http/crud.ts";
 import { withHooks } from "./http/pipeline.ts";
 import { docsRoutes } from "./http/docs.ts";
 import { withQueryItems, type QueryItem } from "./http/query-items.ts";
-import { createServer, type Endpoint, type Route, type Server } from "./http/server.ts";
+import { createServer, type Endpoint, type Route, type Server, type ServerSettings } from "./http/server.ts";
 import { parseDuration, type JobDefinition } from "./jobs/job.ts";
 import { jobRunEntity } from "./jobs/job-run.ts";
 import { createAbandonedRunMonitor, type AbandonedRunMonitor } from "./jobs/lifecycle.ts";
@@ -86,6 +86,8 @@ export interface AppOptions {
   runtimeRoutes?: readonly RuntimeRoute[];
   /** Middlewares features added during setup with `ctx.app.use`, in feature order. */
   middleware?: readonly OwnedMiddleware[];
+  /** Server settings features gave during setup with `ctx.app.configureServer`. */
+  server?: ServerSettings;
 }
 
 /** The default exports of features' convention folders, by feature key, folder name and file name. */
@@ -172,7 +174,7 @@ function requestPropertiesOf(config: ResolvedConfig): Map<string, (req: ServiceR
   return properties;
 }
 
-export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, config, openApi, jobs: allJobs = new Map(), clock, featureFolders = {}, runtimeRoutes = [], middleware = [] }: AppOptions): App {
+export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, config, openApi, jobs: allJobs = new Map(), clock, featureFolders = {}, runtimeRoutes = [], middleware = [], server: settings = {} }: AppOptions): App {
   // Endpoints and jobs of features that are not enabled in this configuration are left out.
   const enabledFeatures = new Set(config.features?.map((feature) => feature.key) ?? []);
   const endpoints = allEndpoints.some((endpoint) => endpoint.feature !== undefined)
@@ -251,6 +253,7 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
     jobs: createRequestJobs(jobRunner, { logger, clock }),
     middleware: stagesOf(config, middleware),
     requestProperties: requestPropertiesOf(config),
+    ...settings,
   });
   const jobScheduler = createJobScheduler(jobs, jobRunner, { enabled: config.jobs.enabled, logger, clock });
   // Projects without jobs have no run records to clean.

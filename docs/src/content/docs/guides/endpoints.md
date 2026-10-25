@@ -208,6 +208,7 @@ curl localhost:3000/organizations/01a146de-9a16-73c6-bb2c-6063dfca5276/stats
 | `req.context` | An object shared by the hooks and the handler of one request, empty at the start. Hooks use it to pass the signed-in user, for example. |
 | `req.raw` | The native `Request`, for anything else (form data, streams). |
 | `req.id`, `req.method`, `req.path` | The request id (also sent back in the `x-request-id` header), the method and the path. |
+| `req.ip` | The client's address: the socket's peer address, or the address forwarding headers give when the peer is a proxy listed in `security.proxy.trust`. `unknown` for a request without a socket. |
 
 ## The response: return values and `res`
 

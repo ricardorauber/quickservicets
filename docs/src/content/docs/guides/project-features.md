@@ -288,7 +288,7 @@ export const shouting = defineFeature({
 
 ### Routes
 
-`ctx.app.route(method, path, handler)` adds a route at runtime, with `[param]` segments and a trailing `[...rest]` segment that receives the rest of the path. An endpoint file with the same method and path wins over it.
+`ctx.app.route(method, path, handler)` adds a route at runtime, with `[param]` segments and a trailing `[...rest]` segment that receives the rest of the path. An endpoint file with the same method and path wins over it. `ctx.app.configureServer({ clientIp })` replaces how `req.ip` is computed from the request and its peer address; two features giving the same server setting fail at startup.
 
 ### Middleware
 

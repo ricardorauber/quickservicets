@@ -58,6 +58,11 @@ export interface QueuesApi {
    * `Queue broker set by <a> and <b>; keep one` when `queues.broker` or another feature set one too.
    */
   setBroker(broker: QueueBroker): void;
+  /**
+   * Checks the broker for the readiness check: resolves with its fields (the database broker's `waiting` and
+   * `oldestWaitingMs`), or `{}` for a broker without `health`, and throws when it cannot take messages.
+   */
+  health(): Promise<Record<string, unknown>>;
   /** Appends a `beforeEnqueue` hook after the config's; it may change the call or throw to cancel the `add`. */
   addHook(name: "beforeEnqueue", fn: FeatureHook<QueueEnqueueStep, QueueEnqueueContext>): void;
   /** Appends an `afterEnqueue` hook after the config's. */

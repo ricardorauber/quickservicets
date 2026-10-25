@@ -308,6 +308,7 @@ export function memoryAdapter(): DatabaseAdapter {
     aggregate(entity, where, aggregates) {
       return scope.run(() => aggregateAll(entity, select(entity, where), aggregates));
     },
+    async ping() {},
     transaction(fn) {
       return scope.transaction(fn, {
         begin: () => {

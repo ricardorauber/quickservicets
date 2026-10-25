@@ -234,6 +234,7 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
     method: route.method,
     path: route.path,
     handler: withHooks(route.handler, route.hooks, hooks),
+    ...(route.log === false ? { log: false } : {}),
   }));
   const jobRunModel = models.find((model) => model.key === "JobRun" && model.system);
   const jobRunner = createJobRunner({

@@ -394,6 +394,10 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
     async aggregate(entity, where, aggregates) {
       return aggregate(entity, toFilter(where, entity), aggregates);
     },
+    async ping() {
+      if (!client || !db) throw new Error("The MongoDB adapter is not connected");
+      await db.command({ ping: 1 });
+    },
     async transaction(fn) {
       if (sessions.getStore() || !supportsTransactions || !client) return fn();
       const current = client.startSession();

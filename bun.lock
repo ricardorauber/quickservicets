@@ -49,6 +49,13 @@
         "@quickservice/core": "workspace:*",
       },
     },
+    "examples/minimal/health": {
+      "name": "minimal-health",
+      "dependencies": {
+        "@quickservice/cli": "workspace:*",
+        "@quickservice/core": "workspace:*",
+      },
+    },
     "examples/minimal/queues": {
       "name": "minimal-queues",
       "dependencies": {
@@ -726,6 +733,8 @@
     "micromark-util-types": ["micromark-util-types@2.0.3", "", {}, "sha512-oxB2Ik03hI0gv+VNn9tnh1t1YEe9MDPptViAEgfdf3YQHsn0pzGTgCdlSCJXcwhqm8phaEuM7zeEu3QQzVBrPg=="],
 
     "minimal-events": ["minimal-events@workspace:examples/minimal/events"],
+
+    "minimal-health": ["minimal-health@workspace:examples/minimal/health"],
 
     "minimal-queues": ["minimal-queues@workspace:examples/minimal/queues"],
 

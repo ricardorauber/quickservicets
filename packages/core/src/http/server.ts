@@ -25,6 +25,8 @@ export interface Route {
   handler: Endpoint;
   /** Status of a success response when the handler does not set one with `res.status`. */
   status?: number;
+  /** `false` leaves the route's requests out of the request log, except for 5xx responses. */
+  log?: boolean;
 }
 
 /** Settings features give the HTTP server during setup, with `ctx.app.configureServer`. */
@@ -221,7 +223,7 @@ export function createServer({ routes, repos, config: serverConfig, jobs = noReq
     return toErrorResponse(error, config);
   };
 
-  const handle = async (request: Request, requestId: string, state: { route: string | null; req?: ServiceRequest }, parsed?: URL) => {
+  const handle = async (request: Request, requestId: string, state: { route: string | null; req?: ServiceRequest; quiet?: boolean }, parsed?: URL) => {
     try {
       const url = parsed ?? new URL(request.url);
       const match = router.match(request.method, url.pathname);
@@ -232,6 +234,7 @@ export function createServer({ routes, repos, config: serverConfig, jobs = noReq
         return response;
       }
       state.route = match.route.value.path;
+      if (match.route.value.log === false) state.quiet = true;
       const req = createRequest(request, url, match.params, requestId, jobs, match.route.value.path, clientIp);
       state.req = properties ? withRequestProperties(req, properties) : req;
       const res = new ResponseControls();
@@ -243,7 +246,7 @@ export function createServer({ routes, repos, config: serverConfig, jobs = noReq
     }
   };
 
-  type State = { route: string | null; req?: ServiceRequest };
+  type State = { route: string | null; req?: ServiceRequest; quiet?: boolean };
   const pipeline =
     requestStage.length === 0
       ? handle
@@ -260,6 +263,7 @@ export function createServer({ routes, repos, config: serverConfig, jobs = noReq
     const requestId = requestIdOf(request);
     const state: State = { route: null };
     const response = withHeader(await pipeline(request, requestId, state), "x-request-id", requestId);
+    if (state.quiet && response.status < 500) return response;
     safeLog(logger, response.status >= 500 ? "error" : "info", {
       [REQUEST_LOG]: true,
       timestamp: new Date().toISOString(),

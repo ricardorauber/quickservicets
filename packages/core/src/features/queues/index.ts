@@ -92,7 +92,11 @@ const lowerFirst = (name: string) => `${name.charAt(0).toLowerCase()}${name.slic
 const lifecycle = sharedState("lifecycle", () => ({ teardown: undefined as (() => void) | undefined }));
 
 /** The broker set by `queues.broker` or a feature's `setBroker`, with who set it. */
-const brokers = sharedState("broker", () => ({ choice: undefined as { broker: QueueBroker; owner: string } | undefined }));
+const brokers = sharedState("broker", () => ({
+  choice: undefined as { broker: QueueBroker; owner: string } | undefined,
+  /** The broker of the running service, chosen on first use. */
+  current: undefined as (() => QueueBroker) | undefined,
+}));
 
 /** The JSON form of a payload, or undefined when it has none. */
 function jsonPayload(payload: unknown): unknown {
@@ -192,6 +196,7 @@ const queuesFeature = defineFeature({
       if (isDatabaseBroker(chosen)) bindDatabaseBroker(chosen, databaseDefaults);
       return chosen;
     };
+    brokers.current = brokerOf;
 
     /** The per-request defaults of `req.queue.add`, for the options a call leaves out. */
     const withRequestDefaults = async (options: QueueEnqueueStep["options"], req: NonNullable<QueueEnqueueContext["req"]>) => {
@@ -271,6 +276,7 @@ const queuesFeature = defineFeature({
     const stop = () => {
       lifecycle.teardown = undefined;
       brokers.choice = undefined;
+      brokers.current = undefined;
       if (running.current === native) running.current = undefined;
     };
     lifecycle.teardown = stop;
@@ -305,6 +311,11 @@ const queuesFeature = defineFeature({
       brokers.choice = { broker, owner: caller };
     },
     addHook: ctx.addHook as QueuesApi["addHook"],
+    async health() {
+      const broker = brokers.current?.();
+      if (!broker?.health) return {};
+      return (await broker.health()) ?? {};
+    },
   }),
 });
 

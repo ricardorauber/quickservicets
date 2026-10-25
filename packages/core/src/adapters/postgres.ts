@@ -234,6 +234,9 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
         }),
       );
     },
+    async ping() {
+      await run({ text: "select 1", params: [] });
+    },
     async lockForUpdate(entity, id) {
       await run(statementsFor(entity).lockForUpdate(id));
     },

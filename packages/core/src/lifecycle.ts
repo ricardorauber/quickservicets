@@ -34,6 +34,8 @@ type Callback<A extends unknown[] = []> = (...args: A) => void | Promise<void>;
 export interface RuntimeRouteOptions {
   /** Hooks of `hooks/` run around the handler, by name or with arguments. */
   hooks?: readonly (string | HookCall)[];
+  /** `false` leaves the route's requests out of the request log, except for 5xx responses (default true). */
+  log?: boolean;
 }
 
 /** A route a feature registered at runtime with `ctx.app.route`. */
@@ -45,6 +47,8 @@ export interface RuntimeRoute {
   hooks: HookCall[];
   /** The key of the feature that registered it. */
   feature: string;
+  /** `false` when the route's requests are left out of the request log. */
+  log?: boolean;
 }
 
 /** The running service's extension points a feature reaches from its setup. */
@@ -247,7 +251,7 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
           onStop: (fn) => (duringSetup("onStop"), void entry.onStop.push(fn)),
           route: (method, path, handler, options = {}) => {
             duringSetup("route");
-            routes.push({ method: method.toUpperCase(), path, handler, hooks: normalizeHooks(options.hooks), feature: feature.key });
+            routes.push({ method: method.toUpperCase(), path, handler, hooks: normalizeHooks(options.hooks), feature: feature.key, ...(options.log === false ? { log: false } : {}) });
           },
           use: (entry) => {
             duringSetup("use");

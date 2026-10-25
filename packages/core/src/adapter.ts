@@ -128,6 +128,8 @@ export interface DatabaseAdapter {
    * MongoDB replica sets and sharded clusters once connected. Without it, public transactions warn once.
    */
   readonly supportsRollback?: boolean;
+  /** Checks the connection with the cheapest round trip (optional; health checks read one record without it). */
+  ping?(): Promise<void>;
   /** Locks a record until the current transaction ends, for read-modify-write updates (optional). */
   lockForUpdate?(entity: EntityModel, id: string): Promise<void>;
 }

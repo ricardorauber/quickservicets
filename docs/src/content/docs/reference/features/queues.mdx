@@ -135,6 +135,15 @@ setBroker(broker: QueueBroker): void;
 Replaces the database broker with `broker`, from the calling feature's setup only; startup fails with
 `Queue broker set by <a> and <b>; keep one` when `queues.broker` or another feature set one too.
 
+### `health`
+
+```ts
+health(): Promise<Record<string, unknown>>;
+```
+
+Checks the broker for the readiness check: resolves with its fields (the database broker's `waiting` and
+`oldestWaitingMs`), or `{}` for a broker without `health`, and throws when it cannot take messages.
+
 ### `addHook`
 
 ```ts

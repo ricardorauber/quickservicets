@@ -315,3 +315,19 @@ Every option, tag, command and hook of `queues` is on [its reference page](/refe
 /** @publish created,updated queue=crm-sync */
 export type User = { email: string };
 ```
+
+### `health`
+
+Liveness and readiness routes for orchestrators and load balancers, checking the database and the queue.
+
+Every option, tag, command and hook of `health` is on [its reference page](/reference/features/health/).
+
+| Key | Type | Default | Environment variable | Description |
+| --- | --- | --- | --- | --- |
+| `health.live` | `string` | `"/health/live"` | `QS_HEALTH_LIVE` | The path of the liveness route, which answers 200 while the process serves requests. |
+| `health.ready` | `string` | `"/health/ready"` | `QS_HEALTH_READY` | The path of the readiness route, which runs the checks. |
+| `health.timeout` | `duration` | `"2s"` | `QS_HEALTH_TIMEOUT` | The time limit of each check. |
+| `health.cache` | `duration` | `"1s"` | `QS_HEALTH_CACHE` | How long a readiness result is reused by the probes of one worker; 0s runs the checks for every probe. |
+| `health.details` | `boolean` | — | `QS_HEALTH_DETAILS` | Shows each check's error and extra fields in the ready response; on outside production and off in production by default. |
+| `health.log` | `boolean` | `false` | `QS_HEALTH_LOG` | Writes a request log entry for every probe; without it only 5xx responses of the health routes are logged. |
+| `health.enabled` | `boolean` | `true` | `QS_HEALTH_ENABLED` | Turns the feature off when false. |

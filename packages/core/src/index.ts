@@ -228,11 +228,13 @@ export type { DeclaredVariable, EnvVars } from "./env-vars.ts";
 // The natives the core ships, registered when the core loads; they come last, after every export they use.
 import eventsNative, { type EventsApi } from "./features/events/index.ts";
 import securityNative, { type SecurityApi } from "./features/security/index.ts";
+import healthNative from "./features/health/index.ts";
 import queuesNative, { type QueueClient, type QueueMessageEvent, type QueuesApi } from "./features/queues/index.ts";
 import { registerNative as registerShippedNative, type FeatureConfig as NativeConfig } from "./features.ts";
 registerShippedNative(securityNative);
 registerShippedNative(eventsNative);
 registerShippedNative(queuesNative);
+registerShippedNative(healthNative);
 export { addOutboxPatterns, events, eventsFeature, listen, memoryEventBus, readOutbox, tailOutbox } from "./features/events/index.ts";
 export type { ConsumerOptions, DeliveryContext, DeliveryStatus, OutboxRecord } from "./features/events/index.ts";
 export type { EventBus, EventListener, Events, EventsApi, ListenerContext, ListenerFile, ListenerPhase, ListenOptions, MemoryEventBus } from "./features/events/index.ts";
@@ -274,6 +276,9 @@ export type {
   QueueStats,
 } from "./features/queues/index.ts";
 
+export { healthFeature } from "./features/health/index.ts";
+export type { HealthCheck, HealthCheckResult, HealthReport, HealthStatus } from "./features/health/index.ts";
+
 declare module "./event-types.ts" {
   interface EventMap {
     /** A queue message completed; emitted by the `queues` native while `events` is enabled. */
@@ -300,6 +305,8 @@ declare module "./features.ts" {
     security?: NativeConfig<typeof securityNative>;
     /** Background queues in the project's database; see the `queues` reference page. */
     queues?: NativeConfig<typeof queuesNative>;
+    /** Liveness and readiness routes; see the `health` reference page. */
+    health?: NativeConfig<typeof healthNative>;
   }
   interface FeatureApis {
     events: EventsApi;

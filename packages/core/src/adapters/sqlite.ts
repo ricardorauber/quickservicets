@@ -273,6 +273,9 @@ export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
           .get() as AggregateValues;
       });
     },
+    async ping() {
+      ready().db.run(sql`select 1`);
+    },
     transaction(fn) {
       return atomically(fn);
     },

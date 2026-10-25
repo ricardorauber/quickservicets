@@ -31,6 +31,7 @@ import { parseEndpointTags, type EndpointMetadata } from "../hooks/endpoint-tags
 import type { HookEntry } from "../hooks/scan-hooks.ts";
 import type { JobEntry } from "../jobs/scan-jobs.ts";
 import { featureWatchPaths, scanFeatureFolders, scanProjectFiles } from "./feature-files.ts";
+import { runBuildSteps, type BuildStepResult } from "./build-steps.ts";
 import { activeFeatureTags, assertNoHookConflicts, useFeatureTags } from "../entities/feature-tags.ts";
 import { validateHookReferences } from "../hooks/validate-hook-references.ts";
 import { hasPendingChanges, sqlDialectOf } from "../migrations/add.ts";
@@ -47,10 +48,10 @@ export const GENERATED_DIR = ".generated";
  * Updates the generated folder in place, so editors watching it see ordinary file changes: writes only files whose
  * content changed and removes files that are no longer generated, never replacing the folder itself.
  */
-export function writeGeneratedFiles(dir: string, files: Record<string, string>): void {
+export function writeGeneratedFiles(dir: string, files: Record<string, string>, keep: readonly string[] = []): void {
   mkdirSync(dir, { recursive: true });
   for (const entry of readdirSync(dir)) {
-    if (!(entry in files)) rmSync(join(dir, entry), { recursive: true, force: true });
+    if (!(entry in files) && !keep.includes(entry)) rmSync(join(dir, entry), { recursive: true, force: true });
   }
   for (const [name, content] of Object.entries(files)) {
     const file = join(dir, name);
@@ -71,6 +72,10 @@ export interface BuildSummary {
   fromFeatures?: { endpoints: number; hooks: number; jobs: number };
   /** Project paths of the enabled features' convention folders and `watch` lists, for `quickservice dev`. */
   watch?: string[];
+  /** The same paths by feature key, for the features with a build step, so `dev` reruns only the steps they feed. */
+  buildInputs?: Record<string, string[]>;
+  /** The features' build steps that ran, in order. */
+  buildSteps?: BuildStepResult[];
   warnings: string[];
 }
 
@@ -260,7 +265,7 @@ import { crudRoutes, endpoints, hooks } from "./routes.ts";
 import { jobs } from "./jobs.ts";
 import openApi from "./openapi.json";
 
-await startService({ projectConfig, models, crudRoutes, endpoints, hooks, jobs, openApi, features, featureFolders });
+await startService({ projectConfig, models, crudRoutes, endpoints, hooks, jobs, openApi, features, featureFolders, generatedDir: import.meta.dir });
 `;
 
 /** On MongoDB and memory, unpaired reference arrays are embedded, so their `@joinTable` has no effect. */
@@ -282,19 +287,25 @@ export function vectorIndexWarnings(models: EntityModel[], kind: string | undefi
 }
 
 /** Builds the project at `projectRoot` into `.generated/`, replacing the previous output only on success. */
-export async function build(projectRoot: string, env: Record<string, string | undefined> = process.env): Promise<BuildSummary> {
+/** What `build` accepts besides the project and the environment. */
+export interface BuildOptions {
+  /** Runs only these features' build steps, keeping the other features' output (default: every step). */
+  steps?: readonly string[];
+}
+
+export async function build(projectRoot: string, env: Record<string, string | undefined> = process.env, options: BuildOptions = {}): Promise<BuildSummary> {
   assertFeatureImports(projectRoot);
   const config = await loadConfig(projectRoot, env);
   // Endpoint files are parsed with the enabled features' tags too.
   const restore = useFeatureTags(config.features, builtInTagOwner);
   try {
-    return await buildProject(projectRoot, config);
+    return await buildProject(projectRoot, config, options);
   } finally {
     restore();
   }
 }
 
-async function buildProject(projectRoot: string, config: ResolvedConfig): Promise<BuildSummary> {
+async function buildProject(projectRoot: string, config: ResolvedConfig, options: BuildOptions): Promise<BuildSummary> {
   const featureKeys = registeredProjectFeatures().map((feature) => feature.key);
   const variables = declaredVariables(config.env, config.features.map((feature) => ({ key: feature.key, env: feature.definition.env })));
   const parsed = parseProjectModels(projectRoot, config.features);
@@ -369,10 +380,13 @@ async function buildProject(projectRoot: string, config: ResolvedConfig): Promis
     "openapi.json": `${JSON.stringify(openApi, null, 2)}\n`,
   };
 
-  writeGeneratedFiles(join(projectRoot, GENERATED_DIR), files);
+  // Build steps own `.generated/<key>/` of their enabled feature; the folders of other features are removed.
+  const stepKeys = config.features.filter((feature) => feature.definition.build).map((feature) => feature.key);
+  writeGeneratedFiles(join(projectRoot, GENERATED_DIR), files, stepKeys);
   // Earlier versions wrote through a staging folder.
   rmSync(join(projectRoot, `${GENERATED_DIR}.staging`), { recursive: true, force: true });
 
+  const buildSteps = await runBuildSteps({ root: projectRoot, generatedDir: join(projectRoot, GENERATED_DIR), config, models, folderFiles, only: options.steps });
   const envExampleWarning = writeEnvExample(projectRoot, variables);
   const warnings: string[] = [...config.warnings, ...(envExampleWarning ? [envExampleWarning] : []), ...joinTableWarnings(models, config.database.kind), ...vectorIndexWarnings(models, config.database.kind)];
   const tsconfigWarning = generatedIncludeWarning(projectRoot);
@@ -380,5 +394,5 @@ async function buildProject(projectRoot: string, config: ResolvedConfig): Promis
   warnings.push(...endpointDocs.warnings);
   const dialect = sqlDialectOf(config.database.kind);
   if (dialect && (await hasPendingChanges(projectRoot, models, dialect))) warnings.push(PENDING_MIGRATION_WARNING);
-  return { entities: models.length, endpoints: endpoints.length, hooks: hooks.size, features: featureKeys.length, overrides, fromFeatures: scanned.fromFeatures, watch: featureWatchPaths(config.features), warnings };
+  return { entities: models.length, endpoints: endpoints.length, hooks: hooks.size, features: featureKeys.length, overrides, fromFeatures: scanned.fromFeatures, watch: featureWatchPaths(config.features), buildInputs: Object.fromEntries(config.features.filter((feature) => feature.definition.build).map((feature) => [feature.key, featureWatchPaths([feature])])), buildSteps, warnings };
 }

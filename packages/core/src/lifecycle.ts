@@ -5,6 +5,8 @@ import type { Endpoint, Server } from "./http/server.ts";
 import { parseDuration } from "./jobs/job.ts";
 import { jsonLogger, safeLog, type Logger } from "./logger.ts";
 import type { EntityModel } from "./model.ts";
+import { join } from "node:path";
+import { generatedPath } from "./build-steps.ts";
 import type { Middleware, OwnedMiddleware } from "./middleware.ts";
 
 /** Which worker process runs a feature's setup. */
@@ -71,6 +73,11 @@ export interface FeatureSetupContext<O = Record<string, unknown>> {
   logger: Logger;
   worker: WorkerInfo;
   app: FeatureApp;
+  /**
+   * The absolute path of a file the feature's build step wrote in `.generated/<key>/`; throws
+   * `Path <path> leaves the generated folder of <key>` for paths outside it.
+   */
+  generated(relativePath: string): string;
 }
 
 /** A lifecycle step that failed: the feature, the phase and the error. */
@@ -118,6 +125,8 @@ export interface FeatureLifecycleOptions {
   models: readonly EntityModel[];
   featureFolders?: Readonly<Record<string, Readonly<Record<string, ReadonlyMap<string, unknown>>>>>;
   worker: WorkerInfo;
+  /** The project's `.generated` folder, where build steps wrote their files (default: `.generated` in the working directory). */
+  generatedDir?: string;
   /** Called with each feature's setup context before its setup runs, so extensions can add to it. */
   extendContext?: (context: FeatureSetupContext, feature: ResolvedFeature) => void;
 }
@@ -146,7 +155,7 @@ interface Registered {
 }
 
 /** Runs the enabled features' setups and the callbacks they register, with the `lifecycle` time limits. */
-export function createFeatureLifecycle({ features, config, models, featureFolders = {}, worker, extendContext }: FeatureLifecycleOptions): FeatureLifecycle {
+export function createFeatureLifecycle({ features, config, models, featureFolders = {}, worker, generatedDir = join(process.cwd(), ".generated"), extendContext }: FeatureLifecycleOptions): FeatureLifecycle {
   const logger = config.logger ?? jsonLogger;
   const startTimeout = parseDuration(config.lifecycle.startTimeout) ?? 30_000;
   const stopTimeout = parseDuration(config.lifecycle.stopTimeout) ?? 10_000;
@@ -200,6 +209,7 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
           logger: featureLogger(logger, feature.key),
           worker,
           app,
+          generated: (relativePath) => generatedPath(join(generatedDir, feature.key), relativePath, feature.key),
         };
         extendContext?.(context, feature);
         const setup = feature.definition.setup;

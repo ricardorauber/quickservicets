@@ -1,10 +1,12 @@
-import { watch as fsWatch } from "node:fs";
+import { statSync, watch as fsWatch } from "node:fs";
 import { join } from "node:path";
 import { loadConfig } from "@quickservice/core";
-import { build, PENDING_MIGRATION_WARNING, type BuildSummary } from "../build/build.ts";
+import { build, PENDING_MIGRATION_WARNING, type BuildOptions, type BuildSummary } from "../build/build.ts";
 import { addAutomaticMigration, type CreatedMigration } from "../migrations/add.ts";
 import { parseEnvFile, projectEnvironment } from "../env/env-check.ts";
 import { existsSync, readFileSync } from "node:fs";
+import { sep } from "node:path";
+import { buildStepLines } from "../build/build-steps.ts";
 import { debounce, realScheduler, type Scheduler } from "./debounce.ts";
 
 export const DEBOUNCE_MS = 200;
@@ -40,11 +42,12 @@ export interface Watcher {
 
 export interface DevDependencies {
   /** Builds with the environment the server will start with, `.env` files read again. */
-  build(projectRoot: string, env?: Env): Promise<BuildSummary>;
+  build(projectRoot: string, env?: Env, options?: BuildOptions): Promise<BuildSummary>;
   autoMigrationsEnabled(projectRoot: string): Promise<boolean>;
   addAutomaticMigration(projectRoot: string): Promise<CreatedMigration | undefined>;
   startServer(projectRoot: string, env?: Env): ServerProcess;
-  watch(projectRoot: string, paths: string[], onChange: () => void): Watcher;
+  /** Watches the paths, calling `onChange` with the project path that changed when it is known. */
+  watch(projectRoot: string, paths: string[], onChange: (changed?: string) => void): Watcher;
   scheduler: Scheduler;
   log(line: string): void;
   error(line: string): void;
@@ -82,7 +85,8 @@ const defaultDependencies: DevDependencies = {
   watch(projectRoot, paths, onChange) {
     const watchers = paths.flatMap((path) => {
       try {
-        return [fsWatch(join(projectRoot, path), { recursive: true }, onChange)];
+        const folder = statSync(join(projectRoot, path)).isDirectory();
+        return [fsWatch(join(projectRoot, path), { recursive: true }, (_event, file) => onChange(folder && file ? `${path}/${String(file).split(sep).join("/")}` : path))];
       } catch {
         return [];
       }
@@ -94,15 +98,16 @@ const defaultDependencies: DevDependencies = {
   error: (line) => console.error(line),
 };
 
-async function buildOnce(projectRoot: string, deps: DevDependencies, env: Env): Promise<BuildSummary | undefined> {
+async function buildOnce(projectRoot: string, deps: DevDependencies, env: Env, options: BuildOptions): Promise<BuildSummary | undefined> {
   let summary: BuildSummary;
   try {
-    summary = await deps.build(projectRoot, env);
+    summary = await deps.build(projectRoot, env, options);
   } catch (error) {
     deps.error(error instanceof Error ? error.message : String(error));
     return undefined;
   }
   for (const line of summary.overrides ?? []) deps.log(line);
+  for (const line of buildStepLines(summary.buildSteps ?? [])) deps.log(line);
   for (const warning of summary.warnings) {
     if (warning !== PENDING_MIGRATION_WARNING) deps.error(`Warning: ${warning}`);
   }
@@ -117,6 +122,23 @@ async function buildOnce(projectRoot: string, deps: DevDependencies, env: Env): 
   return summary;
 }
 
+const within = (path: string, folder: string) => path === folder || path.startsWith(`${folder}/`);
+
+/**
+ * The features whose build steps a burst of changes feeds, when every changed path is one of their folders or
+ * `watch` paths; undefined (every step) when a change touches anything else.
+ */
+export function stepsFor(changed: ReadonlySet<string> | undefined, inputs: Readonly<Record<string, readonly string[]>>): string[] | undefined {
+  if (!changed || changed.size === 0) return undefined;
+  const keys = new Set<string>();
+  for (const path of changed) {
+    const owners = Object.entries(inputs).filter(([, paths]) => paths.some((folder) => within(path, folder)));
+    if (owners.length === 0) return undefined;
+    for (const [key] of owners) keys.add(key);
+  }
+  return [...keys];
+}
+
 /** `quickservice dev`: builds, serves, and rebuilds and restarts on every change. */
 export async function startDev(projectRoot: string, overrides: Partial<DevDependencies> = {}): Promise<DevSession> {
   const deps = { ...defaultDependencies, ...overrides };
@@ -125,9 +147,19 @@ export async function startDev(projectRoot: string, overrides: Partial<DevDepend
   const baseEnv = environmentWithoutEnvFiles(projectRoot);
   let watcher: Watcher | undefined;
   let watched: string[] = watchPaths(undefined);
-  const trigger = debounce(() => {
-    running = running.then(rebuild);
+  let buildInputs: Record<string, string[]> = {};
+  /** The changed paths of the current burst; undefined once a change of unknown origin arrived. */
+  let changes: Set<string> | undefined = new Set();
+  const flush = debounce(() => {
+    const changed = changes;
+    changes = new Set();
+    running = running.then(() => rebuild(changed));
   }, DEBOUNCE_MS, deps.scheduler);
+  const trigger = (changed?: string) => {
+    if (changed === undefined) changes = undefined;
+    else changes?.add(changed);
+    flush();
+  };
   // Enabling or disabling a feature changes the folders to watch.
   const watchFor = (paths: string[]) => {
     if (watcher && paths.join("\0") === watched.join("\0")) return;
@@ -136,10 +168,11 @@ export async function startDev(projectRoot: string, overrides: Partial<DevDepend
     watcher = deps.watch(projectRoot, paths, trigger);
   };
 
-  async function rebuild(): Promise<void> {
+  async function rebuild(changed?: ReadonlySet<string>): Promise<void> {
     const env = projectEnvironment(projectRoot, baseEnv);
-    const summary = await buildOnce(projectRoot, deps, env);
+    const summary = await buildOnce(projectRoot, deps, env, { steps: stepsFor(changed, buildInputs) });
     if (!summary) return;
+    buildInputs = summary.buildInputs ?? {};
     await server?.stop();
     server = deps.startServer(projectRoot, env);
     if (watcher) watchFor(watchPaths(summary));

@@ -11,6 +11,7 @@ import type { Middleware } from "./middleware.ts";
 import type { ServiceRequest } from "./hooks.ts";
 import type { FeatureOpenApiContext, OpenApiDoc } from "./openapi.ts";
 import { isCommandDefinition, type CommandDefinition } from "./commands.ts";
+import type { FeatureBuildContext } from "./build-steps.ts";
 import { boolean, object, resolveOptions, type AnyOptionSchema, type ObjectOptionSchema, type Options, type OptionsInput } from "./options.ts";
 
 /**
@@ -97,7 +98,15 @@ export interface FeatureInput<S extends AnyOptionSchema> {
   openapi?: FeatureOpenApi<FeatureOptions<S>>;
   /** `quickservice <name>` commands, built with `defineCommand`, listed under the feature's key in the help. */
   commands?: readonly CommandDefinition[];
+  /**
+   * Produces files at build time into `.generated/<key>/`, after the rest of `.generated` is written, in feature
+   * order; `quickservice dev` runs it again when its folders or `watch` paths change.
+   */
+  build?: FeatureBuild<FeatureOptions<S>>;
 }
+
+/** The `build` field of a feature definition. */
+export type FeatureBuild<O = Record<string, unknown>> = Bivariant<(ctx: FeatureBuildContext<O>) => void | Promise<void>>;
 
 /** The `openapi` field of a feature definition. */
 export type FeatureOpenApi<O = Record<string, unknown>> = Bivariant<(doc: OpenApiDoc, context: FeatureOpenApiContext<O>) => OpenApiDoc | void | undefined>;
@@ -195,6 +204,8 @@ export interface FeatureDefinition<S extends AnyOptionSchema = AnyOptionSchema> 
   readonly openapi?: FeatureOpenApi<FeatureOptions<S>>;
   /** The feature's CLI commands. */
   readonly commands?: readonly CommandDefinition[];
+  /** The feature's build step. */
+  readonly build?: FeatureBuild<FeatureOptions<S>>;
   /**
    * The feature's resolved options, once a configuration enabling it has been resolved in this process; throws
    * otherwise. The feature's own code reads its typed options here instead of receiving the config.
@@ -292,6 +303,7 @@ export function defineFeature<S extends AnyOptionSchema = ObjectOptionSchema<{}>
     ...(input.request !== undefined ? { request: requestField(input.request, invalid) } : {}),
     ...(input.openapi !== undefined ? { openapi: functionField(input.openapi, "openapi", invalid) } : {}),
     ...(input.commands !== undefined ? { commands: commandsField(input.commands, invalid) } : {}),
+    ...(input.build !== undefined ? { build: functionField(input.build, "build", invalid) } : {}),
     options() {
       const resolved = resolvedOptions.get(definition as FeatureDefinition);
       if (!resolved) throw new Error(`${key} is not enabled; add ${key}: {} to quickservice.config.ts`);

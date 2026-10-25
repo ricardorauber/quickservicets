@@ -116,7 +116,7 @@ describe("startService", () => {
     const root = createLinkedProject({ "quickservice.config.ts": config() });
     await build(root);
     const source = readFileSync(join(root, ".generated/server.ts"), "utf8");
-    expect(source).toContain("await startService({ projectConfig, models, crudRoutes, endpoints, hooks, jobs, openApi, features, featureFolders });");
+    expect(source).toContain("await startService({ projectConfig, models, crudRoutes, endpoints, hooks, jobs, openApi, features, featureFolders, generatedDir: import.meta.dir });");
     expect(source.trim().split("\n").length).toBeLessThanOrEqual(12);
   });
 });

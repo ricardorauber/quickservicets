@@ -59,6 +59,12 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
       if (fromFeatures && fromFeatures.endpoints + fromFeatures.hooks + fromFeatures.jobs > 0) {
         output.log(`Features added ${fromFeatures.endpoints} endpoints, ${fromFeatures.hooks} hooks and ${fromFeatures.jobs} jobs.`);
       }
+      const steps = summary.buildSteps ?? [];
+      if (steps.length > 0) {
+        const { buildStepLines } = await import("./build/build-steps.ts");
+        for (const line of buildStepLines(steps)) output.log(line);
+        output.log(`Ran ${steps.length} feature build steps.`);
+      }
       for (const warning of summary.warnings) output.error(`Warning: ${warning}`);
       return 0;
     },

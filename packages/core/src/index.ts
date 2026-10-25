@@ -50,6 +50,8 @@ export type { CrudOptions } from "./http/crud.ts";
 export type { CrudRoute } from "./http/crud.ts";
 export { createApp } from "./app.ts";
 export { startService } from "./service.ts";
+export { CORE_VERSION, generatedPath } from "./build-steps.ts";
+export type { BuildFolderFile, FeatureBuildContext } from "./build-steps.ts";
 export { defineCommand, isCommandDefinition } from "./commands.ts";
 export type { CommandArg, CommandContext, CommandDefinition, CommandInput, CommandOutput } from "./commands.ts";
 export { addOperation, addSchema, addSecurityScheme, extendOpenApi, requireSecurity } from "./openapi.ts";
@@ -193,7 +195,7 @@ export {
 } from "./features.ts";
 export { prepareFeatureTargets, tagsOf } from "./feature-targets.ts";
 export type { OptionsTarget } from "./feature-targets.ts";
-export type { FeatureConfig, FeatureDefinition, FeatureDocs, FeatureEntities, FeatureEntitiesContext, FeatureFolder, FeatureInput, FeatureOpenApi, FeatureSetup, FeatureTag, FeatureTagTarget, TargetOptions, FeatureOptions, FeatureRequirement, NativeFeatures, ProjectFeatureModule, ResolvedFeature } from "./features.ts";
+export type { FeatureConfig, FeatureDefinition, FeatureDocs, FeatureEntities, FeatureBuild, FeatureEntitiesContext, FeatureFolder, FeatureInput, FeatureOpenApi, FeatureSetup, FeatureTag, FeatureTagTarget, TargetOptions, FeatureOptions, FeatureRequirement, NativeFeatures, ProjectFeatureModule, ResolvedFeature } from "./features.ts";
 export { applyEnvironment, CONFIG_OVERRIDES, configVariable, envNameFor, featureVariables, logConfigWarnings, NOT_OVERRIDABLE, optionLeaves, overrideVariables, unknownVariableWarnings } from "./environment.ts";
 export { maskSecrets, SECRET_MASK } from "./secrets.ts";
 export type { ConfigOverride, EnvAlias, EnvironmentResult, OptionLeaf } from "./environment.ts";

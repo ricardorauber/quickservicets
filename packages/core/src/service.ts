@@ -30,6 +30,8 @@ export interface StartServiceOptions {
   process?: SignalTarget;
   /** The script each worker process runs when the service uses several (default: the entry script). */
   script?: string;
+  /** The project's `.generated` folder (default: `.generated` in the working directory). */
+  generatedDir?: string;
   /** Adds to each feature's setup context; extensions of the lifecycle use it. */
   extendSetupContext?: (context: FeatureSetupContext, feature: ResolvedFeature) => void;
 }
@@ -69,6 +71,7 @@ export async function startService(options: StartServiceOptions): Promise<Runnin
     models: options.models,
     featureFolders: options.featureFolders,
     worker: { index: workerIndex(env) ?? 0, count: config.server.workers, runsScheduledWork: runsScheduledWork(env) },
+    generatedDir: options.generatedDir,
     extendContext: options.extendSetupContext,
   });
   const fail = async (error: unknown, connected: boolean) => {

@@ -9,12 +9,13 @@ import { localStorage } from "./storage/local.ts";
 import { availableCpus, WORKERS_ENV } from "./workers.ts";
 import type { StorageAdapter } from "./storage/storage.ts";
 import { ConfigError } from "./config-error.ts";
+import { resolveFeatures, type NativeFeatures, type ResolvedFeature } from "./features.ts";
 
 export const CONFIG_FILE = "quickservice.config.ts";
 export const DEFAULT_PORT = 3000;
 
-/** The project configuration written in `quickservice.config.ts`. Features add their own keys here. */
-export interface ServiceConfig {
+/** The project configuration written in `quickservice.config.ts`. Native features add their keys through `NativeFeatures`. */
+export interface ServiceConfig extends NativeFeatures {
   /** The database adapter: `memoryAdapter()`, `sqliteAdapter(...)`, `postgresAdapter(...)` or `mongodbAdapter(...)`. */
   database: DatabaseAdapter;
   /** HTTP server settings. */
@@ -133,6 +134,10 @@ export interface ResolvedConfig
   production: boolean;
   /** The resolved default schema, or null for the database's own default. */
   schema: string | null;
+  /** The enabled features with their resolved options; every extension point reads this list. */
+  features: ResolvedFeature[];
+  /** The keys of the registered features that are disabled. */
+  disabledFeatures: string[];
 }
 
 const SCHEMA_NAME = /^[a-z][a-z0-9-]*$/;
@@ -285,8 +290,11 @@ export function resolveConfig(
     throw new ConfigError("Invalid config: database is required");
   }
   const production = config.production ?? env.NODE_ENV === "production";
+  const { features, disabledFeatures } = resolveFeatures(config as unknown as Record<string, unknown>);
   return {
     ...config,
+    features,
+    disabledFeatures,
     server: { ...config.server, port: resolvePort(config, env), workers: resolveWorkers(config, env, cpus, production, platform) },
     production,
     docs: { enabled: config.docs?.enabled ?? !production },

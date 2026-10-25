@@ -10,6 +10,7 @@ import type { FeatureSetupContext } from "./lifecycle.ts";
 import type { Middleware } from "./middleware.ts";
 import type { ServiceRequest } from "./hooks.ts";
 import type { FeatureOpenApiContext, OpenApiDoc } from "./openapi.ts";
+import { isCommandDefinition, type CommandDefinition } from "./commands.ts";
 import { boolean, object, resolveOptions, type AnyOptionSchema, type ObjectOptionSchema, type Options, type OptionsInput } from "./options.ts";
 
 /**
@@ -94,6 +95,8 @@ export interface FeatureInput<S extends AnyOptionSchema> {
    * before the project's `docs.openapi`.
    */
   openapi?: FeatureOpenApi<FeatureOptions<S>>;
+  /** `quickservice <name>` commands, built with `defineCommand`, listed under the feature's key in the help. */
+  commands?: readonly CommandDefinition[];
 }
 
 /** The `openapi` field of a feature definition. */
@@ -190,6 +193,8 @@ export interface FeatureDefinition<S extends AnyOptionSchema = AnyOptionSchema> 
   readonly request?: Readonly<Record<string, (req: ServiceRequest) => unknown>>;
   /** Changes the generated OpenAPI document at build time. */
   readonly openapi?: FeatureOpenApi<FeatureOptions<S>>;
+  /** The feature's CLI commands. */
+  readonly commands?: readonly CommandDefinition[];
   /**
    * The feature's resolved options, once a configuration enabling it has been resolved in this process; throws
    * otherwise. The feature's own code reads its typed options here instead of receiving the config.
@@ -286,6 +291,7 @@ export function defineFeature<S extends AnyOptionSchema = ObjectOptionSchema<{}>
     ...(input.middleware !== undefined ? { middleware: middlewareField(input.middleware, invalid) } : {}),
     ...(input.request !== undefined ? { request: requestField(input.request, invalid) } : {}),
     ...(input.openapi !== undefined ? { openapi: functionField(input.openapi, "openapi", invalid) } : {}),
+    ...(input.commands !== undefined ? { commands: commandsField(input.commands, invalid) } : {}),
     options() {
       const resolved = resolvedOptions.get(definition as FeatureDefinition);
       if (!resolved) throw new Error(`${key} is not enabled; add ${key}: {} to quickservice.config.ts`);
@@ -325,6 +331,14 @@ function foldersField(folders: Readonly<Record<string, FeatureFolder>>, invalid:
     checked[name] = Object.freeze({ ...folder, dir: folder.dir.replace(/^\.\//, "").replace(/\/+$/, "") });
   }
   return Object.freeze(checked);
+}
+
+function commandsField(commands: readonly CommandDefinition[], invalid: (reason: string) => Error): readonly CommandDefinition[] {
+  if (!Array.isArray(commands) || !commands.every(isCommandDefinition)) throw invalid("commands must be a list of defineCommand(...) results");
+  const names = commands.map((command) => command.name);
+  const repeated = names.find((name, index) => names.indexOf(name) !== index);
+  if (repeated) throw invalid(`command ${repeated} is defined twice`);
+  return Object.freeze([...commands]);
 }
 
 function middlewareField(middleware: readonly Middleware[], invalid: (reason: string) => Error): readonly Middleware[] {

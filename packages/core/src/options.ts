@@ -329,14 +329,20 @@ function distance(a: string, b: string): number {
   return row[b.length]!;
 }
 
-/** ` (did you mean <key>?)` for the declared key within an edit distance of 2 of `key`, or an empty string. */
-export function suggestion(key: string, declared: readonly string[]): string {
+/** The declared name closest to `key` within an edit distance of 2, or undefined. */
+export function closestName(key: string, declared: readonly string[]): string | undefined {
   let best: { key: string; distance: number } | undefined;
   for (const candidate of declared) {
     const d = distance(key, candidate);
     if (d <= 2 && (!best || d < best.distance)) best = { key: candidate, distance: d };
   }
-  return best ? ` (did you mean ${best.key}?)` : "";
+  return best?.key;
+}
+
+/** ` (did you mean <key>?)` for the declared key within an edit distance of 2 of `key`, or an empty string. */
+export function suggestion(key: string, declared: readonly string[]): string {
+  const best = closestName(key, declared);
+  return best ? ` (did you mean ${best}?)` : "";
 }
 
 /** Marks a per-request function with the schema and path its results are checked against. */

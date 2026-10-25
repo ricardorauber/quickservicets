@@ -50,6 +50,8 @@ export type { CrudOptions } from "./http/crud.ts";
 export type { CrudRoute } from "./http/crud.ts";
 export { createApp } from "./app.ts";
 export { startService } from "./service.ts";
+export { defineCommand, isCommandDefinition } from "./commands.ts";
+export type { CommandArg, CommandContext, CommandDefinition, CommandInput, CommandOutput } from "./commands.ts";
 export { addOperation, addSchema, addSecurityScheme, extendOpenApi, requireSecurity } from "./openapi.ts";
 export type {
   ApiKeySecurityScheme,
@@ -141,6 +143,7 @@ export {
   oneOf,
   OptionError,
   optionTypeOf,
+  closestName,
   suggestion,
   parseOptionString,
   provider,

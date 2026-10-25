@@ -10,7 +10,8 @@ import { CODES_BY_STATUS } from "../../packages/core/src/errors.ts";
 import { DEFAULT_LIMIT, MAX_LIMIT, MAX_LIST_VALUES, OPERATORS_BY_TYPE } from "../../packages/core/src/query.ts";
 import { configVariable, envNameFor, NOT_OVERRIDABLE } from "../../packages/core/src/environment.ts";
 import { registeredNatives } from "../../packages/core/src/features.ts";
-import { describeOptions } from "../../packages/core/src/options.ts";
+import { describeOptions, type AnyOptionSchema } from "../../packages/core/src/options.ts";
+import type { CommandDefinition } from "../../packages/core/src/commands.ts";
 
 export const REPO = join(import.meta.dir, "../..");
 export const CONTENT = join(REPO, "docs/src/content/docs");
@@ -154,10 +155,33 @@ export function configPage(): string {
   ].join("\n");
 }
 
-function cliPage(): string {
+/** The arguments and flags of a feature's command, as reference lines. */
+function commandDetails(command: CommandDefinition): string[] {
+  const args = command.args.map((arg) => `- \`<${arg.name}>\`${arg.required ? " (required)" : ""}${arg.description ? `: ${arg.description}` : ""}`);
+  const flags = Object.entries((command.flags?.settings.shape ?? {}) as Record<string, AnyOptionSchema>).map(([key, schema]) => {
+    const [option] = describeOptions(schema, key);
+    const flag = `--${key.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`)}`;
+    return `- ${code(flag)} (${code(option?.type ?? schema.kind)}${option?.default === undefined ? "" : `, default ${code(JSON.stringify(option.default))}`})${option?.description ? `: ${option.description}` : ""}`;
+  });
+  return [...(args.length > 0 ? ["**Arguments:**", "", ...args, ""] : []), ...(flags.length > 0 ? ["**Flags:**", "", ...flags, ""] : [])];
+}
+
+/** One section per registered native that has commands, listing each command. */
+function nativeCommandSections(): string[] {
+  return registeredNatives()
+    .filter((native) => (native.commands ?? []).length > 0)
+    .flatMap((native) => [
+      `### \`${native.key}\``,
+      "",
+      ...native.commands!.flatMap((command) => [`#### \`${command.name}\``, "", command.description, "", "```bash", command.usage, "```", "", ...commandDetails(command)]),
+    ]);
+}
+
+export function cliPage(): string {
+  const natives = nativeCommandSections();
   return [
     frontmatter("CLI", "Every command of the QuickService CLI."),
-    "Run the commands with `bun run quickservice <command>` inside a project.",
+    "Run the commands with `bun run quickservice <command>` inside a project. `quickservice help` lists them with the commands of the enabled features, and `quickservice <command> --help` describes one.",
     "",
     ...COMMANDS.flatMap((command) => [
       `## \`${command.name}\``,
@@ -169,6 +193,7 @@ function cliPage(): string {
       "```",
       "",
     ]),
+    ...(natives.length > 0 ? ["## Commands of native features", "", "Each native feature's commands are available while the feature is enabled.", "", ...natives] : []),
   ].join("\n");
 }
 

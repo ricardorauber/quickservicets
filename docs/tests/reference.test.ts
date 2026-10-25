@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { COMMANDS } from "../../packages/cli/src/commands.ts";
+import { BUILT_IN_COMMANDS, COMMANDS } from "../../packages/cli/src/commands.ts";
 import { documentedEntityTags } from "../../packages/cli/src/entities/entity-tags.ts";
 import { documentedFieldTags } from "../../packages/cli/src/entities/field-tags.ts";
 import { documentedEndpointTags } from "../../packages/cli/src/hooks/endpoint-tags.ts";
@@ -77,12 +77,9 @@ describe("config variables", () => {
 
 describe("cli", () => {
   test("every command the CLI handles is documented", () => {
-    const run = readFileSync(join(REPO, "packages/cli/src/run.ts"), "utf8");
-    const handled = [
-      ...[...run.matchAll(/command === "([a-z-]+)"(?: && args\[1\] === "([a-z-]+)")?/g)].map(([, command, sub]) => (sub ? `${command} ${sub}` : command!)),
-      "--version",
-    ];
+    const handled = [...BUILT_IN_COMMANDS.map((command) => command.name), "--version"];
     expect([...new Set(handled)].sort()).toEqual(COMMANDS.map((command) => command.name).sort());
+    for (const command of handled) expect(pages["reference/cli.mdx"]).toContain(`## \`${command}\``);
     for (const command of ["init", "dev", "build", "migrate", "migration add", "migration list", "migration remove", "migration script"]) {
       expect(pages["reference/cli.mdx"]).toContain(`## \`${command}\``);
     }

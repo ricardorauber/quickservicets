@@ -34,6 +34,17 @@ export interface QueueClient {
   add<N extends QueueName>(name: N, payload: QueuePayloads[N], options?: QueueAddOptions): Promise<QueueAddResult>;
 }
 
+/** The project's queues as `@quickservice/core` exports them: adding messages and reprocessing dead ones. */
+export interface Queues extends QueueClient {
+  /**
+   * Moves a `dead` message back to `waiting` with attempt 0, to run now, keeping `lastError` until its next run; throws
+   * `Queue message <id> not found` or `Queue message <id> is not dead`.
+   */
+  retry(id: string): Promise<void>;
+  /** Moves every `dead` message of a queue back to `waiting`; resolves with how many. */
+  retryDead(queue: QueueName): Promise<number>;
+}
+
 /** The message a consumer runs for. */
 export interface QueueMessageInfo {
   id: string;

@@ -240,7 +240,7 @@ export { maskEntry, maskText, maskUrl, memoryRateLimitStore, securityFeature, sl
 export type { ClientIpResolver, ExemptibleItem, MaskingRules, MemoryRateLimitStore, RateLimitRefusal, SecurityRefusal, RateLimitHit, RateLimitResult, RateLimitStore, SecurityApi, WindowCounts } from "./features/security/index.ts";
 
 export { isQueueDefinition, QUEUE_MESSAGE_STATUSES, queue, queueMessageEntity, queues, queuesFeature } from "./features/queues/index.ts";
-export type { QueueAddOptions, QueueAddResult, QueueClient, QueueContext, QueueDefinition, QueueMessage, QueueMessageInfo, QueueMessageStatus, QueueName, QueueOptions, QueuePayloadOf, QueuePayloads } from "./features/queues/index.ts";
+export type { QueueAddOptions, QueueAddResult, QueueClient, QueueContext, QueueDefinition, QueueMessage, QueueMessageInfo, QueueMessageStatus, QueueName, QueueOptions, QueuePayloadOf, QueuePayloads, Queues, QueueStats } from "./features/queues/index.ts";
 
 declare module "./hooks.ts" {
   interface RequestExtensions {

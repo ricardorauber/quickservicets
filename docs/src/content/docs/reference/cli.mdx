@@ -149,3 +149,46 @@ quickservice events retry <delivery id> | quickservice events retry --consumer <
 
 - `--consumer` (`string`): The consumer whose failed deliveries are reset.
 - `--failed` (`boolean`, default `false`): Resets the consumer's failed deliveries.
+
+### `queues`
+
+#### `queue list`
+
+Prints each queue with its number of waiting, active, completed and dead messages, and the age of its oldest waiting message.
+
+```bash
+quickservice queue list
+```
+
+#### `queue dead`
+
+Prints the latest dead messages of a queue with their id, attempts, finish time and error message.
+
+```bash
+quickservice queue dead <queue> [--limit <n>]
+```
+
+**Arguments:**
+
+- `<queue>` (required): The queue name.
+
+**Flags:**
+
+- `--limit` (`integer`, default `20`): How many messages to print.
+
+#### `queue retry`
+
+Moves dead messages back to waiting with attempt 0, one by id or every dead one of a queue, and prints how many.
+
+```bash
+quickservice queue retry <message id> | quickservice queue retry --queue <name> --dead
+```
+
+**Arguments:**
+
+- `<id>`: The id of one dead message.
+
+**Flags:**
+
+- `--queue` (`string`): The queue whose dead messages are requeued.
+- `--dead` (`boolean`, default `false`): Requeues the queue's dead messages.

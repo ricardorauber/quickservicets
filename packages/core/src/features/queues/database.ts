@@ -61,7 +61,25 @@ export interface DatabaseQueueOptions {
   worker?: string;
   /** A number from 0 to 1 that sets the jitter of retry delays (default: `Math.random`). */
   random?: () => number;
+  /** How long finished messages are kept (default: completed 7 days, dead 30 days). */
+  retention?: { completed: string; dead: string };
 }
+
+/** The number of messages of one queue by status, and when its oldest waiting message was added. */
+export interface QueueStats {
+  waiting: number;
+  active: number;
+  completed: number;
+  dead: number;
+  /** When the oldest `waiting` message was added, or null without one. */
+  oldestWaiting: Date | null;
+}
+
+/** How often every process with consumers deletes finished messages past their retention. */
+export const CLEANUP_INTERVAL = 3_600_000;
+
+/** Messages deleted per batch by the retention cleanup. */
+export const CLEANUP_BATCH = 1000;
 
 /** The messages of the project's database: stores new ones and runs the consumers of the declared queues. */
 export interface DatabaseQueue {
@@ -85,6 +103,22 @@ export interface DatabaseQueue {
   drain(graceMs: number): Promise<void>;
   /** How many messages this process runs now, by queue. */
   running(): Record<string, number>;
+  /**
+   * Moves a `dead` message back to `waiting` with attempt 0, to run now; throws `Queue message <id> not found` or
+   * `Queue message <id> is not dead`.
+   */
+  retry(id: string): Promise<void>;
+  /** Moves every `dead` message of a queue back to `waiting`; resolves with how many. */
+  retryDead(queue: string): Promise<number>;
+  /** The latest `dead` messages of a queue, the most recently finished first. */
+  dead(queue: string, options?: { limit?: number }): Promise<QueueMessage[]>;
+  /** The counts of the declared queues and of every queue with messages that are not completed, by queue name. */
+  stats(): Promise<Record<string, QueueStats>>;
+  /**
+   * Deletes completed and dead messages finished longer ago than their retention, in batches; resolves with how many
+   * of each it deleted.
+   */
+  cleanup(): Promise<{ completed: number; dead: number }>;
 }
 
 interface Loop {
@@ -147,6 +181,7 @@ export function createDatabaseQueue(options: DatabaseQueueOptions): DatabaseQueu
   let repos: Repositories | undefined;
   let claiming = false;
   let stopReclaiming: (() => void) | undefined;
+  let stopCleaning: (() => void) | undefined;
 
   const timestamp = () => new Date(clock.now()).toISOString();
   const log = (level: "info" | "warn" | "error", message: string, fields: Record<string, unknown>) => safeLog(logger, level, { timestamp: timestamp(), message, ...fields });
@@ -262,7 +297,9 @@ export function createDatabaseQueue(options: DatabaseQueueOptions): DatabaseQueu
       const runAt = new Date(now.getTime() + retryDelayOf(row));
       return adapter.updateById(model, row.id, { status: "waiting", runAt, lastError, lockedUntil: null, worker: null, updatedAt: now }, guard);
     }
-    return adapter.updateById(model, row.id, { status: "dead", finishedAt: now, lastError, lockedUntil: null, updatedAt: now }, guard);
+    const dead = await adapter.updateById(model, row.id, { status: "dead", finishedAt: now, lastError, lockedUntil: null, updatedAt: now }, guard);
+    if (dead) log("error", "queue.message.dead", { queue: row.queue, messageId: row.id, attempt: row.attempt, error: { message: lastError.message } });
+    return dead;
   };
 
   /** Runs a claimed message in the background, waking its loop once it finished. */
@@ -365,10 +402,62 @@ export function createDatabaseQueue(options: DatabaseQueueOptions): DatabaseQueu
   const reclaimSafely = () =>
     void reclaim().catch((error: unknown) => log("error", "queue.reclaim.failed", { error: { message: (error as Error)?.message ?? String(error) } }));
 
+  /** Moves one dead message back to waiting; false when it is no longer dead. */
+  const requeue = async (row: StoredRecord): Promise<boolean> => {
+    const now = new Date(clock.now());
+    const requeued = await adapter.updateById(model, row.id, { status: "waiting", attempt: 0, runAt: now, finishedAt: null, startedAt: null, lockedUntil: null, worker: null, updatedAt: now }, [condition("status", "eq", "dead")]);
+    if (requeued) wakeLoop(loops.get(row.queue as string));
+    return requeued !== null;
+  };
+
+  /** Every message matching `where`, read in pages of 1000 by id. */
+  const rowsWhere = async (where: Condition[]): Promise<StoredRecord[]> => {
+    const rows: StoredRecord[] = [];
+    let after: string | undefined;
+    for (;;) {
+      const { data } = await adapter.findMany(model, { where: [...where, ...(after ? [condition("id", "gt", after)] : [])], sort: [{ field: "id", direction: "asc" }], limit: 1000, offset: 0, withTotal: false });
+      rows.push(...data);
+      if (data.length < 1000) return rows;
+      after = data.at(-1)!.id;
+    }
+  };
+
+  /** Deletes the messages of one status finished before `cutoff`, in batches; each deletion counts once across instances. */
+  const deleteFinished = async (status: "completed" | "dead", cutoff: Date): Promise<number> => {
+    let deleted = 0;
+    let after: string | undefined;
+    for (;;) {
+      const { data } = await adapter.findMany(model, {
+        where: [condition("status", "eq", status), condition("finishedAt", "lt", cutoff), ...(after ? [condition("id", "gt", after)] : [])],
+        sort: [{ field: "id", direction: "asc" }],
+        limit: CLEANUP_BATCH,
+        offset: 0,
+        withTotal: false,
+      });
+      for (const row of data) if (await adapter.deleteById(model, row.id)) deleted++;
+      if (data.length < CLEANUP_BATCH) return deleted;
+      after = data.at(-1)!.id;
+    }
+  };
+
+  const cleanup = async () => {
+    const now = clock.now();
+    const retention = options.retention ?? { completed: "7d", dead: "30d" };
+    const completed = await deleteFinished("completed", new Date(now - (parseDuration(retention.completed) ?? 7 * 86_400_000)));
+    const dead = await deleteFinished("dead", new Date(now - (parseDuration(retention.dead) ?? 30 * 86_400_000)));
+    log("info", "queue.cleanup", { completed, dead });
+    return { completed, dead };
+  };
+
+  const cleanupSafely = () =>
+    void cleanup().catch((error: unknown) => log("error", "queue.cleanup.failed", { error: { message: (error as Error)?.message ?? String(error) } }));
+
   const stop = () => {
     claiming = false;
     stopReclaiming?.();
     stopReclaiming = undefined;
+    stopCleaning?.();
+    stopCleaning = undefined;
     for (const loop of loops.values()) {
       clock.clearTimeout(loop.timer);
       loop.timer = undefined;
@@ -410,6 +499,8 @@ export function createDatabaseQueue(options: DatabaseQueueOptions): DatabaseQueu
       }
       reclaimSafely();
       stopReclaiming = repeat(clock, RECLAIM_INTERVAL, reclaimSafely);
+      cleanupSafely();
+      stopCleaning = repeat(clock, CLEANUP_INTERVAL, cleanupSafely);
     },
     wake(name) {
       wakeLoop(loops.get(name));
@@ -431,5 +522,48 @@ export function createDatabaseQueue(options: DatabaseQueueOptions): DatabaseQueu
     running() {
       return Object.fromEntries([...loops.values()].map((loop) => [loop.name, loop.active]));
     },
+    async retry(id) {
+      const row = await adapter.findById(model, id);
+      if (!row) throw new Error(`Queue message ${id} not found`);
+      if (row.status !== "dead" || !(await requeue(row))) throw new Error(`Queue message ${id} is not dead`);
+    },
+    async retryDead(queue) {
+      let count = 0;
+      for (const row of await rowsWhere([condition("queue", "eq", queue), condition("status", "eq", "dead")])) if (await requeue(row)) count++;
+      return count;
+    },
+    async dead(queue, { limit = 20 } = {}) {
+      const { data } = await adapter.findMany(model, {
+        where: [condition("queue", "eq", queue), condition("status", "eq", "dead")],
+        sort: [{ field: "finishedAt", direction: "desc" }, { field: "id", direction: "desc" }],
+        limit: Math.max(1, Math.floor(limit)),
+        offset: 0,
+        withTotal: false,
+      });
+      return data as unknown as QueueMessage[];
+    },
+    async stats() {
+      const names = new Set(definitions.keys());
+      for (const row of await rowsWhere([{ field: "status", op: "in", value: ["waiting", "active", "dead"] } as Condition])) names.add(row.queue as string);
+      const stats: Record<string, QueueStats> = {};
+      for (const name of [...names].sort()) {
+        const counts = await adapter.aggregate(model, [condition("queue", "eq", name)], {
+          waiting: { fn: "count", where: [condition("status", "eq", "waiting")] },
+          active: { fn: "count", where: [condition("status", "eq", "active")] },
+          completed: { fn: "count", where: [condition("status", "eq", "completed")] },
+          dead: { fn: "count", where: [condition("status", "eq", "dead")] },
+        });
+        const { oldest } = await adapter.aggregate(model, [condition("queue", "eq", name), condition("status", "eq", "waiting")], { oldest: { fn: "min", field: "enqueuedAt" } });
+        stats[name] = {
+          waiting: Number(counts.waiting),
+          active: Number(counts.active),
+          completed: Number(counts.completed),
+          dead: Number(counts.dead),
+          oldestWaiting: oldest === null || oldest === undefined ? null : new Date(oldest),
+        };
+      }
+      return stats;
+    },
+    cleanup,
   };
 }

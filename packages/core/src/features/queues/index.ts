@@ -1,5 +1,6 @@
 import { boolean, defineFeature, duration, integer, object, parseDuration, record } from "../public.ts";
 import { queueClient } from "./client.ts";
+import { queueCommands } from "./commands.ts";
 import { createDatabaseQueue, type QueueSettings } from "./database.ts";
 import { messagePlacement } from "./message-options.ts";
 import { queueMessageEntity } from "./message.ts";
@@ -64,6 +65,7 @@ const queuesFeature = defineFeature({
   request: {
     queue: (req) => queueClient({ requestId: req.id }),
   },
+  commands: queueCommands,
   setup(ctx) {
     lifecycle.teardown?.();
     const model = ctx.models.find((candidate) => candidate.key === "QueueMessage" && candidate.system);
@@ -91,6 +93,7 @@ const queuesFeature = defineFeature({
       logger: ctx.logger,
       production: ctx.config.production,
       resultLimit: ctx.config.jobs.limits.result,
+      retention: ctx.options.retention,
     });
 
     const native: RunningQueues = {
@@ -100,6 +103,8 @@ const queuesFeature = defineFeature({
         if (stored === undefined) throw new Error(`Queue payload for ${name} is not JSON-serializable`);
         return store.enqueue(name, stored, source, messagePlacement(options, Date.now()));
       },
+      retry: (id) => store.retry(id),
+      retryDead: (queue) => store.retryDead(queue),
     };
     running.current = native;
     const stop = () => {
@@ -124,4 +129,5 @@ export { queues } from "./client.ts";
 export { QUEUE_MESSAGE_STATUSES, queueMessageEntity } from "./message.ts";
 export { isQueueDefinition, queue } from "./queue.ts";
 export type { QueueMessage, QueueMessageStatus } from "./message.ts";
-export type { QueueAddOptions, QueueAddResult, QueueClient, QueueContext, QueueDefinition, QueueMessageInfo, QueueName, QueueOptions, QueuePayloadOf, QueuePayloads } from "./queue.ts";
+export type { QueueAddOptions, QueueAddResult, QueueClient, QueueContext, QueueDefinition, QueueMessageInfo, QueueName, QueueOptions, QueuePayloadOf, QueuePayloads, Queues } from "./queue.ts";
+export type { QueueStats } from "./database.ts";

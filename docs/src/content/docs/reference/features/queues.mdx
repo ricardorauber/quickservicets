@@ -35,3 +35,46 @@ It is not enabled by default: turn it on with `queues: {}` or `QS_QUEUES_ENABLED
 | `queues.overrides.<name>.retries` | `record of integer` | — | `QS_QUEUES_OVERRIDES_<NAME>_RETRIES` | no | How many times a failed message of the queue is retried. |
 | `queues.overrides.<name>.retryDelay` | `record of duration` | — | `QS_QUEUES_OVERRIDES_<NAME>_RETRY_DELAY` | no | The first retry delay of the queue. |
 | `queues.enabled` | `boolean` | `true` | `QS_QUEUES_ENABLED` | no | Turns the feature off when false. |
+
+## Commands
+
+### `queue list`
+
+Prints each queue with its number of waiting, active, completed and dead messages, and the age of its oldest waiting message.
+
+```bash
+quickservice queue list
+```
+
+### `queue dead`
+
+Prints the latest dead messages of a queue with their id, attempts, finish time and error message.
+
+```bash
+quickservice queue dead <queue> [--limit <n>]
+```
+
+**Arguments:**
+
+- `<queue>` (required): The queue name.
+
+**Flags:**
+
+- `--limit` (`integer`, default `20`): How many messages to print.
+
+### `queue retry`
+
+Moves dead messages back to waiting with attempt 0, one by id or every dead one of a queue, and prints how many.
+
+```bash
+quickservice queue retry <message id> | quickservice queue retry --queue <name> --dead
+```
+
+**Arguments:**
+
+- `<id>`: The id of one dead message.
+
+**Flags:**
+
+- `--queue` (`string`): The queue whose dead messages are requeued.
+- `--dead` (`boolean`, default `false`): Requeues the queue's dead messages.

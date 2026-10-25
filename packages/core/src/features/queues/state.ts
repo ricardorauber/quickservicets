@@ -20,6 +20,8 @@ export interface AddSource {
 /** The running native, as its setup installs it. */
 export interface RunningQueues {
   add(name: string, payload: unknown, options: QueueAddOptions | undefined, source: AddSource): Promise<QueueAddResult>;
+  retry(id: string): Promise<void>;
+  retryDead(queue: string): Promise<number>;
 }
 
 /** The running native of this process, or undefined while it is not enabled. */

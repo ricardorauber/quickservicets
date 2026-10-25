@@ -10,6 +10,7 @@ import {
   type DatabaseAdapter,
   type Repository,
   type WriteChange,
+  type WriteEvent,
 } from "@quickservice/core";
 import { createSqliteTables } from "../../../core/src/testing/sql.ts";
 import { resetPostgresTables } from "../../../core/src/testing/postgres.ts";
@@ -173,7 +174,7 @@ describe("the events native", () => {
       await post("/users", { name: "b", organization: org.id });
       await events.idle();
       const seen: { type: string; cause: string; requestId?: string; actor: unknown }[] = [];
-      events.on("*", (event) => void seen.push(event));
+      events.on("*", (event) => void seen.push(event as WriteEvent));
       await service.fetch(`/organizations/${org.id}`, { method: "DELETE" });
       await events.idle();
       expect(seen.map((event) => `${event.type}:${event.cause}`)).toEqual(["user.deleted:cascade", "user.deleted:cascade", "organization.deleted:write"]);

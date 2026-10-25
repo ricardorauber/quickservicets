@@ -1,34 +1,19 @@
-import { afterCommit, currentOperation, inTransaction, jsonLogger, safeLog, type Logger, type StoredRecord, type WriteChange } from "../public.ts";
-
-/** Who caused an event: ids of the request's user and tenant, or the job or queue it ran for. */
-export interface EventActor {
-  user?: string;
-  tenant?: string;
-  job?: string;
-  queue?: string;
-}
-
-/** A record created, updated or deleted by a repository write. */
-export interface WriteEvent<T = StoredRecord> {
-  /** A UUIDv7, in creation order. */
-  id: string;
-  /** `<entity in lower camel case>.<operation>`, like `user.created` or `orderItem.deleted`. */
-  type: string;
-  /** The entity's name, like `User`. */
-  entity: string;
-  operation: "created" | "updated" | "deleted";
-  recordId: string;
-  /** The stored record before the write; null for a create. */
-  before: T | null;
-  /** The stored record after the write; null for a delete. */
-  after: T | null;
-  /** The top-level fields whose stored values changed, `updatedAt` excluded. */
-  changed: string[];
-  cause: WriteChange["cause"];
-  actor: EventActor;
-  requestId?: string;
-  at: Date;
-}
+import {
+  afterCommit,
+  currentOperation,
+  inTransaction,
+  jsonLogger,
+  safeLog,
+  type AnyEvent,
+  type CustomEvent,
+  type EventActor,
+  type EventFor,
+  type Logger,
+  type PayloadOf,
+  type WriteChange,
+  type WriteEvent,
+} from "../public.ts";
+import * as patterns from "./patterns.ts";
 
 /** When a listener runs: inside the write's transaction (awaited, may veto it) or after the commit (the default). */
 export type ListenerPhase = "afterCommit" | "inTransaction";
@@ -37,10 +22,10 @@ export interface ListenOptions {
   phase?: ListenerPhase;
 }
 
-export type EventListener<E = WriteEvent> = (event: E) => void | Promise<void>;
+export type EventListener<E = AnyEvent> = (event: E) => void | Promise<void>;
 
 interface Registration {
-  type: string;
+  pattern: patterns.CompiledPattern;
   listener: EventListener;
   phase: ListenerPhase;
   /** Deliveries of this listener chain one after the other, in commit order. */
@@ -49,31 +34,28 @@ interface Registration {
 }
 
 const registrations: Registration[] = [];
-/** The listeners of each type and phase, rebuilt when listeners change. */
+/** The listeners of each phase and type, found once per type and kept until the listeners change. */
 let byType = new Map<string, Registration[]>();
 const pending = new Set<Promise<void>>();
 let logger: Logger = jsonLogger;
-/** Set while the native is enabled; `events` refuses to work otherwise. */
-let enabledCheck: () => void = () => {
+const notEnabled = () => {
   throw new Error("events is not enabled; add events: {} to quickservice.config.ts");
 };
-
-const changed = () => {
-  byType = new Map();
-};
+/** Refuses work while the native is not running. */
+let enabledCheck: () => void = notEnabled;
 
 function listenersOf(type: string, phase: ListenerPhase): Registration[] {
   const key = `${phase}\u0000${type}`;
   let found = byType.get(key);
   if (!found) {
-    found = registrations.filter((registration) => registration.phase === phase && (registration.type === "*" || registration.type === type));
+    found = registrations.filter((registration) => registration.phase === phase && patterns.patternMatches(registration.pattern, type));
     byType.set(key, found);
   }
   return found;
 }
 
 /** Hands an event to the after-commit listeners without waiting for them; each gets its events one at a time. */
-function deliver(event: WriteEvent): void {
+function deliver(event: AnyEvent): void {
   for (const registration of listenersOf(event.type, "afterCommit")) {
     const delivery = registration.tail.then(async () => {
       if (!registration.active) return;
@@ -95,30 +77,46 @@ function deliver(event: WriteEvent): void {
   }
 }
 
-/** The bus of the `events` native: listeners of write events, in the write's transaction or after its commit. */
+/** The bus of the `events` native: write events and custom events, delivered to listeners by pattern. */
 export interface Events {
   /**
-   * Registers a listener for an exact event type or `*` (every event) and returns a function that removes it.
-   * `afterCommit` listeners (the default) get each event after the outermost commit, never for a rolled-back write;
-   * `inTransaction` listeners run inside the write's transaction, and a throw rolls the write back.
+   * Registers a listener for a pattern and returns a function that removes it: an exact type, `*` segments matching one
+   * segment each (`user.*`, `*.created`), `*` for every event, or `<entity>.written` for an entity's created, updated
+   * and deleted events. `afterCommit` listeners (the default) get each event after the outermost commit, never for a
+   * rolled-back write; `inTransaction` listeners run inside the write's transaction, and a throw rolls it back.
    */
-  on(type: string, listener: EventListener, options?: ListenOptions): () => void;
+  on<P extends string>(pattern: P, listener: EventListener<EventFor<P>>, options?: ListenOptions): () => void;
+  /**
+   * Publishes a custom event, typed by `EventMap`, and resolves with its id: inside a transaction, `inTransaction`
+   * listeners get it at once and after-commit listeners after the commit (never after a rollback); outside one,
+   * every listener gets it at once.
+   */
+  emit<K extends string>(type: K, payload: PayloadOf<K>): Promise<string>;
   /** Resolves once every after-commit delivery started so far has finished. */
   idle(): Promise<void>;
 }
 
+const register = (pattern: string, listener: EventListener, options: ListenOptions = {}) => {
+  enabledCheck();
+  const registration: Registration = { pattern: patterns.compilePattern(pattern), listener, phase: options.phase ?? "afterCommit", tail: Promise.resolve(), active: true };
+  registrations.push(registration);
+  byType = new Map();
+  return () => {
+    registration.active = false;
+    const at = registrations.indexOf(registration);
+    if (at >= 0) registrations.splice(at, 1);
+    byType = new Map();
+  };
+};
+
 export const events: Events = {
-  on(type, listener, options = {}) {
+  on: (pattern, listener, options) => register(pattern, listener as EventListener, options),
+  async emit(type, payload) {
     enabledCheck();
-    const registration: Registration = { type, listener, phase: options.phase ?? "afterCommit", tail: Promise.resolve(), active: true };
-    registrations.push(registration);
-    changed();
-    return () => {
-      registration.active = false;
-      const at = registrations.indexOf(registration);
-      if (at >= 0) registrations.splice(at, 1);
-      changed();
-    };
+    patterns.assertCustomType(type);
+    const event: CustomEvent = { id: Bun.randomUUIDv7(), type, payload, ...operationFields(), at: new Date() };
+    await publish(event);
+    return event.id;
   },
   async idle() {
     while (pending.size > 0) await Promise.allSettled([...pending]);
@@ -138,16 +136,12 @@ export function startBus(options: { logger: Logger }): void {
 export function stopBus(): void {
   for (const registration of registrations) registration.active = false;
   registrations.length = 0;
-  changed();
-  enabledCheck = () => {
-    throw new Error("events is not enabled; add events: {} to quickservice.config.ts");
-  };
+  byType = new Map();
+  enabledCheck = notEnabled;
 }
 
-const lowerFirst = (name: string) => `${name.charAt(0).toLowerCase()}${name.slice(1)}`;
-
-/** The event of a reported write, with the actor and request of the current operation. */
-export function toEvent(change: WriteChange): WriteEvent {
+/** The actor and request id of the current operation. */
+function operationFields(): { actor: EventActor; requestId?: string } {
   const operation = currentOperation();
   const actor: EventActor = {};
   const user = (operation?.req?.user as { id?: unknown } | undefined)?.id;
@@ -156,6 +150,13 @@ export function toEvent(change: WriteChange): WriteEvent {
   if (tenant !== undefined) actor.tenant = String(tenant);
   if (operation?.job) actor.job = operation.job.name;
   if (operation?.queue) actor.queue = operation.queue.name;
+  return { actor, ...(operation?.requestId ? { requestId: operation.requestId } : {}) };
+}
+
+const lowerFirst = (name: string) => `${name.charAt(0).toLowerCase()}${name.slice(1)}`;
+
+/** The event of a reported write, with the actor and request of the current operation. */
+export function toEvent(change: WriteChange): WriteEvent {
   return {
     id: Bun.randomUUIDv7(),
     type: `${lowerFirst(change.entity.entityName)}.${change.operation}`,
@@ -166,17 +167,16 @@ export function toEvent(change: WriteChange): WriteEvent {
     after: change.after,
     changed: change.changed,
     cause: change.cause,
-    actor,
-    ...(operation?.requestId ? { requestId: operation.requestId } : {}),
+    ...operationFields(),
     at: new Date(),
-  };
+  } as WriteEvent;
 }
 
 /**
  * Publishes an event: the `inTransaction` listeners run at once, awaited in registration order, and the after-commit
  * listeners get it once the transaction commits (at once outside one).
  */
-export async function publish(event: WriteEvent): Promise<void> {
+export async function publish(event: AnyEvent): Promise<void> {
   for (const registration of listenersOf(event.type, "inTransaction")) await registration.listener(event);
   if (listenersOf(event.type, "afterCommit").length === 0) return;
   if (inTransaction()) await afterCommit(() => deliver(event));

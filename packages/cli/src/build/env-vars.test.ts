@@ -143,6 +143,6 @@ export default defineConfig({ database: memoryAdapter(), server: { publicUrl: St
     const root = createLinkedProject({ "quickservice.config.ts": 'import { defineConfig, memoryAdapter } from "@quickservice/core";\nexport default defineConfig({ database: memoryAdapter() });\n', "entities/User.ts": "export type User = { email: string };\n" });
     await build(root);
     const types = readFileSync(join(root, ".generated/types.ts"), "utf8");
-    expect(types).toContain('declare module "@quickservice/core" {\n  interface Repositories extends GeneratedRepositories {}\n  interface EnvVars {}\n}');
+    expect(types).toContain('declare module "@quickservice/core" {\n  interface Repositories extends GeneratedRepositories {}\n  interface EnvVars {}\n  interface EventMap {');
   });
 });

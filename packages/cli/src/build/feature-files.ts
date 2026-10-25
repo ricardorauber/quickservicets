@@ -130,9 +130,11 @@ function folderFiles(root: string): { name: string; source: string }[] {
 }
 
 /**
- * The files of every convention folder the enabled features declare: the project's `<dir>/` and the same folder inside
- * the feature's folder, where a project file replaces the feature's file of the same name. Each file must
- * default-export a value its folder's `check` accepts.
+ * The files of every convention folder the enabled features declare: the project's `<dir>/`, and the same folder inside
+ * the declaring feature's folder and inside every other enabled feature's folder (a feature ships files for another
+ * feature's folder, like a project feature's `events/` listeners). A project file replaces a feature's file of the
+ * same name; two features shipping the same name fail. Each file must default-export a value its folder's `check`
+ * accepts.
  */
 export async function scanFeatureFolders(projectRoot: string, features: readonly ResolvedFeature[], overrides: string[] = []): Promise<FolderFile[]> {
   const files: FolderFile[] = [];
@@ -140,14 +142,23 @@ export async function scanFeatureFolders(projectRoot: string, features: readonly
     for (const [folder, definition] of Object.entries(feature.definition.folders ?? {})) {
       const fromProject = folderFiles(join(projectRoot, definition.dir)).map(({ name, source }) => ({ feature: feature.key, folder, name, source, file: relative(projectRoot, source).split(sep).join("/") }));
       const projectNames = new Map(fromProject.map((entry) => [entry.name, entry]));
-      const fromFeature = folderFiles(resolve(featureDir(feature, projectRoot), definition.dir)).flatMap(({ name, source }) => {
-        const file = featureFileName(projectRoot, source);
-        const replacement = projectNames.get(name);
-        if (!replacement) return [{ feature: feature.key, folder, name, source, file }];
-        overrides.push(fileOverrideLine(replacement.file, file, feature.key));
-        return [];
-      });
-      for (const entry of [...fromFeature, ...fromProject].sort((a, b) => a.name.localeCompare(b.name))) {
+      const shipped = new Map<string, { entry: FolderFile; from: string }>();
+      // The declaring feature first, then the others in feature order.
+      for (const owner of [feature, ...features.filter((other) => other !== feature)]) {
+        for (const { name, source } of folderFiles(resolve(featureDir(owner, projectRoot), definition.dir))) {
+          const file = featureFileName(projectRoot, source);
+          const replacement = projectNames.get(name);
+          if (replacement) {
+            overrides.push(fileOverrideLine(replacement.file, file, owner.key));
+            continue;
+          }
+          const taken = shipped.get(name);
+          if (taken) throw new BuildError(`${definition.dir}/${name}.ts is shipped by both ${taken.from} and ${owner.key}`);
+          shipped.set(name, { entry: { feature: feature.key, folder, name, source, file }, from: owner.key });
+        }
+      }
+      const fromFeatures = [...shipped.values()].map(({ entry }) => entry);
+      for (const entry of [...fromFeatures, ...fromProject].sort((a, b) => a.name.localeCompare(b.name))) {
         const module = (await import(entry.source)) as Record<string, unknown>;
         if (!Object.hasOwn(module, "default")) throw new BuildError(`${entry.file}: must have a default export`);
         const verdict = definition.check ? definition.check(module.default, entry.file) : true;

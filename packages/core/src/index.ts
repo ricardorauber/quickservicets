@@ -216,6 +216,7 @@ export { changedFields, observeWrites } from "./write-observers.ts";
 export type { WriteCause, WriteChange, WriteObserver } from "./write-observers.ts";
 export { currentOperation, disableOperationContext, enableOperationContext, operationContextEnabled, operationMiddleware, withOperation } from "./operation-context.ts";
 export type { OperationInfo } from "./operation-context.ts";
+export type { AnyEvent, CustomEvent, EventActor, EventFor, EventMap, EventOf, PatternMatches, PayloadOf, WriteEvent, WriteOperation } from "./event-types.ts";
 export { parseRate } from "./rates.ts";
 export type { Rate } from "./rates.ts";
 export { matchesCidr } from "./cidr.ts";
@@ -224,8 +225,8 @@ export type { DeclaredVariable, EnvVars } from "./env-vars.ts";
 // Natives register themselves when imported; they come last, after every export they use.
 import type { eventsFeature } from "./features/events/index.ts";
 import type { FeatureConfig as NativeConfig } from "./features.ts";
-export { events, eventsFeature } from "./features/events/index.ts";
-export type { EventActor, EventListener, Events, ListenerPhase, ListenOptions, WriteEvent } from "./features/events/index.ts";
+export { events, eventsFeature, listen } from "./features/events/index.ts";
+export type { EventListener, Events, ListenerContext, ListenerFile, ListenerPhase, ListenOptions } from "./features/events/index.ts";
 
 declare module "./features.ts" {
   interface NativeFeatures {

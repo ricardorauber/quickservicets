@@ -208,7 +208,7 @@ Two fields of a tag definition make tags shorter. `shorthand: "text"` lets the f
 export default "Good day";
 ```
 
-A project file replaces the feature's file of the same name. `quickservice dev` rebuilds when a folder or a `watch` path changes.
+Other enabled features can ship files for the folder too, in the same folder inside their own (`features/<key>/greetings/`), like a feature shipping listener files for the `events/` folder of the `events` native. A project file replaces a feature's file of the same name, with an `Override:` line; two features shipping the same name fail the build. `quickservice dev` rebuilds when a folder or a `watch` path changes.
 
 ### Commands
 

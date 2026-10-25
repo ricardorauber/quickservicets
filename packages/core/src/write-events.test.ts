@@ -13,6 +13,7 @@ import { recordStatements, resetPostgresTables } from "./testing/postgres.ts";
 import { configureTransactions, transaction } from "./transactions.ts";
 import { changedFields, observeWrites, type WriteChange } from "./write-observers.ts";
 import type { ServiceRequest } from "./hooks.ts";
+import type { WriteEvent } from "./event-types.ts";
 
 const user = entity("User", [field({ name: "name", type: "string" }), field({ name: "email", type: "string", optional: true })]);
 const orderItem = entity("OrderItem", [field({ name: "sku", type: "string" })]);
@@ -197,7 +198,7 @@ describe("the events native", () => {
         first = false;
         throw new Error("listener broke");
       }
-      seen.push(event.recordId);
+      seen.push((event as WriteEvent).recordId);
     });
     await repos.users!.create({ name: "A" });
     const second = await repos.users!.create({ name: "B" });
@@ -210,7 +211,7 @@ describe("the events native", () => {
     await startEvents();
     const { repos } = await repositories();
     const seen: string[] = [];
-    events.on("*", (event) => void seen.push((event.after as { name?: string } | null)?.name ?? ""));
+    events.on("*", (event) => void seen.push(((event as WriteEvent).after as { name?: string } | null)?.name ?? ""));
     await failure(() =>
       transaction(async () => {
         await repos.users!.create({ name: "rolled back" });

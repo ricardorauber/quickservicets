@@ -1,6 +1,6 @@
 # events
 
-The smallest project that shows the `events` native: every write of `User` becomes a write event, an after-commit listener writes an audit entry for it, and an in-transaction listener refuses a user without an email address.
+The smallest project that shows the `events` native: every write of `User` becomes a write event, the listener file `events/audit-log.ts` that the `audit` feature ships writes an audit entry after each commit, and an in-transaction listener refuses a user without an email address.
 
 ```bash
 bun run test
@@ -8,14 +8,14 @@ bun run test
 
 ## Level 0: enable
 
-Turn the native on in `quickservice.config.ts`, then listen from a feature's setup with `ctx.events.on`:
+Turn the native on in `quickservice.config.ts`, then add a listener file to `events/`:
 
 ```ts
 export default defineConfig({ database: memoryAdapter(), events: {} });
 ```
 
 ```ts
-ctx.events.on("*", async (event) => {
+export default listen("user.written", async (event, { repos }) => {
   await repos.auditEntries.create({ type: event.type, recordId: event.recordId, changed: event.changed });
 });
 ```
@@ -44,7 +44,7 @@ An `inTransaction` listener runs inside the write's transaction, and a throw rol
 ctx.events.on(
   "user.created",
   (event) => {
-    if (!String(event.after?.email ?? "").includes("@")) throw new HttpError(400, "A user needs an email address");
+    if (!event.after.email.includes("@")) throw new HttpError(400, "A user needs an email address");
   },
   { phase: "inTransaction" },
 );
@@ -52,7 +52,12 @@ ctx.events.on(
 
 ## Level 5: override files
 
-Not applicable: the native ships no file a project replaces by name yet.
+A project file in `events/` replaces a feature's listener file of the same name, and the build prints an `Override:` line:
+
+```ts
+// events/audit-log.ts replaces features/audit/events/audit-log.ts
+export default listen("user.written", () => undefined);
+```
 
 ## Level 6: replace the implementation
 

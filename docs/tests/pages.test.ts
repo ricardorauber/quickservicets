@@ -46,6 +46,7 @@ const PAGES = [
   "guides/queues.md",
   "guides/health.md",
   "guides/idempotency.md",
+  "guides/optimistic-concurrency.md",
   "reference/index.md",
   "reference/tags.mdx",
   "reference/config.mdx",

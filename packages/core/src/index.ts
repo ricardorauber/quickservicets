@@ -307,6 +307,7 @@ export { idempotencyFeature, idempotencyKeyEntity } from "./features/idempotency
 export type { BeginResult, IdempotencyApi, IdempotencyConflict, IdempotencyRecord, IdempotencyStep, IdempotencyStore, StoredResponse } from "./features/idempotency/index.ts";
 
 export { etagFeature } from "./features/etag/index.ts";
+export type { EntityTagger, NotModified, PreconditionFailure } from "./features/etag/index.ts";
 
 declare module "./event-types.ts" {
   interface EventMap {

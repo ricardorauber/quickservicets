@@ -243,5 +243,6 @@ An error thrown by the logger never changes the response.
 - [Queues](/guides/queues/): the `queues` key, for background work in the project's database with retries, dead letters, dedupe and `@publish`.
 - [Health checks](/guides/health/): the `health` key, for liveness and readiness routes and draining on shutdown.
 - [Idempotency keys](/guides/idempotency/): the `idempotency` key, for safe retries of `POST` requests.
+- [Optimistic concurrency](/guides/optimistic-concurrency/): the `etag` key, for entity tags, 304 answers and `If-Match`.
 
 Next: [Jobs](/guides/jobs/).

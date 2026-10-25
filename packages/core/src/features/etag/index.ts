@@ -1,18 +1,51 @@
-import { boolean, defineFeature, entityRoutePath, HttpError, object, setWriteCondition, storedRecordOf, trackStoredRecords, type EntityModel, type HandlerMiddleware, type OpenApiDoc } from "../public.ts";
+import {
+  boolean,
+  defineFeature,
+  entityRoutePath,
+  hook,
+  HttpError,
+  object,
+  provider,
+  resolveOption,
+  runAfterHooks,
+  safeLog,
+  setWriteCondition,
+  storedRecordOf,
+  trackStoredRecords,
+  type EntityModel,
+  type HandlerMiddleware,
+  type OpenApiDoc,
+  type StoredRecord,
+} from "../public.ts";
+import type { EntityTagger, NotModified, PreconditionFailure } from "./api.ts";
 import { etagOf, noneMatch } from "./tags.ts";
 
 /** The generated routes whose responses carry the written or read record's tag. */
 const TAGGED_METHODS = new Set(["GET", "POST", "PATCH", "PUT"]);
 
-/**
- * The `etag` native: every record read or written through the generated routes gets a strong entity tag in the `ETag`
- * header, and a read whose `If-None-Match` lists the current tag answers 304, so clients can cache and later detect
- * concurrent edits. Off unless `etag: {}` (or `QS_ETAG_ENABLED=true`) is set.
- */
 const options = object({
-  required: boolean().default(false).describe("Rejects PATCH, PUT and DELETE requests of the generated routes without If-Match with 428."),
+  required: boolean()
+    .default(false)
+    .perRequest()
+    .describe("Rejects PATCH, PUT and DELETE requests of the generated routes without If-Match with 428; a function of the request decides per request."),
+  onPreconditionFailed: hook<PreconditionFailure, undefined>().describe(
+    "Runs when a conditional write is refused, with the request, entity, id, expected and current tags; a Response it returns replaces the 412.",
+  ),
+  onNotModified: hook<NotModified, undefined>().describe("Runs for each 304 answer, with the request, the entity and the id."),
+  tagger: provider<EntityTagger>("EntityTagger", ["tag"])
+    .optional()
+    .describe("Replaces etagOf for the native's routes: its tag method gets the stored record and the entity and returns a strong tag."),
 });
 
+/** A tag text quoted when it is not. */
+const quoted = (tag: string) => (/^".*"$/.test(tag) ? tag : `"${tag}"`);
+
+/**
+ * The `etag` native: every record read or written through the generated routes gets a strong entity tag in the `ETag`
+ * header, a read whose `If-None-Match` lists the current tag answers 304, and a write whose `If-Match` lists an old tag
+ * answers 412, so clients can cache and never overwrite a newer version. Off unless `etag: {}` (or
+ * `QS_ETAG_ENABLED=true`) is set.
+ */
 const etagFeature = defineFeature({
   key: "etag",
   docs: { summary: "Entity tags on record reads and writes, with 304 answers to conditional reads and 412 answers to stale conditional writes." },
@@ -21,40 +54,80 @@ const etagFeature = defineFeature({
     etag: {
       on: ["entity"],
       options: ["required"],
-      description: "`@etag required=true` requires If-Match on the entity's PATCH, PUT and DELETE routes.",
+      description: "`@etag required=true` requires If-Match on the entity's PATCH, PUT and DELETE routes, `@etag required=false` exempts it, and `@etag off` removes tags and conditions from its routes.",
       example: "/** @etag required=true */\nexport type Invoice = { total: number };",
     },
   },
   setup(ctx) {
+    const tagger = ctx.options.tagger as EntityTagger | undefined;
+    const tagOf = (record: object, entity?: EntityModel) => (tagger ? quoted(tagger.tag(record as StoredRecord, entity)) : etagOf(record));
+    const enabledFor = (entity: EntityModel) => etagFeature.optionsFor(entity).on !== false;
     trackStoredRecords(true);
     // The generated write routes check If-Match atomically in the repository; a missing one is refused when required.
-    setWriteCondition((req, entity) => {
+    const writing = new WeakMap<object, EntityModel>();
+    setWriteCondition(async (req, entity) => {
+      if (!enabledFor(entity)) return undefined;
+      writing.set(req, entity);
       const header = req.headers.get("if-match");
       if (header === null) {
-        if (etagFeature.optionsFor(entity).required) throw new HttpError(428, "If-Match header is required");
+        if (await resolveOption(etagFeature.optionsFor(entity).required, { req })) throw new HttpError(428, "If-Match header is required");
         return undefined;
       }
-      return { ifMatch: header };
+      return { ifMatch: header, ...(tagger ? { tagOf: (record: StoredRecord) => tagOf(record, entity) } : {}) };
     });
-    ctx.app.configureServer({ entityTags: { tag: etagOf, noneMatch } });
+    ctx.app.configureServer({ entityTags: { tag: (record) => tagOf(record), noneMatch } });
+    const { onPreconditionFailed, onNotModified } = ctx.options;
+    const notModified = async (value: NotModified) => {
+      if (onNotModified.length > 0) await runAfterHooks(onNotModified, value, undefined);
+    };
     const middleware: HandlerMiddleware = {
       stage: "handler",
       // Inside the other handler middlewares, right around the route's hooks and handler.
       order: 2000,
       async run(req, res, next) {
-        const result = await next();
-        if (!TAGGED_METHODS.has(req.method) || result instanceof Response) return result;
+        let result: unknown;
+        try {
+          result = await next();
+        } catch (error) {
+          const replaced = error instanceof HttpError && error.code === "PRECONDITION_FAILED" && onPreconditionFailed.length > 0 ? await preconditionResponse(req, error) : undefined;
+          if (replaced) return replaced;
+          throw error;
+        }
+        const controls = res as typeof res & { headers?: Headers; notModified?: boolean };
+        if (controls.notModified) await notModified({ req, entity: undefined, id: req.params.id });
+        if (!TAGGED_METHODS.has(req.method) || result instanceof Response) return result as never;
         const stored = storedRecordOf(req);
-        if (!stored) return result;
-        const tag = etagOf(stored.record);
+        if (!stored || !enabledFor(stored.entity)) return result as never;
+        const tag = tagOf(stored.record, stored.entity);
         res.header("etag", tag);
-        if (req.method !== "GET") return result;
-        const controls = res as typeof res & { headers?: Headers };
+        if (req.method !== "GET") return result as never;
         if (!controls.headers?.has("cache-control")) res.header("cache-control", "private, no-cache");
         // The read's pre-hooks already ran, so a refused request never gets here.
-        if (noneMatch(req.headers.get("if-none-match"), tag)) return new Response(null, { status: 304, headers: controls.headers });
-        return result;
+        if (noneMatch(req.headers.get("if-none-match"), tag)) {
+          await notModified({ req, entity: stored.entity.entityName, id: stored.record.id });
+          return new Response(null, { status: 304, headers: controls.headers });
+        }
+        return result as never;
       },
+    };
+    /** The first Response an onPreconditionFailed hook returns, replacing the 412. */
+    const preconditionResponse = async (req: Parameters<HandlerMiddleware["run"]>[0], error: HttpError): Promise<Response | undefined> => {
+      const value: PreconditionFailure = {
+        req,
+        entity: writing.get(req)?.entityName,
+        id: req.params.id,
+        expected: req.headers.get("if-match") ?? "",
+        current: error.headers?.etag,
+      };
+      for (const fn of onPreconditionFailed) {
+        try {
+          const response = await fn(value, undefined);
+          if (response instanceof Response) return response;
+        } catch (failure) {
+          safeLog(ctx.logger, "error", { timestamp: new Date().toISOString(), message: "feature.hook.failed", feature: "etag", hook: "onPreconditionFailed", error: { message: (failure as Error)?.message ?? String(failure) } });
+        }
+      }
+      return undefined;
     };
     ctx.app.use(middleware);
     ctx.app.onStop(() => {
@@ -63,7 +136,7 @@ const etagFeature = defineFeature({
     });
   },
   openapi(doc, { models, options }) {
-    return documentTags(doc, models, (model) => options.required || (model as EntityModel).tags?.etag?.options.required === true);
+    return documentTags(doc, models, (model) => options.required === true || (model as EntityModel).tags?.etag?.options.required === true);
   },
 });
 
@@ -110,3 +183,4 @@ function documentTags(doc: OpenApiDoc, models: readonly EntityModel[], required:
 export default etagFeature;
 export { etagFeature };
 export { etagOf, noneMatch } from "./tags.ts";
+export type { EntityTagger, NotModified, PreconditionFailure } from "./api.ts";

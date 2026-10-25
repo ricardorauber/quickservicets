@@ -15,10 +15,14 @@
  *   --startup-runs 3    cold starts used for the startup measurement
  *   --skip-build        reuse the existing qsbench-<stack> image
  *   --keep-going        run the load scenarios even when conformance fails (the default stops the stack)
+ *   --features a=on,b=off  switch native features of the quickservice stacks with QS_<KEY>_ENABLED; the result goes
+ *                       to benchmarks/results/features/<label>.json (compare it with compare-features.ts)
  */
 import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fixtures, seedSql } from "./seed/seed.ts";
+import { parseFeatures, quickServiceVariables, resultFile, type FeatureSwitches } from "./features.ts";
+import { registeredNatives } from "../packages/core/src/index.ts";
 
 const ROOT = resolve(import.meta.dir, "..");
 const BENCH = import.meta.dir;
@@ -83,6 +87,17 @@ function availableStacks(): string[] {
 const known = availableStacks();
 const stacks = positional.length === 0 || positional.includes("all") ? known : positional;
 for (const stack of stacks) if (!known.includes(stack)) fail(`Unknown stack "${stack}". Known: ${known.join(", ")}`);
+
+/** The feature switches of `--features`, checked against the registered natives before anything is built. */
+let features: FeatureSwitches | undefined;
+if (flags.has("--features")) {
+  try {
+    features = parseFeatures(flag("--features", ""), registeredNatives());
+  } catch (error) {
+    fail((error as Error).message);
+  }
+  if (stacks.some((stack) => !stack.startsWith("quickservice"))) fail("--features applies to the quickservice stacks only");
+}
 
 function fail(message: string): never {
   console.error(message);
@@ -324,6 +339,8 @@ async function runStack(stack: string) {
   await seed();
 
   const volume = `qsbench-uploads-${stack}`;
+  // QuickService runs switch features through QS_* variables only; the service's config has no feature keys.
+  const variables = stack.startsWith("quickservice") ? quickServiceVariables(features) : {};
   await removeApp();
   await sh(["docker", "volume", "rm", "-f", volume], { allowFailure: true });
   await sh(["docker", "volume", "create", volume]);
@@ -332,6 +349,7 @@ async function runStack(stack: string) {
     "-p", `127.0.0.1:${APP_HOST_PORT}:8080`, "-v", `${volume}:/data/uploads`, "--log-opt", "max-size=20m", "--log-opt", "max-file=2",
     "-e", "PORT=8080", "-e", `DATABASE_URL=${DATABASE_URL}`, "-e", `DB_HOST=${POSTGRES}`, "-e", "DB_PORT=5432", "-e", "DB_USER=bench",
     "-e", "DB_PASSWORD=bench", "-e", "DB_NAME=bench", "-e", `DB_POOL_SIZE=${DB_POOL_SIZE}`, "-e", "UPLOAD_DIR=/data/uploads",
+    ...Object.entries(variables).flatMap(([name, value]) => ["-e", `${name}=${value}`]),
     image,
   ]);
 
@@ -341,6 +359,8 @@ async function runStack(stack: string) {
     settings: { vus: Number(VUS), duration: DURATION, warmup: WARMUP, appCpus: Number(APP_CPUS), appMemory: APP_MEMORY, k6Cpus: Number(K6_CPUS), dbPoolSize: DB_POOL_SIZE, k6Image: K6_IMAGE },
     environment: await environment(),
     image: { name: image, sizeBytes, sizeMB: Math.round((sizeBytes / 1e6) * 10) / 10, buildSeconds: buildSeconds === null ? null : Math.round(buildSeconds * 10) / 10 },
+    ...(Object.keys(variables).length > 0 ? { variables } : {}),
+    ...(features ? { features: { switches: features.switches, defaults: features.defaults, label: features.label } } : {}),
   };
 
   let sampler: ReturnType<typeof startSampler> | undefined;
@@ -406,9 +426,10 @@ async function runStack(stack: string) {
     await sh(["docker", "volume", "rm", "-f", volume], { allowFailure: true });
   }
 
-  mkdirSync(RESULTS, { recursive: true });
-  await Bun.write(join(RESULTS, `${stack}.json`), JSON.stringify(result, null, 2) + "\n");
-  log(`Wrote benchmarks/results/${stack}.json`);
+  const file = resultFile(RESULTS, stack, features);
+  mkdirSync(join(file, ".."), { recursive: true });
+  await Bun.write(file, JSON.stringify(result, null, 2) + "\n");
+  log(`Wrote ${file.slice(ROOT.length + 1)}`);
   return result;
 }
 

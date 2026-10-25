@@ -55,6 +55,27 @@ For each stack, `run.ts`:
 7. starts a small janitor container that deletes stored uploads older than a few seconds (a 30-second upload run would otherwise write gigabytes), then, for each scenario, reloads the seed, runs k6 for the warmup, then for the measured run;
 8. writes `results/<stack>.json` and removes the container and its volume.
 
+## Feature switches
+
+`--features` measures what native features cost: it starts the QuickService container with each named native switched on or off through `QS_<KEY>_ENABLED`, so the benchmark service's own `quickservice.config.ts` never names a feature and every run uses the same image:
+
+```bash
+bun benchmarks/run.ts quickservice                                # the baseline: every native at its default
+bun benchmarks/run.ts quickservice --features events=off,history=off
+bun benchmarks/run.ts quickservice --features security=off
+bun benchmarks/run.ts quickservice --features security=on         # security with its rate limit on
+bun benchmarks/compare-features.ts benchmarks/results/features/security-off.json
+bun benchmarks/compare-features.ts <result> --baseline benchmarks/results/quickservice.json
+```
+
+- A run without `--features` writes `results/quickservice.json`, the baseline: `security` on, the other natives off. A run with switches writes `results/features/<label>.json`, where the label is the sorted switches joined by `+` (`events-on+security-off`), and records the switches, their defaults and the variables it set. An unknown key stops the runner before it builds anything, with `Unknown feature <key>; known: <keys>`.
+- Every QuickService run sets `QS_SECURITY_RATE_LIMIT_ENABLED=false`, recorded in the result's `variables`: the load generator is one IP, so the default rate limit would measure `429` responses. To measure the rate limit itself, run `--features security=on`: that run keeps the rate limit on and leaves the variable out.
+- `compare-features.ts` prints, for every scenario both files hold, the change of requests per second and of p50 and p99 latency in percent, and exits with 1 when a budget fails, naming the scenario and the metric:
+  - a run that only switches off natives that are off by default must stay within the noise budget: at most 3% lower throughput and 3% higher p50 latency on every scenario;
+  - a run with `security=off` shows what the default security costs: at most 5% throughput and 5% p50 latency on `crud`, otherwise `security costs <n>% on crud; the budget is 5%`.
+
+Every feature spec that touches the request path is checked with a run that has the feature off, compared with the baseline: a disabled feature must cost nothing measurable.
+
 ## Scenarios
 
 k6 (`grafana/k6:2.3.0`) runs in a container on the same network with 4 CPUs, 64 VUs, no think time, keep-alive connections. Each request is tagged, so the results have totals and per-endpoint numbers. An error is any status other than the expected one.

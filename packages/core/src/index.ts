@@ -69,7 +69,7 @@ export type {
   SecurityScheme,
 } from "./openapi.ts";
 export type { RunningService, StartServiceOptions } from "./service.ts";
-export { createFeatureLifecycle, featureLogger, LifecycleError, logLifecycleFailure, withTimeout } from "./lifecycle.ts";
+export { createFeatureLifecycle, featureLogger, LifecycleError, logLifecycleFailure, notifyShutdownSignal, onServiceStarted, onShutdownSignal, withTimeout } from "./lifecycle.ts";
 export type { FeatureApp, FeatureLifecycle, FeatureLifecycleOptions, FeatureSetupContext, LifecyclePhase, RuntimeRoute, RuntimeRouteOptions, StartContext, WorkerInfo } from "./lifecycle.ts";
 export type { App, AppEndpoint, AppOptions, CrudRouteEntry, FeatureFolderRegistry } from "./app.ts";
 export { jsonLogger, maskedLogger, REQUEST_LOG, safeLog } from "./logger.ts";
@@ -228,7 +228,7 @@ export type { DeclaredVariable, EnvVars } from "./env-vars.ts";
 // The natives the core ships, registered when the core loads; they come last, after every export they use.
 import eventsNative, { type EventsApi } from "./features/events/index.ts";
 import securityNative, { type SecurityApi } from "./features/security/index.ts";
-import healthNative from "./features/health/index.ts";
+import healthNative, { type HealthApi } from "./features/health/index.ts";
 import queuesNative, { type QueueClient, type QueueMessageEvent, type QueuesApi } from "./features/queues/index.ts";
 import { registerNative as registerShippedNative, type FeatureConfig as NativeConfig } from "./features.ts";
 registerShippedNative(securityNative);
@@ -277,7 +277,7 @@ export type {
 } from "./features/queues/index.ts";
 
 export { healthFeature } from "./features/health/index.ts";
-export type { HealthCheck, HealthCheckResult, HealthReport, HealthStatus } from "./features/health/index.ts";
+export type { HealthApi, HealthCheck, HealthCheckFunction, HealthCheckInput, HealthCheckOptions, HealthCheckResult, HealthReport, HealthStatus } from "./features/health/index.ts";
 
 declare module "./event-types.ts" {
   interface EventMap {
@@ -311,6 +311,7 @@ declare module "./features.ts" {
   interface FeatureApis {
     events: EventsApi;
     queues: QueuesApi;
+    health: HealthApi;
     security: SecurityApi;
   }
 }

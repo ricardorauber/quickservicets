@@ -5,7 +5,7 @@ import { logEnabledFeatures, registerProjectFeatures, type ProjectFeatureModule 
 import type { HookDefinition } from "./hooks.ts";
 import type { JobDefinition } from "./jobs/job.ts";
 import { handleShutdownSignals, type SignalTarget } from "./jobs/lifecycle.ts";
-import { createFeatureLifecycle, LifecycleError, logLifecycleFailure, withTimeout, type FeatureLifecycle, type FeatureSetupContext } from "./lifecycle.ts";
+import { createFeatureLifecycle, LifecycleError, logLifecycleFailure, notifyShutdownSignal, withTimeout, type FeatureLifecycle, type FeatureSetupContext } from "./lifecycle.ts";
 import { parseDuration } from "./jobs/job.ts";
 import { flushLogs, jsonLogger, safeLog } from "./logger.ts";
 import type { EntityModel } from "./model.ts";
@@ -129,6 +129,7 @@ async function disconnect(config: ResolvedConfig): Promise<void> {
 
 /** `onShutdown` callbacks, the listener closed and jobs drained, `onStop` callbacks, then the database disconnected. */
 async function stopService(config: ResolvedConfig, app: App, lifecycle: FeatureLifecycle, listening: { stop(close?: boolean): Promise<void> | void }): Promise<void> {
+  notifyShutdownSignal();
   await lifecycle.shutdown();
   // In-flight requests finish while jobs drain; idle keep-alive connections never hold the shutdown longer than the limit.
   await Promise.all([withTimeout(() => listening.stop(), parseDuration(config.lifecycle.stopTimeout) ?? 10_000, "closing the listener").catch(() => {}), app.shutdown()]);

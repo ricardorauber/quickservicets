@@ -6,6 +6,7 @@ import {
   createFeatureLifecycle,
   LifecycleError,
   memoryAdapter,
+  notifyShutdownSignal,
   registerProjectFeatures,
   resolveConfig,
   type App,
@@ -153,6 +154,8 @@ export async function startTestService({ files, env = {} }: TestServiceOptions):
       started = {
         app,
         async stop() {
+          // As a shutdown signal does: readiness drains before the onShutdown callbacks.
+          notifyShutdownSignal();
           await lifecycle.shutdown();
           await app.shutdown();
           await lifecycle.stop();

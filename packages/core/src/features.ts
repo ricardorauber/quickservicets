@@ -71,10 +71,11 @@ export interface FeatureInput<S extends AnyOptionSchema> {
   /** Environment variables the feature needs, read and checked at startup with the project's (see `env`). */
   env?: Readonly<Record<string, AnyOptionSchema>>;
   /**
-   * Checks the resolved options beyond what their schema says, like two options that cannot be used together; each
-   * returned line is a configuration problem `resolveConfig` reports with the others.
+   * Checks the resolved options beyond what their schema says, like two options that cannot be used together, or an
+   * option against the rest of the project's config (with its environment applied); each returned line is a
+   * configuration problem `resolveConfig` reports with the others.
    */
-  validate?: Bivariant<(options: FeatureOptions<S>) => readonly string[]>;
+  validate?: Bivariant<(options: FeatureOptions<S>, config: Readonly<Record<string, unknown>>) => readonly string[]>;
   /**
    * Entities the feature adds to the project's model: a folder of entity files relative to the feature's folder
    * (`"./entities"`), a list of `entityModel(...)` objects, or a function of the project's models and the feature's
@@ -226,8 +227,8 @@ export interface FeatureDefinition<S extends AnyOptionSchema = AnyOptionSchema> 
   readonly enables: readonly string[];
   /** The environment variables the feature declares. */
   readonly env?: Readonly<Record<string, AnyOptionSchema>>;
-  /** Checks the resolved options beyond their schema. */
-  readonly validate?: Bivariant<(options: FeatureOptions<S>) => readonly string[]>;
+  /** Checks the resolved options beyond their schema, and against the rest of the config. */
+  readonly validate?: Bivariant<(options: FeatureOptions<S>, config: Readonly<Record<string, unknown>>) => readonly string[]>;
   /** The entities the feature contributes. */
   readonly entities?: FeatureEntities<FeatureOptions<S>>;
   /** The feature's folder of endpoint files, relative to its folder. */
@@ -662,7 +663,7 @@ export function resolveFeatures(config: Record<string, unknown>, definitions: re
   const resolveOne = (definition: FeatureDefinition, input: unknown) => {
     try {
       const options = resolveOptions(definition.schema, input, definition.key) as Record<string, unknown> & { enabled: boolean };
-      const invalidOptions = options.enabled === false ? [] : (definition.validate?.(options as never) ?? []);
+      const invalidOptions = options.enabled === false ? [] : (definition.validate?.(options as never, config) ?? []);
       if (invalidOptions.length > 0) {
         problems.push(...invalidOptions);
         off.add(definition.key);

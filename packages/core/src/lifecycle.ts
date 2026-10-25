@@ -109,6 +109,35 @@ export interface FeatureSetupContext<O = Record<string, unknown>> {
   currentFeature(): string | undefined;
 }
 
+const shutdownSignalListeners = new Set<() => void>();
+const startedListeners = new Set<() => void>();
+
+/**
+ * Calls `fn` as soon as a shutdown signal arrives, before any `onShutdown` callback runs, so a feature can stop
+ * advertising readiness first; returns a function that removes it.
+ */
+export function onShutdownSignal(fn: () => void): () => void {
+  shutdownSignalListeners.add(fn);
+  return () => void shutdownSignalListeners.delete(fn);
+}
+
+/** Tells the `onShutdownSignal` listeners that a shutdown started; the service calls it first when it stops. */
+export function notifyShutdownSignal(): void {
+  for (const fn of [...shutdownSignalListeners]) {
+    try {
+      fn();
+    } catch {
+      // A listener never stops the shutdown.
+    }
+  }
+}
+
+/** Calls `fn` once every feature's `onStart` callback has run; returns a function that removes it. */
+export function onServiceStarted(fn: () => void): () => void {
+  startedListeners.add(fn);
+  return () => void startedListeners.delete(fn);
+}
+
 /** A lifecycle step that failed: the feature, the phase and the error. */
 export class LifecycleError extends Error {
   constructor(
@@ -321,6 +350,7 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
         }
         started.push(entry);
       }
+      for (const fn of [...startedListeners]) fn();
     },
     shutdown: () => runStopping("onShutdown", started),
     stop: () => runStopping("onStop", started.splice(0)),

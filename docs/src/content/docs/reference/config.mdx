@@ -318,7 +318,7 @@ export type User = { email: string };
 
 ### `health`
 
-Liveness and readiness routes for orchestrators and load balancers, checking the database and the queue.
+Liveness and readiness routes for orchestrators and load balancers, checking the database, the queue and the checks features add.
 
 Every option, tag, command and hook of `health` is on [its reference page](/reference/features/health/).
 
@@ -330,4 +330,6 @@ Every option, tag, command and hook of `health` is on [its reference page](/refe
 | `health.cache` | `duration` | `"1s"` | `QS_HEALTH_CACHE` | How long a readiness result is reused by the probes of one worker; 0s runs the checks for every probe. |
 | `health.details` | `boolean` | — | `QS_HEALTH_DETAILS` | Shows each check's error and extra fields in the ready response; on outside production and off in production by default. |
 | `health.log` | `boolean` | `false` | `QS_HEALTH_LOG` | Writes a request log entry for every probe; without it only 5xx responses of the health routes are logged. |
+| `health.drainDelay` | `duration` | — | `QS_HEALTH_DRAIN_DELAY` | How long ready answers draining after a shutdown signal before the listener closes; 5s in production and 0s otherwise by default. |
+| `health.checks.<name>` | `record of hook \| object` | — | not overridable | A check: a function resolving (healthy, with extra fields) or throwing, or an object with check and critical false for a non-critical one. |
 | `health.enabled` | `boolean` | `true` | `QS_HEALTH_ENABLED` | Turns the feature off when false. |

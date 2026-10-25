@@ -99,6 +99,7 @@ export function optionLeaves(schema: AnyOptionSchema, path: string, value?: unkn
   const visit = (node: AnyOptionSchema, nodePath: string, name: string, current: unknown) => {
     // Hooks and providers hold code, which no environment variable can express.
     if (node.kind === "hook" || node.kind === "provider") return;
+    if (node.kind === "anyOf" && node.settings.members!.some((member) => member.kind === "hook")) return;
     if (node.kind !== "object") leaves.push({ path: nodePath, schema: node, name });
     if (node.kind === "object" || node.kind === "toggle") {
       for (const [key, child] of Object.entries(node.settings.shape!)) visit(child, `${nodePath}.${key}`, `${name}_${segmentName(key)}`, childOf(current, key));

@@ -176,7 +176,7 @@ describe("results", () => {
     down.ping = async () => {
       throw new Error("connection refused");
     };
-    const service = await serve({ health: {}, production: true }, { database: down });
+    const service = await serve({ health: { drainDelay: "0s" }, production: true }, { database: down });
     try {
       const [status, body] = await json(await service.fetch("/health/ready"));
       expect([status, body.checks.database]).toEqual([503, { status: "fail", durationMs: expect.any(Number), critical: true }]);

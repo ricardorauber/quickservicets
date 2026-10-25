@@ -480,7 +480,8 @@ function validate(schema: AnyOptionSchema, value: unknown, path: string, problem
     Object.defineProperty(hooks, HOOK_PATH, { value: path, enumerable: false });
     return hooks;
   }
-  if (typeof value === "function") {
+  // A function is a per-request value; for an `anyOf` that is not per request, its kinds decide (a hook takes it).
+  if (typeof value === "function" && (schema.kind !== "anyOf" || settings.perRequest)) {
     if (!settings.perRequest) return invalid();
     const checked: CheckedFunction = (ctx) => (value as OptionFunction<unknown>)(ctx);
     checked[CHECKED] = { schema, path };
@@ -774,7 +775,7 @@ export function describeOptions(schema: AnyOptionSchema, path: string): OptionDe
       secret,
       optional: settings.optional,
       perRequest: settings.perRequest,
-      ...(schema.kind === "hook" || schema.kind === "provider" ? { overridable: false as const } : {}),
+      ...(schema.kind === "hook" || schema.kind === "provider" || (schema.kind === "anyOf" && settings.members!.some((member) => member.kind === "hook")) ? { overridable: false as const } : {}),
     },
   ];
 }

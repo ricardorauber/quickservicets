@@ -1,6 +1,7 @@
 import { boolean, cidr, defineFeature, duration, list, object, oneOf, safeLog, string, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext } from "../public.ts";
 import type { SecurityApi } from "./api.ts";
 import { Exemptions } from "./exempt.ts";
+import { DEFAULT_ATTACHMENT_TYPES, fileHeaders } from "./files.ts";
 import { DEFAULT_CSP, DEFAULT_DOCS_CSP, headersStep } from "./headers.ts";
 import { SECURITY_ITEMS, securityMiddlewares, type SecurityStep } from "./pipeline.ts";
 import { proxyResolver } from "./proxy.ts";
@@ -23,7 +24,11 @@ const options = object({
       preload: boolean().default(false).describe("Adds preload to Strict-Transport-Security, a commitment that is hard to undo."),
     }).describe("Sends Strict-Transport-Security in production only."),
   }).describe("Sends the standard security headers on every response."),
-  files: toggle({}).describe("Sends headers on served files that keep a browser from running them as pages of the service."),
+  files: toggle({
+    attachmentTypes: list(string())
+      .default(DEFAULT_ATTACHMENT_TYPES)
+      .describe("The stored types served with content-disposition: attachment, wildcards allowed; other files stay inline."),
+  }).describe("Sends headers on served files (proxy and signed modes) that keep a browser from running them as pages of the service."),
   cors: toggle({}).describe("Answers cross-origin requests and preflights of the allowed origins."),
   limits: toggle({}).describe("Refuses oversized URLs, headers and bodies before reading them."),
   timeouts: toggle({}).describe("Closes idle connections and requests whose body arrives too slowly."),
@@ -69,6 +74,7 @@ const securityFeature = defineFeature({
     exemptionsOf.set(ctx.app, exemptions);
     const enabled = SECURITY_ITEMS.filter((item) => ctx.options[item].enabled);
     const steps = itemSteps(ctx);
+    if (ctx.options.files.enabled) ctx.app.configureServer({ fileHeaders: fileHeaders(ctx.options.files.attachmentTypes) });
     const proxy = ctx.options.proxy;
     // Without trusted proxies, req.ip is the peer address; production still checks for forwarded headers to warn once.
     if (proxy.enabled && (proxy.trust.length > 0 || ctx.config.production)) {

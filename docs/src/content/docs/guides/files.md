@@ -427,11 +427,15 @@ curl -i localhost:3000/documents/01a146d1-3baa-7648-8192-63c793f3371d/file
 HTTP/1.1 200 OK
 Content-Type: application/pdf
 Content-Disposition: inline; filename="contract.pdf"
+X-Content-Type-Options: nosniff
+Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox
 x-request-id: 01a146d1-d5bf-7423-9aaf-dfe4cbdd9691
 content-length: 5009
 
 (the PDF bytes)
 ```
+
+The `files` item of the security native keeps a browser from running an uploaded file as a page of the service: every file response carries `X-Content-Type-Options: nosniff` and a sandboxing `Content-Security-Policy`, and types a browser could run (HTML, SVG, XML, JavaScript and CSS, listed in `security.files.attachmentTypes`) are sent with `Content-Disposition: attachment`. `security: { files: false }` sends the plain headers above. Files in `direct` mode are served by the storage or CDN, which needs the same headers set there.
 
 ### `signed`
 
@@ -476,6 +480,8 @@ curl -i "localhost:3000/documents/01a146d2-2b32-757d-9f6d-a8620106da15/file?expi
 HTTP/1.1 200 OK
 Content-Type: application/pdf
 Content-Disposition: inline; filename="contract.pdf"
+X-Content-Type-Options: nosniff
+Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox
 x-request-id: 01a146d2-425e-74a2-b67c-ed7e0d7f64ef
 content-length: 5009
 

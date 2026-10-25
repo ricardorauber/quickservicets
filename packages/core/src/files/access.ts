@@ -11,7 +11,12 @@ export interface FileAccessSettings {
   publicUrl?: string;
   /** Current time in milliseconds (default `Date.now`). */
   now?: () => number;
+  /** Headers added to (or replacing those of) every file response, from the stored file's type and name. */
+  fileHeaders?: FileHeaders;
 }
+
+/** Computes headers for a served file from its stored type and name; `ctx.app.configureServer({ fileHeaders })` sets it. */
+export type FileHeaders = (file: { mimeType: string; filename: string }) => Readonly<Record<string, string>>;
 
 export interface FileAccess {
   mode: FileAccessMode;
@@ -100,9 +105,12 @@ export async function withFileUrls(model: EntityModel, records: StoredRecord[], 
   );
 }
 
-/** `inline; filename="..."`, with quotes, backslashes and control characters removed from the name. */
-export function contentDisposition(filename: string): string {
-  return `inline; filename="${filename.replace(/["\\\r\n\x00-\x1f]/g, "")}"`;
+/**
+ * `inline; filename="..."` (or `attachment; ...`), with quotes, backslashes and control characters removed from the
+ * name.
+ */
+export function contentDisposition(filename: string, disposition: "inline" | "attachment" = "inline"): string {
+  return `${disposition}; filename="${filename.replace(/["\\\r\n\x00-\x1f]/g, "")}"`;
 }
 
 /** Streams a file record's object with its content type, length and disposition. */
@@ -110,11 +118,10 @@ export async function fileResponse(model: EntityModel, record: StoredRecord, set
   const storage = settings.storage[(record.storage as string | undefined) ?? model.storageName ?? "default"];
   const body = storage ? await storage.get(record.storageKey as string) : null;
   if (!body) throw new HttpError(404, `${model.entityName} file not found`);
-  return new Response(body, {
-    headers: {
-      "content-type": String(record.mimeType),
-      "content-length": String(record.size),
-      "content-disposition": contentDisposition(String(record.filename)),
-    },
-  });
+  const headers = {
+    "content-type": String(record.mimeType),
+    "content-length": String(record.size),
+    "content-disposition": contentDisposition(String(record.filename)),
+  };
+  return new Response(body, { headers: settings.fileHeaders ? { ...headers, ...settings.fileHeaders({ mimeType: String(record.mimeType), filename: String(record.filename) }) } : headers });
 }

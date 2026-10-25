@@ -6,6 +6,7 @@ import { executedHooks } from "./pipeline.ts";
 import { composeHandlerStage, composeRequestStage, type MiddlewareStages } from "../middleware.ts";
 import { Router } from "./router.ts";
 import { normalizeAddress } from "../cidr.ts";
+import type { FileHeaders } from "../files/access.ts";
 
 export type HandlerResult<Result> = Result | Response | undefined;
 
@@ -29,6 +30,8 @@ export interface Route {
 export interface ServerSettings {
   /** Computes `req.ip` from the request and its peer address, when `req.ip` is first read (default: the peer address). */
   clientIp?: (request: Request, peer: string) => string;
+  /** Headers added to (or replacing those of) the responses of the file routes in `proxy` and `signed` modes. */
+  fileHeaders?: FileHeaders;
 }
 
 export interface ServerOptions extends ServerSettings {

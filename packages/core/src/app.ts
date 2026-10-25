@@ -184,7 +184,7 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
     ? new Map([...allJobs].filter(([, definition]) => definition.feature === undefined || enabledFeatures.has(definition.feature)))
     : allJobs;
   prepareFeatureTargets(models, endpoints, crudRoutes);
-  const fileAccess = { storage: config.storage, files: config.files, publicUrl: config.server.publicUrl };
+  const fileAccess = { storage: config.storage, files: config.files, publicUrl: config.server.publicUrl, ...(settings.fileHeaders ? { fileHeaders: settings.fileHeaders } : {}) };
   const fileCleanup = {
     storage: config.storage,
     deleteOnRemove: config.files.deleteOnRemove,

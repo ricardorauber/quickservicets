@@ -34,7 +34,8 @@ It is enabled by default; turn it off with `security: false` or `QS_SECURITY_ENA
 | `security.headers.hsts.maxAge` | `duration` | `"365d"` | `QS_SECURITY_HEADERS_HSTS_MAX_AGE` | no | How long browsers keep to HTTPS, sent in seconds. |
 | `security.headers.hsts.includeSubDomains` | `boolean` | `true` | `QS_SECURITY_HEADERS_HSTS_INCLUDE_SUB_DOMAINS` | no | Adds includeSubDomains to Strict-Transport-Security. |
 | `security.headers.hsts.preload` | `boolean` | `false` | `QS_SECURITY_HEADERS_HSTS_PRELOAD` | no | Adds preload to Strict-Transport-Security, a commitment that is hard to undo. |
-| `security.files.enabled` | `boolean` | `true` | `QS_SECURITY_FILES_ENABLED` | no | Sends headers on served files that keep a browser from running them as pages of the service. Turns it off when false. |
+| `security.files.enabled` | `boolean` | `true` | `QS_SECURITY_FILES_ENABLED` | no | Sends headers on served files (proxy and signed modes) that keep a browser from running them as pages of the service. Turns it off when false. |
+| `security.files.attachmentTypes` | `string[]` | `["text/html","application/xhtml+xml","image/svg+xml","text/xml","application/xml","application/javascript","text/javascript","text/css"]` | `QS_SECURITY_FILES_ATTACHMENT_TYPES` | no | The stored types served with content-disposition: attachment, wildcards allowed; other files stay inline. |
 | `security.cors.enabled` | `boolean` | `true` | `QS_SECURITY_CORS_ENABLED` | no | Answers cross-origin requests and preflights of the allowed origins. Turns it off when false. |
 | `security.limits.enabled` | `boolean` | `true` | `QS_SECURITY_LIMITS_ENABLED` | no | Refuses oversized URLs, headers and bodies before reading them. Turns it off when false. |
 | `security.timeouts.enabled` | `boolean` | `true` | `QS_SECURITY_TIMEOUTS_ENABLED` | no | Closes idle connections and requests whose body arrives too slowly. Turns it off when false. |

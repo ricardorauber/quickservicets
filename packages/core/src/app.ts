@@ -1,4 +1,5 @@
 import type { ResolvedConfig } from "./config.ts";
+import { configureTransactions } from "./transactions.ts";
 import { jsonLogger, safeLog, type Logger } from "./logger.ts";
 import type { HookCall, HookDefinition, Repositories } from "./hooks.ts";
 import { createCrudRoutes, mergeRoutes, type CrudRoute } from "./http/crud.ts";
@@ -189,6 +190,7 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
     deleteWithOwner: config.files.deleteWithOwner,
     logger: config.logger ?? jsonLogger,
   };
+  configureTransactions(config.database, config.logger ?? jsonLogger);
   const repos = createRepositories(models, config.database, {
     populateMaxDepth: config.populate?.maxDepth,
     fileAccess,

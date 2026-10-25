@@ -1,4 +1,5 @@
 import { findAll, type DatabaseAdapter, type ReferencePull, type StoredRecord } from "./adapter.ts";
+import { runInTransaction } from "./transactions.ts";
 import { HttpError, type FieldErrorDetail } from "./errors.ts";
 import type { EntityModel, FieldModel } from "./model.ts";
 import { itemCount } from "./validation.ts";
@@ -277,5 +278,5 @@ export async function executeDeletePlan(
     }
   };
   // A single write is atomic on its own.
-  await (plan.updates.length + plan.deletions.length === 1 ? run() : adapter.transaction(run));
+  await (plan.updates.length + plan.deletions.length === 1 ? run() : runInTransaction(adapter, run));
 }

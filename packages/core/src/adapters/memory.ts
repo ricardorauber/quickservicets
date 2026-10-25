@@ -9,6 +9,7 @@ import {
   type StoredRecord,
 } from "../adapter.ts";
 import type { EntityModel } from "../model.ts";
+import { TransactionScope } from "../sql/transaction-scope.ts";
 import { isConditionGroup, type Condition, type FieldCondition, type SizeFilter, type SortField } from "../query.ts";
 
 type Table = Map<string, StoredRecord>;
@@ -137,6 +138,15 @@ function without(record: StoredRecord, omit: readonly string[] | undefined): Sto
 
 export function memoryAdapter(): DatabaseAdapter {
   const tables = new Map<string, Table>();
+  // Transactions run one at a time, like on SQLite; the undo log of the running one restores what it changed.
+  const scope = new TransactionScope();
+  let undo: (() => void)[] | undefined;
+  /** Records how to restore the record `id` of `table` as it is now, when a transaction runs. */
+  const remember = (table: Table, id: string) => {
+    if (!undo) return;
+    const previous = table.get(id);
+    undo.push(() => (previous === undefined ? table.delete(id) : table.set(id, previous)));
+  };
 
   // Each schema is its own namespace, so `users` and `auth/users` never share records.
   const tableFor = (entity: EntityModel): Table => {
@@ -208,59 +218,86 @@ export function memoryAdapter(): DatabaseAdapter {
 
   return {
     kind: "memory",
+    supportsRollback: true,
     async connect(models) {
       for (const model of models) tableFor(model);
     },
     async disconnect() {
       tables.clear();
     },
-    async insert(entity, record) {
-      const stored = normalize(entity, record);
-      assertUnique(entity, stored);
-      tableFor(entity).set(stored.id, stored);
-      return structuredClone(stored);
+    insert(entity, record) {
+      return scope.run(() => {
+        const stored = normalize(entity, record);
+        assertUnique(entity, stored);
+        remember(tableFor(entity), stored.id);
+        tableFor(entity).set(stored.id, stored);
+        return structuredClone(stored);
+      });
     },
-    async findById(entity, id, options) {
-      const record = tableFor(entity).get(id);
-      return record ? without(structuredClone(record), options?.omit) : null;
+    findById(entity, id, options) {
+      return scope.run(() => {
+        const record = tableFor(entity).get(id);
+        return record ? without(structuredClone(record), options?.omit) : null;
+      });
     },
-    async findOne(entity, where) {
-      const [record] = select(entity, where);
-      return record ? structuredClone(record) : null;
+    findOne(entity, where) {
+      return scope.run(() => {
+        const [record] = select(entity, where);
+        return record ? structuredClone(record) : null;
+      });
     },
-    async findMany(entity, options: FindManyOptions) {
-      return page(select(entity, options.where), options);
+    findMany(entity, options: FindManyOptions) {
+      return scope.run(() => page(select(entity, options.where), options));
     },
-    async findRelated(scope, options) {
-      return page(selectRelated(scope, options.where) ?? [], options);
+    findRelated(related, options) {
+      return scope.run(() => page(selectRelated(related, options.where) ?? [], options));
     },
-    async countRelated(scope, where) {
-      return selectRelated(scope, where)?.length ?? 0;
+    countRelated(related, where) {
+      return scope.run(() => selectRelated(related, where)?.length ?? 0);
     },
-    async aggregateRelated(scope, where, aggregates) {
-      const records = selectRelated(scope, where);
-      return records ? aggregateAll(scope.target, records, aggregates) : null;
+    aggregateRelated(related, where, aggregates) {
+      return scope.run(() => {
+        const records = selectRelated(related, where);
+        return records ? aggregateAll(related.target, records, aggregates) : null;
+      });
     },
-    async updateById(entity, id, changes, where = []) {
-      const table = tableFor(entity);
-      const current = table.get(id);
-      if (!current || !where.every((condition) => matches(current, condition, entity))) return null;
-      const updated = normalize(entity, { ...current, ...changes, id });
-      assertUnique(entity, updated);
-      table.set(id, updated);
-      return structuredClone(updated);
+    updateById(entity, id, changes, where = []) {
+      return scope.run(() => {
+        const table = tableFor(entity);
+        const current = table.get(id);
+        if (!current || !where.every((condition) => matches(current, condition, entity))) return null;
+        const updated = normalize(entity, { ...current, ...changes, id });
+        assertUnique(entity, updated);
+        remember(table, id);
+        table.set(id, updated);
+        return structuredClone(updated);
+      });
     },
-    async deleteById(entity, id) {
-      return tableFor(entity).delete(id);
+    deleteById(entity, id) {
+      return scope.run(() => {
+        remember(tableFor(entity), id);
+        return tableFor(entity).delete(id);
+      });
     },
-    async count(entity, where) {
-      return select(entity, where).length;
+    count(entity, where) {
+      return scope.run(() => select(entity, where).length);
     },
-    async aggregate(entity, where, aggregates) {
-      return aggregateAll(entity, select(entity, where), aggregates);
+    aggregate(entity, where, aggregates) {
+      return scope.run(() => aggregateAll(entity, select(entity, where), aggregates));
     },
-    async transaction(fn) {
-      return fn();
+    transaction(fn) {
+      return scope.transaction(fn, {
+        begin: () => {
+          undo = [];
+        },
+        commit: () => {
+          undo = undefined;
+        },
+        rollback: () => {
+          for (const restore of (undo ?? []).reverse()) restore();
+          undo = undefined;
+        },
+      });
     },
   };
 }

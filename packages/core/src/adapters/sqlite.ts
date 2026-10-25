@@ -107,6 +107,7 @@ export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
 
   return {
     kind: "sqlite",
+    supportsRollback: true,
     get client() {
       return client;
     },

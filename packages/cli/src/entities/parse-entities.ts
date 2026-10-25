@@ -330,6 +330,9 @@ function parseEntity(program: ts.Program, context: ParseContext): EntityModel {
     ...tags,
     exposure: { list: { include: [], exclude: [] }, read: { include: [], exclude: [] } },
   };
+  if ((model.schemaKey ?? model.repoKey) === "transaction") {
+    throw new EntityParseError(`${source.relativeFile}: the repository key transaction is reserved; rename the entity or set @collection`);
+  }
   model.exposure = {
     list: exposureFor(model, "list", fieldSelections, source),
     read: exposureFor(model, "read", fieldSelections, source),

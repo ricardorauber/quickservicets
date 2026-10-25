@@ -112,6 +112,11 @@ export interface DatabaseAdapter {
   aggregateRelated?(scope: RelatedScope, where: Condition[], aggregates: Record<string, Aggregate>): Promise<AggregateValues | null>;
   /** Runs `fn` atomically when the database supports transactions, or directly otherwise. */
   transaction<T>(fn: () => Promise<T>): Promise<T>;
+  /**
+   * Whether a failed `transaction` rolls its writes back: true on the memory adapter, SQLite and PostgreSQL, and on
+   * MongoDB replica sets and sharded clusters once connected. Without it, public transactions warn once.
+   */
+  readonly supportsRollback?: boolean;
   /** Locks a record until the current transaction ends, for read-modify-write updates (optional). */
   lockForUpdate?(entity: EntityModel, id: string): Promise<void>;
 }

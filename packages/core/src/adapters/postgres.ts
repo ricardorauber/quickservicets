@@ -137,6 +137,7 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
 
   return {
     kind: "postgres",
+    supportsRollback: true,
     get client() {
       return client;
     },

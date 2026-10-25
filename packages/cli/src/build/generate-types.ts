@@ -123,6 +123,8 @@ function repositoryLines(models: EntityModel[]): string[] {
     lines.push(...models.filter((model) => model.schemaKey === schemaKey).map((model) => line(model, "    ")));
     lines.push("  };");
   }
+  lines.push("  /** Runs `fn` in one database transaction; a call inside another transaction joins it. */");
+  lines.push("  transaction<T>(fn: () => Promise<T>): Promise<T>;");
   return lines;
 }
 

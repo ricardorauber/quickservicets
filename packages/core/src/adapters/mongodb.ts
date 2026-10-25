@@ -286,6 +286,10 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
 
   return {
     kind: "mongodb",
+    /** Rollback needs a replica set or a sharded cluster, known once connected. */
+    get supportsRollback() {
+      return supportsTransactions;
+    },
     get client() {
       return client;
     },

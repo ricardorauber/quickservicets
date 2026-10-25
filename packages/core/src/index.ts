@@ -211,6 +211,7 @@ export { applyEnvironment, CONFIG_OVERRIDES, configVariable, envNameFor, feature
 export { maskSecrets, SECRET_MASK } from "./secrets.ts";
 export type { ConfigOverride, EnvAlias, EnvironmentResult, OptionLeaf } from "./environment.ts";
 export { runAfterHooks, runBeforeHooks } from "./feature-hooks.ts";
+export { afterCommit, inTransaction, onRollback, transaction } from "./transactions.ts";
 export { parseRate } from "./rates.ts";
 export type { Rate } from "./rates.ts";
 export { matchesCidr } from "./cidr.ts";

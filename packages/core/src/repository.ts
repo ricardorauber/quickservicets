@@ -1,3 +1,4 @@
+import { publicTransaction, runInTransaction } from "./transactions.ts";
 import {
   UniqueViolationError,
   type Aggregate,
@@ -218,7 +219,7 @@ export function createRepository(
   const hasDerived = derivedFields(model).length > 0;
   // Writes only need a transaction when they also change other records (relation sides or a moved 1-1 link).
   const syncsRelations = hasDerived || model.fields.some((field) => field.onConflict === "replace");
-  const atomically = <T>(fn: () => Promise<T>) => (syncsRelations ? adapter.transaction(fn) : fn());
+  const atomically = <T>(fn: () => Promise<T>) => (syncsRelations ? runInTransaction(adapter, fn) : fn());
   const cleanup = repositoryOptions.fileCleanup;
   const ownedFiles = ownedFileFields(model, models);
   // Updates that may remove replaced files do so in the same transaction as the change.
@@ -319,7 +320,7 @@ export function createRepository(
       );
       if (updated) return written(updated, options);
     }
-    return (cleansReplaced ? <T>(fn: () => Promise<T>) => adapter.transaction(fn) : atomically)(async () => {
+    return (cleansReplaced ? <T>(fn: () => Promise<T>) => runInTransaction(adapter, fn) : atomically)(async () => {
       const current = await existing(id);
       await releaseOneToOne(model, id, changes, adapter, touch);
       const updated = await mapUniqueViolation(() =>
@@ -370,7 +371,7 @@ export function createRepository(
       return write(id, value, options, queue);
     }
     // Add/remove operations read the stored list and write the result atomically.
-    return adapter.transaction(async () => {
+    return runInTransaction(adapter, async () => {
       await adapter.lockForUpdate?.(model, id);
       const current = await existing(id);
       const details: { field: string; message: string }[] = [];
@@ -562,7 +563,7 @@ export function createRepository(
         return;
       }
       await settle((queue) =>
-        adapter.transaction(async () => {
+        runInTransaction(adapter, async () => {
           const plan = await planDelete(model, id, models, adapter, record);
           const owned: { target: EntityModel; id: string }[] = [];
           for (const deleted of plan.deletions) {
@@ -606,6 +607,8 @@ export function createRepositories(
       registry[model.repoKey] = repository;
     }
   }
+  // `repos.transaction(fn)`, kept out of the registry's keys so code listing the repositories never sees it.
+  Object.defineProperty(registry, "transaction", { value: <T>(fn: () => Promise<T>) => publicTransaction(adapter, fn), enumerable: false });
   return registry;
 }
 

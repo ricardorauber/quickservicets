@@ -87,7 +87,8 @@ describe("the QueueMessage model", () => {
 describe("errors", () => {
   const model = queueMessageEntity();
   const start = async (folders: Record<string, unknown>) => {
-    const config = resolve({ queues: {} });
+    // Without consumers, the added messages stay waiting.
+    const config = resolve({ queues: { consume: false } });
     const lifecycle = createFeatureLifecycle({
       features: config.features,
       config,

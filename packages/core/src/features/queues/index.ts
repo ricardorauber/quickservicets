@@ -1,5 +1,6 @@
-import { boolean, defineFeature, duration, integer, object, record, type StoredRecord } from "../public.ts";
+import { boolean, defineFeature, duration, integer, object, parseDuration, record } from "../public.ts";
 import { queueClient } from "./client.ts";
+import { createDatabaseQueue, type QueueSettings } from "./database.ts";
 import { queueMessageEntity } from "./message.ts";
 import { isQueueDefinition, type QueueDefinition } from "./queue.ts";
 import { running, sharedState, type RunningQueues } from "./state.ts";
@@ -70,31 +71,33 @@ const queuesFeature = defineFeature({
     const declared = new Map<string, QueueDefinition>();
     for (const [name, file] of ctx.folders.queues ?? []) if (isQueueDefinition(file)) declared.set(name, file);
     const names = new Set(declared.keys());
-    const retriesOf = (name: string) => declared.get(name)?.options.retries ?? ctx.options.retries;
+    const settingsOf = (name: string): QueueSettings => {
+      const file = declared.get(name)?.options ?? {};
+      return {
+        concurrency: file.concurrency ?? ctx.options.concurrency,
+        timeout: file.timeout ?? ctx.options.timeout,
+        retries: file.retries ?? ctx.options.retries,
+        retryDelay: file.retryDelay ?? ctx.options.retryDelay,
+        maxRetryDelay: ctx.options.maxRetryDelay,
+      };
+    };
+    const store = createDatabaseQueue({
+      adapter: ctx.config.database,
+      model,
+      definitions: declared,
+      settings: settingsOf,
+      pollInterval: ctx.options.pollInterval,
+      logger: ctx.logger,
+      production: ctx.config.production,
+      resultLimit: ctx.config.jobs.limits.result,
+    });
 
     const native: RunningQueues = {
       async add(name, payload, _options, source) {
         if (!names.has(name)) throw new Error(`Unknown queue ${name}`);
         const stored = jsonPayload(payload);
         if (stored === undefined) throw new Error(`Queue payload for ${name} is not JSON-serializable`);
-        const now = new Date();
-        const row: StoredRecord = {
-          id: Bun.randomUUIDv7(),
-          createdAt: now,
-          updatedAt: now,
-          queue: name,
-          payload: stored as StoredRecord[string],
-          status: "waiting",
-          priority: 0,
-          runAt: now,
-          attempt: 0,
-          maxAttempts: retriesOf(name) + 1,
-          enqueuedAt: now,
-          ...(source.requestId ? { requestId: source.requestId } : {}),
-        };
-        // Inside a transaction the insert joins it, so the message exists only once the transaction commits.
-        await adapter.insert(model, row);
-        return { id: row.id, deduplicated: false };
+        return store.enqueue(name, stored, source);
       },
     };
     running.current = native;
@@ -103,7 +106,14 @@ const queuesFeature = defineFeature({
       if (running.current === native) running.current = undefined;
     };
     lifecycle.teardown = stop;
+    // onStop callbacks run in reverse order, so this one runs last, after the consumers drained.
     ctx.app.onStop(stop);
+    if (!ctx.options.consume) return;
+    ctx.app.onStart((start) => store.start(start.repos));
+    ctx.app.onShutdown(() => store.stop());
+    // Within the stop limit, so the lifecycle's own timeout never cuts the drain short.
+    const stopLimit = Math.floor((parseDuration(ctx.config.lifecycle.stopTimeout) ?? 10_000) * 0.9);
+    ctx.app.onStop(() => store.drain(Math.min(parseDuration(ctx.config.jobs.shutdownGrace) ?? 10_000, stopLimit)));
   },
 });
 

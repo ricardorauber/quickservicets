@@ -30,14 +30,14 @@ export default async (_repos: unknown, req: ServiceRequest) => req.queue.add("se
 
 ## Level 1: options and environment
 
-Every option has a default and a `QS_*` variable; a queue file's options win over them:
+Every option has a default and a `QS_*` variable; a queue file's options win over them. Every process runs the consumers, one message per queue at a time by default; `consume: false` keeps a process from consuming while it still adds messages:
 
 ```ts
-queues: { retries: 5, retryDelay: "30s" }
+queues: { concurrency: 4, retries: 5, retryDelay: "30s" }
 ```
 
 ```bash
-QS_QUEUES_RETRIES=5 bun .generated/server.ts
+QS_QUEUES_CONSUME=false bun .generated/server.ts
 ```
 
 ## Level 2: tags

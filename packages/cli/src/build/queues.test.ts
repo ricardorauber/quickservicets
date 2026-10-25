@@ -120,7 +120,8 @@ export default async (repos: Repositories, req: ServiceRequest) => {
   };
 
   test("req.queue.add stores a waiting message with the request id, and returns its id", async () => {
-    const service = await startTestService({ files });
+    // Without consumers, the message stays as it was added.
+    const service = await startTestService({ files, env: { QS_QUEUES_CONSUME: "false" } });
     try {
       const response = await service.fetch("/welcome", post());
       const added = (await response.json()) as { id: string; deduplicated: boolean };

@@ -17,16 +17,20 @@ function exampleFiles(): Record<string, string> {
 }
 
 const send = (body: unknown = {}) => ({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-type Repos = { queueMessages: { findById(id: string): Promise<{ queue: string; status: string; payload: unknown; maxAttempts: number } | null> } };
+type Repos = { queueMessages: { findById(id: string): Promise<{ queue: string; status: string; payload: unknown; result?: unknown } | null> } };
+const settle = async (check: () => Promise<boolean>) => {
+  for (let attempt = 0; attempt < 300 && !(await check()); attempt++) await Bun.sleep(10);
+};
 
-test("a welcome request adds a waiting send-email message for the user", async () => {
+test("a welcome request adds a send-email message, which the consumer completes", async () => {
   const service = await startTestService({ files: exampleFiles() });
   try {
     const user = (await (await service.fetch("/users", send({ email: "ada@example.com" }))).json()) as { id: string };
     const added = (await (await service.fetch(`/users/${user.id}/welcome`, send())).json()) as { id: string; deduplicated: boolean };
     expect(added.deduplicated).toBe(false);
-    const message = await (service.repos as unknown as Repos).queueMessages.findById(added.id);
-    expect(message).toMatchObject({ queue: "send-email", status: "waiting", payload: { userId: user.id }, maxAttempts: 4 });
+    const messages = (service.repos as unknown as Repos).queueMessages;
+    await settle(async () => (await messages.findById(added.id))?.status === "completed");
+    expect(await messages.findById(added.id)).toMatchObject({ queue: "send-email", status: "completed", payload: { userId: user.id }, result: { sentTo: "ada@example.com" } });
   } finally {
     await service.stop();
   }

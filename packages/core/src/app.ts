@@ -15,6 +15,8 @@ import { createRequestJobs } from "./jobs/triggers.ts";
 import type { CrudOperation, EntityModel, ParsedTags } from "./model.ts";
 import { prepareFeatureTargets } from "./feature-targets.ts";
 import type { RuntimeRoute } from "./lifecycle.ts";
+import { middlewareStages, type MiddlewareStages, type OwnedMiddleware } from "./middleware.ts";
+import { REQUEST_PROPERTIES, type ServiceRequest } from "./hooks.ts";
 import { patternOf } from "./http/router.ts";
 import { DOCS_PATH, OPENAPI_PATH } from "./http/docs.ts";
 import { projectResult, type Projection } from "./projection.ts";
@@ -81,6 +83,8 @@ export interface AppOptions {
   featureFolders?: FeatureFolderRegistry;
   /** Routes features registered during setup; an endpoint or generated route with the same method and path wins. */
   runtimeRoutes?: readonly RuntimeRoute[];
+  /** Middlewares features added during setup with `ctx.app.use`, in feature order. */
+  middleware?: readonly OwnedMiddleware[];
 }
 
 /** The default exports of features' convention folders, by feature key, folder name and file name. */
@@ -141,7 +145,33 @@ function runtimeRoutesOf(routes: readonly RuntimeRoute[], taken: Route[], logger
   });
 }
 
-export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, config, openApi, jobs: allJobs = new Map(), clock, featureFolders = {}, runtimeRoutes = [] }: AppOptions): App {
+/** The middlewares of the enabled features (their definitions', then the ones added in setup) and of the project, by stage. */
+function stagesOf(config: ResolvedConfig, added: readonly OwnedMiddleware[]): MiddlewareStages | undefined {
+  const features = (config.features ?? []).flatMap((feature) => [
+    ...(feature.definition.middleware ?? []).map((middleware) => ({ owner: feature.key, middleware })),
+    ...added.filter((entry) => entry.owner === feature.key),
+  ]);
+  if (features.length === 0 && (config.middleware ?? []).length === 0) return undefined;
+  return middlewareStages(features, config.middleware ?? []);
+}
+
+/** The request properties of the enabled features, failing when a name is taken by the core or by another feature. */
+function requestPropertiesOf(config: ResolvedConfig): Map<string, (req: ServiceRequest) => unknown> {
+  const properties = new Map<string, (req: ServiceRequest) => unknown>();
+  const owners = new Map<string, string>();
+  for (const feature of config.features ?? []) {
+    for (const [name, factory] of Object.entries(feature.definition.request ?? {})) {
+      if ((REQUEST_PROPERTIES as readonly string[]).includes(name)) throw new Error(`Request property ${name} of ${feature.key} conflicts with the built-in request property ${name}`);
+      const owner = owners.get(name);
+      if (owner) throw new Error(`Request property ${name} of ${feature.key} conflicts with ${owner}`);
+      owners.set(name, feature.key);
+      properties.set(name, factory);
+    }
+  }
+  return properties;
+}
+
+export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, config, openApi, jobs: allJobs = new Map(), clock, featureFolders = {}, runtimeRoutes = [], middleware = [] }: AppOptions): App {
   // Endpoints and jobs of features that are not enabled in this configuration are left out.
   const enabledFeatures = new Set(config.features?.map((feature) => feature.key) ?? []);
   const endpoints = allEndpoints.some((endpoint) => endpoint.feature !== undefined)
@@ -150,7 +180,7 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
   const jobs = [...allJobs.values()].some((definition) => definition.feature !== undefined)
     ? new Map([...allJobs].filter(([, definition]) => definition.feature === undefined || enabledFeatures.has(definition.feature)))
     : allJobs;
-  prepareFeatureTargets(models, endpoints);
+  prepareFeatureTargets(models, endpoints, crudRoutes);
   const fileAccess = { storage: config.storage, files: config.files, publicUrl: config.server.publicUrl };
   const fileCleanup = {
     storage: config.storage,
@@ -217,6 +247,8 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
     repos: repos as unknown as Repositories,
     config,
     jobs: createRequestJobs(jobRunner, { logger, clock }),
+    middleware: stagesOf(config, middleware),
+    requestProperties: requestPropertiesOf(config),
   });
   const jobScheduler = createJobScheduler(jobs, jobRunner, { enabled: config.jobs.enabled, logger, clock });
   // Projects without jobs have no run records to clean.

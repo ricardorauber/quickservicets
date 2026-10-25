@@ -73,7 +73,15 @@ export function builtInTagOwner(name: string): string | undefined {
 }
 
 function parseSources(projectRoot: string, features: readonly ResolvedFeature[]): ProjectModels {
-  useFeatureTags(features, builtInTagOwner);
+  const restore = useFeatureTags(features, builtInTagOwner);
+  try {
+    return parseSourcesWithTags(projectRoot, features);
+  } finally {
+    restore();
+  }
+}
+
+function parseSourcesWithTags(projectRoot: string, features: readonly ResolvedFeature[]): ProjectModels {
   const entitiesDir = join(projectRoot, "entities");
   const projectFiles = listEntitySources(projectRoot, entitiesDir);
   const { sources: featureFiles, overrides } = featureEntitySources(projectRoot, features, projectFiles);

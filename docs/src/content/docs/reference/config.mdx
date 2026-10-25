@@ -39,6 +39,7 @@ Every key that holds a value can also be set by an environment variable named af
 | `migrations.autoInDev` | `boolean` | true | `QS_MIGRATIONS_AUTO_IN_DEV` | Whether `quickservice dev` creates migrations automatically for model changes (default true). |
 | `env` | `Record<string, AnyOptionSchema>` | — | not overridable | Environment variables the service needs, by name, with their option schemas (like `{ DATABASE_URL: url(),
 REPORT_HOUR: integer().default(6) }`); they are checked at startup and read typed from `env`. |
+| `middleware` | `Middleware[]` | — | not overridable | Middlewares of the `request`, `handler` and `error` stages, run after every feature's middlewares of the same stage. |
 | `lifecycle` | `object` | — | — | Time limits of the features' lifecycle callbacks. |
 | `lifecycle.startTimeout` | `string` | "30s" | `QS_LIFECYCLE_START_TIMEOUT` | Longest each feature `setup` and `onStart` call may take, as a duration (default "30s"). |
 | `lifecycle.stopTimeout` | `string` | "10s" | `QS_LIFECYCLE_STOP_TIMEOUT` | Longest each feature `onShutdown` and `onStop` call may take, as a duration (default "10s"). |

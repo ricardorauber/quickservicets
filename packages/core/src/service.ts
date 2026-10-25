@@ -99,6 +99,7 @@ export async function startService(options: StartServiceOptions): Promise<Runnin
       jobs: options.jobs,
       featureFolders: options.featureFolders,
       runtimeRoutes: lifecycle.routes,
+      middleware: lifecycle.middleware,
     });
     await lifecycle.start({ repos: app.repos as never, server: app.server });
   } catch (error) {

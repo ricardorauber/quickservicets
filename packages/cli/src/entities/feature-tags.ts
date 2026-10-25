@@ -37,10 +37,10 @@ export function activeFeatureTags(): FeatureTagSet {
 }
 
 /**
- * Registers the tags of the enabled features for the parsers, failing when a tag has the name of a built-in tag or of
- * another feature's tag.
+ * Registers the tags of the enabled features for the parsers until the returned function restores the previous ones,
+ * failing when a tag has the name of a built-in tag or of another feature's tag.
  */
-export function useFeatureTags(features: readonly ResolvedFeature[], builtIn: (name: string) => string | undefined): FeatureTagSet {
+export function useFeatureTags(features: readonly ResolvedFeature[], builtIn: (name: string) => string | undefined): () => void {
   const set = empty();
   for (const feature of features) {
     for (const [name, tag] of Object.entries(feature.definition.tags ?? {})) {
@@ -56,8 +56,11 @@ export function useFeatureTags(features: readonly ResolvedFeature[], builtIn: (n
     if (enabled.has(native.key)) continue;
     for (const name of Object.keys(native.tags ?? {})) if (!set.tags.has(name)) set.disabled.set(name, native.key);
   }
+  const previous = active;
   active = set;
-  return set;
+  return () => {
+    active = previous;
+  };
 }
 
 /** Fails when a feature tag has the name of one of the project's hooks. */

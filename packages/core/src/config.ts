@@ -13,6 +13,7 @@ import { applyEnvironment } from "./environment.ts";
 import { declaredVariables, readVariables, setEnvValues, type DeclaredVariable } from "./env-vars.ts";
 import { maskSecrets } from "./secrets.ts";
 import type { AnyOptionSchema } from "./options.ts";
+import type { Middleware } from "./middleware.ts";
 import { activeFeatureDefinitions, assertFeatureFolders, loadProjectFeatures, resolveFeatures, type NativeFeatures, type ResolvedFeature } from "./features.ts";
 
 export const CONFIG_FILE = "quickservice.config.ts";
@@ -83,6 +84,8 @@ export interface ServiceConfig extends NativeFeatures {
    * REPORT_HOUR: integer().default(6) }`); they are checked at startup and read typed from `env`.
    */
   env?: Record<string, AnyOptionSchema>;
+  /** Middlewares of the `request`, `handler` and `error` stages, run after every feature's middlewares of the same stage. */
+  middleware?: Middleware[];
   /** Time limits of the features' lifecycle callbacks. */
   lifecycle?: {
     /** Longest each feature `setup` and `onStart` call may take, as a duration (default "30s"). */

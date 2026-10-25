@@ -7,6 +7,8 @@ import { jsonLogger, safeLog, type Logger } from "./logger.ts";
 import type { EntityModel } from "./model.ts";
 import { tagsOf, type OptionsTarget } from "./feature-targets.ts";
 import type { FeatureSetupContext } from "./lifecycle.ts";
+import type { Middleware } from "./middleware.ts";
+import type { ServiceRequest } from "./hooks.ts";
 import { boolean, object, resolveOptions, type AnyOptionSchema, type ObjectOptionSchema, type Options, type OptionsInput } from "./options.ts";
 
 /**
@@ -79,6 +81,13 @@ export interface FeatureInput<S extends AnyOptionSchema> {
    * runtime routes through `ctx.app`.
    */
   setup?: FeatureSetup<FeatureOptions<S>>;
+  /** Middlewares of the `request`, `handler` and `error` stages, run in feature order, then by `order`. */
+  middleware?: readonly Middleware[];
+  /**
+   * Properties added to every request, by name, each computed on first read and kept for the request; declare their
+   * types in `RequestExtensions`.
+   */
+  request?: Readonly<Record<string, (req: ServiceRequest) => unknown>>;
 }
 
 /** The `setup` field of a feature definition. */
@@ -166,6 +175,10 @@ export interface FeatureDefinition<S extends AnyOptionSchema = AnyOptionSchema> 
   readonly watch?: readonly string[];
   /** The feature's setup, run in each worker process before the database connects. */
   readonly setup?: FeatureSetup<FeatureOptions<S>>;
+  /** The feature's middlewares. */
+  readonly middleware?: readonly Middleware[];
+  /** The request properties the feature adds, by name. */
+  readonly request?: Readonly<Record<string, (req: ServiceRequest) => unknown>>;
   /**
    * The feature's resolved options, once a configuration enabling it has been resolved in this process; throws
    * otherwise. The feature's own code reads its typed options here instead of receiving the config.
@@ -259,6 +272,8 @@ export function defineFeature<S extends AnyOptionSchema = ObjectOptionSchema<{}>
     ...(input.folders !== undefined ? { folders: foldersField(input.folders, invalid) } : {}),
     ...(input.watch !== undefined ? { watch: watchField(input.watch, invalid) } : {}),
     ...(input.setup !== undefined ? { setup: functionField(input.setup, "setup", invalid) } : {}),
+    ...(input.middleware !== undefined ? { middleware: middlewareField(input.middleware, invalid) } : {}),
+    ...(input.request !== undefined ? { request: requestField(input.request, invalid) } : {}),
     options() {
       const resolved = resolvedOptions.get(definition as FeatureDefinition);
       if (!resolved) throw new Error(`${key} is not enabled; add ${key}: {} to quickservice.config.ts`);
@@ -298,6 +313,20 @@ function foldersField(folders: Readonly<Record<string, FeatureFolder>>, invalid:
     checked[name] = Object.freeze({ ...folder, dir: folder.dir.replace(/^\.\//, "").replace(/\/+$/, "") });
   }
   return Object.freeze(checked);
+}
+
+function middlewareField(middleware: readonly Middleware[], invalid: (reason: string) => Error): readonly Middleware[] {
+  if (!Array.isArray(middleware)) throw invalid("middleware must be a list of middlewares");
+  for (const entry of middleware) {
+    if (!["request", "handler", "error"].includes(entry?.stage) || typeof entry.run !== "function") throw invalid('each middleware must be { stage: "request" | "handler" | "error", run, order? }');
+  }
+  return Object.freeze([...middleware]);
+}
+
+function requestField(request: Readonly<Record<string, (req: ServiceRequest) => unknown>>, invalid: (reason: string) => Error): Readonly<Record<string, (req: ServiceRequest) => unknown>> {
+  if (typeof request !== "object" || request === null || Array.isArray(request)) throw invalid("request must map property names to functions of the request");
+  for (const [name, factory] of Object.entries(request)) if (typeof factory !== "function") throw invalid(`request property ${name} must be a function of the request`);
+  return Object.freeze({ ...request });
 }
 
 function functionField<F>(value: F, name: string, invalid: (reason: string) => Error): F {

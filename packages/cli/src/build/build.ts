@@ -17,18 +17,19 @@ import {
   type HookCall,
   type ParsedTags,
   type QueryItem,
+  type ResolvedConfig,
 } from "@quickservice/core";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import ts from "typescript";
-import { parseProjectModels } from "../entities/parse-entities.ts";
+import { builtInTagOwner, parseProjectModels } from "../entities/parse-entities.ts";
 import { BuildError } from "../errors.ts";
 import type { EndpointRoute } from "../endpoints/scan-endpoints.ts";
 import { parseEndpointTags, type EndpointMetadata } from "../hooks/endpoint-tags.ts";
 import type { HookEntry } from "../hooks/scan-hooks.ts";
 import type { JobEntry } from "../jobs/scan-jobs.ts";
 import { featureWatchPaths, scanFeatureFolders, scanProjectFiles } from "./feature-files.ts";
-import { activeFeatureTags, assertNoHookConflicts } from "../entities/feature-tags.ts";
+import { activeFeatureTags, assertNoHookConflicts, useFeatureTags } from "../entities/feature-tags.ts";
 import { validateHookReferences } from "../hooks/validate-hook-references.ts";
 import { hasPendingChanges, sqlDialectOf } from "../migrations/add.ts";
 import { envVarsLines, generateTypesFile } from "./generate-types.ts";
@@ -282,6 +283,16 @@ export function vectorIndexWarnings(models: EntityModel[], kind: string | undefi
 export async function build(projectRoot: string, env: Record<string, string | undefined> = process.env): Promise<BuildSummary> {
   assertFeatureImports(projectRoot);
   const config = await loadConfig(projectRoot, env);
+  // Endpoint files are parsed with the enabled features' tags too.
+  const restore = useFeatureTags(config.features, builtInTagOwner);
+  try {
+    return await buildProject(projectRoot, config);
+  } finally {
+    restore();
+  }
+}
+
+async function buildProject(projectRoot: string, config: ResolvedConfig): Promise<BuildSummary> {
   const featureKeys = registeredProjectFeatures().map((feature) => feature.key);
   const variables = declaredVariables(config.env, config.features.map((feature) => ({ key: feature.key, env: feature.definition.env })));
   const parsed = parseProjectModels(projectRoot, config.features);

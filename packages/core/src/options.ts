@@ -18,9 +18,14 @@ export type OptionKind =
   | "secret"
   | "provider";
 
-/** What a per-request option function receives: the request, undefined outside one (jobs, queues, setup code). */
+/**
+ * What a per-request option function receives: the request, undefined outside one (jobs, queues, setup code), and the
+ * request's user and tenant.
+ */
 export interface OptionContext {
   req: ServiceRequest | undefined;
+  user: ServiceRequest["user"];
+  tenant: ServiceRequest["tenant"];
   [key: string]: unknown;
 }
 
@@ -517,7 +522,7 @@ export function resolveOption<T>(value: T | OptionFunction<T>, ctx: Partial<Opti
   if (typeof value !== "function") return value;
   const fn = value as CheckedFunction;
   const path = fn[CHECKED]?.path ?? "option";
-  const context: OptionContext = { ...ctx, req: ctx.req };
+  const context: OptionContext = { ...ctx, req: ctx.req, user: ctx.user ?? ctx.req?.user, tenant: ctx.tenant ?? ctx.req?.tenant };
   const failed = (error: unknown) => {
     if (error instanceof OptionError) throw error;
     throw new OptionError(`Option ${path} failed: ${(error as Error)?.message ?? String(error)}`, { cause: error });

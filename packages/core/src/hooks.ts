@@ -6,8 +6,23 @@ import type { RequestJobs } from "./jobs/triggers.ts";
  */
 export interface Repositories {}
 
+/** The signed-in user of a request; empty until a feature or the project declares its fields by declaration merging. */
+export interface RequestUser {}
+
+/** The tenant of a request; empty until a feature or the project declares its fields by declaration merging. */
+export interface RequestTenant {}
+
+/** The feature flags of a request; empty until a feature or the project declares its fields by declaration merging. */
+export interface RequestFlags {}
+
+/**
+ * Properties features add to every request with the `request` field of their definitions, computed on first read;
+ * each feature declares its own by declaration merging.
+ */
+export interface RequestExtensions {}
+
 /** The request passed to endpoints and hooks. */
-export interface ServiceRequest<Body = unknown> {
+export interface ServiceRequest<Body = unknown> extends RequestExtensions {
   /** The request id, also returned in the `x-request-id` response header. */
   readonly id: string;
   readonly method: string;
@@ -28,7 +43,18 @@ export interface ServiceRequest<Body = unknown> {
   readonly queryItems: Body extends object ? Body : Record<string, unknown>;
   /** Starts the project's jobs on demand. */
   readonly jobs: RequestJobs;
+  /** The matched route's path pattern, like `/users/[id]`. */
+  readonly route: string;
+  /** The signed-in user, set by a middleware. */
+  user: RequestUser | undefined;
+  /** The request's tenant, set by a middleware. */
+  tenant: RequestTenant | undefined;
+  /** The request's feature flags, set by a middleware. */
+  flags: RequestFlags | undefined;
 }
+
+/** The properties every request has, which a feature's `request` field may not use. */
+export const REQUEST_PROPERTIES = ["id", "method", "path", "params", "query", "headers", "raw", "context", "json", "queryItems", "jobs", "route", "user", "tenant", "flags"] as const;
 
 /** Lets endpoints and hooks set the status and headers of a data response. */
 export interface ServiceResponse {

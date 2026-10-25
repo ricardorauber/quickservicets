@@ -3,6 +3,7 @@ import type { Repositories, ServiceRequest, ServiceResponse } from "../hooks.ts"
 import { noRequestJobs, type RequestJobs } from "../jobs/triggers.ts";
 import { jsonLogger, safeLog, type Logger } from "../logger.ts";
 import { executedHooks } from "./pipeline.ts";
+import { composeHandlerStage, composeRequestStage, type MiddlewareStages } from "../middleware.ts";
 import { Router } from "./router.ts";
 
 export type HandlerResult<Result> = Result | Response | undefined;
@@ -29,6 +30,10 @@ export interface ServerOptions {
   config: { production: boolean; server?: { port: number; workers?: number }; logger?: Logger };
   /** `req.jobs` of every request (default: no jobs). */
   jobs?: RequestJobs;
+  /** The middlewares of each stage, in the order they run (default: none). */
+  middleware?: MiddlewareStages;
+  /** Properties computed on first read of each request, by name. */
+  requestProperties?: ReadonlyMap<string, (req: ServiceRequest) => unknown>;
 }
 
 export interface Server {
@@ -69,10 +74,14 @@ function withHeader(response: Response, name: string, value: string): Response {
   }
 }
 
-function createRequest(raw: Request, url: URL, params: Record<string, string>, id: string, jobs: RequestJobs): ServiceRequest {
+function createRequest(raw: Request, url: URL, params: Record<string, string>, id: string, jobs: RequestJobs, route: string): ServiceRequest {
   let body: Promise<unknown> | undefined;
   return {
     id,
+    route,
+    user: undefined,
+    tenant: undefined,
+    flags: undefined,
     method: raw.method,
     path: url.pathname,
     params,
@@ -106,14 +115,66 @@ export function toResponse(result: unknown, res: ResponseControls, status?: numb
   return new Response(JSON.stringify(result), { status: res.statusCode ?? status ?? 200, headers });
 }
 
-export function createServer({ routes, repos, config, jobs = noRequestJobs }: ServerOptions): Server {
-  const router = new Router(routes.map((route) => ({ method: route.method, path: route.path, value: route })));
+/** Defines each request property as a getter that computes its value on first read and keeps it for the request. */
+function withRequestProperties(req: ServiceRequest, properties: ReadonlyMap<string, (req: ServiceRequest) => unknown>): ServiceRequest {
+  for (const [name, factory] of properties) {
+    Object.defineProperty(req, name, {
+      configurable: true,
+      enumerable: false,
+      get() {
+        const value = factory(req);
+        Object.defineProperty(req, name, { value, configurable: true, enumerable: false, writable: true });
+        return value;
+      },
+    });
+  }
+  return req;
+}
+
+export function createServer({ routes, repos, config, jobs = noRequestJobs, middleware, requestProperties }: ServerOptions): Server {
+  const handlerStage = middleware?.handler ?? [];
+  const errorStage = middleware?.error ?? [];
+  const requestStage = middleware?.request ?? [];
+  // Handler middlewares wrap each route's hooks and handler once, here, so requests without them pay nothing.
+  const wrapped = handlerStage.length === 0 ? routes : routes.map((route) => {
+    const inner = route.handler;
+    const composed = composeHandlerStage(handlerStage, async (req, res) => inner(repos, req, res));
+    return { ...route, handler: ((_repos, req, res) => composed(req, res)) as Endpoint };
+  });
+  const router = new Router(wrapped.map((route) => ({ method: route.method, path: route.path, value: route })));
+  const properties = requestProperties && requestProperties.size > 0 ? requestProperties : undefined;
 
   const logger = config.logger ?? jsonLogger;
 
-  const handle = async (request: Request, requestId: string, state: { route: string | null; req?: ServiceRequest }) => {
+  const errorResponse = async (error: unknown, request: Request, requestId: string, state: { req?: ServiceRequest }): Promise<Response> => {
+    if (!(error instanceof HttpError)) {
+      const failure = error instanceof Error ? error : new Error(String(error));
+      safeLog(logger, "error", {
+        timestamp: new Date().toISOString(),
+        requestId,
+        error: { name: failure.name, message: failure.message, stack: failure.stack },
+      });
+    }
+    for (const handler of errorStage) {
+      try {
+        const response = await handler.run(error, { request, requestId, ...(state.req ? { req: state.req } : {}) });
+        if (response instanceof Response) return response;
+      } catch (failure) {
+        const thrown = failure instanceof Error ? failure : new Error(String(failure));
+        safeLog(logger, "error", {
+          timestamp: new Date().toISOString(),
+          requestId,
+          message: "middleware.error",
+          error: { name: thrown.name, message: thrown.message, stack: thrown.stack },
+        });
+      }
+    }
+    return toErrorResponse(error, config);
+  };
+
+  const handle = async (request: Request, requestId: string, state: { route: string | null; req?: ServiceRequest }, parsed?: URL) => {
     try {
-      const url = new URL(request.url);
+      const url = parsed ?? new URL(request.url);
       const match = router.match(request.method, url.pathname);
       if (match.kind === "notFound") throw new HttpError(404, "Route not found");
       if (match.kind === "methodNotAllowed") {
@@ -122,28 +183,32 @@ export function createServer({ routes, repos, config, jobs = noRequestJobs }: Se
         return response;
       }
       state.route = match.route.value.path;
-      state.req = createRequest(request, url, match.params, requestId, jobs);
+      const req = createRequest(request, url, match.params, requestId, jobs, match.route.value.path);
+      state.req = properties ? withRequestProperties(req, properties) : req;
       const res = new ResponseControls();
       const result = await match.route.value.handler(repos, state.req, res);
       return toResponse(result, res, match.route.value.status);
     } catch (error) {
-      if (!(error instanceof HttpError)) {
-        const failure = error instanceof Error ? error : new Error(String(error));
-        safeLog(logger, "error", {
-          timestamp: new Date().toISOString(),
-          requestId,
-          error: { name: failure.name, message: failure.message, stack: failure.stack },
-        });
-      }
-      return toErrorResponse(error, config);
+      if (errorStage.length === 0 && error instanceof HttpError) return toErrorResponse(error, config);
+      return errorResponse(error, request, requestId, state);
     }
   };
+
+  type State = { route: string | null; req?: ServiceRequest };
+  const pipeline =
+    requestStage.length === 0
+      ? handle
+      : (request: Request, requestId: string, state: State) => {
+          const url = new URL(request.url);
+          const run = composeRequestStage(requestStage, () => handle(request, requestId, state, url));
+          return run({ request, url, requestId }).catch((error: unknown) => errorResponse(error, request, requestId, state));
+        };
 
   const fetch = async (request: Request): Promise<Response> => {
     const startedAt = performance.now();
     const requestId = requestIdOf(request);
-    const state: { route: string | null; req?: ServiceRequest } = { route: null };
-    const response = withHeader(await handle(request, requestId, state), "x-request-id", requestId);
+    const state: State = { route: null };
+    const response = withHeader(await pipeline(request, requestId, state), "x-request-id", requestId);
     safeLog(logger, response.status >= 500 ? "error" : "info", {
       timestamp: new Date().toISOString(),
       requestId,

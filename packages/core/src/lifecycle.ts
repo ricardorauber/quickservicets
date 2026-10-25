@@ -5,6 +5,7 @@ import type { Endpoint, Server } from "./http/server.ts";
 import { parseDuration } from "./jobs/job.ts";
 import { jsonLogger, safeLog, type Logger } from "./logger.ts";
 import type { EntityModel } from "./model.ts";
+import type { Middleware, OwnedMiddleware } from "./middleware.ts";
 
 /** Which worker process runs a feature's setup. */
 export interface WorkerInfo {
@@ -54,6 +55,8 @@ export interface FeatureApp {
    * receives the rest of the path in `req.params.rest`. Only available during setup.
    */
   route(method: string, path: string, handler: Endpoint, options?: RuntimeRouteOptions): void;
+  /** Adds a middleware of the `request`, `handler` or `error` stage. Only available during setup. */
+  use(middleware: Middleware): void;
 }
 
 /** What a feature's `setup(ctx)` receives. */
@@ -123,6 +126,8 @@ export interface FeatureLifecycleOptions {
 export interface FeatureLifecycle {
   /** The routes the features registered during setup. */
   readonly routes: RuntimeRoute[];
+  /** The middlewares the features added during setup, in feature order. */
+  readonly middleware: OwnedMiddleware[];
   /** Runs each feature's `setup` in order; throws a `LifecycleError` on the first failure or timeout. */
   setup(): Promise<void>;
   /** Runs the `onStart` callbacks in feature order; throws a `LifecycleError` on the first failure or timeout. */
@@ -147,6 +152,7 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
   const stopTimeout = parseDuration(config.lifecycle.stopTimeout) ?? 10_000;
   const registered: Registered[] = features.map((feature) => ({ feature, onStart: [], onShutdown: [], onStop: [] }));
   const routes: RuntimeRoute[] = [];
+  const middleware: OwnedMiddleware[] = [];
   const started: Registered[] = [];
 
   const logFailure = (error: LifecycleError) => logLifecycleFailure(logger, error);
@@ -165,6 +171,7 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
 
   return {
     routes,
+    middleware,
     async setup() {
       for (const entry of registered) {
         const { feature } = entry;
@@ -179,6 +186,10 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
           route: (method, path, handler, options = {}) => {
             duringSetup("route");
             routes.push({ method: method.toUpperCase(), path, handler, hooks: normalizeHooks(options.hooks), feature: feature.key });
+          },
+          use: (entry) => {
+            duringSetup("use");
+            middleware.push({ owner: feature.key, middleware: entry });
           },
         };
         const context: FeatureSetupContext = {

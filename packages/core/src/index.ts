@@ -15,7 +15,9 @@ export type { PrimaryOptions, WorkerProcess } from "./workers.ts";
 export type { ResolvedConfig, ServiceConfig } from "./config.ts";
 export { createRepositories, createRepository, READ_METHODS, readRepository, repositoryFor } from "./repository.ts";
 export type { EntityRecord, ListResult, Many, One, Populated, PopulatePath, ReadOptions, ReadRepository, ReferencePath, RelatedField, RelatedRecord, RelatedReferences, Repository, RepositoryOptions, RepositoryRegistry } from "./repository.ts";
-export { definePostHook, definePreHook, isHookDefinition } from "./hooks.ts";
+export { definePostHook, definePreHook, isHookDefinition, REQUEST_PROPERTIES } from "./hooks.ts";
+export { composeHandlerStage, composeRequestStage, middlewareStages } from "./middleware.ts";
+export type { ErrorMiddleware, ErrorStageContext, HandlerMiddleware, Middleware, MiddlewareStages, OwnedMiddleware, RequestMiddleware, RequestStageContext } from "./middleware.ts";
 export type {
   HookCall,
   HookDefinition,
@@ -25,6 +27,10 @@ export type {
   PostHookFn,
   PreHookFn,
   Repositories,
+  RequestExtensions,
+  RequestFlags,
+  RequestTenant,
+  RequestUser,
   ServiceRequest,
   ServiceResponse,
 } from "./hooks.ts";

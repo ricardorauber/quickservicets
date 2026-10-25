@@ -103,13 +103,28 @@ Every option, tag, command and hook of `security` is on [its reference page](/re
 | `security.loadShedding.maxInFlight` | `integer` | `1000` | `QS_SECURITY_LOAD_SHEDDING_MAX_IN_FLIGHT` | The most requests one worker serves at once; more are refused with 503. |
 | `security.loadShedding.retryAfter` | `duration` | `"1s"` | `QS_SECURITY_LOAD_SHEDDING_RETRY_AFTER` | The Retry-After of a refusal, sent in whole seconds. |
 | `security.rateLimit.enabled` | `boolean` | `true` | `QS_SECURITY_RATE_LIMIT_ENABLED` | Limits how many requests each client address makes in a time window, answering 429 with RateLimit headers. Turns it off when false. |
-| `security.rateLimit.limit` | `rate` | `"1000/min"` | `QS_SECURITY_RATE_LIMIT_LIMIT` | The requests each bucket may make per window, like 1000/min or 10/s. |
+| `security.rateLimit.limit` | `rate` | `"1000/min"` | `QS_SECURITY_RATE_LIMIT_LIMIT` | The requests each bucket may make per window, like 1000/min or 10/s; a function of the request context (req, user and tenant) computes it per request. |
 | `security.rateLimit.by` | `("route" \| "ip" \| "user" \| "tenant")[]` | `["ip"]` | `QS_SECURITY_RATE_LIMIT_BY` | What a bucket is per: the client address (ip), the route, the user or the tenant, combined. |
 | `security.rateLimit.store` | `"memory"` | `"memory"` | `QS_SECURITY_RATE_LIMIT_STORE` | Where the counters live: memory keeps them per worker. |
 | `security.rateLimit.memory.maxKeys` | `integer` | `100000` | `QS_SECURITY_RATE_LIMIT_MEMORY_MAX_KEYS` | The most buckets the memory store keeps; the least recently used one is evicted. |
 | `security.ip.enabled` | `boolean` | `true` | `QS_SECURITY_IP_ENABLED` | Accepts or refuses requests by client address. Turns it off when false. |
 | `security.masking.enabled` | `boolean` | `true` | `QS_SECURITY_MASKING_ENABLED` | Keeps secret values and sensitive fields out of logs and error responses. Turns it off when false. |
 | `security.enabled` | `boolean` | `true` | `QS_SECURITY_ENABLED` | Turns the feature off when false. |
+
+#### `@rateLimit`
+
+Gives one route, or each route of an entity, its own rate limit on top of the global one, always keyed by route; `@rateLimit off` exempts the route from every rate limit.
+
+**Applies to:** endpoints, entities
+
+**Options:** `rateLimit.limit`, `rateLimit.by`
+
+**Syntax:** `@rateLimit <limit> [by=…]` or `@rateLimit off`
+
+```ts
+/** @rateLimit 10/min by=user */
+export default handler;
+```
 
 #### `@cors`
 

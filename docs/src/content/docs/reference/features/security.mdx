@@ -56,7 +56,7 @@ It is enabled by default; turn it off with `security: false` or `QS_SECURITY_ENA
 | `security.loadShedding.maxInFlight` | `integer` | `1000` | `QS_SECURITY_LOAD_SHEDDING_MAX_IN_FLIGHT` | no | The most requests one worker serves at once; more are refused with 503. |
 | `security.loadShedding.retryAfter` | `duration` | `"1s"` | `QS_SECURITY_LOAD_SHEDDING_RETRY_AFTER` | no | The Retry-After of a refusal, sent in whole seconds. |
 | `security.rateLimit.enabled` | `boolean` | `true` | `QS_SECURITY_RATE_LIMIT_ENABLED` | no | Limits how many requests each client address makes in a time window, answering 429 with RateLimit headers. Turns it off when false. |
-| `security.rateLimit.limit` | `rate` | `"1000/min"` | `QS_SECURITY_RATE_LIMIT_LIMIT` | no | The requests each bucket may make per window, like 1000/min or 10/s. |
+| `security.rateLimit.limit` | `rate` | `"1000/min"` | `QS_SECURITY_RATE_LIMIT_LIMIT` | yes | The requests each bucket may make per window, like 1000/min or 10/s; a function of the request context (req, user and tenant) computes it per request. |
 | `security.rateLimit.by` | `("route" \| "ip" \| "user" \| "tenant")[]` | `["ip"]` | `QS_SECURITY_RATE_LIMIT_BY` | no | What a bucket is per: the client address (ip), the route, the user or the tenant, combined. |
 | `security.rateLimit.store` | `"memory"` | `"memory"` | `QS_SECURITY_RATE_LIMIT_STORE` | no | Where the counters live: memory keeps them per worker. |
 | `security.rateLimit.memory.maxKeys` | `integer` | `100000` | `QS_SECURITY_RATE_LIMIT_MEMORY_MAX_KEYS` | no | The most buckets the memory store keeps; the least recently used one is evicted. |
@@ -65,6 +65,21 @@ It is enabled by default; turn it off with `security: false` or `QS_SECURITY_ENA
 | `security.enabled` | `boolean` | `true` | `QS_SECURITY_ENABLED` | no | Turns the feature off when false. |
 
 ## Tags
+
+### `@rateLimit`
+
+Gives one route, or each route of an entity, its own rate limit on top of the global one, always keyed by route; `@rateLimit off` exempts the route from every rate limit.
+
+**Applies to:** endpoints, entities
+
+**Syntax:** `@rateLimit <limit> [by=…]` or `@rateLimit off`
+
+**Options:** `security.rateLimit.limit`, `security.rateLimit.by`
+
+```ts
+/** @rateLimit 10/min by=user */
+export default handler;
+```
 
 ### `@cors`
 

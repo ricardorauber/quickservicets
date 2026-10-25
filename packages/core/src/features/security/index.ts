@@ -62,7 +62,10 @@ const options = object({
     retryAfter: duration().default("1s").describe("The Retry-After of a refusal, sent in whole seconds."),
   }).describe("Refuses new requests with 503 while a worker has too many in flight, so it stays responsive under overload."),
   rateLimit: toggle({
-    limit: rate().default("1000/min").describe("The requests each bucket may make per window, like 1000/min or 10/s."),
+    limit: rate()
+      .perRequest()
+      .default("1000/min")
+      .describe("The requests each bucket may make per window, like 1000/min or 10/s; a function of the request context (req, user and tenant) computes it per request."),
     by: list(oneOf(KEY_PARTS)).default(["ip"]).describe("What a bucket is per: the client address (ip), the route, the user or the tenant, combined."),
     store: oneOf(["memory"]).default("memory").describe("Where the counters live: memory keeps them per worker."),
     memory: object({
@@ -93,7 +96,7 @@ function itemSteps(ctx: FeatureSetupContext<SecurityOptions>, index: () => Route
     if (Math.max(ctx.worker.count, ctx.config.server.workers) > 1) {
       safeLog(ctx.logger, "warn", { timestamp: new Date().toISOString(), message: 'security.rateLimit uses per-worker memory counters; set security.rateLimit.store to "database" to share them' });
     }
-    steps.push(rateLimitStep(rateLimit, { store, ipOf, ...(rateLimit.by.includes("route") ? { routes: routePatterns(taggedRoutes()) } : {}) }));
+    steps.push(rateLimitStep(rateLimit, { store, ipOf, tagged: index()?.routes ?? [], ...(rateLimit.by.includes("route") ? { routes: routePatterns(taggedRoutes()) } : {}) }));
   }
   if (options.headers.enabled) steps.push(headersStep(options.headers, ctx.config.production));
   if (options.loadShedding.enabled) {
@@ -128,6 +131,14 @@ const securityFeature = defineFeature({
   options,
   validate: (resolved) => [...(resolved.cors.enabled ? corsProblems(resolved.cors, "security.cors") : []), ...(resolved.timeouts.enabled ? idleProblems(resolved.timeouts.idle) : [])],
   tags: {
+    rateLimit: {
+      on: ["endpoint", "entity"],
+      scope: "rateLimit",
+      shorthand: "limit",
+      options: ["limit", "by"],
+      description: "Gives one route, or each route of an entity, its own rate limit on top of the global one, always keyed by route; `@rateLimit off` exempts the route from every rate limit.",
+      example: "/** @rateLimit 10/min by=user */\nexport default handler;",
+    },
     cors: {
       on: ["endpoint", "entity"],
       scope: "cors",

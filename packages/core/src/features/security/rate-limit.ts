@@ -1,6 +1,7 @@
-import { HttpError, parseRate, Router, type TaggedRoute } from "../public.ts";
+import { HttpError, parseRate, resolveOption, Router, type OptionFunction, type Rate, type ServiceRequest, type TaggedRoute } from "../public.ts";
 import { EXEMPT } from "./exempt.ts";
 import type { SecurityState, SecurityStep } from "./pipeline.ts";
+import type { SecurityRoute } from "./routes.ts";
 import type { RateLimitResult, RateLimitStore } from "./store.ts";
 
 /** The parts a rate limit key can be made of, in the order they are joined. */
@@ -12,7 +13,7 @@ export type KeyPart = (typeof KEY_PARTS)[number];
 /** The `rateLimit` item's options this step uses. */
 export interface RateLimitOptions {
   enabled: boolean;
-  limit: string;
+  limit: string | OptionFunction<string>;
   by: readonly KeyPart[];
 }
 
@@ -79,44 +80,118 @@ export interface RateLimitContext {
   store: RateLimitStore;
   /** The client address of a request, as `req.ip` reads it. */
   ipOf(request: Request): string;
-  /** The route patterns, when a key includes `route`. */
+  /** The route patterns, when the global key includes `route`. */
   routes?: RoutePatterns;
+  /** The routes with a security tag, to know whether a `@rateLimit` needs the handler stage. */
+  tagged?: readonly SecurityRoute[];
   /** The time of a hit (default `Date.now`). */
   now?: () => number;
 }
 
+/** One rate limit: its limit (a rate, or a function of the request), the parts of its key and where it runs. */
+interface Bucket {
+  limit: string | OptionFunction<string>;
+  parts: readonly KeyPart[];
+  /** Keys of route buckets start with it, so they never share counters with the global limit. */
+  prefix: string;
+  /** Whether it needs `req.user`, `req.tenant` or a per-request limit, so it runs in the handler stage. */
+  late: boolean;
+}
+
+const bucketOf = (limit: Bucket["limit"], parts: readonly KeyPart[], prefix: string): Bucket => ({
+  limit,
+  parts,
+  prefix,
+  late: typeof limit === "function" || parts.includes("user") || parts.includes("tenant"),
+});
+
+/** The bucket of a route's `@rateLimit` tag: its own limit and `by` (or the global ones), always keyed by route too. */
+function routeBucket(options: RateLimitOptions, route: SecurityRoute): Bucket | undefined {
+  const tag = route.tags.rateLimit;
+  if (!tag?.on) return undefined;
+  let bucket = route.cache.get("rateLimit") as Bucket | undefined;
+  if (!bucket) {
+    const own = tag.options as { limit?: string; by?: KeyPart[] };
+    bucket = bucketOf(own.limit ?? options.limit, keyParts(["route", ...(own.by ?? options.by)]), "tag|");
+    route.cache.set("rateLimit", bucket);
+  }
+  return bucket;
+}
+
+/** The id of a request's user or tenant, when it has one. */
+const idOf = (value: unknown): string | undefined => {
+  const id = (value as { id?: unknown } | undefined)?.id;
+  return id === undefined || id === null ? undefined : String(id);
+};
+
 /**
- * The step of the `rateLimit` item in the request stage: the global limit keyed by the client address (and the route
- * when `by` includes it), answering 429 when it is passed and adding the `RateLimit-*` headers to every response of a
- * limited request.
+ * The step of the `rateLimit` item. The global limit applies to every request that is not exempted, and a route's
+ * `@rateLimit` adds its own bucket; a request is refused when either refuses it, and the `RateLimit-*` headers describe
+ * the bucket with the fewest requests left. Limits keyed by address or route run before routing; limits keyed by user
+ * or tenant, or computed per request, run in the handler stage, once `req.user` and `req.tenant` are set.
  */
 export function rateLimitStep(options: RateLimitOptions, context: RateLimitContext): SecurityStep {
-  const { count: limit, windowMs } = parseRate(options.limit);
-  const parts = keyParts(options.by);
-  const byRoute = parts.includes("route");
   const now = context.now ?? Date.now;
   const { store, ipOf } = context;
-  const keyOf = (state: SecurityState): string => {
-    const { request, url } = state.ctx;
-    const ip = ipOf(request);
-    // With the default `by`, the address alone is the key.
-    if (!byRoute) return ip;
-    return `${context.routes!.of(request.method, url.pathname)}|${ip}`;
+  const global = bucketOf(options.limit, keyParts(options.by), "");
+  const rates = new Map<string, Rate>();
+  const rateOf = (text: string) => {
+    let parsed = rates.get(text);
+    if (!parsed) rates.set(text, (parsed = parseRate(text)));
+    return parsed;
   };
-  const decide = (state: SecurityState, result: RateLimitResult) => {
-    state.rateLimit = result;
+  const keyOf = (bucket: Bucket, state: SecurityState, req?: ServiceRequest): string => {
+    const { request, url } = state.ctx;
+    const ip = req ? req.ip : ipOf(request);
+    // With the default `by`, the address alone is the key.
+    if (bucket.prefix === "" && bucket.parts.length === 1 && bucket.parts[0] === "ip") return ip;
+    let key = bucket.prefix;
+    for (const part of bucket.parts) {
+      if (key !== bucket.prefix) key += "|";
+      if (part === "ip") key += ip;
+      else if (part === "route") key += state.route && bucket.prefix !== "" ? `${state.route.method} ${state.route.path}` : (context.routes?.of(request.method, url.pathname) ?? "-");
+      else {
+        const id = idOf(part === "user" ? req?.user : req?.tenant);
+        key += id === undefined ? `ip:${ip}` : `${part}:${id}`;
+      }
+    }
+    return key;
+  };
+  const record = (state: SecurityState, result: RateLimitResult) => {
+    if (!state.rateLimit || result.remaining < state.rateLimit.remaining || !result.allowed) state.rateLimit = result;
     if (!result.allowed) throw rateLimited(result);
   };
-  return {
+  const hit = (bucket: Bucket, state: SecurityState, limit: string, req?: ServiceRequest) => {
+    const { count, windowMs } = rateOf(limit);
+    const result = store.hit(keyOf(bucket, state, req), { limit: count, windowMs, now: now() });
+    if (result instanceof Promise) return result.then((settled) => record(state, settled));
+    record(state, result);
+  };
+  /** Whether rate limits apply to the request at all: not exempted, and not on a route tagged `@rateLimit off`. */
+  const applies = (state: SecurityState) => !(state.exempt & EXEMPT.rateLimit) && state.route?.tags.rateLimit?.on !== false;
+  const lateRoutes = (context.tagged ?? []).some((route) => routeBucket(options, route)?.late);
+  const step: SecurityStep = {
     name: "rateLimit",
     before(state: SecurityState) {
-      if (state.exempt & EXEMPT.rateLimit) return;
-      const result = store.hit(keyOf(state), { limit, windowMs, now: now() });
-      if (result instanceof Promise) return result.then((settled) => decide(state, settled));
-      decide(state, result);
+      if (!applies(state)) return;
+      const own = state.route ? routeBucket(options, state.route) : undefined;
+      const first = global.late ? undefined : hit(global, state, global.limit as string);
+      if (!own || own.late) return first;
+      return first ? first.then(() => hit(own, state, own.limit as string)) : hit(own, state, own.limit as string);
     },
     after(response: Response, state: SecurityState) {
       return state.rateLimit ? withRateLimitHeaders(response, state.rateLimit) : response;
     },
   };
+  if (global.late || lateRoutes) {
+    step.handler = async (req: ServiceRequest, state: SecurityState) => {
+      if (!applies(state)) return;
+      for (const bucket of [global, state.route ? routeBucket(options, state.route) : undefined]) {
+        if (!bucket?.late) continue;
+        const limit = typeof bucket.limit === "function" ? await resolveOption(bucket.limit, { req }) : bucket.limit;
+        await hit(bucket, state, limit, req);
+      }
+    };
+  }
+  return step;
 }

@@ -51,6 +51,13 @@ export default defineConfig({ database: memoryAdapter(), security: { proxy: { tr
 
 ## Level 2: tags
 
+`@rateLimit` gives a route its own limit on top of the global one, keyed by route and, here, by user:
+
+```ts
+/** @rateLimit 10/min by=user */
+export default handler;
+```
+
 `@securityHeaders` changes the security headers of one endpoint or of an entity's routes, and `@securityHeaders off` sends none there:
 
 ```ts
@@ -67,7 +74,14 @@ export default handler;
 
 ## Level 3: per request
 
-Not applicable: no option of this version is computed per request.
+The rate limit can be a function of the request, its user and tenant, evaluated once `req.user` is set:
+
+```ts
+export default defineConfig({
+  database: memoryAdapter(),
+  security: { rateLimit: { limit: ({ user }) => ((user as { plan?: string } | undefined)?.plan === "pro" ? "3000/min" : "300/min"), by: ["user"] } },
+});
+```
 
 ## Level 4: hooks and events
 

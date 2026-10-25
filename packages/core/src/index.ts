@@ -1,7 +1,7 @@
 export { CODES_BY_STATUS, HttpError, codeForStatus, toErrorResponse } from "./errors.ts";
 export type { ErrorResponseOptions, FieldErrorDetail, HttpErrorOptions } from "./errors.ts";
 export { alwaysHiddenPaths, CRUD_OPERATIONS, entityRoutePath, hiddenPathsFor, SYSTEM_FIELDS, vectorFields } from "./model.ts";
-export type { ArrayOnDeleteAction, EnumDeclarationInfo, FileAccessMode, RelationKind, RelationSide, VectorMetric, VectorSettings, CrudOperation, EntityModel, Exposure, ReadOperation, HookReference, ModelIndex, OverrideHooksMode, FieldConstraints, FieldModel, FieldStorage, FieldType, NestedFieldModel, OnDeleteAction, PrimitiveFieldType, StringFormat, TypeDescriptor } from "./model.ts";
+export type { ArrayOnDeleteAction, EnumDeclarationInfo, ParsedTag, ParsedTags, FileAccessMode, RelationKind, RelationSide, VectorMetric, VectorSettings, CrudOperation, EntityModel, Exposure, ReadOperation, HookReference, ModelIndex, OverrideHooksMode, FieldConstraints, FieldModel, FieldStorage, FieldType, NestedFieldModel, OnDeleteAction, PrimitiveFieldType, StringFormat, TypeDescriptor } from "./model.ts";
 export { ReferenceArrayChange, validateBody } from "./validation.ts";
 export type { ValidationMode, ValidationResult } from "./validation.ts";
 export { DEFAULT_LIMIT, FILTER_OPERATORS, MAX_LIMIT, MAX_LIST_VALUES, convertQueryValue, listQueryFields, OPERATORS_BY_TYPE, parseListQuery, queryableFields, SIZE_COMPARISONS } from "./query.ts";
@@ -119,6 +119,7 @@ export {
   oneOf,
   OptionError,
   optionTypeOf,
+  suggestion,
   parseOptionString,
   provider,
   resolveOption,
@@ -163,7 +164,9 @@ export {
   activeFeatureDefinitions,
   resolveFeatures,
 } from "./features.ts";
-export type { FeatureConfig, FeatureDefinition, FeatureDocs, FeatureEntities, FeatureEntitiesContext, FeatureInput, FeatureOptions, FeatureRequirement, NativeFeatures, ProjectFeatureModule, ResolvedFeature } from "./features.ts";
+export { prepareFeatureTargets, tagsOf } from "./feature-targets.ts";
+export type { OptionsTarget } from "./feature-targets.ts";
+export type { FeatureConfig, FeatureDefinition, FeatureDocs, FeatureEntities, FeatureEntitiesContext, FeatureInput, FeatureTag, FeatureTagTarget, TargetOptions, FeatureOptions, FeatureRequirement, NativeFeatures, ProjectFeatureModule, ResolvedFeature } from "./features.ts";
 export { applyEnvironment, CONFIG_OVERRIDES, configVariable, envNameFor, featureVariables, logConfigWarnings, NOT_OVERRIDABLE, optionLeaves, overrideVariables, unknownVariableWarnings } from "./environment.ts";
 export { maskSecrets, SECRET_MASK } from "./secrets.ts";
 export type { ConfigOverride, EnvAlias, EnvironmentResult, OptionLeaf } from "./environment.ts";

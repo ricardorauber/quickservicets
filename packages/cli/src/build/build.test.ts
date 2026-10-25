@@ -83,7 +83,7 @@ describe("failures", () => {
     const errors: string[] = [];
     const code = await run(["build"], { log: () => {}, error: (line) => errors.push(line) }, root);
     expect(code).toBe(1);
-    expect(errors.join("\n")).toContain("entities/Organization.ts: unknown hook @nope");
+    expect(errors.join("\n")).toContain("entities/Organization.ts: unknown tag @nope: no hook or feature defines it");
     expect(read(root, "models.ts")).toBe(before);
     expect(existsSync(join(root, ".generated.staging"))).toBe(false);
   });

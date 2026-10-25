@@ -15,6 +15,7 @@ import {
   type CrudRouteEntry,
   type EntityModel,
   type HookCall,
+  type ParsedTags,
   type QueryItem,
 } from "@quickservice/core";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -27,6 +28,7 @@ import { parseEndpointTags, type EndpointMetadata } from "../hooks/endpoint-tags
 import type { HookEntry } from "../hooks/scan-hooks.ts";
 import type { JobEntry } from "../jobs/scan-jobs.ts";
 import { scanProjectFiles } from "./feature-files.ts";
+import { activeFeatureTags, assertNoHookConflicts } from "../entities/feature-tags.ts";
 import { validateHookReferences } from "../hooks/validate-hook-references.ts";
 import { hasPendingChanges, sqlDialectOf } from "../migrations/add.ts";
 import { envVarsLines, generateTypesFile } from "./generate-types.ts";
@@ -81,6 +83,8 @@ interface ResolvedEndpoint {
   populate?: { entity: string; paths: string[] };
   /** Success status from `@status`. */
   status?: number;
+  /** Feature tags written on the endpoint. */
+  tags?: ParsedTags;
 }
 
 interface ScannedEndpoint {
@@ -203,7 +207,7 @@ function generateRoutesFile(
   ];
   const endpointEntries = endpoints.map(
     (endpoint, index) =>
-      `  { method: ${JSON.stringify(endpoint.route.method)}, path: ${JSON.stringify(endpoint.route.path)}, hooks: ${JSON.stringify(endpoint.hooks)}, ${endpoint.projection ? `projection: ${JSON.stringify(endpoint.projection)}, ` : ""}${endpoint.populate ? `populate: ${JSON.stringify(endpoint.populate)}, ` : ""}${endpoint.query ? `query: ${JSON.stringify(endpoint.query)}, ` : ""}${endpoint.status !== undefined ? `status: ${endpoint.status}, ` : ""}${endpoint.route.feature ? `feature: ${JSON.stringify(endpoint.route.feature)}, ` : ""}handler: endpoint${index} as Endpoint },`,
+      `  { method: ${JSON.stringify(endpoint.route.method)}, path: ${JSON.stringify(endpoint.route.path)}, hooks: ${JSON.stringify(endpoint.hooks)}, ${endpoint.projection ? `projection: ${JSON.stringify(endpoint.projection)}, ` : ""}${endpoint.populate ? `populate: ${JSON.stringify(endpoint.populate)}, ` : ""}${endpoint.query ? `query: ${JSON.stringify(endpoint.query)}, ` : ""}${endpoint.status !== undefined ? `status: ${endpoint.status}, ` : ""}${endpoint.route.feature ? `feature: ${JSON.stringify(endpoint.route.feature)}, ` : ""}${endpoint.tags ? `tags: ${JSON.stringify(endpoint.tags)}, ` : ""}handler: endpoint${index} as Endpoint },`,
   );
   return [
     HEADER,
@@ -298,6 +302,7 @@ export async function build(projectRoot: string): Promise<BuildSummary> {
   const scanned = await scanProjectFiles(projectRoot, config.features);
   overrides.push(...scanned.overrides);
   const { hooks, jobs } = scanned;
+  assertNoHookConflicts(activeFeatureTags(), hooks);
   const endpoints: ScannedEndpoint[] = scanned.endpoints.map((route) => ({
     route,
     ...parseEndpointTags(readFileSync(route.source ?? join(projectRoot, route.file), "utf8"), route.file),
@@ -320,8 +325,8 @@ export async function build(projectRoot: string): Promise<BuildSummary> {
   const resolved = endpoints.map((endpoint): ResolvedEndpoint => {
     const result = resolveEndpoint(endpoint, models, config.populate.maxDepth);
     const query = queryItems.get(endpoint.route.file);
-    const status = endpoint.metadata.status;
-    return { ...result, ...(query ? { query } : {}), ...(status !== undefined ? { status } : {}) };
+    const { status, tags } = endpoint.metadata;
+    return { ...result, ...(query ? { query } : {}), ...(status !== undefined ? { status } : {}), ...(tags ? { tags } : {}) };
   });
   const endpointDocs = describeEndpoints(
     projectRoot,

@@ -96,7 +96,27 @@ function variableOf(key: ConfigKey): string {
   return variable.alias ? `${code(variable.name)} (or ${code(variable.alias)})` : code(variable.name);
 }
 
-/** One section per registered native, listing its options from its schema. */
+const TARGET_TITLES: Record<string, string> = { entity: "entities", field: "fields", endpoint: "endpoints" };
+
+/** The tags of a native, listed under its options. */
+function nativeTagLines(native: ReturnType<typeof registeredNatives>[number]): string[] {
+  return Object.entries(native.tags ?? {}).flatMap(([name, tag]) => [
+    `#### \`@${name}\``,
+    "",
+    tag.description,
+    "",
+    `**Applies to:** ${tag.on.map((target) => TARGET_TITLES[target]).join(", ")}`,
+    "",
+    `**Options:** ${tag.options && tag.options.length > 0 ? tag.options.map((option) => code(option)).join(", ") : "none (a flag: \`@" + name + "\` or \`@" + name + " off\`)"}`,
+    "",
+    "```ts",
+    tag.example,
+    "```",
+    "",
+  ]);
+}
+
+/** One section per registered native, listing its options from its schema and its tags. */
 function nativeSections(): string[] {
   return registeredNatives().flatMap((native) => [
     `### \`${native.key}\``,
@@ -109,6 +129,7 @@ function nativeSections(): string[] {
         `| ${code(option.path)} | ${code(option.type)} | ${option.default === undefined ? "—" : code(JSON.stringify(option.default))} | ${code(envNameFor(option.path))} | ${option.description ?? ""} |`,
     ),
     "",
+    ...nativeTagLines(native),
   ]);
 }
 

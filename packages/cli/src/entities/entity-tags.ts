@@ -2,13 +2,14 @@ import { CRUD_OPERATIONS, parseSize, type CrudOperation, type EntityModel, type 
 import { tagDocRegistry } from "../tag-docs.ts";
 import { EntityParseError } from "./errors.ts";
 import type { DocTag } from "./jsdoc.ts";
+import { applyFeatureTag } from "./feature-tags.ts";
 
 export interface FieldSelectionTag {
   operations: ("list" | "read")[];
   paths: string;
 }
 
-export type EntityTagTarget = Pick<EntityModel, "hooks" | "overrideHooks" | "internal" | "populate" | "storageName" | "fileLimits" | "fileAccess"> & {
+export type EntityTagTarget = Pick<EntityModel, "hooks" | "overrideHooks" | "internal" | "populate" | "storageName" | "fileLimits" | "fileAccess" | "tags"> & {
   /** `@fields` whitelists, validated once the fields are parsed. */
   fieldSelections?: FieldSelectionTag[];
 };
@@ -68,6 +69,11 @@ export function applyEntityTags(entity: EntityTagTarget, tags: DocTag[], context
     const handler = builtInEntityTags.get(tag.name);
     if (handler) {
       handler(entity, tag, context);
+      continue;
+    }
+    const parsed = applyFeatureTag(entity.tags, tag, "entity", context.relativeFile);
+    if (parsed) {
+      entity.tags = parsed;
       continue;
     }
     const hook = parseHookTag(tag, context);

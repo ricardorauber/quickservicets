@@ -87,7 +87,7 @@ describe("unknown hook references", () => {
     const hooks = await scanHooks(createProject({ "hooks/authorized.ts": preHook }));
     expect(() =>
       validateHookReferences([], [{ file: "endpoints/get.ts", hooks: [{ name: "authorize", args: [] }] }], hooks),
-    ).toThrow("endpoints/get.ts: unknown hook @authorize");
+    ).toThrow("endpoints/get.ts: unknown tag @authorize: no hook or feature defines it");
   });
   test("from an entity names the entity file and tag", async () => {
     const root = createProject({
@@ -95,7 +95,7 @@ describe("unknown hook references", () => {
       "entities/User.ts": "/** @authorize */\nexport type User = { name: string }",
     });
     const hooks = await scanHooks(root);
-    expect(() => validateHookReferences(parseEntities(root), [], hooks)).toThrow("entities/User.ts: unknown hook @authorize");
+    expect(() => validateHookReferences(parseEntities(root), [], hooks)).toThrow("entities/User.ts: unknown tag @authorize: no hook or feature defines it");
   });
   test("known hooks pass", async () => {
     const hooks = await scanHooks(createProject({ "hooks/authorized.ts": preHook }));

@@ -286,7 +286,7 @@ export default definePreHook((_repos, req) => {
 The build checks every hook tag and fails with a message naming the file:
 
 ```text
-endpoints/health/get.ts: unknown hook @authorize (no hooks/authorize.ts)
+endpoints/health/get.ts: unknown tag @authorize: no hook or feature defines it
 endpoints/health/get.ts: hook @authorized is declared more than once
 entities/Organization.ts: invalid @authorized: unknown operation "remove" (use list, read, create, update, replace, delete)
 ```

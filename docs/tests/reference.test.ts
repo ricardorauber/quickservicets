@@ -59,6 +59,20 @@ describe("config variables", () => {
     }
     expect(configPage()).toBe(pages["reference/config.mdx"]!);
   });
+
+  test("a native's tags are listed under its options with their targets and options", () => {
+    const tags = { audit: { on: ["entity", "endpoint"] as const, options: ["greeting"], description: "Sets how one entity or route is audited.", example: '/** @audit greeting="Good day" */' } };
+    registerNative(defineFeature({ key: "audit", options: object({ greeting: string().default("Hello") }), tags }));
+    try {
+      const page = configPage();
+      const section = page.slice(page.indexOf("### `audit`"));
+      expect(section).toContain("#### `@audit`\n\nSets how one entity or route is audited.\n\n**Applies to:** entities, endpoints\n\n**Options:** `greeting`");
+      expect(section).toContain('```ts\n/** @audit greeting="Good day" */\n```');
+      expect(section.indexOf("| `audit.greeting`")).toBeLessThan(section.indexOf("#### `@audit`"));
+    } finally {
+      unregisterNative("audit");
+    }
+  });
 });
 
 describe("cli", () => {

@@ -1,4 +1,5 @@
-import type { HookCall } from "@quickservice/core";
+import type { HookCall, ParsedTags } from "@quickservice/core";
+import { applyFeatureTag } from "../entities/feature-tags.ts";
 import ts from "typescript";
 import { splitArgs } from "../entities/entity-tags.ts";
 import { readTags, type DocTag } from "../entities/jsdoc.ts";
@@ -17,6 +18,8 @@ export interface EndpointMetadata {
   description?: string;
   /** `@status`: the 2xx status of a success response, at runtime and in the API docs. */
   status?: number;
+  /** Feature tags written on the endpoint. */
+  tags?: ParsedTags;
 }
 
 type EndpointTagHandler = (tag: DocTag, file: string, metadata: EndpointMetadata) => void;
@@ -78,6 +81,11 @@ export function parseEndpointTags(source: string, file: string): EndpointTags {
     const handler = builtInEndpointTags.get(tag.name);
     if (handler) {
       handler(tag, file, metadata);
+      continue;
+    }
+    const parsed = applyFeatureTag(metadata.tags, tag, "endpoint", file);
+    if (parsed) {
+      metadata.tags = parsed;
       continue;
     }
     if (tag.text.startsWith(":")) {

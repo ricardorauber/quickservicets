@@ -2,6 +2,7 @@ import { parseSize, type FieldModel, type NestedFieldModel, type StringFormat, t
 import { tagDocRegistry } from "../tag-docs.ts";
 import { EntityParseError } from "./errors.ts";
 import type { DocTag } from "./jsdoc.ts";
+import { activeFeatureTags, applyFeatureTag, unknownTagMessage } from "./feature-tags.ts";
 
 export interface FieldTagContext {
   relativeFile: string;
@@ -38,7 +39,13 @@ export function applyFieldTags(field: FieldUnderConstruction, tags: DocTag[], co
   for (const tag of tags) {
     const handler = fieldTagHandlers.get(tag.name);
     if (!handler) {
-      throw new EntityParseError(`${context.relativeFile}: field "${context.path}" has unknown tag @${tag.name}`);
+      const parsed = applyFeatureTag(field.tags, tag, "field", context.relativeFile);
+      if (parsed) {
+        field.tags = parsed;
+        continue;
+      }
+      const native = activeFeatureTags().disabled.has(tag.name);
+      throw new EntityParseError(native ? unknownTagMessage(context.relativeFile, tag.name) : `${context.relativeFile}: field "${context.path}" has unknown tag @${tag.name}`);
     }
     handler(field, tag, context);
   }

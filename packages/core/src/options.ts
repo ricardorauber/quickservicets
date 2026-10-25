@@ -324,7 +324,8 @@ function distance(a: string, b: string): number {
   return row[b.length]!;
 }
 
-function suggestion(key: string, declared: string[]): string {
+/** ` (did you mean <key>?)` for the declared key within an edit distance of 2 of `key`, or an empty string. */
+export function suggestion(key: string, declared: readonly string[]): string {
   let best: { key: string; distance: number } | undefined;
   for (const candidate of declared) {
     const d = distance(key, candidate);

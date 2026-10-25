@@ -12,7 +12,8 @@ import { createAbandonedRunMonitor, type AbandonedRunMonitor } from "./jobs/life
 import { createJobRunner, createJobScheduler, type JobClock, type JobRunner, type JobScheduler } from "./jobs/scheduler.ts";
 import { createJobRunCleanup, type JobRunCleanup } from "./jobs/retention.ts";
 import { createRequestJobs } from "./jobs/triggers.ts";
-import type { CrudOperation, EntityModel } from "./model.ts";
+import type { CrudOperation, EntityModel, ParsedTags } from "./model.ts";
+import { prepareFeatureTargets } from "./feature-targets.ts";
 import { projectResult, type Projection } from "./projection.ts";
 import { createRepositories, repositoryFor, type RepositoryRegistry } from "./repository.ts";
 
@@ -40,6 +41,8 @@ export interface AppEndpoint {
   status?: number;
   /** The key of the feature whose folder holds the endpoint; left out while that feature is disabled. */
   feature?: string;
+  /** Feature tags written on the endpoint. */
+  tags?: ParsedTags;
   handler: Endpoint;
 }
 
@@ -104,6 +107,7 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
   const jobs = [...allJobs.values()].some((definition) => definition.feature !== undefined)
     ? new Map([...allJobs].filter(([, definition]) => definition.feature === undefined || enabledFeatures.has(definition.feature)))
     : allJobs;
+  prepareFeatureTargets(models, endpoints);
   const fileAccess = { storage: config.storage, files: config.files, publicUrl: config.server.publicUrl };
   const fileCleanup = {
     storage: config.storage,

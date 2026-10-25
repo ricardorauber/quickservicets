@@ -47,10 +47,21 @@ export interface FieldConstraints {
   format?: StringFormat;
 }
 
+/** One feature tag written on an entity, field or endpoint: off with `@<name> off`, and the options it sets. */
+export interface ParsedTag {
+  on: boolean;
+  options: Record<string, unknown>;
+}
+
+/** The feature tags written on a target, by tag name. */
+export type ParsedTags = Record<string, ParsedTag>;
+
 export type NestedFieldModel = TypeDescriptor &
   FieldConstraints & {
     name: string;
     optional: boolean;
+    /** Feature tags written on the field. */
+    tags?: ParsedTags;
   };
 
 /**
@@ -172,6 +183,8 @@ export interface EntityModel {
   system?: true;
   /** The key of the feature that contributed the entity; absent on the project's own entities. */
   feature?: string;
+  /** Feature tags written on the entity. */
+  tags?: ParsedTags;
 }
 
 /** An index over several fields of an entity. */

@@ -5,6 +5,7 @@ import { featureVariables, optionLeaves } from "./environment.ts";
 import { maskSecrets } from "./secrets.ts";
 import { jsonLogger, safeLog, type Logger } from "./logger.ts";
 import type { EntityModel } from "./model.ts";
+import { tagsOf, type OptionsTarget } from "./feature-targets.ts";
 import { boolean, object, resolveOptions, type AnyOptionSchema, type ObjectOptionSchema, type Options, type OptionsInput } from "./options.ts";
 
 /**
@@ -60,7 +61,33 @@ export interface FeatureInput<S extends AnyOptionSchema> {
   hooks?: string;
   /** A folder of job files relative to the feature's folder (`"./jobs"`); each job is named `<key>/<path>`. */
   jobs?: string;
+  /**
+   * JSDoc tags the feature adds, by name, so one entity, field or endpoint can turn the feature off (`@<name> off`) or
+   * set its options (`@<name> key=value`).
+   */
+  tags?: Readonly<Record<string, FeatureTag>>;
 }
+
+/** Where a feature tag may be written. */
+export type FeatureTagTarget = "entity" | "field" | "endpoint";
+
+/** A JSDoc tag of a feature. */
+export interface FeatureTag {
+  /** The targets the tag may be written on. */
+  on: readonly FeatureTagTarget[];
+  /** The feature's option keys the tag may set (default: none, which makes the tag a flag). */
+  options?: readonly string[];
+  /** One sentence on what the tag does, for the reference. */
+  description: string;
+  /** A short sample of the tag in use, for the reference. */
+  example: string;
+}
+
+/** The resolved options of a feature for one target, with whether the target turns the feature on or off by its tag. */
+export type TargetOptions<O> = O & {
+  /** True when the target has the feature's tag, false with `@<name> off`, undefined without the tag. */
+  on: boolean | undefined;
+};
 
 /** What a function form of `entities` receives. */
 export interface FeatureEntitiesContext<O = Record<string, unknown>> {
@@ -105,11 +132,19 @@ export interface FeatureDefinition<S extends AnyOptionSchema = AnyOptionSchema> 
   readonly hooks?: string;
   /** The feature's folder of job files, relative to its folder. */
   readonly jobs?: string;
+  /** The feature's JSDoc tags, by name. */
+  readonly tags?: Readonly<Record<string, FeatureTag>>;
   /**
    * The feature's resolved options, once a configuration enabling it has been resolved in this process; throws
    * otherwise. The feature's own code reads its typed options here instead of receiving the config.
    */
   options(): FeatureOptions<S>;
+  /**
+   * The feature's options for one entity (by key or model), field (`{ entity, field }`) or endpoint
+   * (`{ method, path }`): the resolved options with the options its tags set on top, which win over the config and
+   * environment for that target.
+   */
+  optionsFor(target: OptionsTarget): TargetOptions<FeatureOptions<S>>;
 }
 
 /** The value of a feature's config key: `true`, `false`, or its options. */
@@ -188,10 +223,14 @@ export function defineFeature<S extends AnyOptionSchema = ObjectOptionSchema<{}>
     ...(input.env ? { env: Object.freeze({ ...input.env }) } : {}),
     ...(input.entities !== undefined ? { entities: entitiesField(input.entities, invalid) } : {}),
     ...folderFields(input, invalid),
+    ...(input.tags !== undefined ? { tags: tagsField(input.tags, schema, invalid) } : {}),
     options() {
       const resolved = resolvedOptions.get(definition as FeatureDefinition);
       if (!resolved) throw new Error(`${key} is not enabled; add ${key}: {} to quickservice.config.ts`);
       return resolved as FeatureOptions<S>;
+    },
+    optionsFor(target) {
+      return optionsForTarget(definition.options() as Record<string, unknown>, definition.tags, tagsOf(target)) as TargetOptions<FeatureOptions<S>>;
     },
   };
   Object.defineProperty(definition, FEATURE_BRAND, { value: true });
@@ -208,6 +247,40 @@ function folderFields(input: { endpoints?: unknown; hooks?: unknown; jobs?: unkn
     fields[name] = value;
   }
   return fields;
+}
+
+const TAG_NAME = /^[a-z][a-zA-Z0-9]*$/;
+const TAG_TARGETS: readonly FeatureTagTarget[] = ["entity", "field", "endpoint"];
+
+/** Checks a definition's tags: names like hook names, known targets, and option keys of the feature's schema. */
+function tagsField(tags: Readonly<Record<string, FeatureTag>>, schema: AnyOptionSchema, invalid: (reason: string) => Error): Readonly<Record<string, FeatureTag>> {
+  if (typeof tags !== "object" || tags === null || Array.isArray(tags)) throw invalid("tags must map tag names to tag definitions");
+  const shape = schema.settings.shape!;
+  const checked: Record<string, FeatureTag> = {};
+  for (const [name, tag] of Object.entries(tags)) {
+    if (!TAG_NAME.test(name)) throw invalid(`tag @${name}: names must match ^[a-z][a-zA-Z0-9]*$`);
+    if (!Array.isArray(tag?.on) || tag.on.length === 0 || !tag.on.every((target) => TAG_TARGETS.includes(target))) {
+      throw invalid(`tag @${name}: on must list entity, field or endpoint`);
+    }
+    for (const option of tag.options ?? []) {
+      if (option === "enabled" || !Object.hasOwn(shape, option)) throw invalid(`tag @${name}: ${option} is not an option of the feature`);
+    }
+    checked[name] = Object.freeze({ ...tag, on: Object.freeze([...tag.on]), ...(tag.options ? { options: Object.freeze([...tag.options]) } : {}) });
+  }
+  return Object.freeze(checked);
+}
+
+/** The options for one target: the feature's tags written on it applied over the resolved options. */
+function optionsForTarget(options: Record<string, unknown>, tags: Readonly<Record<string, FeatureTag>> | undefined, written: ReturnType<typeof tagsOf>): Record<string, unknown> {
+  let on: boolean | undefined;
+  let merged = options;
+  for (const name of Object.keys(tags ?? {})) {
+    const tag = written?.[name];
+    if (!tag) continue;
+    merged = { ...merged, ...tag.options };
+    on = on === true || tag.on;
+  }
+  return { ...merged, on };
 }
 
 function entitiesField<O>(entities: FeatureEntities<O>, invalid: (reason: string) => Error): FeatureEntities<O> {

@@ -23,8 +23,10 @@ import {
 import { hasJobFiles } from "../build/feature-files.ts";
 import { EntityParseError } from "./errors.ts";
 import { withContributedEntities } from "./feature-entities.ts";
-import { applyEntityTags, type EntityTagTarget } from "./entity-tags.ts";
-import { applyFieldTags } from "./field-tags.ts";
+import { applyEntityTags, isBuiltInEntityTag, type EntityTagTarget } from "./entity-tags.ts";
+import { applyFieldTags, isFieldTag } from "./field-tags.ts";
+import { useFeatureTags } from "./feature-tags.ts";
+import { isBuiltInEndpointTag } from "../hooks/endpoint-tags.ts";
 import { findTag, readTags, type DocTag } from "./jsdoc.ts";
 import { pairRelations } from "./relations.ts";
 import { deriveCollectionName, isValidCollectionName, toCamelCase, toSnakeCase } from "./naming.ts";
@@ -65,7 +67,13 @@ export function parseEntities(projectRoot: string, features: readonly ResolvedFe
   return parseSources(projectRoot, features).models;
 }
 
+/** The built-in tag a feature tag's name would shadow, described for an error. */
+export function builtInTagOwner(name: string): string | undefined {
+  return isBuiltInEntityTag(name) || isFieldTag(name) || isBuiltInEndpointTag(name) ? `the built-in tag @${name}` : undefined;
+}
+
 function parseSources(projectRoot: string, features: readonly ResolvedFeature[]): ProjectModels {
+  useFeatureTags(features, builtInTagOwner);
   const entitiesDir = join(projectRoot, "entities");
   const projectFiles = listEntitySources(projectRoot, entitiesDir);
   const { sources: featureFiles, overrides } = featureEntitySources(projectRoot, features, projectFiles);

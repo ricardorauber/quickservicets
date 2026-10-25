@@ -13,9 +13,22 @@ interface Prepared {
   endpoints: Map<string, ParsedTags | undefined>;
   /** Generated routes by method and pattern, with their entity key. */
   generated: Map<string, string>;
+  /** Every route by method and path, in the order given: generated routes, then endpoints. */
+  routes: Map<string, { method: string; path: string; entity?: string; tags?: ParsedTags }>;
 }
 
-let prepared: Prepared = { models: new Map(), endpoints: new Map(), generated: new Map() };
+let prepared: Prepared = { models: new Map(), endpoints: new Map(), generated: new Map(), routes: new Map() };
+
+/** A route of the prepared app with the feature tags that apply to it. */
+export interface TaggedRoute {
+  method: string;
+  /** The route path, with `[param]` segments. */
+  path: string;
+  /** The entity of a generated route, or of the generated route an endpoint replaces. */
+  entity?: string;
+  /** The endpoint's own tags over its entity's, by tag name; absent without tags. */
+  tags?: ParsedTags;
+}
 
 const endpointKey = (method: string, path: string) => `${method.toUpperCase()} ${patternOf(path)}`;
 
@@ -28,11 +41,31 @@ export function prepareFeatureTargets(
   endpoints: readonly { method: string; path: string; tags?: ParsedTags }[],
   generated: readonly { method: string; path: string; entity: string }[] = [],
 ): void {
+  const routes = new Map<string, { method: string; path: string; entity?: string; tags?: ParsedTags }>();
+  for (const route of generated) routes.set(endpointKey(route.method, route.path), { method: route.method.toUpperCase(), path: route.path, entity: route.entity });
+  for (const endpoint of endpoints) {
+    const key = endpointKey(endpoint.method, endpoint.path);
+    const entity = routes.get(key)?.entity;
+    routes.set(key, { method: endpoint.method.toUpperCase(), path: endpoint.path, ...(entity !== undefined ? { entity } : {}), ...(endpoint.tags ? { tags: endpoint.tags } : {}) });
+  }
   prepared = {
     models: new Map(models.map((model) => [model.key, model])),
     endpoints: new Map(endpoints.map((endpoint) => [endpointKey(endpoint.method, endpoint.path), endpoint.tags])),
     generated: new Map(generated.map((route) => [endpointKey(route.method, route.path), route.entity])),
+    routes,
   };
+}
+
+/**
+ * The routes of the prepared app, each with the feature tags that apply to it: a generated route has its entity's
+ * tags, and an endpoint its own tags over those of the entity whose generated route it replaces, tag by tag.
+ */
+export function taggedRoutes(): TaggedRoute[] {
+  return [...prepared.routes.values()].map((route) => {
+    const entityTags = route.entity === undefined ? undefined : prepared.models.get(route.entity)?.tags;
+    const tags = entityTags || route.tags ? { ...entityTags, ...route.tags } : undefined;
+    return { method: route.method, path: route.path, ...(route.entity !== undefined ? { entity: route.entity } : {}), ...(tags && Object.keys(tags).length > 0 ? { tags } : {}) };
+  });
 }
 
 /** The feature tags written on a target, from the prepared models and endpoints. */

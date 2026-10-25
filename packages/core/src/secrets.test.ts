@@ -34,7 +34,7 @@ describe("masking", () => {
     registerNative(defineFeature({ docs: { summary: "Test native." }, key: "vault", options: object({ token: secret(), name: string().default("main") }) }));
     const config = resolveConfig({ database: memoryAdapter(), files: { signingSecret: SECRET }, vault: { token: SECRET } } as ServiceConfig, {});
     expect(config.files.signingSecret).toBe(SECRET);
-    expect(config.features[0]!.options.token).toBe(SECRET);
+    expect(config.features.find((feature) => feature.key === "vault")!.options.token).toBe(SECRET);
     const json = JSON.stringify({ files: config.files, features: config.features.map(({ key, options }) => ({ key, options })) });
     expect(json).toContain('"signingSecret":"[secret]"');
     expect(json).toContain('"token":"[secret]"');

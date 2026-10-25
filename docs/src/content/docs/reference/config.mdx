@@ -60,6 +60,26 @@ REPORT_HOUR: integer().default(6) }`); they are checked at startup and read type
 
 Each native feature is turned on by its key (`<key>: {}`) or by `QS_<KEY>_ENABLED=true`, and off by `<key>: false` or `QS_<KEY>_ENABLED=false`.
 
+### `security`
+
+Safe defaults for every service: security headers, CORS, request limits, timeouts, load shedding, rate limits, IP lists and log masking, each a switchable item.
+
+Every option, tag, command and hook of `security` is on [its reference page](/reference/features/security/).
+
+| Key | Type | Default | Environment variable | Description |
+| --- | --- | --- | --- | --- |
+| `security.proxy.enabled` | `boolean` | `true` | `QS_SECURITY_PROXY_ENABLED` | Resolves the client address in req.ip through the proxies the project trusts. Turns it off when false. |
+| `security.headers.enabled` | `boolean` | `true` | `QS_SECURITY_HEADERS_ENABLED` | Sends the standard security headers on every response. Turns it off when false. |
+| `security.files.enabled` | `boolean` | `true` | `QS_SECURITY_FILES_ENABLED` | Sends headers on served files that keep a browser from running them as pages of the service. Turns it off when false. |
+| `security.cors.enabled` | `boolean` | `true` | `QS_SECURITY_CORS_ENABLED` | Answers cross-origin requests and preflights of the allowed origins. Turns it off when false. |
+| `security.limits.enabled` | `boolean` | `true` | `QS_SECURITY_LIMITS_ENABLED` | Refuses oversized URLs, headers and bodies before reading them. Turns it off when false. |
+| `security.timeouts.enabled` | `boolean` | `true` | `QS_SECURITY_TIMEOUTS_ENABLED` | Closes idle connections and requests whose body arrives too slowly. Turns it off when false. |
+| `security.loadShedding.enabled` | `boolean` | `true` | `QS_SECURITY_LOAD_SHEDDING_ENABLED` | Refuses new requests with 503 while a worker has too many in flight. Turns it off when false. |
+| `security.rateLimit.enabled` | `boolean` | `true` | `QS_SECURITY_RATE_LIMIT_ENABLED` | Limits how many requests each client makes in a time window, answering 429. Turns it off when false. |
+| `security.ip.enabled` | `boolean` | `true` | `QS_SECURITY_IP_ENABLED` | Accepts or refuses requests by client address. Turns it off when false. |
+| `security.masking.enabled` | `boolean` | `true` | `QS_SECURITY_MASKING_ENABLED` | Keeps secret values and sensitive fields out of logs and error responses. Turns it off when false. |
+| `security.enabled` | `boolean` | `true` | `QS_SECURITY_ENABLED` | Turns the feature off when false. |
+
 ### `events`
 
 Write events for every entity, delivered to listeners inside the write's transaction or after its commit.
@@ -68,7 +88,7 @@ Every option, tag, command and hook of `events` is on [its reference page](/refe
 
 | Key | Type | Default | Environment variable | Description |
 | --- | --- | --- | --- | --- |
-| `events.outbox.enabled` | `boolean` | `true` | `QS_EVENTS_OUTBOX_ENABLED` | Turns this section off when false. |
+| `events.outbox.enabled` | `boolean` | `true` | `QS_EVENTS_OUTBOX_ENABLED` | Stores the chosen events in the write's transaction, so any worker or replica reads every committed event. Turns it off when false. |
 | `events.outbox.events` | `string[]` | `["*"]` | `QS_EVENTS_OUTBOX_EVENTS` | The event patterns stored in the outbox. |
 | `events.outbox.retention` | `duration` | `"7d"` | `QS_EVENTS_OUTBOX_RETENTION` | How long outbox rows are kept; rows with undelivered deliveries stay. |
 | `events.outbox.dispatch` | `boolean` | `true` | `QS_EVENTS_OUTBOX_DISPATCH` | Runs the delivery dispatcher in this worker. |

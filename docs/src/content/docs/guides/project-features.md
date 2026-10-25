@@ -307,7 +307,7 @@ export const poweredBy: Middleware = {
 };
 ```
 
-A `handler` middleware may set the typed `req.user`, `req.tenant` and `req.flags`.
+A `handler` middleware may set the typed `req.user`, `req.tenant` and `req.flags`. A `request` middleware that refuses a request can call `ctx.errorResponse(error)` to get the response the `error` stage gives an `HttpError`, and keep adding headers to it on the way out; an `HttpError` created with `{ headers }` carries those headers in its response.
 
 ### Request properties
 

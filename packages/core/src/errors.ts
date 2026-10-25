@@ -6,6 +6,8 @@ export interface FieldErrorDetail {
 export interface HttpErrorOptions {
   code?: string;
   details?: unknown;
+  /** Headers the error response carries, like `retry-after`. */
+  headers?: Readonly<Record<string, string>>;
 }
 
 /** The `error.code` clients read for each HTTP status. */
@@ -15,10 +17,15 @@ export const CODES_BY_STATUS: Readonly<Record<number, string>> = {
   403: "FORBIDDEN",
   404: "NOT_FOUND",
   405: "METHOD_NOT_ALLOWED",
+  408: "REQUEST_TIMEOUT",
   409: "CONFLICT",
   413: "PAYLOAD_TOO_LARGE",
+  414: "URI_TOO_LONG",
   415: "UNSUPPORTED_MEDIA_TYPE",
+  429: "RATE_LIMITED",
+  431: "REQUEST_HEADER_FIELDS_TOO_LARGE",
   500: "INTERNAL_ERROR",
+  503: "SERVICE_UNAVAILABLE",
 };
 
 export function codeForStatus(status: number): string {
@@ -29,6 +36,7 @@ export class HttpError extends Error {
   readonly status: number;
   readonly code: string;
   readonly details?: unknown;
+  readonly headers?: Readonly<Record<string, string>>;
 
   constructor(status: number, message: string, options: HttpErrorOptions = {}) {
     super(message);
@@ -36,6 +44,7 @@ export class HttpError extends Error {
     this.status = status;
     this.code = options.code ?? codeForStatus(status);
     this.details = options.details;
+    if (options.headers) this.headers = options.headers;
   }
 }
 
@@ -47,10 +56,10 @@ interface ErrorBody {
   error: { code: string; message: string; details?: unknown };
 }
 
-function jsonResponse(status: number, body: ErrorBody): Response {
+function jsonResponse(status: number, body: ErrorBody, headers?: Readonly<Record<string, string>>): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: headers ? { ...headers, "content-type": "application/json" } : { "content-type": "application/json" },
   });
 }
 
@@ -58,7 +67,7 @@ export function toErrorResponse(error: unknown, options: ErrorResponseOptions): 
   if (error instanceof HttpError) {
     const body: ErrorBody = { error: { code: error.code, message: error.message } };
     if (error.details !== undefined) body.error.details = error.details;
-    return jsonResponse(error.status, body);
+    return jsonResponse(error.status, body, error.headers);
   }
 
   const body: ErrorBody = { error: { code: codeForStatus(500), message: "Internal server error" } };

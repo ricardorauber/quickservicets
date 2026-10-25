@@ -11,8 +11,9 @@ import { build } from "./build.ts";
 const GREETING = `import { defineFeature, object, string } from "@quickservice/core";
 export default defineFeature({ docs: { summary: "Test native." }, key: "greeting", options: object({ text: string().default("Hi") }) });
 `;
+// The default security native is off, so the feature lists hold only the features under test.
 const config = (keys = "") => `import { defineConfig, memoryAdapter } from "@quickservice/core";
-export default defineConfig({ database: memoryAdapter()${keys ? `, ${keys}` : ""} });
+export default defineConfig({ database: memoryAdapter(), security: false${keys ? `, ${keys}` : ""} });
 `;
 const project = (files: Record<string, string>, keys = "") =>
   createLinkedProject({ "quickservice.config.ts": config(keys), "entities/User.ts": "export type User = { email: string };\n", ...files });
@@ -41,7 +42,7 @@ describe("discovery", () => {
   test("without its key it stays disabled; enabledByDefault enables it", async () => {
     const off = await loadConfig(project({ "features/greeting/index.ts": GREETING }), {});
     expect(off.features).toEqual([]);
-    expect(off.disabledFeatures).toEqual(["events", "greeting"]);
+    expect(off.disabledFeatures).toEqual(["security", "events", "greeting"]);
     const byDefault = GREETING.replace('key: "greeting",', 'key: "greeting", enabledByDefault: true,');
     const on = await loadConfig(project({ "features/greeting/index.ts": byDefault }), {});
     expect(on.features.map((feature) => feature.key)).toEqual(["greeting"]);
@@ -96,7 +97,7 @@ export default defineFeature({ docs: { summary: "Test native." }, key: "audit", 
   test("without a project feature the native is used", () => {
     registerNative(audit);
     registerProjectFeatures([]);
-    const resolved = resolveConfig({ database: memoryAdapter(), audit: { level: 2 } } as never, {});
+    const resolved = resolveConfig({ database: memoryAdapter(), security: false, audit: { level: 2 } } as never, {});
     expect(resolved.features.map(({ key, native, project }) => ({ key, native, project }))).toEqual([{ key: "audit", native: true, project: false }]);
   });
 });

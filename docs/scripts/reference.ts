@@ -59,7 +59,9 @@ export function configKeys(): ConfigKey[] {
 }
 
 const code = (text: string) => `\`${text.replaceAll("|", "\\|")}\``;
-const frontmatter = (title: string, description: string) => `---\ntitle: ${title}\ndescription: ${description}\n---\n\n${HEADER}\n`;
+/** A YAML scalar: plain when it is safe, double-quoted when it holds characters YAML would read as structure. */
+const yamlScalar = (text: string) => (/: |#|^[\s\-?:,\[\]{}&*!|>'"%@`]/.test(text) ? JSON.stringify(text) : text);
+const frontmatter = (title: string, description: string) => `---\ntitle: ${yamlScalar(title)}\ndescription: ${yamlScalar(description)}\n---\n\n${HEADER}\n`;
 
 function tagSection(tag: DocumentedTag): string {
   return [

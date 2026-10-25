@@ -204,8 +204,8 @@ export {
   scopedOptionSchema,
   hookOptionNames,
 } from "./features.ts";
-export { prepareFeatureTargets, tagsOf } from "./feature-targets.ts";
-export type { OptionsTarget } from "./feature-targets.ts";
+export { prepareFeatureTargets, taggedRoutes, tagsOf } from "./feature-targets.ts";
+export type { OptionsTarget, TaggedRoute } from "./feature-targets.ts";
 export type { FeatureApi, FeatureApis, FeatureConfig, FeatureDefinition, FeatureDocs, FeatureEntities, FeatureBuild, FeatureEntitiesContext, FeatureFolder, FeatureInput, FeatureOpenApi, FeatureSetup, FeatureTag, FeatureTagTarget, TargetOptions, FeatureOptions, FeatureRequirement, NativeFeatures, ProjectFeatureModule, ResolvedFeature } from "./features.ts";
 export { applyEnvironment, CONFIG_OVERRIDES, configVariable, envNameFor, featureVariables, logConfigWarnings, NOT_OVERRIDABLE, optionLeaves, overrideVariables, unknownVariableWarnings } from "./environment.ts";
 export { maskSecrets, SECRET_MASK } from "./secrets.ts";
@@ -224,18 +224,25 @@ export { declaredVariables, env, readVariables, variableType } from "./env-vars.
 export type { DeclaredVariable, EnvVars } from "./env-vars.ts";
 // The natives the core ships, registered when the core loads; they come last, after every export they use.
 import eventsNative, { type EventsApi } from "./features/events/index.ts";
+import securityNative, { type SecurityApi } from "./features/security/index.ts";
 import { registerNative as registerShippedNative, type FeatureConfig as NativeConfig } from "./features.ts";
+registerShippedNative(securityNative);
 registerShippedNative(eventsNative);
 export { addOutboxPatterns, events, eventsFeature, listen, memoryEventBus, readOutbox, tailOutbox } from "./features/events/index.ts";
 export type { ConsumerOptions, DeliveryContext, DeliveryStatus, OutboxRecord } from "./features/events/index.ts";
 export type { EventBus, EventListener, Events, EventsApi, ListenerContext, ListenerFile, ListenerPhase, ListenOptions, MemoryEventBus } from "./features/events/index.ts";
+export { securityFeature } from "./features/security/index.ts";
+export type { ExemptibleItem, SecurityApi } from "./features/security/index.ts";
 
 declare module "./features.ts" {
   interface NativeFeatures {
     /** Write events for every entity, delivered to listeners; see the `events` reference page. */
     events?: NativeConfig<typeof eventsNative>;
+    /** Safe defaults for every service, each item switchable; see the `security` reference page. */
+    security?: NativeConfig<typeof securityNative>;
   }
   interface FeatureApis {
     events: EventsApi;
+    security: SecurityApi;
   }
 }

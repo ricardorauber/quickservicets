@@ -201,7 +201,8 @@ export function createServer({ routes, repos, config, jobs = noRequestJobs, midd
       : (request: Request, requestId: string, state: State) => {
           const url = new URL(request.url);
           const run = composeRequestStage(requestStage, () => handle(request, requestId, state, url));
-          return run({ request, url, requestId }).catch((error: unknown) => errorResponse(error, request, requestId, state));
+          const fail = (error: unknown) => errorResponse(error, request, requestId, state);
+          return run({ request, url, requestId, errorResponse: fail }).catch(fail);
         };
 
   const fetch = async (request: Request): Promise<Response> => {

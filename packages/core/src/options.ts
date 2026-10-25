@@ -719,7 +719,10 @@ export function optionTypeOf(schema: AnyOptionSchema): string {
 /** One flat entry per leaf option of `schema`, in declaration order, with paths under `path`. */
 export function describeOptions(schema: AnyOptionSchema, path: string): OptionDescription[] {
   if (schema.kind === "object" || schema.kind === "toggle") {
-    return Object.entries(schema.settings.shape!).flatMap(([key, child]) => describeOptions(child, join(path, key)));
+    const entries = Object.entries(schema.settings.shape!).flatMap(([key, child]) => describeOptions(child, join(path, key)));
+    // A section's own description tells what its `enabled` switch turns on.
+    const description = schema.kind === "toggle" ? schema.settings.description : undefined;
+    return description === undefined ? entries : entries.map((entry) => (entry.path === join(path, "enabled") ? { ...entry, description: `${description} Turns it off when false.` } : entry));
   }
   if (schema.kind === "record") {
     return describeOptions(schema.settings.item!, join(path, "<name>")).map((entry) => ({ ...entry, type: `record of ${entry.type}` }));

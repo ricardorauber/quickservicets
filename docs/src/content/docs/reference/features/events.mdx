@@ -21,7 +21,7 @@ It is not enabled by default: turn it on with `events: {}` or `QS_EVENTS_ENABLED
 
 | Key | Type | Default | Environment variable | Per request | Description |
 | --- | --- | --- | --- | --- | --- |
-| `events.outbox.enabled` | `boolean` | `true` | `QS_EVENTS_OUTBOX_ENABLED` | no | Turns this section off when false. |
+| `events.outbox.enabled` | `boolean` | `true` | `QS_EVENTS_OUTBOX_ENABLED` | no | Stores the chosen events in the write's transaction, so any worker or replica reads every committed event. Turns it off when false. |
 | `events.outbox.events` | `string[]` | `["*"]` | `QS_EVENTS_OUTBOX_EVENTS` | no | The event patterns stored in the outbox. |
 | `events.outbox.retention` | `duration` | `"7d"` | `QS_EVENTS_OUTBOX_RETENTION` | no | How long outbox rows are kept; rows with undelivered deliveries stay. |
 | `events.outbox.dispatch` | `boolean` | `true` | `QS_EVENTS_OUTBOX_DISPATCH` | no | Runs the delivery dispatcher in this worker. |

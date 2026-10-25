@@ -6,6 +6,11 @@ export interface RequestStageContext {
   request: Request;
   url: URL;
   requestId: string;
+  /**
+   * The response the `error` stage gives an error, as if it was thrown by the rest of the pipeline; a middleware that
+   * refuses a request uses it to keep changing the response on its way out.
+   */
+  errorResponse(error: unknown): Promise<Response>;
 }
 
 /** What an `error` middleware receives besides the error. */

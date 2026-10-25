@@ -20,7 +20,8 @@ afterEach(() => {
   for (const key of registered.splice(0)) unregisterNative(key);
 });
 
-const resolve = (config: Record<string, unknown>) => resolveConfig({ database: memoryAdapter(), ...config }, {});
+// The default security native is off, so the feature lists hold only the test natives.
+const resolve = (config: Record<string, unknown>) => resolveConfig({ database: memoryAdapter(), security: false, ...config }, {});
 const failure = (run: () => unknown): Error => {
   try {
     run();
@@ -163,7 +164,7 @@ describe("startup log", () => {
     native({ key: "trail", requires: ["signals"], enables: ["audit"] });
     const entries: LogEntry[] = [];
     const logger = { info: (entry: LogEntry) => entries.push(entry), warn() {}, error() {} };
-    const config = resolveConfig({ database: memoryAdapter(), logger, trail: {}, signals: {} } as never, {});
+    const config = resolveConfig({ database: memoryAdapter(), logger, security: false, trail: {}, signals: {} } as never, {});
     logEnabledFeatures(config);
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({ message: "features.enabled", features: [{ key: "audit", enabledBy: ["trail"] }, { key: "signals" }, { key: "trail" }] });

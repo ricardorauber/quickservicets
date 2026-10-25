@@ -9,6 +9,8 @@ import type { EntityModel } from "./model.ts";
 import { join } from "node:path";
 import { generatedPath } from "./build-steps.ts";
 import type { Middleware, OwnedMiddleware } from "./middleware.ts";
+import { prepareFeatureTargets } from "./feature-targets.ts";
+import type { ParsedTags } from "./model.ts";
 
 /** Which worker process runs a feature's setup. */
 export interface WorkerInfo {
@@ -142,6 +144,12 @@ export interface FeatureLifecycleOptions {
   generatedDir?: string;
   /** Called with each feature's setup context before its setup runs, so extensions can add to it. */
   extendContext?: (context: FeatureSetupContext, feature: ResolvedFeature) => void;
+  /**
+   * The app's endpoints and generated routes, indexed before the setups run so a feature reads the tags of every route
+   * there (`taggedRoutes()`); endpoints of disabled features are left out.
+   */
+  endpoints?: readonly { method: string; path: string; feature?: string; tags?: ParsedTags }[];
+  crudRoutes?: readonly { method: string; path: string; entity: string }[];
   /** Wraps every call of a feature's lifecycle code, with the feature's key and the phase; test harnesses use it. */
   around?: <T>(feature: string, phase: LifecyclePhase, run: () => Promise<T>) => Promise<T>;
 }
@@ -173,7 +181,7 @@ interface Registered {
 }
 
 /** Runs the enabled features' setups and the callbacks they register, with the `lifecycle` time limits. */
-export function createFeatureLifecycle({ features, config, models, featureFolders = {}, worker, generatedDir = join(process.cwd(), ".generated"), extendContext, around = (_feature, _phase, run) => run() }: FeatureLifecycleOptions): FeatureLifecycle {
+export function createFeatureLifecycle({ features, config, models, featureFolders = {}, worker, generatedDir = join(process.cwd(), ".generated"), extendContext, endpoints = [], crudRoutes = [], around = (_feature, _phase, run) => run() }: FeatureLifecycleOptions): FeatureLifecycle {
   const logger = config.logger ?? jsonLogger;
   const startTimeout = parseDuration(config.lifecycle.startTimeout) ?? 30_000;
   const stopTimeout = parseDuration(config.lifecycle.stopTimeout) ?? 10_000;
@@ -202,6 +210,11 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
     routes,
     middleware,
     async setup() {
+      prepareFeatureTargets(
+        models,
+        endpoints.filter((endpoint) => endpoint.feature === undefined || enabledKeys.has(endpoint.feature)),
+        crudRoutes,
+      );
       for (const entry of registered) {
         const { feature } = entry;
         let open = true;

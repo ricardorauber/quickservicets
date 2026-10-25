@@ -129,6 +129,8 @@ export async function startTestService({ files, env = {} }: TestServiceOptions):
       featureFolders,
       worker: { index: 0, count: 1, runsScheduledWork: true },
       generatedDir: generated,
+      endpoints,
+      crudRoutes,
       around: async (feature, phase, run) => {
         const previous = current;
         current = { owner: { feature, phase }, tracker };

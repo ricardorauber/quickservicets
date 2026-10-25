@@ -73,6 +73,8 @@ export async function startService(options: StartServiceOptions): Promise<Runnin
     worker: { index: workerIndex(env) ?? 0, count: config.server.workers, runsScheduledWork: runsScheduledWork(env) },
     generatedDir: options.generatedDir,
     extendContext: options.extendSetupContext,
+    endpoints: options.endpoints,
+    crudRoutes: options.crudRoutes,
   });
   const fail = async (error: unknown, connected: boolean) => {
     if (error instanceof LifecycleError) logLifecycleFailure(logger, error);

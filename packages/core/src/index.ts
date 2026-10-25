@@ -228,7 +228,7 @@ export type { DeclaredVariable, EnvVars } from "./env-vars.ts";
 // The natives the core ships, registered when the core loads; they come last, after every export they use.
 import eventsNative, { type EventsApi } from "./features/events/index.ts";
 import securityNative, { type SecurityApi } from "./features/security/index.ts";
-import healthNative, { type HealthApi } from "./features/health/index.ts";
+import healthNative, { type HealthApi, type HealthStatusChangedEvent } from "./features/health/index.ts";
 import queuesNative, { type QueueClient, type QueueMessageEvent, type QueuesApi } from "./features/queues/index.ts";
 import { registerNative as registerShippedNative, type FeatureConfig as NativeConfig } from "./features.ts";
 registerShippedNative(securityNative);
@@ -276,8 +276,23 @@ export type {
   QueueStats,
 } from "./features/queues/index.ts";
 
-export { healthFeature } from "./features/health/index.ts";
-export type { HealthApi, HealthCheck, HealthCheckFunction, HealthCheckInput, HealthCheckOptions, HealthCheckResult, HealthReport, HealthStatus } from "./features/health/index.ts";
+export { healthFeature, runHealthChecks } from "./features/health/index.ts";
+export type {
+  HealthApi,
+  HealthCheck,
+  HealthCheckDone,
+  HealthCheckEntry,
+  HealthCheckFunction,
+  HealthCheckInput,
+  HealthCheckOptions,
+  HealthCheckResult,
+  HealthCheckStep,
+  HealthProber,
+  HealthReport,
+  HealthStatus,
+  HealthStatusChange,
+  HealthStatusChangedEvent,
+} from "./features/health/index.ts";
 
 declare module "./event-types.ts" {
   interface EventMap {
@@ -287,6 +302,8 @@ declare module "./event-types.ts" {
     "queue.message.failed": QueueMessageEvent;
     /** A queue message used its last attempt. */
     "queue.message.dead": QueueMessageEvent;
+    /** The overall readiness of a worker changed; emitted by the `health` native while `events` is enabled. */
+    "health.status.changed": HealthStatusChangedEvent;
   }
 }
 

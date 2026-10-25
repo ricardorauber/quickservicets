@@ -1,6 +1,11 @@
 import {
   anyOf,
   boolean,
+  provider,
+  resolveOption,
+  runAfterHooks,
+  runBeforeHooks,
+  safeLog,
   defineFeature,
   duration,
   hook,
@@ -11,9 +16,11 @@ import {
   record,
   string,
   type FeatureSetupContext,
+  type OptionSchema,
+  type ServiceRequest,
 } from "../public.ts";
-import type { HealthApi, HealthCheckFunction, HealthCheckInput } from "./api.ts";
-import { cachedChecks, databaseCheck, readyBody, runChecks, type HealthCheck } from "./checks.ts";
+import type { HealthApi, HealthCheckDone, HealthCheckEntry, HealthCheckFunction, HealthCheckInput, HealthCheckStep, HealthStatusChange } from "./api.ts";
+import { cachedChecks, databaseCheck, readyBody, runChecks, type HealthCheck, type HealthProber, type HealthReport, type HealthStatus } from "./checks.ts";
 import { sharedState } from "./state.ts";
 
 const options = object({
@@ -23,16 +30,24 @@ const options = object({
   cache: duration().default("1s").describe("How long a readiness result is reused by the probes of one worker; 0s runs the checks for every probe."),
   details: boolean()
     .optional()
-    .describe("Shows each check's error and extra fields in the ready response; on outside production and off in production by default."),
+    .perRequest()
+    .describe("Shows each check's error and extra fields in the ready response; on outside production and off in production by default. A function of the request decides per request."),
   log: boolean().default(false).describe("Writes a request log entry for every probe; without it only 5xx responses of the health routes are logged."),
   drainDelay: duration()
     .optional()
     .describe("How long ready answers draining after a shutdown signal before the listener closes; 5s in production and 0s otherwise by default."),
+  // Typed with the functions a project writes; at runtime each entry resolves to a list of functions or { check, critical }.
   checks: record(
     anyOf(hook<HealthCheckInput, undefined>(), object({ check: hook<HealthCheckInput, undefined>(), critical: boolean().default(true) })).describe(
       "A check: a function resolving (healthy, with extra fields) or throwing, or an object with check and critical false for a non-critical one.",
     ),
-  ).describe("Readiness checks of the project by name, critical unless written as an object with critical false."),
+  ).describe("Readiness checks of the project by name, critical unless written as an object with critical false.") as unknown as ReturnType<typeof record<OptionSchema<HealthCheckEntry>>>,
+  beforeCheck: hook<HealthCheckStep | false, undefined>().describe("Runs before each check with its name; returning false skips the check for that probe, reported as skipped."),
+  afterCheck: hook<HealthCheckDone, undefined>().describe("Runs after each check with its name, status, duration and error."),
+  onStatusChange: hook<HealthStatusChange, undefined>().describe("Runs when the overall readiness of this worker changes, with the old and new status and the checks; with events enabled the change is also the event health.status.changed."),
+  prober: provider<HealthProber>("HealthProber", ["run"])
+    .optional()
+    .describe("Replaces how the checks are run and combined: its run method gets the registered checks and returns the ready response."),
 });
 
 /** The security items that would refuse probes. */
@@ -42,7 +57,18 @@ const EXEMPT_ITEMS = ["rateLimit", "loadShedding", "ip"] as const;
 const CHECK_NAME = /^[a-z][a-z0-9-]*$/;
 
 /** The registered checks of the running service, with who registered each; features add theirs during setup. */
-const registry = sharedState("checks", () => ({ checks: [] as (HealthCheck & { owner: string; key: string })[], open: false }));
+const registry = sharedState("checks", () => ({
+  checks: [] as (HealthCheck & { owner: string; key: string })[],
+  open: false,
+  /** Runs the checks of the running service, as the ready route does, without its cache. */
+  run: undefined as (() => Promise<HealthReport>) | undefined,
+}));
+
+/** Runs the readiness checks of the running service, for a project endpoint that replaces the ready route. */
+export function runHealthChecks(): Promise<HealthReport> {
+  if (!registry.run) return Promise.reject(new Error("health is not enabled; add health: {} to quickservice.config.ts"));
+  return registry.run();
+}
 
 /** The default `drainDelay`: probes see `draining` for a while in production, where a load balancer needs the time. */
 const drainDelayOf = (options: { drainDelay?: string }, production: boolean) => options.drainDelay ?? (production ? "5s" : "0s");
@@ -82,31 +108,60 @@ const healthFeature = defineFeature({
       const queues = ctx.feature("queues");
       register("queue", "health", { critical: false, timeout: ctx.options.timeout, run: () => queues.health() });
     }
-    for (const [name, entry] of Object.entries(ctx.options.checks)) {
-      const [fn, critical] = Array.isArray(entry) ? [entry, true] : [(entry as { check: HealthCheckFunction[] }).check, (entry as { critical: boolean }).critical];
+    for (const [name, resolved] of Object.entries(ctx.options.checks)) {
+      const entry = resolved as unknown as HealthCheckFunction[] | { check: HealthCheckFunction[]; critical: boolean };
+      const [fn, critical] = Array.isArray(entry) ? [entry, true] : [entry.check, entry.critical];
       register(name, "health.checks", { critical, timeout: ctx.options.timeout, run: (input) => runAll(fn as HealthCheckFunction[], input) });
     }
 
-    const details = ctx.options.details ?? !ctx.config.production;
     const drainMs = parseDuration(drainDelayOf(ctx.options, ctx.config.production)) ?? 0;
     // Until every onStart ran, readiness answers starting; from the shutdown signal on, draining.
     let state: "starting" | "running" | "draining" = "starting";
     const unsubscribe = [onServiceStarted(() => state === "starting" && (state = "running")), onShutdownSignal(() => (state = "draining"))];
     const checks = () => registry.checks;
-    const ready = cachedChecks(() => runChecks(checks(), ctx.logger), parseDuration(ctx.options.cache) ?? 1000);
+    const { beforeCheck, afterCheck, onStatusChange } = ctx.options;
+    const hooks = {
+      ...(beforeCheck.length > 0 ? { before: async (name: string) => (await runBeforeHooks(beforeCheck, { name } as HealthCheckStep | false, undefined)) !== false } : {}),
+      ...(afterCheck.length > 0
+        ? { after: (name: string, result: HealthReport["checks"][string]) => runAfterHooks(afterCheck, { name, status: result.status, durationMs: result.durationMs, ...(result.error ? { error: result.error } : {}) }, undefined) }
+        : {}),
+    };
+    const prober = ctx.options.prober as HealthProber | undefined;
+    // The overall status this worker reported last; a change runs onStatusChange and becomes an event.
+    let lastStatus: HealthStatus | undefined;
+    const eventsEnabled = ctx.config.features.some((feature) => feature.key === "events");
+    const observe = async (report: HealthReport) => {
+      const from = lastStatus;
+      lastStatus = report.status;
+      if (from === undefined || from === report.status) return report;
+      if (onStatusChange.length > 0) await runAfterHooks(onStatusChange, { from, to: report.status, checks: report.checks }, undefined);
+      if (eventsEnabled) {
+        const failing = Object.entries(report.checks).filter(([, result]) => result.status === "fail").map(([name]) => name);
+        try {
+          await ctx.events.emit("health.status.changed", { from, to: report.status, failing });
+        } catch (error) {
+          safeLog(ctx.logger, "error", { timestamp: new Date().toISOString(), message: "health.event.failed", error: { message: (error as Error)?.message ?? String(error) } });
+        }
+      }
+      return report;
+    };
+    const run = async () => observe(prober ? await prober.run({ checks: checks() }) : await runChecks(checks(), ctx.logger, hooks));
+    registry.run = run;
+    const ready = cachedChecks(run, parseDuration(ctx.options.cache) ?? 1000);
+    const detailsFor = async (req: ServiceRequest) => (await resolveOption(ctx.options.details, { req })) ?? !ctx.config.production;
     const routeOptions = { log: ctx.options.log };
     ctx.app.route("GET", ctx.options.live, () => ({ status: "ok" }), routeOptions);
     ctx.app.route(
       "GET",
       ctx.options.ready,
-      async (_repos, _req, res) => {
+      async (_repos, req, res) => {
         if (state !== "running") {
           res.status(503);
           return { status: state };
         }
         const report = await ready();
         res.status(report.status === "fail" ? 503 : 200);
-        return readyBody(report, details);
+        return readyBody(report, await detailsFor(req));
       },
       routeOptions,
     );
@@ -121,6 +176,7 @@ const healthFeature = defineFeature({
     });
     ctx.app.onStop(() => {
       clearTimeout(drainTimer);
+      if (registry.run === run) registry.run = undefined;
       for (const off of unsubscribe) off();
       registry.open = false;
     });
@@ -132,6 +188,8 @@ const healthFeature = defineFeature({
       if (typeof fn !== "function") throw new Error(`Health check ${name} of ${caller} needs a function`);
       register(name, caller, { critical: options.critical ?? true, timeout: options.timeout ?? ctx.options.timeout, run: fn }, `${caller}.${name}`);
     },
+    run: () => runHealthChecks(),
+    addHook: ctx.addHook as HealthApi["addHook"],
   }),
 });
 
@@ -151,5 +209,5 @@ function exemptProbes(ctx: FeatureSetupContext<{ live: string; ready: string }>)
 
 export default healthFeature;
 export { healthFeature };
-export type { HealthApi, HealthCheckFunction, HealthCheckInput, HealthCheckOptions } from "./api.ts";
-export type { HealthCheck, HealthCheckResult, HealthReport, HealthStatus } from "./checks.ts";
+export type { HealthApi, HealthCheckDone, HealthCheckEntry, HealthCheckFunction, HealthCheckInput, HealthCheckOptions, HealthCheckStep, HealthStatusChange, HealthStatusChangedEvent } from "./api.ts";
+export type { HealthCheck, HealthCheckResult, HealthProber, HealthReport, HealthStatus } from "./checks.ts";

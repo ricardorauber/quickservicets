@@ -10,39 +10,48 @@ export interface HealthCheck {
   run(input: { signal: AbortSignal }): unknown | Promise<unknown>;
 }
 
-/** The result of one check, as the ready response shows it with details. */
+/** The entry of one check: its status, duration and criticality, its error, and the extra fields it resolved with. */
 export interface HealthCheckResult {
-  status: "ok" | "fail";
+  status: "ok" | "fail" | "skipped";
   durationMs: number;
   critical: boolean;
   error?: string;
-  /** The extra fields the check resolved with. */
-  fields?: Record<string, unknown>;
+  [field: string]: unknown;
 }
 
 /** The overall readiness: `fail` when a critical check failed, `degraded` when only others did, `ok` otherwise. */
 export type HealthStatus = "ok" | "degraded" | "fail";
 
-/** The result of every check of one readiness probe. */
+/** The result of every check of one readiness probe, the shape of the ready response. */
 export interface HealthReport {
   status: HealthStatus;
   checks: Record<string, HealthCheckResult>;
 }
 
-/** The body of the ready route: each check's entry, with its error and fields only when `details` is on. */
-export function readyBody(report: HealthReport, details: boolean): { status: HealthStatus; checks: Record<string, Record<string, unknown>> } {
-  const checks: Record<string, Record<string, unknown>> = {};
+/** Runs the checks and combines their results: the native's own runner, or a project's `health.prober`. */
+export interface HealthProber {
+  run(input: { checks: readonly HealthCheck[] }): HealthReport | Promise<HealthReport>;
+}
+
+/** What runs around each check: `before` returning false skips it, `after` observes its result. */
+export interface CheckHooks {
+  before?: (name: string) => Promise<boolean>;
+  after?: (name: string, result: HealthCheckResult) => Promise<void>;
+}
+
+const BASE_FIELDS = new Set(["status", "durationMs", "critical"]);
+
+/** The body of the ready route: each entry with its error and extra fields only when `details` is on. */
+export function readyBody(report: HealthReport, details: boolean): HealthReport {
+  if (details) return report;
+  const checks: Record<string, HealthCheckResult> = {};
   for (const [name, result] of Object.entries(report.checks)) {
-    checks[name] = {
-      status: result.status,
-      durationMs: result.durationMs,
-      critical: result.critical,
-      ...(details && result.error !== undefined ? { error: result.error } : {}),
-      ...(details ? (result.fields ?? {}) : {}),
-    };
+    checks[name] = Object.fromEntries(Object.entries(result).filter(([key]) => BASE_FIELDS.has(key))) as HealthCheckResult;
   }
   return { status: report.status, checks };
 }
+
+const isFields = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 
 /** Runs one check within its timeout, aborting its signal when the time is up. */
 export async function runCheck(check: HealthCheck, logger: Logger): Promise<HealthCheckResult> {
@@ -50,37 +59,49 @@ export async function runCheck(check: HealthCheck, logger: Logger): Promise<Heal
   const controller = new AbortController();
   const timeoutMs = parseDuration(check.timeout) ?? 2000;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const result: Omit<HealthCheckResult, "durationMs"> = await Promise.race([
+  const outcome: { ok: true; fields: Record<string, unknown> } | { ok: false; error: string } = await Promise.race([
     Promise.resolve()
       .then(() => check.run({ signal: controller.signal }))
       .then(
-        (value) => ({ status: "ok" as const, critical: check.critical, ...(isFields(value) ? { fields: value } : {}) }),
-        (error: unknown) => ({ status: "fail" as const, critical: check.critical, error: (error as Error)?.message ?? String(error) }),
+        (value) => ({ ok: true as const, fields: isFields(value) ? value : {} }),
+        (error: unknown) => ({ ok: false as const, error: (error as Error)?.message ?? String(error) }),
       ),
-    new Promise<Omit<HealthCheckResult, "durationMs">>((resolve) => {
+    new Promise<{ ok: false; error: string }>((resolve) => {
       timer = setTimeout(() => {
         const message = `Timed out after ${check.timeout}`;
         controller.abort(new DOMException(message, "TimeoutError"));
-        resolve({ status: "fail", critical: check.critical, error: message });
+        resolve({ ok: false, error: message });
       }, timeoutMs);
     }),
   ]);
   clearTimeout(timer);
   const durationMs = Math.round((performance.now() - started) * 1000) / 1000;
-  if (result.status === "fail") {
-    safeLog(logger, "warn", { timestamp: new Date().toISOString(), message: "health.check.failed", check: check.name, critical: check.critical, error: { message: result.error } });
+  if (outcome.ok) {
+    const extra = Object.fromEntries(Object.entries(outcome.fields).filter(([key]) => !BASE_FIELDS.has(key) && key !== "error"));
+    return { status: "ok", durationMs, critical: check.critical, ...extra };
   }
-  return { ...result, durationMs };
+  safeLog(logger, "warn", { timestamp: new Date().toISOString(), message: "health.check.failed", check: check.name, critical: check.critical, error: { message: outcome.error } });
+  return { status: "fail", durationMs, critical: check.critical, error: outcome.error };
 }
 
-const isFields = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value) && Object.keys(value).length > 0;
+/** The overall status of check results. */
+export function overallStatus(checks: Record<string, HealthCheckResult>): HealthStatus {
+  const failed = Object.values(checks).filter((result) => result.status === "fail");
+  return failed.some((result) => result.critical) ? "fail" : failed.length > 0 ? "degraded" : "ok";
+}
 
-/** Runs every check at once and combines them into the overall status. */
-export async function runChecks(checks: readonly HealthCheck[], logger: Logger): Promise<HealthReport> {
-  const results = await Promise.all(checks.map(async (check) => [check.name, await runCheck(check, logger)] as const));
-  const failed = results.filter(([, result]) => result.status === "fail");
-  const status: HealthStatus = failed.some(([, result]) => result.critical) ? "fail" : failed.length > 0 ? "degraded" : "ok";
-  return { status, checks: Object.fromEntries(results) };
+/** Runs every check at once, with the hooks around each, and combines them into the overall status. */
+export async function runChecks(checks: readonly HealthCheck[], logger: Logger, hooks: CheckHooks = {}): Promise<HealthReport> {
+  const results = await Promise.all(
+    checks.map(async (check) => {
+      if (hooks.before && !(await hooks.before(check.name))) return [check.name, { status: "skipped" as const, durationMs: 0, critical: check.critical }] as const;
+      const result = await runCheck(check, logger);
+      if (hooks.after) await hooks.after(check.name, result);
+      return [check.name, result] as const;
+    }),
+  );
+  const entries = Object.fromEntries(results) as Record<string, HealthCheckResult>;
+  return { status: overallStatus(entries), checks: entries };
 }
 
 /** The database check: the adapter's `ping`, or reading one record of any model without it. */

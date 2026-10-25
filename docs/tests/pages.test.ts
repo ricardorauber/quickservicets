@@ -44,6 +44,7 @@ const PAGES = [
   "guides/events.md",
   "guides/security.md",
   "guides/queues.md",
+  "guides/health.md",
   "reference/index.md",
   "reference/tags.mdx",
   "reference/config.mdx",

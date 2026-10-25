@@ -328,8 +328,12 @@ Every option, tag, command and hook of `health` is on [its reference page](/refe
 | `health.ready` | `string` | `"/health/ready"` | `QS_HEALTH_READY` | The path of the readiness route, which runs the checks. |
 | `health.timeout` | `duration` | `"2s"` | `QS_HEALTH_TIMEOUT` | The time limit of each check. |
 | `health.cache` | `duration` | `"1s"` | `QS_HEALTH_CACHE` | How long a readiness result is reused by the probes of one worker; 0s runs the checks for every probe. |
-| `health.details` | `boolean` | — | `QS_HEALTH_DETAILS` | Shows each check's error and extra fields in the ready response; on outside production and off in production by default. |
+| `health.details` | `boolean` | — | `QS_HEALTH_DETAILS` | Shows each check's error and extra fields in the ready response; on outside production and off in production by default. A function of the request decides per request. |
 | `health.log` | `boolean` | `false` | `QS_HEALTH_LOG` | Writes a request log entry for every probe; without it only 5xx responses of the health routes are logged. |
 | `health.drainDelay` | `duration` | — | `QS_HEALTH_DRAIN_DELAY` | How long ready answers draining after a shutdown signal before the listener closes; 5s in production and 0s otherwise by default. |
 | `health.checks.<name>` | `record of hook \| object` | — | not overridable | A check: a function resolving (healthy, with extra fields) or throwing, or an object with check and critical false for a non-critical one. |
+| `health.beforeCheck` | `hook` | — | not overridable | Runs before each check with its name; returning false skips the check for that probe, reported as skipped. |
+| `health.afterCheck` | `hook` | — | not overridable | Runs after each check with its name, status, duration and error. |
+| `health.onStatusChange` | `hook` | — | not overridable | Runs when the overall readiness of this worker changes, with the old and new status and the checks; with events enabled the change is also the event health.status.changed. |
+| `health.prober` | `HealthProber` | — | not overridable | Replaces how the checks are run and combined: its run method gets the registered checks and returns the ready response. |
 | `health.enabled` | `boolean` | `true` | `QS_HEALTH_ENABLED` | Turns the feature off when false. |

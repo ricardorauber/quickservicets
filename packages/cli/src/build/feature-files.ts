@@ -133,7 +133,8 @@ function folderFiles(root: string): { name: string; source: string }[] {
  * The files of every convention folder the enabled features declare: the project's `<dir>/`, and the same folder inside
  * the declaring feature's folder and inside every other enabled feature's folder (a feature ships files for another
  * feature's folder, like a project feature's `events/` listeners). A project file replaces a feature's file of the
- * same name; two features shipping the same name fail. Each file must default-export a value its folder's `check`
+ * same name; two features shipping the same name fail. A folder with `featurePrefix` names a shipped file
+ * `<key>/<path>`, after the key of the feature that ships it. Each file must default-export a value its folder's `check`
  * accepts.
  */
 export async function scanFeatureFolders(projectRoot: string, features: readonly ResolvedFeature[], overrides: string[] = []): Promise<FolderFile[]> {
@@ -145,7 +146,8 @@ export async function scanFeatureFolders(projectRoot: string, features: readonly
       const shipped = new Map<string, { entry: FolderFile; from: string }>();
       // The declaring feature first, then the others in feature order.
       for (const owner of [feature, ...features.filter((other) => other !== feature)]) {
-        for (const { name, source } of folderFiles(resolve(featureDir(owner, projectRoot), definition.dir))) {
+        for (const { name: path, source } of folderFiles(resolve(featureDir(owner, projectRoot), definition.dir))) {
+          const name = definition.featurePrefix ? `${owner.key}/${path}` : path;
           const file = featureFileName(projectRoot, source);
           const replacement = projectNames.get(name);
           if (replacement) {

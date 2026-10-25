@@ -148,6 +148,11 @@ export interface FeatureFolder {
   dir: string;
   /** Checks a file's default export: returns true, or the reason it is rejected. */
   check?: (value: unknown, file: string) => true | string;
+  /**
+   * Names a file a feature ships in its own copy of the folder `<key>/<path>`, after that feature's key, as feature jobs
+   * are named, so a project file `<dir>/<key>/<path>.ts` replaces it (default false: named `<path>`).
+   */
+  featurePrefix?: boolean;
   /** One sentence on what the folder holds. */
   description: string;
 }
@@ -397,6 +402,7 @@ function foldersField(folders: Readonly<Record<string, FeatureFolder>>, invalid:
       throw invalid(`folder ${name}: dir must be a folder inside the project`);
     }
     if (folder.check !== undefined && typeof folder.check !== "function") throw invalid(`folder ${name}: check must be a function`);
+    if (folder.featurePrefix !== undefined && typeof folder.featurePrefix !== "boolean") throw invalid(`folder ${name}: featurePrefix must be a boolean`);
     checked[name] = Object.freeze({ ...folder, dir: folder.dir.replace(/^\.\//, "").replace(/\/+$/, "") });
   }
   return Object.freeze(checked);

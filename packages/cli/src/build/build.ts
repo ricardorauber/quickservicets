@@ -30,12 +30,12 @@ import type { EndpointRoute } from "../endpoints/scan-endpoints.ts";
 import { parseEndpointTags, type EndpointMetadata } from "../hooks/endpoint-tags.ts";
 import type { HookEntry } from "../hooks/scan-hooks.ts";
 import type { JobEntry } from "../jobs/scan-jobs.ts";
-import { featureWatchPaths, scanFeatureFolders, scanProjectFiles } from "./feature-files.ts";
+import { featureWatchPaths, scanFeatureFolders, scanProjectFiles, type FolderFile } from "./feature-files.ts";
 import { runBuildSteps, type BuildStepResult } from "./build-steps.ts";
 import { activeFeatureTags, assertNoHookConflicts, useFeatureTags } from "../entities/feature-tags.ts";
 import { validateHookReferences } from "../hooks/validate-hook-references.ts";
 import { hasPendingChanges, sqlDialectOf } from "../migrations/add.ts";
-import { envVarsLines, generateTypesFile } from "./generate-types.ts";
+import { envVarsLines, generateTypesFile, queuePayloadLines, type QueueTypeEntry } from "./generate-types.ts";
 import { extractQueryItems } from "../endpoints/query-items.ts";
 import { describeEndpoints } from "../openapi/endpoint-docs.ts";
 import { generateOpenApi } from "../openapi/generate-openapi.ts";
@@ -268,6 +268,11 @@ import openApi from "./openapi.json";
 await startService({ projectConfig, models, crudRoutes, endpoints, hooks, jobs, openApi, features, featureFolders, generatedDir: import.meta.dir });
 `;
 
+/** The queues of the `queues` feature's folder, with how `.generated/types.ts` imports each file. */
+function queueTypes(files: readonly FolderFile[]): QueueTypeEntry[] {
+  return files.filter((entry) => entry.feature === "queues" && entry.folder === "queues").map((entry) => ({ name: entry.name, specifier: importPath(entry.file) }));
+}
+
 /** On MongoDB and memory, unpaired reference arrays are embedded, so their `@joinTable` has no effect. */
 export function joinTableWarnings(models: EntityModel[], kind: string | undefined): string[] {
   if (kind !== "mongodb" && kind !== "memory") return [];
@@ -372,7 +377,7 @@ async function buildProject(projectRoot: string, config: ResolvedConfig, options
 
   const files: Record<string, string> = {
     "models.ts": `${HEADER}\nimport type { EntityModel } from "@quickservice/core";\n\nexport const models: EntityModel[] = ${JSON.stringify(models, null, 2)};\n`,
-    "types.ts": [generateTypesFile(models, envVarsLines(variables)), ...featureTypeLines(featureKeys)].join("\n"),
+    "types.ts": [generateTypesFile(models, envVarsLines(variables)), ...featureTypeLines(featureKeys), ...queuePayloadLines(queueTypes(folderFiles))].join("\n"),
     "features.ts": generateFeaturesFile(HEADER, featureKeys, folderFiles.map((entry) => ({ ...entry, specifier: importPath(entry.file) }))),
     "routes.ts": generateRoutesFile(models, resolved, hooks),
     "jobs.ts": generateJobsFile(jobs),

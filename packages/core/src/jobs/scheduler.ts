@@ -1,5 +1,6 @@
 import { UniqueViolationError, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
 import { withJobOperation } from "../operation-context.ts";
+import { queueClient } from "../features/queues/client.ts";
 import type { ResolvedConfig } from "../config.ts";
 import { parseSize } from "../files/limits.ts";
 import type { Repositories } from "../hooks.ts";
@@ -286,6 +287,7 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
       signal: controller.signal,
       log,
       run: { id: run.id, job: run.job, scheduledAt: run.scheduledAt, attempt: run.attempt, trigger: run.trigger },
+      queue: queueClient(),
     };
     const done = (async (): Promise<JobRun> => {
       logEvent("job.started", run);

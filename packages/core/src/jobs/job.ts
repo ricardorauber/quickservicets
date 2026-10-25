@@ -1,5 +1,6 @@
 import type { Repositories } from "../hooks.ts";
 import type { StorageAdapter } from "../storage/storage.ts";
+import type { QueueClient } from "../features/queues/queue.ts";
 import type { Schedule } from "./schedule.ts";
 
 /**
@@ -60,6 +61,8 @@ export interface JobContext {
   signal: AbortSignal;
   log: JobLogger;
   run: JobRunInfo;
+  /** Adds messages to the project's queues; throws while the `queues` native is not enabled. */
+  queue: QueueClient;
 }
 
 export type JobFn = (ctx: JobContext) => unknown | Promise<unknown>;

@@ -237,3 +237,24 @@ export function generateTypesFile(allModels: EntityModel[], envVars: string[] = 
     "",
   ].join("\n");
 }
+
+/** One queue of the project's `queues/` folder: its name and how `.generated/types.ts` imports its file. */
+export interface QueueTypeEntry {
+  name: string;
+  specifier: string;
+}
+
+/** The `QueuePayloads` entries of the declared queues, each typed with its file's payload. */
+export function queuePayloadLines(queues: readonly QueueTypeEntry[]): string[] {
+  if (queues.length === 0) return [];
+  return [
+    'import type { QueuePayloadOf } from "@quickservice/core";',
+    "",
+    'declare module "@quickservice/core" {',
+    "  interface QueuePayloads {",
+    ...queues.map((entry) => `    ${JSON.stringify(entry.name)}: QueuePayloadOf<typeof import(${JSON.stringify(entry.specifier)}).default>;`),
+    "  }",
+    "}",
+    "",
+  ];
+}

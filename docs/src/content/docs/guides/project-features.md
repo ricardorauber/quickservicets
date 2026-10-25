@@ -208,7 +208,7 @@ Two fields of a tag definition make tags shorter. `shorthand: "text"` lets the f
 export default "Good day";
 ```
 
-Other enabled features can ship files for the folder too, in the same folder inside their own (`features/<key>/greetings/`), like a feature shipping listener files for the `events/` folder of the `events` native. A project file replaces a feature's file of the same name, with an `Override:` line; two features shipping the same name fail the build. `quickservice dev` rebuilds when a folder or a `watch` path changes.
+Other enabled features can ship files for the folder too, in the same folder inside their own (`features/<key>/greetings/`), like a feature shipping listener files for the `events/` folder of the `events` native. A project file replaces a feature's file of the same name, with an `Override:` line; two features shipping the same name fail the build. A folder declared with `featurePrefix: true` names a shipped file `<key>/<path>`, after the key of the feature that ships it, as feature jobs are named: the `queues` native's folder names `features/billing/queues/close.ts` `billing/close`, and a project file `queues/billing/close.ts` replaces it. `quickservice dev` rebuilds when a folder or a `watch` path changes.
 
 ### Commands
 

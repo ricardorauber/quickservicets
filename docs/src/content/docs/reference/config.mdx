@@ -265,3 +265,26 @@ Every option, tag, command and hook of `events` is on [its reference page](/refe
 /** @events off */
 export type Session = { token: string };
 ```
+
+### `queues`
+
+Background queues stored in the project's database, with consumers declared as files in queues/.
+
+Every option, tag, command and hook of `queues` is on [its reference page](/reference/features/queues/).
+
+| Key | Type | Default | Environment variable | Description |
+| --- | --- | --- | --- | --- |
+| `queues.consume` | `boolean` | `true` | `QS_QUEUES_CONSUME` | Runs the consumers in this process; false keeps add working in processes that only enqueue. |
+| `queues.concurrency` | `integer` | `1` | `QS_QUEUES_CONCURRENCY` | How many messages of each queue run at once in one process. |
+| `queues.pollInterval` | `duration` | `"1s"` | `QS_QUEUES_POLL_INTERVAL` | How long an idle consumer waits before it looks for messages again. |
+| `queues.timeout` | `duration` | `"5m"` | `QS_QUEUES_TIMEOUT` | The longest a message may run; the lease of a claimed message. |
+| `queues.retries` | `integer` | `3` | `QS_QUEUES_RETRIES` | How many times a failed message is retried before it is dead. |
+| `queues.retryDelay` | `duration` | `"10s"` | `QS_QUEUES_RETRY_DELAY` | The delay before the first retry, doubled for each next one. |
+| `queues.maxRetryDelay` | `duration` | `"1h"` | `QS_QUEUES_MAX_RETRY_DELAY` | The longest delay between two attempts. |
+| `queues.retention.completed` | `duration` | `"7d"` | `QS_QUEUES_RETENTION_COMPLETED` | How long completed messages are kept after they finish. |
+| `queues.retention.dead` | `duration` | `"30d"` | `QS_QUEUES_RETENTION_DEAD` | How long dead messages are kept after they finish. |
+| `queues.overrides.<name>.concurrency` | `record of integer` | — | `QS_QUEUES_OVERRIDES_<NAME>_CONCURRENCY` | How many messages of the queue run at once in one process. |
+| `queues.overrides.<name>.timeout` | `record of duration` | — | `QS_QUEUES_OVERRIDES_<NAME>_TIMEOUT` | The longest a message of the queue may run. |
+| `queues.overrides.<name>.retries` | `record of integer` | — | `QS_QUEUES_OVERRIDES_<NAME>_RETRIES` | How many times a failed message of the queue is retried. |
+| `queues.overrides.<name>.retryDelay` | `record of duration` | — | `QS_QUEUES_OVERRIDES_<NAME>_RETRY_DELAY` | The first retry delay of the queue. |
+| `queues.enabled` | `boolean` | `true` | `QS_QUEUES_ENABLED` | Turns the feature off when false. |

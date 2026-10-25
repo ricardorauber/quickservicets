@@ -9,3 +9,4 @@ description: Every native feature of QuickService, with its reference page.
 | --- | --- | --- |
 | [`security`](/reference/features/security/) | Safe defaults for every service: security headers, CORS, request limits, timeouts, load shedding, rate limits, IP lists and log masking, each a switchable item. | yes |
 | [`events`](/reference/features/events/) | Write events for every entity, delivered to listeners inside the write's transaction or after its commit. | no |
+| [`queues`](/reference/features/queues/) | Background queues stored in the project's database, with consumers declared as files in queues/. | no |

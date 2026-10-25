@@ -1,5 +1,5 @@
 import { HttpError, toErrorResponse } from "../errors.ts";
-import type { Repositories, ServiceRequest, ServiceResponse } from "../hooks.ts";
+import type { Repositories, RequestExtensions, ServiceRequest, ServiceResponse } from "../hooks.ts";
 import { noRequestJobs, type RequestJobs } from "../jobs/triggers.ts";
 import { jsonLogger, REQUEST_LOG, safeLog, type LogMasker, type Logger } from "../logger.ts";
 import { executedHooks } from "./pipeline.ts";
@@ -116,7 +116,8 @@ export function peerAddress(request: Request): string {
 
 function createRequest(raw: Request, url: URL, params: Record<string, string>, id: string, jobs: RequestJobs, route: string, clientIp: ServerSettings["clientIp"]): ServiceRequest {
   let body: Promise<unknown> | undefined;
-  return {
+  // The properties of `RequestExtensions` are added by the enabled features' request factories.
+  const request: Omit<ServiceRequest, keyof RequestExtensions> = {
     get ip() {
       const value = clientIp ? clientIp(raw, peerAddress(raw)) : peerAddress(raw);
       Object.defineProperty(this, "ip", { value, configurable: true, enumerable: true, writable: true });
@@ -147,6 +148,7 @@ function createRequest(raw: Request, url: URL, params: Record<string, string>, i
       return body;
     },
   };
+  return request as ServiceRequest;
 }
 
 /** The response for a handler's result; `status` replaces the default 200 (or 204 for `undefined`) when `res.status` was not called. */

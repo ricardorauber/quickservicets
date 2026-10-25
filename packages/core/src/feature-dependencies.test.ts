@@ -34,8 +34,8 @@ const keys = (config: Record<string, unknown>) => resolve(config).features.map((
 
 describe("requirement forms", () => {
   test("requires, after and enables take feature keys; requires entries may carry a hint", () => {
-    const definition = defineFeature({ docs: { summary: "Test native." }, key: "trail", requires: ["signals", { name: "queues", hint: "deliveries run on queues" }], after: ["cache"], enables: ["audit"] });
-    expect(definition.requires).toEqual([{ name: "signals" }, { name: "queues", hint: "deliveries run on queues" }]);
+    const definition = defineFeature({ docs: { summary: "Test native." }, key: "trail", requires: ["signals", { name: "tasks", hint: "deliveries run on tasks" }], after: ["cache"], enables: ["audit"] });
+    expect(definition.requires).toEqual([{ name: "signals" }, { name: "tasks", hint: "deliveries run on tasks" }]);
     expect(definition.after).toEqual(["cache"]);
     expect(definition.enables).toEqual(["audit"]);
     expect(Object.isFrozen(definition.requires)).toBe(true);
@@ -62,11 +62,11 @@ describe("missing requirements", () => {
 
   test("every missing requirement is one line of one error, with its hint", () => {
     native({ key: "signals" });
-    native({ key: "queues" });
-    native({ key: "trail", requires: ["signals", { name: "queues", hint: "deliveries run on queues" }] });
+    native({ key: "tasks" });
+    native({ key: "trail", requires: ["signals", { name: "tasks", hint: "deliveries run on tasks" }] });
     expect(failure(() => resolve({ trail: {} })).message.split("\n")).toEqual([
       "trail requires signals; add signals: {} to quickservice.config.ts",
-      "trail requires queues; add queues: {} to quickservice.config.ts (deliveries run on queues)",
+      "trail requires tasks; add tasks: {} to quickservice.config.ts (deliveries run on tasks)",
     ]);
   });
 
@@ -140,9 +140,9 @@ describe("order", () => {
   });
 
   test("after entries order only when they are enabled", () => {
-    native({ key: "search", after: ["queues"] });
-    native({ key: "queues" });
-    expect(keys({ search: {}, queues: {} })).toEqual(["queues", "search"]);
+    native({ key: "search", after: ["tasks"] });
+    native({ key: "tasks" });
+    expect(keys({ search: {}, tasks: {} })).toEqual(["tasks", "search"]);
     expect(keys({ search: {} })).toEqual(["search"]);
   });
 

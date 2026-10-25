@@ -95,6 +95,14 @@ Lists the latest runs of a job (20 by default) with their attempt, trigger, stat
 quickservice job runs <name> [--limit n]
 ```
 
+## `eject`
+
+Copies an enabled native feature into `features/<key>/` as a project feature that replaces it, or with `--file` one of its entity, endpoint, hook, job or folder files into the matching project folder, where it replaces the native's file; imports of the core are rewritten to `@quickservice/core`.
+
+```bash
+quickservice eject <key> [--file <path>] [--dry-run] [--force]
+```
+
 ## `env check`
 
 Checks the environment the service would start with (the process and its `.env` files): one line per declared variable with `ok`, `default`, `missing` or `invalid`, and its value unless it is a secret, then the `QS_*` overrides that are set and warnings for unknown ones. Exits with 1 when a variable is missing or invalid.

@@ -30,13 +30,13 @@ const capture = async (args: string[], root: string) => {
   return { code, lines };
 };
 
-/** A native's files import the core by relative paths; a project feature's import `@quickservice/core`. */
+/** A native's files import the core from `features/public.ts`; a project feature's import `@quickservice/core`. */
 const files = (core: (path: string) => string) => ({
   "endpoints/notes/hello/get.ts": "/** @summary Says hello from notes */\nexport default () => ({ hello: \"notes\" });\n",
   "hooks/noteStamp.ts": `import { definePostHook } from ${JSON.stringify(core("hooks.ts"))};\nexport default definePostHook((data) => ({ ...(data as object), stamped: true }));\n`,
   "jobs/prune.ts": `import { job } from ${JSON.stringify(core("jobs/job.ts"))};\nexport default job({ every: "1h" }, async () => "pruned");\n`,
 });
-const NATIVE_FILES = files((path) => `../../../${path}`);
+const NATIVE_FILES = files(() => "../../public.ts");
 const PROJECT_FILES = files(() => "@quickservice/core");
 const prefixed = (prefix: string, entries: Record<string, string>) => Object.fromEntries(Object.entries(entries).map(([path, content]) => [`${prefix}${path}`, content]));
 const featureIndex = (key: string) =>

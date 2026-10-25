@@ -25,7 +25,8 @@ export function assertFeatureImports(projectRoot: string): void {
   for (const file of sourceFiles(join(projectRoot, FEATURES_DIR)).sort()) {
     const { importedFiles } = ts.preProcessFile(readFileSync(file, "utf8"), true, true);
     for (const { fileName } of importedFiles) {
-      if (!fileName.startsWith("@quickservice/core/") || FEATURE_IMPORTS.includes(fileName)) continue;
+      // Files a project feature copied from a native may import the native's other files through the package.
+      if (!fileName.startsWith("@quickservice/core/") || FEATURE_IMPORTS.includes(fileName) || fileName.startsWith("@quickservice/core/features/")) continue;
       const name = relative(projectRoot, file).split(sep).join("/");
       problems.push(`${name}: imports ${fileName}; project features import the framework only from ${FEATURE_IMPORTS.join(" or ")}`);
     }

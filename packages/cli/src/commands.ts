@@ -174,6 +174,23 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
     },
   }),
   defineCommand({
+    name: "eject",
+    usage: "quickservice eject <key> [--file <path>] [--dry-run] [--force]",
+    description:
+      "Copies an enabled native feature into `features/<key>/` as a project feature that replaces it, or with `--file` one of its entity, endpoint, hook, job or folder files into the matching project folder, where it replaces the native's file; imports of the core are rewritten to `@quickservice/core`.",
+    args: [{ name: "key", required: true, description: "The key of an enabled native feature." }],
+    flags: object({
+      file: string().optional().describe("Copies only this file of the native, relative to its folder (like `jobs/prune.ts`)."),
+      dryRun: boolean().default(false).describe("Lists the files it would write without writing them."),
+      force: boolean().default(false).describe("Overwrites files that exist."),
+    }),
+    async run({ args, flags, cwd, output }) {
+      const { eject } = await import("./eject/eject.ts");
+      for (const line of await eject(cwd, args.key!, { file: flags.file, dryRun: flags.dryRun, force: flags.force })) output.log(line);
+      return 0;
+    },
+  }),
+  defineCommand({
     name: "env check",
     usage: "quickservice env check",
     description:

@@ -10,6 +10,8 @@ import { availableCpus, SERVER_WORKERS_ENV, WORKERS_ENV } from "./workers.ts";
 import type { StorageAdapter } from "./storage/storage.ts";
 import { ConfigError } from "./config-error.ts";
 import { applyEnvironment } from "./environment.ts";
+import { declaredVariables, readVariables, setEnvValues } from "./env-vars.ts";
+import type { AnyOptionSchema } from "./options.ts";
 import { activeFeatureDefinitions, loadProjectFeatures, resolveFeatures, type NativeFeatures, type ResolvedFeature } from "./features.ts";
 
 export const CONFIG_FILE = "quickservice.config.ts";
@@ -75,6 +77,11 @@ export interface ServiceConfig extends NativeFeatures {
     /** Whether `quickservice dev` creates migrations automatically for model changes (default true). */
     autoInDev?: boolean;
   };
+  /**
+   * Environment variables the service needs, by name, with their option schemas (like `{ DATABASE_URL: url(),
+   * REPORT_HOUR: integer().default(6) }`); they are checked at startup and read typed from `env`.
+   */
+  env?: Record<string, AnyOptionSchema>;
   /** Scheduled job settings; each job's own options override them. */
   jobs?: {
     /** Run scheduled jobs in this instance (default true); `JOBS_ENABLED=false` overrides it. */
@@ -300,7 +307,9 @@ export function resolveConfig(
   config = environment.config as unknown as ServiceConfig;
   const production = config.production ?? false;
   const { features, disabledFeatures, enabledBy } = resolveFeatures(config as unknown as Record<string, unknown>);
-  return {
+  const variables = declaredVariables(config.env, features.map((feature) => ({ key: feature.key, env: feature.definition.env })));
+  const envValues = readVariables(variables, env);
+  const resolved: ResolvedConfig = {
     ...config,
     features,
     disabledFeatures,
@@ -315,6 +324,14 @@ export function resolveConfig(
     files: resolveFiles(config),
     jobs: resolveJobs(config),
   };
+  // Published last, so `env` only ever holds the variables of a configuration that resolved.
+  publishEnv(envValues);
+  return resolved;
+}
+
+/** Stores the values of the declared variables of a resolved configuration, so `env` reads them. */
+function publishEnv(values: Record<string, unknown>): void {
+  setEnvValues(values);
 }
 
 export async function loadConfig(projectRoot: string, env: Record<string, string | undefined> = process.env): Promise<ResolvedConfig> {

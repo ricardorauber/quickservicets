@@ -1,4 +1,4 @@
-import type { EntityModel, EnumDeclarationInfo, FieldModel, NestedFieldModel, TypeDescriptor } from "@quickservice/core";
+import type { AnyOptionSchema, EntityModel, EnumDeclarationInfo, FieldModel, NestedFieldModel, TypeDescriptor } from "@quickservice/core";
 
 /** Local names of the enum and alias declarations imported by the generated file, keyed by `<file>#<name>`. */
 type EnumImports = Map<string, string>;
@@ -154,7 +154,43 @@ function enumImports(models: EntityModel[]): { imports: EnumImports; lines: stri
   return { imports, lines };
 }
 
-export function generateTypesFile(allModels: EntityModel[]): string {
+/** The TypeScript type of a value an option schema accepts once parsed. */
+export function optionValueType(schema: AnyOptionSchema): string {
+  const { settings } = schema;
+  switch (schema.kind) {
+    case "number":
+    case "integer":
+      return "number";
+    case "boolean":
+      return "boolean";
+    case "oneOf":
+      return settings.values!.map((value) => JSON.stringify(value)).join(" | ");
+    case "list": {
+      const item = optionValueType(settings.item!);
+      return /[ |]/.test(item) && !item.startsWith("{") ? `(${item})[]` : `${item}[]`;
+    }
+    case "object":
+      return `{ ${Object.entries(settings.shape!)
+        .map(([key, child]) => `${JSON.stringify(key)}${child.settings.optional && !child.settings.hasDefault ? "?" : ""}: ${optionValueType(child)}`)
+        .join("; ")} }`;
+    case "provider":
+      return "unknown";
+    case "size":
+      return "string | number";
+    default:
+      return "string";
+  }
+}
+
+/** The `EnvVars` members of the declared variables: optional ones without a default may be undefined. */
+export function envVarsLines(variables: readonly { name: string; schema: AnyOptionSchema }[]): string[] {
+  return variables.map(({ name, schema }) => {
+    const type = optionValueType(schema);
+    return `    ${name}: ${schema.settings.optional && !schema.settings.hasDefault ? `${type} | undefined` : type};`;
+  });
+}
+
+export function generateTypesFile(allModels: EntityModel[], envVars: string[] = []): string {
   const models = allModels.filter((model) => !model.link);
   const { imports, lines } = enumImports(models);
   const repositories = repositoryLines(models);
@@ -177,6 +213,7 @@ export function generateTypesFile(allModels: EntityModel[]): string {
     "",
     'declare module "@quickservice/core" {',
     "  interface Repositories extends GeneratedRepositories {}",
+    ...(envVars.length > 0 ? ["  interface EnvVars {", ...envVars, "  }"] : ["  interface EnvVars {}"]),
     "}",
     "",
   ].join("\n");

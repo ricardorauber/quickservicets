@@ -3,6 +3,7 @@ import {
   OPENAPI_PATH,
   fileAccessErrors,
   entityRoutePath,
+  declaredVariables,
   loadConfig,
   parseFieldPaths,
   registeredProjectFeatures,
@@ -27,7 +28,7 @@ import { scanHooks, type HookEntry } from "../hooks/scan-hooks.ts";
 import { scanJobs, type JobEntry } from "../jobs/scan-jobs.ts";
 import { validateHookReferences } from "../hooks/validate-hook-references.ts";
 import { hasPendingChanges, sqlDialectOf } from "../migrations/add.ts";
-import { generateTypesFile } from "./generate-types.ts";
+import { envVarsLines, generateTypesFile } from "./generate-types.ts";
 import { extractQueryItems } from "../endpoints/query-items.ts";
 import { describeEndpoints } from "../openapi/endpoint-docs.ts";
 import { generateOpenApi } from "../openapi/generate-openapi.ts";
@@ -337,7 +338,7 @@ export async function build(projectRoot: string): Promise<BuildSummary> {
 
   const files: Record<string, string> = {
     "models.ts": `${HEADER}\nimport type { EntityModel } from "@quickservice/core";\n\nexport const models: EntityModel[] = ${JSON.stringify(models, null, 2)};\n`,
-    "types.ts": [generateTypesFile(models), ...featureTypeLines(featureKeys)].join("\n"),
+    "types.ts": [generateTypesFile(models, envVarsLines(declaredVariables(config.env, config.features.map((feature) => ({ key: feature.key, env: feature.definition.env }))))), ...featureTypeLines(featureKeys)].join("\n"),
     "features.ts": generateFeaturesFile(HEADER, featureKeys),
     "routes.ts": generateRoutesFile(models, resolved, hooks),
     "jobs.ts": generateJobsFile(jobs),

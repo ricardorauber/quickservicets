@@ -344,6 +344,13 @@ function validate(schema: AnyOptionSchema, value: unknown, path: string, problem
     problems.push(`Invalid ${path}: expected ${expectationOf(schema)}, got ${shown(schema, value)}`);
     return undefined;
   };
+  /** Within `min` and `max`; otherwise reports the bound the value breaks. */
+  const bounded = (measure: number): boolean => {
+    if (withinBounds(settings, measure)) return true;
+    const broken = settings.min !== undefined && measure < settings.min ? { min: settings.min, max: undefined } : { min: undefined, max: settings.max };
+    problems.push(`Invalid ${path}: expected ${expectationOf({ kind: schema.kind, settings: { ...settings, ...broken } })}, got ${shown(schema, value)}`);
+    return false;
+  };
   if (typeof value === "function") {
     if (!settings.perRequest) return invalid();
     const checked: CheckedFunction = (ctx) => (value as OptionFunction<unknown>)(ctx);
@@ -353,11 +360,14 @@ function validate(schema: AnyOptionSchema, value: unknown, path: string, problem
   switch (schema.kind) {
     case "string":
     case "secret":
-      return typeof value === "string" && withinBounds(settings, value.length) ? value : invalid();
+      if (typeof value !== "string") return invalid();
+      return bounded(value.length) ? value : undefined;
     case "number":
-      return typeof value === "number" && Number.isFinite(value) && withinBounds(settings, value) ? value : invalid();
+      if (typeof value !== "number" || !Number.isFinite(value)) return invalid();
+      return bounded(value) ? value : undefined;
     case "integer":
-      return typeof value === "number" && Number.isInteger(value) && withinBounds(settings, value) ? value : invalid();
+      if (typeof value !== "number" || !Number.isInteger(value)) return invalid();
+      return bounded(value) ? value : undefined;
     case "boolean":
       return typeof value === "boolean" ? value : invalid();
     case "duration":
@@ -378,7 +388,8 @@ function validate(schema: AnyOptionSchema, value: unknown, path: string, problem
     case "oneOf":
       return settings.values!.includes(value as never) ? value : invalid();
     case "list": {
-      if (!Array.isArray(value) || !withinBounds(settings, value.length)) return invalid();
+      if (!Array.isArray(value)) return invalid();
+      if (!bounded(value.length)) return undefined;
       return value.map((item, index) => validate(settings.item!, item, `${path}[${index}]`, problems));
     }
     case "object":

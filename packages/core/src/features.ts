@@ -44,6 +44,8 @@ export interface FeatureInput<S extends AnyOptionSchema> {
   after?: readonly string[];
   /** Natives this feature turns on with their default options when the project's config has no key for them. */
   enables?: readonly string[];
+  /** Environment variables the feature needs, read and checked at startup with the project's (see `env`). */
+  env?: Readonly<Record<string, AnyOptionSchema>>;
 }
 
 /** A required native, with a hint on why it is needed. */
@@ -65,6 +67,8 @@ export interface FeatureDefinition<S extends AnyOptionSchema = AnyOptionSchema> 
   readonly requires: readonly FeatureRequirement[];
   readonly after: readonly string[];
   readonly enables: readonly string[];
+  /** The environment variables the feature declares. */
+  readonly env?: Readonly<Record<string, AnyOptionSchema>>;
   /**
    * The feature's resolved options, once a configuration enabling it has been resolved in this process; throws
    * otherwise. The feature's own code reads its typed options here instead of receiving the config.
@@ -145,6 +149,7 @@ export function defineFeature<S extends AnyOptionSchema = ObjectOptionSchema<{}>
     requires,
     after: keyList("after", input.after),
     enables: keyList("enables", input.enables),
+    ...(input.env ? { env: Object.freeze({ ...input.env }) } : {}),
     options() {
       const resolved = resolvedOptions.get(definition as FeatureDefinition);
       if (!resolved) throw new Error(`${key} is not enabled; add ${key}: {} to quickservice.config.ts`);

@@ -88,10 +88,13 @@ describe("builders and modifiers", () => {
   });
 
   test("min and max bound values, lengths and item counts", () => {
-    expect(problems(integer().min(1).max(5), 9)).toEqual(["Invalid x: expected an integer between 1 and 5, got 9"]);
+    expect(problems(integer().min(1).max(5), 9)).toEqual(["Invalid x: expected an integer of at most 5, got 9"]);
+    expect(problems(integer().min(1).max(5), 0)).toEqual(["Invalid x: expected an integer of at least 1, got 0"]);
+    expect(problems(integer().min(1).max(5), "x")).toEqual(['Invalid x: expected an integer between 1 and 5, got "x"']);
     expect(problems(number().min(0), -1)).toEqual(["Invalid x: expected a number of at least 0, got -1"]);
     expect(problems(string().max(2), "abc")).toEqual(['Invalid x: expected a string of at most 2 characters, got "abc"']);
-    expect(problems(string().min(1).max(3), "")).toEqual(['Invalid x: expected a string of 1 to 3 characters, got ""']);
+    expect(problems(string().min(1).max(3), "")).toEqual(['Invalid x: expected a string of at least 1 character, got ""']);
+    expect(problems(string().min(1).max(3), 4)).toEqual(["Invalid x: expected a string of 1 to 3 characters, got 4"]);
     expect(problems(list(string()).min(1), [])).toEqual(["Invalid x: expected a list of at least 1 item, got []"]);
     expect(problems(secret().min(8), "short")).toEqual(["Invalid x: expected a string of at least 8 characters, got [secret]"]);
     expect(resolveOptions(list(string()).max(2), ["a", "b"], "x")).toEqual(["a", "b"]);

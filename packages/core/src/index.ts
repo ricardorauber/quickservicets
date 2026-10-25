@@ -228,7 +228,7 @@ export type { DeclaredVariable, EnvVars } from "./env-vars.ts";
 // The natives the core ships, registered when the core loads; they come last, after every export they use.
 import eventsNative, { type EventsApi } from "./features/events/index.ts";
 import securityNative, { type SecurityApi } from "./features/security/index.ts";
-import queuesNative, { type QueueClient } from "./features/queues/index.ts";
+import queuesNative, { type QueueClient, type QueuesApi } from "./features/queues/index.ts";
 import { registerNative as registerShippedNative, type FeatureConfig as NativeConfig } from "./features.ts";
 registerShippedNative(securityNative);
 registerShippedNative(eventsNative);
@@ -239,8 +239,32 @@ export type { EventBus, EventListener, Events, EventsApi, ListenerContext, Liste
 export { maskEntry, maskText, maskUrl, memoryRateLimitStore, securityFeature, slidingWindowHit } from "./features/security/index.ts";
 export type { ClientIpResolver, ExemptibleItem, MaskingRules, MemoryRateLimitStore, RateLimitRefusal, SecurityRefusal, RateLimitHit, RateLimitResult, RateLimitStore, SecurityApi, WindowCounts } from "./features/security/index.ts";
 
-export { isQueueDefinition, QUEUE_MESSAGE_STATUSES, queue, queueMessageEntity, queues, queuesFeature } from "./features/queues/index.ts";
-export type { QueueAddOptions, QueueAddResult, QueueClient, QueueContext, QueueDefinition, QueueMessage, QueueMessageInfo, QueueMessageStatus, QueueName, QueueOptions, QueuePayloadOf, QueuePayloads, Queues, QueueStats } from "./features/queues/index.ts";
+export { databaseBroker, isQueueDefinition, QUEUE_MESSAGE_STATUSES, queue, queueMessageEntity, queues, queuesFeature } from "./features/queues/index.ts";
+export type {
+  DatabaseBroker,
+  DatabaseBrokerOptions,
+  QueueAddOptions,
+  QueueAddResult,
+  QueueBroker,
+  QueueBrokerContext,
+  QueueBrokerMessage,
+  QueueClient,
+  QueueContext,
+  QueueDefinition,
+  QueueMessage,
+  QueueMessageInfo,
+  QueueMessageStatus,
+  QueueName,
+  QueueOptions,
+  QueueOutcome,
+  QueuePayloadOf,
+  QueuePayloads,
+  QueueReceivedMessage,
+  Queues,
+  QueueSettings,
+  QueuesApi,
+  QueueStats,
+} from "./features/queues/index.ts";
 
 declare module "./hooks.ts" {
   interface RequestExtensions {
@@ -260,6 +284,7 @@ declare module "./features.ts" {
   }
   interface FeatureApis {
     events: EventsApi;
+    queues: QueuesApi;
     security: SecurityApi;
   }
 }

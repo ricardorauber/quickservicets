@@ -63,7 +63,11 @@ Not applicable: this example has no feature that ships a queue yet.
 
 ## Level 6: replace the implementation
 
-Not applicable: the database is the only place messages are stored so far.
+Messages live in the project's database through `databaseBroker()`; any object with the `QueueBroker` methods replaces it, and `runQueueBrokerContract` from `@quickservice/core/testing` checks it:
+
+```ts
+queues: { broker: rabbitBroker({ url: env.RABBIT_URL }) }
+```
 
 ## Level 7: eject
 

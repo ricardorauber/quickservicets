@@ -37,6 +37,7 @@ It is not enabled by default: turn it on with `queues: {}` or `QS_QUEUES_ENABLED
 | `queues.overrides.<name>.retries` | `record of integer` | — | `QS_QUEUES_OVERRIDES_<NAME>_RETRIES` | no | How many times a failed message of the queue is retried. |
 | `queues.overrides.<name>.retryDelay` | `record of duration` | — | `QS_QUEUES_OVERRIDES_<NAME>_RETRY_DELAY` | no | The first retry delay of the queue. |
 | `queues.overrides.<name>.dedupeWindow` | `record of duration` | — | `QS_QUEUES_OVERRIDES_<NAME>_DEDUPE_WINDOW` | no | How long a completed message of the queue keeps deduplicating its key. |
+| `queues.broker` | `QueueBroker` | — | not overridable | no | Replaces the database broker, so messages live in another broker such as RabbitMQ, Kafka, Redis or SQS. |
 | `queues.publish.queue` | `string` | `"events"` | `QS_QUEUES_PUBLISH_QUEUE` | no | The queue an entity tagged @publish sends its write events to. |
 | `queues.publish.events` | `("created" \| "updated" \| "deleted")[]` | `["created","updated","deleted"]` | `QS_QUEUES_PUBLISH_EVENTS` | no | The write operations a tagged entity publishes: created, updated and deleted. |
 | `queues.publish.fields` | `string[]` | — | `QS_QUEUES_PUBLISH_FIELDS` | no | The only fields, with id, kept in a published event's before and after; all but hidden and sensitive fields without it. |
@@ -101,3 +102,16 @@ quickservice queue retry <message id> | quickservice queue retry --queue <name> 
 
 - `--queue` (`string`): The queue whose dead messages are requeued.
 - `--dead` (`boolean`, default `false`): Requeues the queue's dead messages.
+
+## Feature API
+
+Other features reach it with `ctx.feature("queues")` in their setup, listing `queues` in `requires` or `after`.
+
+### `setBroker`
+
+```ts
+setBroker(broker: QueueBroker): void;
+```
+
+Replaces the database broker with `broker`, from the calling feature's setup only; startup fails with
+`Queue broker set by <a> and <b>; keep one` when `queues.broker` or another feature set one too.

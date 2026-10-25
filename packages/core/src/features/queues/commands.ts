@@ -1,18 +1,15 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { boolean, defineCommand, integer, object, string, type CommandContext } from "../public.ts";
-import { createDatabaseQueue, type DatabaseQueue } from "./database.ts";
+import { brokerMethod, type QueueBroker } from "./broker.ts";
+import { bindDatabaseBroker, databaseBroker, isDatabaseBroker } from "./database.ts";
 import { queueMessageEntity } from "./message.ts";
 import { isQueueDefinition, type QueueDefinition } from "./queue.ts";
 
 type QueuesOptions = {
-  concurrency: number;
-  timeout: string;
-  retries: number;
-  retryDelay: string;
-  maxRetryDelay: string;
   pollInterval: string;
   retention: { completed: string; dead: string };
+  broker?: QueueBroker;
 };
 
 /** The queues the last build declared, read from `.generated/features.ts`. */
@@ -25,21 +22,23 @@ async function declaredQueues(cwd: string): Promise<Map<string, QueueDefinition>
   return declared;
 }
 
-/** Connects to the project's database and returns its messages. */
-async function connected(ctx: CommandContext<unknown, unknown>): Promise<DatabaseQueue> {
+/** Connects to the project's database and returns the configured broker, or the database broker. */
+async function connected(ctx: CommandContext<unknown, unknown>): Promise<QueueBroker> {
   await ctx.connect();
   const options = ctx.options as QueuesOptions;
-  return createDatabaseQueue({
-    adapter: ctx.config.database,
-    model: queueMessageEntity(),
-    definitions: await declaredQueues(ctx.cwd),
-    settings: () => ({ concurrency: options.concurrency, timeout: options.timeout, retries: options.retries, retryDelay: options.retryDelay, maxRetryDelay: options.maxRetryDelay }),
-    pollInterval: options.pollInterval,
-    logger: { info() {}, warn() {}, error() {} },
-    production: ctx.config.production,
-    resultLimit: ctx.config.jobs.limits.result,
-    retention: options.retention,
-  });
+  const broker = options.broker ?? databaseBroker();
+  if (isDatabaseBroker(broker)) {
+    bindDatabaseBroker(broker, {
+      adapter: ctx.config.database,
+      model: queueMessageEntity(),
+      pollInterval: options.pollInterval,
+      production: ctx.config.production,
+      resultLimit: ctx.config.jobs.limits.result,
+      retention: options.retention,
+      queues: [...(await declaredQueues(ctx.cwd)).keys()],
+    });
+  }
+  return broker;
 }
 
 /** A duration in milliseconds as `1h 2m 3s`. */
@@ -77,7 +76,7 @@ const dead = defineCommand({
   flags: object({ limit: integer().min(1).default(20).describe("How many messages to print.") }),
   async run(ctx) {
     const queue = ctx.args.queue!;
-    const messages = await (await connected(ctx)).dead(queue, { limit: ctx.flags.limit });
+    const messages = await brokerMethod(await connected(ctx), "dead")(queue, { limit: ctx.flags.limit });
     if (messages.length === 0) ctx.output.log(`No dead messages in ${queue}.`);
     for (const message of messages) {
       const finished = message.finishedAt ? new Date(message.finishedAt).toISOString() : "-";
@@ -101,10 +100,10 @@ const retry = defineCommand({
       ctx.output.error("Name a message id, or --queue <name> --dead");
       return 1;
     }
-    const store = await connected(ctx);
+    const broker = await connected(ctx);
     let count = 1;
-    if (id) await store.retry(id);
-    else count = await store.retryDead(ctx.flags.queue!);
+    if (id) await brokerMethod(broker, "retry")(id);
+    else count = await brokerMethod(broker, "retryDead")(ctx.flags.queue!);
     ctx.output.log(`Requeued ${count} ${count === 1 ? "message" : "messages"}`);
   },
 });

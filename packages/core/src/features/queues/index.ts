@@ -1,7 +1,10 @@
-import { boolean, defineFeature, duration, integer, list, object, oneOf, parseDuration, record, string, type EntityModel, type FeatureSetupContext, type WriteEvent } from "../public.ts";
+import { boolean, defineFeature, duration, inTransaction, integer, list, object, oneOf, parseDuration, provider, record, string, systemClock, type EntityModel, type FeatureSetupContext, type Repositories, type WriteEvent } from "../public.ts";
+import { brokerMethod, type QueueBroker, type QueueBrokerMessage, type QueueSettings } from "./broker.ts";
+import type { QueuesApi } from "./api.ts";
+import { consumerHandler } from "./handle.ts";
 import { queueClient } from "./client.ts";
 import { queueCommands } from "./commands.ts";
-import { createDatabaseQueue, type QueueSettings } from "./database.ts";
+import { bindDatabaseBroker, databaseBroker, isDatabaseBroker } from "./database.ts";
 import { messagePlacement } from "./message-options.ts";
 import { queueMessageEntity } from "./message.ts";
 import { PUBLISH_OPERATIONS, publishedPayload, type PublishSettings } from "./publish.ts";
@@ -31,6 +34,9 @@ const options = object({
       dedupeWindow: duration().optional().describe("How long a completed message of the queue keeps deduplicating its key."),
     }),
   ).describe("Options of single queues by queue name, over the queue file's options."),
+  broker: provider<QueueBroker>("QueueBroker", ["enqueue", "start", "stop", "stats"])
+    .optional()
+    .describe("Replaces the database broker, so messages live in another broker such as RabbitMQ, Kafka, Redis or SQS."),
   publish: object({
     queue: string().default("events").describe("The queue an entity tagged @publish sends its write events to."),
     events: list(oneOf(PUBLISH_OPERATIONS))
@@ -46,6 +52,9 @@ const lowerFirst = (name: string) => `${name.charAt(0).toLowerCase()}${name.slic
 
 /** Undoes the process-wide state of the running service's setup. */
 const lifecycle = sharedState("lifecycle", () => ({ teardown: undefined as (() => void) | undefined }));
+
+/** The broker set by `queues.broker` or a feature's `setBroker`, with who set it. */
+const brokers = sharedState("broker", () => ({ choice: undefined as { broker: QueueBroker; owner: string } | undefined }));
 
 /** The JSON form of a payload, or undefined when it has none. */
 function jsonPayload(payload: unknown): unknown {
@@ -95,7 +104,6 @@ const queuesFeature = defineFeature({
     lifecycle.teardown?.();
     const model = ctx.models.find((candidate) => candidate.key === "QueueMessage" && candidate.system);
     if (!model) throw new Error("The queues native needs the QueueMessage entity; run quickservice build after enabling it");
-    const adapter = ctx.config.database;
     const declared = new Map<string, QueueDefinition>();
     for (const [name, file] of ctx.folders.queues ?? []) if (isQueueDefinition(file)) declared.set(name, file);
     const names = new Set(declared.keys());
@@ -117,45 +125,100 @@ const queuesFeature = defineFeature({
         ...(file.dedupeWindow ? { dedupeWindow: file.dedupeWindow } : {}),
       };
     };
-    const store = createDatabaseQueue({
+    // The configured broker, or one a feature sets during its setup, or the database broker.
+    const configured = ctx.options.broker as QueueBroker | undefined;
+    brokers.choice = configured ? { broker: configured, owner: "queues.broker" } : undefined;
+    const databaseDefaults = {
       adapter: ctx.config.database,
       model,
-      definitions: declared,
-      settings: settingsOf,
       pollInterval: ctx.options.pollInterval,
       logger: ctx.logger,
       production: ctx.config.production,
       resultLimit: ctx.config.jobs.limits.result,
       retention: ctx.options.retention,
-    });
+      queues: [...declared.keys()],
+    };
+    const fallback = databaseBroker();
+    let chosen: QueueBroker | undefined;
+    const brokerOf = (): QueueBroker => {
+      if (chosen) return chosen;
+      chosen = brokers.choice?.broker ?? fallback;
+      if (isDatabaseBroker(chosen)) bindDatabaseBroker(chosen, databaseDefaults);
+      return chosen;
+    };
 
+    let repos: Repositories | undefined;
     const native: RunningQueues = {
       async add(name, payload, options, source) {
         if (!names.has(name)) throw new Error(`Unknown queue ${name}`);
         const stored = jsonPayload(payload);
         if (stored === undefined) throw new Error(`Queue payload for ${name} is not JSON-serializable`);
-        return store.enqueue(name, stored, source, messagePlacement(options, Date.now()));
+        const { runAt, priority, dedupeKey } = messagePlacement(options, Date.now());
+        const settings = settingsOf(name);
+        const message: QueueBrokerMessage = {
+          queue: name,
+          payload: stored,
+          runAt,
+          priority,
+          maxAttempts: settings.retries + 1,
+          ...(dedupeKey !== undefined ? { dedupeKey } : {}),
+          ...(settings.dedupeWindow ? { dedupeWindow: settings.dedupeWindow } : {}),
+          ...(source.requestId ? { requestId: source.requestId } : {}),
+        };
+        return brokerOf().enqueue(message, { transactional: inTransaction() });
       },
-      retry: (id) => store.retry(id),
-      retryDead: (queue) => store.retryDead(queue),
+      retry: async (id) => brokerMethod(brokerOf(), "retry")(id),
+      retryDead: async (queue) => brokerMethod(brokerOf(), "retryDead")(queue),
     };
     running.current = native;
     if (publishing.length > 0) publishWrites(ctx, publishing, (queue, payload, event) => native.add(queue, payload, { dedupeKey: event.id }, event.requestId ? { requestId: event.requestId } : {}));
     const stop = () => {
       lifecycle.teardown = undefined;
+      brokers.choice = undefined;
       if (running.current === native) running.current = undefined;
     };
     lifecycle.teardown = stop;
     // onStop callbacks run in reverse order, so this one runs last, after the consumers drained.
     ctx.app.onStop(stop);
+    // Brokers can no longer be set once every setup ran.
+    ctx.app.onStart(() => void brokerOf());
     if (!ctx.options.consume) return;
-    ctx.app.onStart((start) => store.start(start.repos));
-    ctx.app.onShutdown(() => store.stop());
+    ctx.app.onStart(async (start) => {
+      repos = start.repos;
+      await brokerOf().start({
+        queues: [...declared.keys()].map((name) => ({ name, options: settingsOf(name) })),
+        handle: consumerHandler({ definitions: declared, repos: () => repos!, logger: ctx.logger }),
+        pollInterval: ctx.options.pollInterval,
+        logger: ctx.logger,
+        clock: systemClock,
+      });
+    });
+    ctx.app.onShutdown(() => brokerOf().pause?.());
     // Within the stop limit, so the lifecycle's own timeout never cuts the drain short.
     const stopLimit = Math.floor((parseDuration(ctx.config.lifecycle.stopTimeout) ?? 10_000) * 0.9);
-    ctx.app.onStop(() => store.drain(Math.min(parseDuration(ctx.config.jobs.shutdownGrace) ?? 10_000, stopLimit)));
+    ctx.app.onStop(() => brokerOf().stop({ graceMs: Math.min(parseDuration(ctx.config.jobs.shutdownGrace) ?? 10_000, stopLimit) }));
   },
+  api: (ctx): QueuesApi => ({
+    setBroker(broker) {
+      const caller = ctx.currentFeature();
+      if (!caller || caller === "queues") throw new Error("setBroker is only available during the setup of another feature");
+      const problem = brokerProblem(broker);
+      if (problem) throw new Error(`Invalid broker set by ${caller}: ${problem}`);
+      if (brokers.choice) throw new Error(`Queue broker set by ${brokers.choice.owner} and ${caller}; keep one`);
+      brokers.choice = { broker, owner: caller };
+    },
+  }),
 });
+
+/** The required methods of a broker, as the `broker` option checks them. */
+const BROKER_METHODS = ["enqueue", "start", "stop", "stats"] as const;
+
+/** Why a value is not a broker, or undefined when it is one. */
+function brokerProblem(broker: unknown): string | undefined {
+  if (typeof broker !== "object" || broker === null) return "expected a QueueBroker object";
+  const missing = BROKER_METHODS.filter((method) => typeof (broker as Record<string, unknown>)[method] !== "function");
+  return missing.length > 0 ? `the QueueBroker is missing ${missing.join(", ")}` : undefined;
+}
 
 /** Adds an `inTransaction` listener per tagged entity that adds one message per listed write event. */
 function publishWrites(
@@ -185,4 +248,7 @@ export { QUEUE_MESSAGE_STATUSES, queueMessageEntity } from "./message.ts";
 export { isQueueDefinition, queue } from "./queue.ts";
 export type { QueueMessage, QueueMessageStatus } from "./message.ts";
 export type { QueueAddOptions, QueueAddResult, QueueClient, QueueContext, QueueDefinition, QueueMessageInfo, QueueName, QueueOptions, QueuePayloadOf, QueuePayloads, Queues } from "./queue.ts";
-export type { QueueStats } from "./database.ts";
+export { databaseBroker } from "./database.ts";
+export type { DatabaseBroker, DatabaseBrokerOptions } from "./database.ts";
+export type { QueueBroker, QueueBrokerContext, QueueBrokerMessage, QueueOutcome, QueueReceivedMessage, QueueSettings, QueueStats } from "./broker.ts";
+export type { QueuesApi } from "./api.ts";

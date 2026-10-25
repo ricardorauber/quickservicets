@@ -65,7 +65,7 @@ export const CONFIG_OVERRIDES: readonly ConfigOverride[] = [
 ];
 
 /** Keys that hold behavior (adapters, loggers, code), which no environment variable can express. */
-export const NOT_OVERRIDABLE: readonly string[] = ["database", "logger", "storage", "plugins", "middleware", "env"];
+export const NOT_OVERRIDABLE: readonly string[] = ["database", "logger", "storage", "plugins", "middleware", "env", "docs.openapi"];
 
 /** Variables the framework sets or reads itself, which are not config overrides but are not unknown either. */
 const INTERNAL_VARIABLES = [WORKER_INDEX_ENV];

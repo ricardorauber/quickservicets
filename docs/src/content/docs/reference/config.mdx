@@ -19,6 +19,7 @@ Every key that holds a value can also be set by an environment variable named af
 | `production` | `boolean` | false | `QS_PRODUCTION` (or `NODE_ENV`) | Production mode: hides internal error details and disables the API docs (default false); `NODE_ENV=production` turns it on. |
 | `docs` | `object` | — | — | API docs settings. |
 | `docs.enabled` | `boolean` | enabled unless `production` | `QS_DOCS_ENABLED` | Serve the API docs at `GET /docs` and `GET /openapi.json` (default: enabled unless `production`). |
+| `docs.openapi` | `(doc: OpenApiDoc, context: ProjectOpenApiContext) => OpenApiDoc \| void \| undefined` | — | not overridable | Changes the generated OpenAPI document at build time, after every feature's `openapi` function, in place or by returning a new one. |
 | `logger` | `Logger` | JSON lines on stdout | not overridable | Receives one entry per request; defaults to JSON lines on stdout. |
 | `schema` | `string` | — | `QS_SCHEMA` (or `DATABASE_SCHEMA`) | Default database schema for entities without an explicit one; `DATABASE_SCHEMA` overrides it. |
 | `storage` | `Record<string, StorageAdapter>` | a local storage in `uploads/` | not overridable | Named file storages; file entities use `default` unless `@storage` names another (default: a local storage in `uploads/`). |

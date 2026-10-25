@@ -14,6 +14,7 @@ import { declaredVariables, readVariables, setEnvValues, type DeclaredVariable }
 import { maskSecrets } from "./secrets.ts";
 import type { AnyOptionSchema } from "./options.ts";
 import type { Middleware } from "./middleware.ts";
+import type { OpenApiDoc, ProjectOpenApiContext } from "./openapi.ts";
 import { activeFeatureDefinitions, assertFeatureFolders, loadProjectFeatures, resolveFeatures, type NativeFeatures, type ResolvedFeature } from "./features.ts";
 
 export const CONFIG_FILE = "quickservice.config.ts";
@@ -38,6 +39,8 @@ export interface ServiceConfig extends NativeFeatures {
   docs?: {
     /** Serve the API docs at `GET /docs` and `GET /openapi.json` (default: enabled unless `production`). */
     enabled?: boolean;
+    /** Changes the generated OpenAPI document at build time, after every feature's `openapi` function, in place or by returning a new one. */
+    openapi?: (doc: OpenApiDoc, context: ProjectOpenApiContext) => OpenApiDoc | void | undefined;
   };
   /** Receives one entry per request; defaults to JSON lines on stdout. */
   logger?: Logger;
@@ -126,7 +129,7 @@ export interface ResolvedConfig
   extends Omit<ServiceConfig, "server" | "production" | "schema" | "populate" | "storage" | "files" | "docs" | "jobs" | "lifecycle"> {
   /** Time limits of the features' lifecycle callbacks, as durations. */
   lifecycle: { startTimeout: string; stopTimeout: string };
-  docs: { enabled: boolean };
+  docs: { enabled: boolean; openapi?: NonNullable<ServiceConfig["docs"]>["openapi"] };
   /** `workers` is the resolved number of processes, `"auto"` included. */
   server: { port: number; publicUrl?: string; workers: number };
   files: {
@@ -343,7 +346,7 @@ export function resolveConfig(
     warnings: environment.warnings,
     server: { ...config.server, port: resolvePort(config), workers: resolveWorkers(config, env, cpus, production, platform) },
     production,
-    docs: { enabled: config.docs?.enabled ?? !production },
+    docs: { enabled: config.docs?.enabled ?? !production, ...(config.docs?.openapi ? { openapi: config.docs.openapi } : {}) },
     schema: resolveSchema(config, env),
     populate: { maxDepth: config.populate?.maxDepth ?? DEFAULT_POPULATE_DEPTH },
     storage: resolveStorage(config, projectRoot),

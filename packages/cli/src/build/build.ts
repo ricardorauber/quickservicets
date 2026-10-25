@@ -18,6 +18,8 @@ import {
   type ParsedTags,
   type QueryItem,
   type ResolvedConfig,
+  type OpenApiDoc,
+  extendOpenApi,
 } from "@quickservice/core";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -341,7 +343,7 @@ async function buildProject(projectRoot: string, config: ResolvedConfig): Promis
   );
   const packageFile = join(projectRoot, "package.json");
   const packageJson = existsSync(packageFile) ? (JSON.parse(readFileSync(packageFile, "utf8")) as { name?: string; version?: string }) : {};
-  const openApi = generateOpenApi({
+  const generatedOpenApi = generateOpenApi({
     models,
     routes: crudTable(models),
     hooks,
@@ -350,6 +352,12 @@ async function buildProject(projectRoot: string, config: ResolvedConfig): Promis
     files: config,
     populateMaxDepth: config.populate.maxDepth,
   });
+  let openApi: OpenApiDoc;
+  try {
+    openApi = extendOpenApi(generatedOpenApi as unknown as OpenApiDoc, { features: config.features, config, models });
+  } catch (error) {
+    throw new BuildError((error as Error).message);
+  }
 
   const files: Record<string, string> = {
     "models.ts": `${HEADER}\nimport type { EntityModel } from "@quickservice/core";\n\nexport const models: EntityModel[] = ${JSON.stringify(models, null, 2)};\n`,

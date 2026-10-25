@@ -77,7 +77,7 @@ describe("descriptors", () => {
   });
 
   test("keys holding behavior are not overridable", () => {
-    expect(NOT_OVERRIDABLE).toEqual(["database", "logger", "storage", "plugins", "middleware", "env"]);
+    expect(NOT_OVERRIDABLE).toEqual(["database", "logger", "storage", "plugins", "middleware", "env", "docs.openapi"]);
     const database = memoryAdapter();
     expect(resolveConfig({ database }, { QS_DATABASE: "x" }).database).toBe(database);
   });

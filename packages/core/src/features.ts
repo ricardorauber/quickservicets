@@ -9,6 +9,7 @@ import { tagsOf, type OptionsTarget } from "./feature-targets.ts";
 import type { FeatureSetupContext } from "./lifecycle.ts";
 import type { Middleware } from "./middleware.ts";
 import type { ServiceRequest } from "./hooks.ts";
+import type { FeatureOpenApiContext, OpenApiDoc } from "./openapi.ts";
 import { boolean, object, resolveOptions, type AnyOptionSchema, type ObjectOptionSchema, type Options, type OptionsInput } from "./options.ts";
 
 /**
@@ -88,7 +89,15 @@ export interface FeatureInput<S extends AnyOptionSchema> {
    * types in `RequestExtensions`.
    */
   request?: Readonly<Record<string, (req: ServiceRequest) => unknown>>;
+  /**
+   * Changes the generated OpenAPI document at build time, in place or by returning a new one; runs in feature order
+   * before the project's `docs.openapi`.
+   */
+  openapi?: FeatureOpenApi<FeatureOptions<S>>;
 }
+
+/** The `openapi` field of a feature definition. */
+export type FeatureOpenApi<O = Record<string, unknown>> = Bivariant<(doc: OpenApiDoc, context: FeatureOpenApiContext<O>) => OpenApiDoc | void | undefined>;
 
 /** The `setup` field of a feature definition. */
 export type FeatureSetup<O = Record<string, unknown>> = Bivariant<(ctx: FeatureSetupContext<O>) => void | Promise<void>>;
@@ -179,6 +188,8 @@ export interface FeatureDefinition<S extends AnyOptionSchema = AnyOptionSchema> 
   readonly middleware?: readonly Middleware[];
   /** The request properties the feature adds, by name. */
   readonly request?: Readonly<Record<string, (req: ServiceRequest) => unknown>>;
+  /** Changes the generated OpenAPI document at build time. */
+  readonly openapi?: FeatureOpenApi<FeatureOptions<S>>;
   /**
    * The feature's resolved options, once a configuration enabling it has been resolved in this process; throws
    * otherwise. The feature's own code reads its typed options here instead of receiving the config.
@@ -274,6 +285,7 @@ export function defineFeature<S extends AnyOptionSchema = ObjectOptionSchema<{}>
     ...(input.setup !== undefined ? { setup: functionField(input.setup, "setup", invalid) } : {}),
     ...(input.middleware !== undefined ? { middleware: middlewareField(input.middleware, invalid) } : {}),
     ...(input.request !== undefined ? { request: requestField(input.request, invalid) } : {}),
+    ...(input.openapi !== undefined ? { openapi: functionField(input.openapi, "openapi", invalid) } : {}),
     options() {
       const resolved = resolvedOptions.get(definition as FeatureDefinition);
       if (!resolved) throw new Error(`${key} is not enabled; add ${key}: {} to quickservice.config.ts`);

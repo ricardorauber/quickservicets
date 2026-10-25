@@ -90,7 +90,7 @@ function tagsPage(): string {
 /** The environment variable column of a config key: its `QS_*` name and alias, `not overridable`, or empty for objects. */
 function variableOf(key: ConfigKey): string {
   const root = key.path.split(".")[0]!;
-  if (NOT_OVERRIDABLE.includes(root)) return "not overridable";
+  if (NOT_OVERRIDABLE.includes(root) || NOT_OVERRIDABLE.includes(key.path)) return "not overridable";
   const variable = configVariable(key.path);
   if (!variable) return "—";
   return variable.alias ? `${code(variable.name)} (or ${code(variable.alias)})` : code(variable.name);

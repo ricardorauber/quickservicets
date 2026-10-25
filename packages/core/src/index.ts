@@ -35,6 +35,8 @@ export type {
   ServiceResponse,
 } from "./hooks.ts";
 export { createServer, peerAddress, toResponse } from "./http/server.ts";
+export { bodyPolicyOf, bodyTooLarge, readBodyBytes, readBodyChunks, readBodyText, setBodyPolicy } from "./http/body.ts";
+export type { BodyPolicy } from "./http/body.ts";
 export type { Endpoint, FetchOptions, HandlerResult, Route, Server, ServerOptions, ServerSettings } from "./http/server.ts";
 export { Router, patternOf, splitPath } from "./http/router.ts";
 export type { RouteMatch, RoutePattern } from "./http/router.ts";
@@ -98,7 +100,7 @@ export { assertSafeKey, extensionOf, storageKeyFor, StorageKeyError } from "./st
 export type { StorageAdapter, StorageBody } from "./storage/storage.ts";
 export { s3Storage } from "./storage/s3.ts";
 export type { S3StorageOptions } from "./storage/s3.ts";
-export { DEFAULT_MAX_FILE_SIZE, mimeMatches, parseSize, sanitizeFilename } from "./files/limits.ts";
+export { DEFAULT_MAX_FILE_SIZE, formatSize, mimeMatches, parseSize, sanitizeFilename } from "./files/limits.ts";
 export { assertFileAllowed, coerceFormValue, formFields, parseUpload, readMultipart, resolveUploadType, storageOf, storeFile } from "./files/upload.ts";
 export { detectFileType } from "./files/detect.ts";
 export type { ParsedUpload, UploadSettings } from "./files/upload.ts";

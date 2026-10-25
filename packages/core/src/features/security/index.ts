@@ -1,9 +1,10 @@
-import { boolean, cidr, defineFeature, duration, list, object, oneOf, safeLog, string, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext } from "../public.ts";
+import { boolean, cidr, defineFeature, duration, integer, list, object, oneOf, parseSize, safeLog, size, string, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext } from "../public.ts";
 import type { SecurityApi } from "./api.ts";
 import { corsProblems, corsStep, ownOptionsRoutes, routeCorsOptions } from "./cors.ts";
 import { Exemptions } from "./exempt.ts";
 import { DEFAULT_ATTACHMENT_TYPES, fileHeaders } from "./files.ts";
 import { DEFAULT_CSP, DEFAULT_DOCS_CSP, headersStep } from "./headers.ts";
+import { FORM_OVERHEAD, largestUpload, limitsSteps } from "./limits.ts";
 import { SECURITY_ITEMS, securityMiddlewares, type SecurityStep } from "./pipeline.ts";
 import { proxyResolver } from "./proxy.ts";
 import { buildRouteIndex, type RouteIndex } from "./routes.ts";
@@ -42,7 +43,12 @@ const options = object({
     credentials: boolean().default(false).describe("Allows cookies and authorization with cross-origin requests; not with origins \"*\"."),
     maxAge: duration().default("10m").describe("How long a browser caches a preflight answer."),
   }).describe("Answers cross-origin requests and preflights of the allowed origins; closed until origins are listed."),
-  limits: toggle({}).describe("Refuses oversized URLs, headers and bodies before reading them."),
+  limits: toggle({
+    body: size().default("1MB").describe("The largest request body, except multipart uploads, which the file settings limit."),
+    headers: size().default("16KB").describe("The largest total length of the request's header names and values."),
+    headerCount: integer().min(1).default(100).describe("The most headers a request may have."),
+    url: size().default("8KB").describe("The longest path and query string."),
+  }).describe("Refuses oversized URLs (414), headers (431) and bodies (413) before reading them."),
   timeouts: toggle({}).describe("Closes idle connections and requests whose body arrives too slowly."),
   loadShedding: toggle({}).describe("Refuses new requests with 503 while a worker has too many in flight."),
   rateLimit: toggle({}).describe("Limits how many requests each client makes in a time window, answering 429."),
@@ -59,6 +65,7 @@ function itemSteps(ctx: FeatureSetupContext<SecurityOptions>, index: () => Route
   const steps: SecurityStep[] = [];
   if (options.headers.enabled) steps.push(headersStep(options.headers, ctx.config.production));
   if (options.cors.enabled) steps.push(corsStep(options.cors, ownOptionsRoutes(taggedRoutes()), index));
+  if (options.limits.enabled) steps.push(...limitsSteps(options.limits));
   return steps;
 }
 
@@ -99,6 +106,11 @@ const securityFeature = defineFeature({
     const problems = (index?.routes ?? []).flatMap((route) => (route.tags.cors?.on ? corsProblems(routeCorsOptions(ctx.options.cors, route), `@cors of ${route.method} ${route.path}`) : []));
     if (problems.length > 0) throw new Error(problems.join("\n"));
     const steps = itemSteps(ctx, () => index);
+    if (ctx.options.limits.enabled) {
+      // The socket refuses bodies no route could accept: larger than the body limit and than any upload the model allows.
+      const upload = largestUpload(ctx.models, ctx.config.files.maxSize);
+      ctx.app.configureServer({ maxRequestBodySize: Math.max(parseSize(ctx.options.limits.body)!, upload > 0 ? upload + FORM_OVERHEAD : 0) });
+    }
     if (ctx.options.files.enabled) ctx.app.configureServer({ fileHeaders: fileHeaders(ctx.options.files.attachmentTypes) });
     const proxy = ctx.options.proxy;
     // Without trusted proxies, req.ip is the peer address; production still checks for forwarded headers to warn once.

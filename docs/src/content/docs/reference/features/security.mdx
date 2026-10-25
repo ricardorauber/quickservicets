@@ -43,7 +43,11 @@ It is enabled by default; turn it off with `security: false` or `QS_SECURITY_ENA
 | `security.cors.exposeHeaders` | `string[]` | `["x-request-id","etag","location","retry-after","ratelimit-limit","ratelimit-remaining","ratelimit-reset"]` | `QS_SECURITY_CORS_EXPOSE_HEADERS` | no | The response headers a browser lets the calling page read. |
 | `security.cors.credentials` | `boolean` | `false` | `QS_SECURITY_CORS_CREDENTIALS` | no | Allows cookies and authorization with cross-origin requests; not with origins "*". |
 | `security.cors.maxAge` | `duration` | `"10m"` | `QS_SECURITY_CORS_MAX_AGE` | no | How long a browser caches a preflight answer. |
-| `security.limits.enabled` | `boolean` | `true` | `QS_SECURITY_LIMITS_ENABLED` | no | Refuses oversized URLs, headers and bodies before reading them. Turns it off when false. |
+| `security.limits.enabled` | `boolean` | `true` | `QS_SECURITY_LIMITS_ENABLED` | no | Refuses oversized URLs (414), headers (431) and bodies (413) before reading them. Turns it off when false. |
+| `security.limits.body` | `size` | `"1MB"` | `QS_SECURITY_LIMITS_BODY` | no | The largest request body, except multipart uploads, which the file settings limit. |
+| `security.limits.headers` | `size` | `"16KB"` | `QS_SECURITY_LIMITS_HEADERS` | no | The largest total length of the request's header names and values. |
+| `security.limits.headerCount` | `integer` | `100` | `QS_SECURITY_LIMITS_HEADER_COUNT` | no | The most headers a request may have. |
+| `security.limits.url` | `size` | `"8KB"` | `QS_SECURITY_LIMITS_URL` | no | The longest path and query string. |
 | `security.timeouts.enabled` | `boolean` | `true` | `QS_SECURITY_TIMEOUTS_ENABLED` | no | Closes idle connections and requests whose body arrives too slowly. Turns it off when false. |
 | `security.loadShedding.enabled` | `boolean` | `true` | `QS_SECURITY_LOAD_SHEDDING_ENABLED` | no | Refuses new requests with 503 while a worker has too many in flight. Turns it off when false. |
 | `security.rateLimit.enabled` | `boolean` | `true` | `QS_SECURITY_RATE_LIMIT_ENABLED` | no | Limits how many requests each client makes in a time window, answering 429. Turns it off when false. |

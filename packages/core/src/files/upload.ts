@@ -6,6 +6,7 @@ import { storageKeyFor, type StorageAdapter } from "../storage/storage.ts";
 import { declaredTypeFits, detectFileType, detectHeadType, HEAD_SIZE, isZipHead } from "./detect.ts";
 import { mimeMatches, sanitizeFilename } from "./limits.ts";
 import { boundaryOf, MultipartReader, type MultipartLimit } from "./multipart.ts";
+import { readBodyBytes, readBodyChunks } from "../http/body.ts";
 
 export interface UploadSettings {
   storage: Record<string, StorageAdapter>;
@@ -81,16 +82,9 @@ export async function readMultipart(req: ServiceRequest, limit?: MultipartLimit,
   const declared = Number(req.headers.get("content-length")) || 0;
   const buffered = declared > 0 && declared <= maxFileSize + BUFFERED_ALLOWANCE;
   const reader = new MultipartReader(boundary, buffered ? 0 : declared, limit);
-  if (buffered) reader.adopt(await req.raw.bytes());
-  const stream = buffered ? undefined : req.raw.body?.getReader();
-  if (stream) {
-    try {
-      for (let chunk = await stream.read(); !chunk.done; chunk = await stream.read()) reader.push(chunk.value);
-    } catch (error) {
-      await stream.cancel().catch(() => {});
-      throw error;
-    }
-  }
+  // Both ways honor the request's body policy.
+  if (buffered) reader.adopt(await readBodyBytes(req.raw));
+  else await readBodyChunks(req.raw, (chunk) => reader.push(chunk));
   const { body, parts } = reader.end();
   const form = new FormData();
   for (const part of parts) {

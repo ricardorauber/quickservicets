@@ -24,6 +24,7 @@ export default defineConfig({ database: memoryAdapter(), security: { cors: false
 
 ```bash
 QS_SECURITY_CORS_ENABLED=false bun .generated/server.ts
+QS_SECURITY_LIMITS_BODY=5MB bun .generated/server.ts
 ```
 
 Open CORS to the origins of the project's browser apps; it is closed by default:

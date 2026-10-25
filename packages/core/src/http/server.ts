@@ -7,6 +7,7 @@ import { composeHandlerStage, composeRequestStage, type MiddlewareStages } from 
 import { Router } from "./router.ts";
 import { normalizeAddress } from "../cidr.ts";
 import type { FileHeaders } from "../files/access.ts";
+import { readBodyText } from "./body.ts";
 
 export type HandlerResult<Result> = Result | Response | undefined;
 
@@ -32,6 +33,8 @@ export interface ServerSettings {
   clientIp?: (request: Request, peer: string) => string;
   /** Headers added to (or replacing those of) the responses of the file routes in `proxy` and `signed` modes. */
   fileHeaders?: FileHeaders;
+  /** The largest body the socket accepts, in bytes (default: Bun's); larger bodies are refused before any code runs. */
+  maxRequestBodySize?: number;
 }
 
 export interface ServerOptions extends ServerSettings {
@@ -130,7 +133,7 @@ function createRequest(raw: Request, url: URL, params: Record<string, string>, i
     queryItems: {},
     jobs,
     json() {
-      body ??= raw.text().then((text) => {
+      body ??= readBodyText(raw).then((text) => {
         try {
           return JSON.parse(text) as unknown;
         } catch {
@@ -169,7 +172,7 @@ function withRequestProperties(req: ServiceRequest, properties: ReadonlyMap<stri
   return req;
 }
 
-export function createServer({ routes, repos, config, jobs = noRequestJobs, middleware, requestProperties, clientIp }: ServerOptions): Server {
+export function createServer({ routes, repos, config, jobs = noRequestJobs, middleware, requestProperties, clientIp, maxRequestBodySize }: ServerOptions): Server {
   const handlerStage = middleware?.handler ?? [];
   const errorStage = middleware?.error ?? [];
   const requestStage = middleware?.request ?? [];
@@ -273,6 +276,7 @@ export function createServer({ routes, repos, config, jobs = noRequestJobs, midd
           return fetch(request);
         },
         ...((config.server?.workers ?? 1) > 1 ? { reusePort: true } : {}),
+        ...(maxRequestBodySize !== undefined ? { maxRequestBodySize } : {}),
       });
     },
   };

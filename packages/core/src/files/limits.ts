@@ -24,3 +24,12 @@ export function sanitizeFilename(name: string): string {
   const base = name.split(/[\\/]/).pop() ?? "";
   return base.replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 255);
 }
+
+/** A size as written in messages: `1MB`, `16KB` or `512B`, in the largest unit that divides it. */
+export function formatSize(bytes: number): string {
+  for (const unit of ["GB", "MB", "KB"] as const) {
+    const size = UNITS[unit]!;
+    if (bytes >= size && bytes % size === 0) return `${bytes / size}${unit}`;
+  }
+  return `${bytes}B`;
+}

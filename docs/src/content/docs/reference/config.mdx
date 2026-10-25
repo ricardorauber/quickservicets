@@ -288,6 +288,13 @@ Every option, tag, command and hook of `queues` is on [its reference page](/refe
 | `queues.overrides.<name>.retries` | `record of integer` | — | `QS_QUEUES_OVERRIDES_<NAME>_RETRIES` | How many times a failed message of the queue is retried. |
 | `queues.overrides.<name>.retryDelay` | `record of duration` | — | `QS_QUEUES_OVERRIDES_<NAME>_RETRY_DELAY` | The first retry delay of the queue. |
 | `queues.overrides.<name>.dedupeWindow` | `record of duration` | — | `QS_QUEUES_OVERRIDES_<NAME>_DEDUPE_WINDOW` | How long a completed message of the queue keeps deduplicating its key. |
+| `queues.defaultPriority` | `integer` | `0` | `QS_QUEUES_DEFAULT_PRIORITY` | The priority of req.queue.add calls that give none; a function of the request, its user and tenant sets it per request. |
+| `queues.defaultDelay` | `duration` | — | `QS_QUEUES_DEFAULT_DELAY` | The delay of req.queue.add calls that give neither delay nor runAt; a function of the request sets it per request. |
+| `queues.beforeEnqueue` | `hook` | — | not overridable | Runs before a message is added with the queue, payload and options; returns them changed, and a throw cancels the add. |
+| `queues.afterEnqueue` | `hook` | — | not overridable | Runs after a message was added, with its queue, id and whether it was deduplicated. |
+| `queues.beforeProcess` | `hook` | — | not overridable | Runs before a consumer with the message and payload; returns a changed payload, and a throw fails the attempt. |
+| `queues.afterProcess` | `hook` | — | not overridable | Runs after each run with the message, its status, result or error and duration. |
+| `queues.onDead` | `hook` | — | not overridable | Runs when a message used its last attempt, with the message and the error. |
 | `queues.broker` | `QueueBroker` | — | not overridable | Replaces the database broker, so messages live in another broker such as RabbitMQ, Kafka, Redis or SQS. |
 | `queues.publish.queue` | `string` | `"events"` | `QS_QUEUES_PUBLISH_QUEUE` | The queue an entity tagged @publish sends its write events to. |
 | `queues.publish.events` | `("created" \| "updated" \| "deleted")[]` | `["created","updated","deleted"]` | `QS_QUEUES_PUBLISH_EVENTS` | The write operations a tagged entity publishes: created, updated and deleted. |

@@ -112,6 +112,16 @@ interface Running {
 
 type Outcome = { kind: "completed"; value: unknown } | { kind: "failed"; error: unknown } | { kind: "timedOut"; timeout: string } | { kind: "interrupted" };
 
+/** A stored message as `handle` and reports see it. */
+const receivedOf = (row: QueueMessage): QueueReceivedMessage => ({
+  id: row.id,
+  queue: row.queue,
+  payload: row.payload,
+  attempt: row.attempt,
+  enqueuedAt: new Date(row.enqueuedAt),
+  ...(row.dedupeKey ? { dedupeKey: row.dedupeKey } : {}),
+});
+
 const outcomeOf = (result: QueueOutcome): Outcome => ("failed" in result ? { kind: "failed", error: result.failed } : { kind: "completed", value: result.result });
 
 /** The share of a retry delay its random jitter may add or remove. */
@@ -260,6 +270,7 @@ export function databaseBroker(options: DatabaseBrokerOptions = {}): DatabaseBro
       log("warn", "queue.message.interrupted", fields);
       return;
     }
+    const received = receivedOf(row);
     if (outcome.kind === "completed") {
       const { result, note } = storableResult(outcome.value, config.resultLimit ?? "64KB");
       if (note) log("warn", note, { queue: row.queue, messageId: row.id });
@@ -267,11 +278,14 @@ export function databaseBroker(options: DatabaseBrokerOptions = {}): DatabaseBro
       const release = row.dedupeKey && !settingsOf(row.queue)?.dedupeWindow ? { dedupeSlot: null } : {};
       await adapterOf().updateById(modelOf(), row.id, { status: "completed", finishedAt: now, lockedUntil: null, ...release, ...(result !== undefined ? { result: result as StoredRecord[string] } : {}), updatedAt: now }, guard);
       log("info", "queue.message.completed", { ...fields, durationMs });
+      context?.report({ type: "completed", message: received, result: outcome.value, durationMs });
       return;
     }
     const lastError = outcome.kind === "timedOut" ? { message: `Timed out after ${outcome.timeout}` } : runError(outcome.error, config.production ?? false);
-    await fail(row, lastError, now, guard);
+    const error = outcome.kind === "timedOut" ? new Error(lastError.message) : outcome.error;
     log("warn", "queue.message.failed", { ...fields, durationMs, error: { message: lastError.message } });
+    context?.report({ type: "failed", message: received, error, durationMs });
+    await fail(row, lastError, now, guard, error);
   };
 
   /** How long a message waits before its next attempt: the doubled delay up to the longest, with a random jitter. */
@@ -283,13 +297,16 @@ export function databaseBroker(options: DatabaseBrokerOptions = {}): DatabaseBro
   };
 
   /** The failure rule: back to `waiting` after a delay while attempts remain, `dead` after the last one. */
-  const fail = async (row: QueueMessage, lastError: { message: string; stack?: string }, now: Date, guard: Condition[]) => {
+  const fail = async (row: QueueMessage, lastError: { message: string; stack?: string }, now: Date, guard: Condition[], error: unknown = new Error(lastError.message)) => {
     if (row.attempt < row.maxAttempts) {
       const runAt = new Date(now.getTime() + retryDelayOf(row));
       return adapterOf().updateById(modelOf(), row.id, { status: "waiting", runAt, lastError, lockedUntil: null, worker: null, updatedAt: now }, guard);
     }
     const dead = await adapterOf().updateById(modelOf(), row.id, { status: "dead", finishedAt: now, lastError, lockedUntil: null, dedupeSlot: null, updatedAt: now }, guard);
-    if (dead) log("error", "queue.message.dead", { queue: row.queue, messageId: row.id, attempt: row.attempt, error: { message: lastError.message } });
+    if (dead) {
+      log("error", "queue.message.dead", { queue: row.queue, messageId: row.id, attempt: row.attempt, error: { message: lastError.message } });
+      context?.report({ type: "dead", message: receivedOf(row), error });
+    }
     return dead;
   };
 
@@ -322,7 +339,7 @@ export function databaseBroker(options: DatabaseBrokerOptions = {}): DatabaseBro
       settle({ kind: "timedOut", timeout });
     }, timeoutMs);
     log("info", "queue.message.started", { queue: row.queue, messageId: row.id, attempt: row.attempt });
-    const received: QueueReceivedMessage = { id: row.id, queue: row.queue, payload: row.payload, attempt: row.attempt, enqueuedAt: new Date(row.enqueuedAt), ...(row.dedupeKey ? { dedupeKey: row.dedupeKey } : {}) };
+    const received = receivedOf(row);
     Promise.resolve()
       .then(() => context!.handle(received, { signal: controller.signal }))
       .then(

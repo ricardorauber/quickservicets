@@ -1,7 +1,7 @@
 import type { DatabaseAdapter } from "./adapter.ts";
 import { memoryAdapter } from "./adapters/memory.ts";
 import { captureLogger, fakeClock, type FakeClock } from "./jobs/test-support.ts";
-import type { QueueSettings } from "./features/queues/broker.ts";
+import type { QueueOutcomeReport, QueueSettings } from "./features/queues/broker.ts";
 import { databaseBroker, type DatabaseBrokerOptions } from "./features/queues/database.ts";
 import { consumerHandler } from "./features/queues/handle.ts";
 import type { MessagePlacement } from "./features/queues/message-options.ts";
@@ -57,6 +57,7 @@ export function setUp(adapter: DatabaseAdapter, definitions: Record<string, Queu
     ...(extra.random ? { random: extra.random } : {}),
     ...(extra.retention ? { retention: extra.retention } : {}),
   });
+  const reports: QueueOutcomeReport[] = [];
   const store = {
     enqueue(name: string, payload: unknown, source: AddSource = {}, placement?: MessagePlacement) {
       const { retries, dedupeWindow } = settings();
@@ -78,6 +79,7 @@ export function setUp(adapter: DatabaseAdapter, definitions: Record<string, Queu
       return broker.start({
         queues: Object.keys(definitions).map((name) => ({ name, options: settings() })),
         handle: consumerHandler({ definitions: new Map(Object.entries(definitions)), repos: () => repos, logger, clock }),
+        report: (outcome) => void reports.push(outcome),
         pollInterval,
         logger,
         clock,
@@ -94,7 +96,7 @@ export function setUp(adapter: DatabaseAdapter, definitions: Record<string, Queu
     wake: (name: string) => broker.wake(name),
     running: () => broker.running(),
   };
-  return { store, broker, clock, entries };
+  return { store, broker, clock, entries, reports };
 }
 
 export async function memory() {

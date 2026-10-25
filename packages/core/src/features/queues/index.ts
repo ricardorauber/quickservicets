@@ -1,6 +1,29 @@
-import { boolean, defineFeature, duration, inTransaction, integer, list, object, oneOf, parseDuration, provider, record, string, systemClock, type EntityModel, type FeatureSetupContext, type Repositories, type WriteEvent } from "../public.ts";
-import { brokerMethod, type QueueBroker, type QueueBrokerMessage, type QueueSettings } from "./broker.ts";
-import type { QueuesApi } from "./api.ts";
+import {
+  boolean,
+  defineFeature,
+  duration,
+  hook,
+  inTransaction,
+  integer,
+  list,
+  object,
+  oneOf,
+  parseDuration,
+  provider,
+  record,
+  resolveOption,
+  runAfterHooks,
+  runBeforeHooks,
+  safeLog,
+  string,
+  systemClock,
+  type EntityModel,
+  type FeatureSetupContext,
+  type Repositories,
+  type WriteEvent,
+} from "../public.ts";
+import { brokerMethod, type QueueBroker, type QueueBrokerMessage, type QueueOutcomeReport, type QueueSettings } from "./broker.ts";
+import type { QueueDeadMessage, QueueEnqueueContext, QueueEnqueued, QueueEnqueueStep, QueueMessageEvent, QueueProcessed, QueueProcessStep, QueuesApi } from "./api.ts";
 import { consumerHandler } from "./handle.ts";
 import { queueClient } from "./client.ts";
 import { queueCommands } from "./commands.ts";
@@ -34,6 +57,21 @@ const options = object({
       dedupeWindow: duration().optional().describe("How long a completed message of the queue keeps deduplicating its key."),
     }),
   ).describe("Options of single queues by queue name, over the queue file's options."),
+  defaultPriority: integer()
+    .min(-100)
+    .max(100)
+    .default(0)
+    .perRequest()
+    .describe("The priority of req.queue.add calls that give none; a function of the request, its user and tenant sets it per request."),
+  defaultDelay: duration()
+    .optional()
+    .perRequest()
+    .describe("The delay of req.queue.add calls that give neither delay nor runAt; a function of the request sets it per request."),
+  beforeEnqueue: hook<QueueEnqueueStep, QueueEnqueueContext>().describe("Runs before a message is added with the queue, payload and options; returns them changed, and a throw cancels the add."),
+  afterEnqueue: hook<QueueEnqueued, undefined>().describe("Runs after a message was added, with its queue, id and whether it was deduplicated."),
+  beforeProcess: hook<QueueProcessStep, undefined>().describe("Runs before a consumer with the message and payload; returns a changed payload, and a throw fails the attempt."),
+  afterProcess: hook<QueueProcessed, undefined>().describe("Runs after each run with the message, its status, result or error and duration."),
+  onDead: hook<QueueDeadMessage, undefined>().describe("Runs when a message used its last attempt, with the message and the error."),
   broker: provider<QueueBroker>("QueueBroker", ["enqueue", "start", "stop", "stats"])
     .optional()
     .describe("Replaces the database broker, so messages live in another broker such as RabbitMQ, Kafka, Redis or SQS."),
@@ -97,7 +135,7 @@ const queuesFeature = defineFeature({
     },
   },
   request: {
-    queue: (req) => queueClient({ requestId: req.id }),
+    queue: (req) => queueClient({ requestId: req.id, req }),
   },
   commands: queueCommands,
   setup(ctx) {
@@ -114,17 +152,25 @@ const queuesFeature = defineFeature({
       return target.on === true ? [{ entity, settings: target.publish as PublishSettings }] : [];
     });
     for (const { settings } of publishing) names.add(settings.queue);
+    // A queue's options: its overrides (environment, then config), its file, then the queues options.
     const settingsOf = (name: string): QueueSettings => {
       const file = declared.get(name)?.options ?? {};
+      const override = ctx.options.overrides[name] ?? {};
+      const dedupeWindow = override.dedupeWindow ?? file.dedupeWindow;
       return {
-        concurrency: file.concurrency ?? ctx.options.concurrency,
-        timeout: file.timeout ?? ctx.options.timeout,
-        retries: file.retries ?? ctx.options.retries,
-        retryDelay: file.retryDelay ?? ctx.options.retryDelay,
+        concurrency: override.concurrency ?? file.concurrency ?? ctx.options.concurrency,
+        timeout: override.timeout ?? file.timeout ?? ctx.options.timeout,
+        retries: override.retries ?? file.retries ?? ctx.options.retries,
+        retryDelay: override.retryDelay ?? file.retryDelay ?? ctx.options.retryDelay,
         maxRetryDelay: ctx.options.maxRetryDelay,
-        ...(file.dedupeWindow ? { dedupeWindow: file.dedupeWindow } : {}),
+        ...(dedupeWindow ? { dedupeWindow } : {}),
       };
     };
+    for (const warning of overrideWarnings(Object.keys(ctx.options.overrides), names)) {
+      if (ctx.config.warnings.includes(warning)) continue;
+      ctx.config.warnings.push(warning);
+      safeLog(ctx.logger, "warn", { timestamp: new Date().toISOString(), message: "config.warning", warning });
+    }
     // The configured broker, or one a feature sets during its setup, or the database broker.
     const configured = ctx.options.broker as QueueBroker | undefined;
     brokers.choice = configured ? { broker: configured, owner: "queues.broker" } : undefined;
@@ -147,12 +193,60 @@ const queuesFeature = defineFeature({
       return chosen;
     };
 
+    /** The per-request defaults of `req.queue.add`, for the options a call leaves out. */
+    const withRequestDefaults = async (options: QueueEnqueueStep["options"], req: NonNullable<QueueEnqueueContext["req"]>) => {
+      const filled = { ...options };
+      if (filled.priority === undefined) filled.priority = await resolveOption(ctx.options.defaultPriority, { req });
+      if (filled.delay === undefined && filled.runAt === undefined && ctx.options.defaultDelay !== undefined) {
+        const delay = await resolveOption(ctx.options.defaultDelay, { req });
+        if (delay !== undefined) filled.delay = delay;
+      }
+      return filled;
+    };
+
+    // Every outcome a broker reports runs the hooks and becomes an event when `events` is enabled.
+    const eventsEnabled = ctx.config.features.some((feature) => feature.key === "events");
+    const emit = async (type: string, payload: QueueMessageEvent) => {
+      if (!eventsEnabled) return;
+      try {
+        await ctx.events.emit(type as never, payload as never);
+      } catch (error) {
+        safeLog(ctx.logger, "error", { timestamp: new Date().toISOString(), message: "queue.event.failed", type, error: { message: (error as Error)?.message ?? String(error) } });
+      }
+    };
+    const errorOf = (error: unknown) => ({ message: (error as Error)?.message ?? String(error) });
+    const report = (outcome: QueueOutcomeReport) => {
+      const { message } = outcome;
+      const event: QueueMessageEvent = { messageId: message.id, queue: message.queue, attempt: message.attempt };
+      void (async () => {
+        if (outcome.type === "dead") {
+          if (ctx.options.onDead.length > 0) await runAfterHooks(ctx.options.onDead, { message, error: outcome.error }, undefined);
+          await emit("queue.message.dead", { ...event, error: errorOf(outcome.error) });
+          return;
+        }
+        const processed: QueueProcessed =
+          outcome.type === "completed"
+            ? { message, status: "completed", result: outcome.result, durationMs: outcome.durationMs }
+            : { message, status: "failed", error: outcome.error, durationMs: outcome.durationMs };
+        if (ctx.options.afterProcess.length > 0) await runAfterHooks(ctx.options.afterProcess, processed, undefined);
+        await emit(`queue.message.${outcome.type}`, { ...event, durationMs: outcome.durationMs, ...(outcome.type === "failed" ? { error: errorOf(outcome.error) } : {}) });
+      })();
+    };
+    const beforeProcess =
+      ctx.options.beforeProcess.length > 0
+        ? async (message: QueueProcessStep["message"], payload: unknown) => (await runBeforeHooks(ctx.options.beforeProcess, { message, payload }, undefined)).payload
+        : undefined;
+
     let repos: Repositories | undefined;
     const native: RunningQueues = {
-      async add(name, payload, options, source) {
+      async add(requested, requestedPayload, requestedOptions, source) {
+        let step: QueueEnqueueStep = { queue: requested, payload: requestedPayload, options: requestedOptions ?? {} };
+        if (ctx.options.beforeEnqueue.length > 0) step = await runBeforeHooks(ctx.options.beforeEnqueue, step, { req: source.req });
+        const name = step.queue;
         if (!names.has(name)) throw new Error(`Unknown queue ${name}`);
-        const stored = jsonPayload(payload);
+        const stored = jsonPayload(step.payload);
         if (stored === undefined) throw new Error(`Queue payload for ${name} is not JSON-serializable`);
+        const options = source.req ? await withRequestDefaults(step.options, source.req) : step.options;
         const { runAt, priority, dedupeKey } = messagePlacement(options, Date.now());
         const settings = settingsOf(name);
         const message: QueueBrokerMessage = {
@@ -165,7 +259,9 @@ const queuesFeature = defineFeature({
           ...(settings.dedupeWindow ? { dedupeWindow: settings.dedupeWindow } : {}),
           ...(source.requestId ? { requestId: source.requestId } : {}),
         };
-        return brokerOf().enqueue(message, { transactional: inTransaction() });
+        const added = await brokerOf().enqueue(message, { transactional: inTransaction() });
+        if (ctx.options.afterEnqueue.length > 0) await runAfterHooks(ctx.options.afterEnqueue, { queue: name, id: added.id, deduplicated: added.deduplicated }, undefined);
+        return added;
       },
       retry: async (id) => brokerMethod(brokerOf(), "retry")(id),
       retryDead: async (queue) => brokerMethod(brokerOf(), "retryDead")(queue),
@@ -187,7 +283,8 @@ const queuesFeature = defineFeature({
       repos = start.repos;
       await brokerOf().start({
         queues: [...declared.keys()].map((name) => ({ name, options: settingsOf(name) })),
-        handle: consumerHandler({ definitions: declared, repos: () => repos!, logger: ctx.logger }),
+        handle: consumerHandler({ definitions: declared, repos: () => repos!, logger: ctx.logger, ...(beforeProcess ? { beforeProcess } : {}) }),
+        report,
         pollInterval: ctx.options.pollInterval,
         logger: ctx.logger,
         clock: systemClock,
@@ -207,8 +304,14 @@ const queuesFeature = defineFeature({
       if (brokers.choice) throw new Error(`Queue broker set by ${brokers.choice.owner} and ${caller}; keep one`);
       brokers.choice = { broker, owner: caller };
     },
+    addHook: ctx.addHook as QueuesApi["addHook"],
   }),
 });
+
+/** One warning per `queues.overrides` entry whose name is no queue of the project. */
+export function overrideWarnings(overrides: readonly string[], queues: ReadonlySet<string>): string[] {
+  return overrides.filter((name) => !queues.has(name)).map((name) => `queues.overrides.${name} matches no queue`);
+}
 
 /** The required methods of a broker, as the `broker` option checks them. */
 const BROKER_METHODS = ["enqueue", "start", "stop", "stats"] as const;
@@ -250,5 +353,5 @@ export type { QueueMessage, QueueMessageStatus } from "./message.ts";
 export type { QueueAddOptions, QueueAddResult, QueueClient, QueueContext, QueueDefinition, QueueMessageInfo, QueueName, QueueOptions, QueuePayloadOf, QueuePayloads, Queues } from "./queue.ts";
 export { databaseBroker } from "./database.ts";
 export type { DatabaseBroker, DatabaseBrokerOptions } from "./database.ts";
-export type { QueueBroker, QueueBrokerContext, QueueBrokerMessage, QueueOutcome, QueueReceivedMessage, QueueSettings, QueueStats } from "./broker.ts";
-export type { QueuesApi } from "./api.ts";
+export type { QueueBroker, QueueBrokerContext, QueueBrokerMessage, QueueOutcome, QueueOutcomeReport, QueueReceivedMessage, QueueSettings, QueueStats } from "./broker.ts";
+export type { QueueDeadMessage, QueueEnqueueContext, QueueEnqueued, QueueEnqueueStep, QueueMessageEvent, QueueProcessed, QueueProcessStep, QueuesApi } from "./api.ts";

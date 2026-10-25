@@ -1,5 +1,5 @@
 import { operationContextEnabled, safeLog, systemClock, withOperation, type JobClock, type JobLogFields, type JobLogger, type Logger, type Repositories } from "../public.ts";
-import type { QueueBrokerContext } from "./broker.ts";
+import type { QueueBrokerContext, QueueReceivedMessage } from "./broker.ts";
 import { queueClient } from "./client.ts";
 import type { QueueContext, QueueDefinition } from "./queue.ts";
 
@@ -10,6 +10,8 @@ export interface ConsumerHandlerOptions {
   repos: () => Repositories;
   logger: Logger;
   clock?: JobClock;
+  /** Changes the payload before the consumer runs; a throw fails the attempt. */
+  beforeProcess?: (message: QueueReceivedMessage, payload: unknown) => unknown | Promise<unknown>;
 }
 
 /** The `handle` of a broker's start context: runs a message's consumer with its context, inside its operation. */
@@ -22,8 +24,9 @@ export function consumerHandler(options: ConsumerHandlerOptions): QueueBrokerCon
     try {
       const definition = options.definitions.get(message.queue);
       if (!definition) throw new Error(`No consumer is declared for the queue ${message.queue}`);
+      const payload = options.beforeProcess ? await options.beforeProcess(message, message.payload) : message.payload;
       const context: QueueContext = {
-        payload: message.payload,
+        payload,
         repos: options.repos(),
         message: { id: message.id, queue: message.queue, attempt: message.attempt, enqueuedAt: new Date(message.enqueuedAt), ...(message.dedupeKey ? { dedupeKey: message.dedupeKey } : {}) },
         signal,

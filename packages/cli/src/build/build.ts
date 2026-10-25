@@ -36,7 +36,7 @@ import { activeFeatureTags, assertNoHookConflicts, useFeatureTags } from "../ent
 import { validateHookReferences } from "../hooks/validate-hook-references.ts";
 import { hasPendingChanges, sqlDialectOf } from "../migrations/add.ts";
 import { envVarsLines, generateTypesFile, queuePayloadLines, type PublishedQueueEntry, type QueueTypeEntry } from "./generate-types.ts";
-import { publishProblems, publishTargets, type PublishTarget } from "./queue-publish.ts";
+import { overrideWarnings, publishProblems, publishTargets, type PublishTarget } from "./queue-publish.ts";
 import { extractQueryItems } from "../endpoints/query-items.ts";
 import { describeEndpoints } from "../openapi/endpoint-docs.ts";
 import { generateOpenApi } from "../openapi/generate-openapi.ts";
@@ -333,7 +333,8 @@ async function buildProject(projectRoot: string, config: ResolvedConfig, options
   const { hooks, jobs } = scanned;
   const folderFiles = await scanFeatureFolders(projectRoot, config.features, overrides);
   const publishing = publishTargets(models, config.features);
-  const publishWarnings = publishProblems(publishing, new Set(queueTypes(folderFiles).map((entry) => entry.name)));
+  const queueNames = new Set(queueTypes(folderFiles).map((entry) => entry.name));
+  const publishWarnings = [...publishProblems(publishing, queueNames), ...overrideWarnings(config.features, queueNames, publishing)];
   assertNoHookConflicts(activeFeatureTags(), hooks);
   const endpoints: ScannedEndpoint[] = scanned.endpoints.map((route) => ({
     route,

@@ -56,6 +56,12 @@ export interface QueueStats {
   oldestWaiting: Date | null;
 }
 
+/** What a broker reports after each outcome: a completed run, a failed attempt, or a message that used its last attempt. */
+export type QueueOutcomeReport =
+  | { type: "completed"; message: QueueReceivedMessage; result?: unknown; durationMs: number }
+  | { type: "failed"; message: QueueReceivedMessage; error: unknown; durationMs: number }
+  | { type: "dead"; message: QueueReceivedMessage; error: unknown };
+
 /** What `start` receives: the queues to consume and how to run their consumers. */
 export interface QueueBrokerContext {
   /** The declared queues with their effective options. */
@@ -65,6 +71,11 @@ export interface QueueBrokerContext {
    * Never rejects.
    */
   handle(message: QueueReceivedMessage, options: { signal: AbortSignal }): Promise<QueueOutcome>;
+  /**
+   * Tells the native how a run ended once the broker recorded it, so its hooks and events see every outcome (failed
+   * attempts, timeouts and dead messages included); brokers call it after each outcome. Never throws.
+   */
+  report(outcome: QueueOutcomeReport): void;
   /** How long an idle consumer waits before it looks for messages again (`queues.pollInterval`). */
   pollInterval: string;
   logger: Logger;

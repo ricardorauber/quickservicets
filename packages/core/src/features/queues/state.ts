@@ -1,3 +1,4 @@
+import type { ServiceRequest } from "../public.ts";
 import type { QueueAddOptions, QueueAddResult } from "./queue.ts";
 
 const STORE = Symbol.for("quickservice.queues.state");
@@ -15,6 +16,8 @@ export function sharedState<T>(name: string, init: () => T): T {
 export interface AddSource {
   /** The id of the request that adds the message, when there is one. */
   requestId?: string;
+  /** The request of `req.queue.add`, whose per-request defaults apply. */
+  req?: ServiceRequest;
 }
 
 /** The running native, as its setup installs it. */

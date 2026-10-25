@@ -24,6 +24,15 @@ export function publishTargets(models: readonly EntityModel[], features: readonl
   });
 }
 
+/** One warning per `queues.overrides` entry that names no queue file and no `@publish` target. */
+export function overrideWarnings(features: readonly ResolvedFeature[], queueNames: ReadonlySet<string>, targets: readonly PublishTarget[]): string[] {
+  const overrides = (features.find((feature) => feature.key === "queues")?.options as { overrides?: Record<string, unknown> } | undefined)?.overrides ?? {};
+  const known = new Set([...queueNames, ...targets.map((target) => target.queue)]);
+  return Object.keys(overrides)
+    .filter((name) => !known.has(name))
+    .map((name) => `queues.overrides.${name} matches no queue`);
+}
+
 /**
  * Fails for a `fields` entry that is not a field of its entity; returns a warning per target queue that has no
  * consumer file while messages stay in the database.

@@ -93,6 +93,7 @@ async function harness(createBroker: () => QueueBroker | Promise<QueueBroker>, o
           return { failed: error };
         }
       },
+      report: () => {},
       pollInterval: "1s",
       logger: { info() {}, warn() {}, error() {} },
       clock,

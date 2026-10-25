@@ -51,15 +51,35 @@ export type User = { email: string };
 
 ## Level 3: per request
 
-Not applicable: no queue option is resolved per request yet; each message carries the id of the request that added it.
+`defaultPriority` and `defaultDelay` apply to `req.queue.add` calls that leave them out; a function of the request, its user and tenant computes them per request:
+
+```ts
+queues: { defaultPriority: ({ req }) => (req?.headers.get("x-vip") ? 10 : 0) }
+```
 
 ## Level 4: hooks and events
 
-Not applicable: the native declares no hook yet.
+`beforeEnqueue`, `afterEnqueue`, `beforeProcess`, `afterProcess` and `onDead` run around each step, and with `events: {}` every outcome is an event too:
+
+```ts
+queues: {
+  beforeEnqueue: (step) => ({ ...step, payload: { ...(step.payload as object), source: "api" } }),
+  onDead: ({ message, error }) => console.error(message.queue, message.id, error),
+}
+```
+
+```ts
+events.on("queue.message.dead", (event) => console.error(event.payload.queue, event.payload.messageId));
+```
 
 ## Level 5: override files
 
-Not applicable: this example has no feature that ships a queue yet.
+A queue a feature ships in `features/<key>/queues/<name>.ts` is named `<key>/<name>`; a project file `queues/<key>/<name>.ts` replaces it, with an `Override:` line in the build output:
+
+```ts
+// queues/billing/close.ts replaces features/billing/queues/close.ts
+export default queue(async ({ payload }) => closeInvoice(payload));
+```
 
 ## Level 6: replace the implementation
 

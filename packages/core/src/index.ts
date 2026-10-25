@@ -228,7 +228,7 @@ export type { DeclaredVariable, EnvVars } from "./env-vars.ts";
 // The natives the core ships, registered when the core loads; they come last, after every export they use.
 import eventsNative, { type EventsApi } from "./features/events/index.ts";
 import securityNative, { type SecurityApi } from "./features/security/index.ts";
-import queuesNative, { type QueueClient, type QueuesApi } from "./features/queues/index.ts";
+import queuesNative, { type QueueClient, type QueueMessageEvent, type QueuesApi } from "./features/queues/index.ts";
 import { registerNative as registerShippedNative, type FeatureConfig as NativeConfig } from "./features.ts";
 registerShippedNative(securityNative);
 registerShippedNative(eventsNative);
@@ -241,6 +241,14 @@ export type { ClientIpResolver, ExemptibleItem, MaskingRules, MemoryRateLimitSto
 
 export { databaseBroker, isQueueDefinition, QUEUE_MESSAGE_STATUSES, queue, queueMessageEntity, queues, queuesFeature } from "./features/queues/index.ts";
 export type {
+  QueueDeadMessage,
+  QueueEnqueueContext,
+  QueueEnqueued,
+  QueueEnqueueStep,
+  QueueMessageEvent,
+  QueueOutcomeReport,
+  QueueProcessed,
+  QueueProcessStep,
   DatabaseBroker,
   DatabaseBrokerOptions,
   QueueAddOptions,
@@ -265,6 +273,17 @@ export type {
   QueuesApi,
   QueueStats,
 } from "./features/queues/index.ts";
+
+declare module "./event-types.ts" {
+  interface EventMap {
+    /** A queue message completed; emitted by the `queues` native while `events` is enabled. */
+    "queue.message.completed": QueueMessageEvent;
+    /** An attempt of a queue message failed. */
+    "queue.message.failed": QueueMessageEvent;
+    /** A queue message used its last attempt. */
+    "queue.message.dead": QueueMessageEvent;
+  }
+}
 
 declare module "./hooks.ts" {
   interface RequestExtensions {

@@ -1,4 +1,5 @@
 import { publicTransaction, runInTransaction } from "./transactions.ts";
+import { etagOf, ifMatch as ifMatchTag, preconditionFailed } from "./entity-tags.ts";
 import { observersOf, reportChange } from "./write-observers.ts";
 import {
   UniqueViolationError,
@@ -46,6 +47,18 @@ export interface ReadOptions {
   populate?: readonly string[];
   /** Top-level fields stored in the entity's own columns that are not read, such as vectors no one asked for. */
   omit?: readonly string[];
+}
+
+/** Options of `update`, `replace` and `delete`: the condition of an optimistic write. */
+export interface WriteOptions extends ReadOptions {
+  /**
+   * An `If-Match` value: the write happens only when one listed tag equals the record's current entity tag (`etagOf`,
+   * strong comparison) or the value is `*`, checked atomically with the write; otherwise it throws a 412 `HttpError`
+   * with the current tag.
+   */
+  ifMatch?: string;
+  /** Computes the entity tag `ifMatch` is compared with (default `etagOf`). */
+  tagOf?: (record: StoredRecord) => string;
 }
 
 export interface RepositoryOptions {
@@ -148,11 +161,11 @@ export interface Repository<T extends EntityRecord = EntityRecord, R = Record<ne
   /** Records for `ids` in that order, skipping missing ids and repeating none; `include` populates like `populate`. */
   findByIds<const P extends readonly PopulatePath<R>[] = []>(ids: readonly string[], options?: { include?: P }): Promise<Populated<T, R, P[number]>[]>;
   /** Applies a partial change (reference arrays also take `{ add, remove }`) and returns the record. */
-  update(id: string, changes: U, options?: ReadOptions): Promise<T>;
+  update(id: string, changes: U, options?: WriteOptions): Promise<T>;
   /** Replaces every writable field and returns the record. */
-  replace(id: string, data: C, options?: ReadOptions): Promise<T>;
-  /** Deletes the record, applying the `@onDelete` rules of the records that reference it. */
-  delete(id: string): Promise<void>;
+  replace(id: string, data: C, options?: WriteOptions): Promise<T>;
+  /** Deletes the record, applying the `@onDelete` rules of the records that reference it; `ifMatch` makes it conditional. */
+  delete(id: string, options?: Pick<WriteOptions, "ifMatch" | "tagOf">): Promise<void>;
   /** Populates reference paths on records already loaded, e.g. results of a custom endpoint. */
   populate(records: T[], paths: readonly string[]): Promise<T[]>;
   /** Creates a record whose framework-managed fields (e.g. a file's metadata) and id are already known. */
@@ -333,9 +346,21 @@ export function createRepository(
   // Without relation sides to sync or replaced files to remove, an update needs nothing from the stored record.
   const writesDirectly = !syncsRelations && !cleansReplaced;
 
-  const write = async (id: string, changes: Record<string, unknown>, options?: ReadOptions, queue: StoredObject[] = []): Promise<EntityRecord> => {
+  /** Throws the 412 of a conditional write when `ifMatch` lists no current tag of the record. */
+  const checkIfMatch = (current: StoredRecord, options: Pick<WriteOptions, "ifMatch" | "tagOf">) => {
+    const tag = (options.tagOf ?? etagOf)(current);
+    if (!ifMatchTag(options.ifMatch!, tag)) throw preconditionFailed(tag);
+  };
+  /** The error of a conditional write that lost the race: 412 with the new tag, or 404 when the record is gone. */
+  const lostRace = async (id: string, options: Pick<WriteOptions, "tagOf">) => {
+    const now = await adapter.findById(model, id);
+    return now ? preconditionFailed((options.tagOf ?? etagOf)(now)) : notFound();
+  };
+
+  const write = async (id: string, changes: Record<string, unknown>, options?: WriteOptions, queue: StoredObject[] = []): Promise<EntityRecord> => {
     const observed = observersOf(model);
-    if (writesDirectly && !observed?.inTransaction) {
+    const conditional = options?.ifMatch !== undefined;
+    if (writesDirectly && !observed?.inTransaction && !conditional) {
       // One conditional update: `updatedAt` must move forward, so a record stored at or after this instant (or a
       // missing one) falls through to the read below, which answers 404 or picks a later timestamp.
       const at = nextTimestamp();
@@ -347,17 +372,24 @@ export function createRepository(
         return written(updated, options);
       }
     }
-    const inTransaction = cleansReplaced || observed?.inTransaction ? <T>(fn: () => Promise<T>) => runInTransaction(adapter, fn) : atomically;
+    const inTransaction = cleansReplaced || observed?.inTransaction || conditional ? <T>(fn: () => Promise<T>) => runInTransaction(adapter, fn) : atomically;
     return inTransaction(async () => {
-      const before = observed?.needsBefore ? await lockedRecord(id) : undefined;
+      const before = observed?.needsBefore || conditional ? await lockedRecord(id) : undefined;
+      if (conditional) checkIfMatch(before!, options!);
       const current = before ? await derived(before) : await existing(id);
       const touched: (() => Promise<void>)[] = [];
       const touch = touchInto(observed ? touched : undefined);
       await releaseOneToOne(model, id, changes, adapter, touch);
+      // A conditional write also requires the `updatedAt` it checked, so of two writes with one tag only one succeeds.
       const updated = await mapUniqueViolation(() =>
-        adapter.updateById(model, id, { ...withoutDerived(model, changes), updatedAt: nextTimestamp(current.updatedAt) }),
+        adapter.updateById(
+          model,
+          id,
+          { ...withoutDerived(model, changes), updatedAt: nextTimestamp(current.updatedAt) },
+          conditional ? [{ field: "updatedAt", op: "eq", value: before!.updatedAt }] : undefined,
+        ),
       );
-      if (!updated) throw notFound();
+      if (!updated) throw conditional ? await lostRace(id, options!) : notFound();
       if (hasDerived) await mapUniqueViolation(() => writeDerived(model, id, changes, models, adapter, touch));
       await removeReplaced(current, changes, queue);
       if (observed) {
@@ -393,7 +425,7 @@ export function createRepository(
       });
   };
 
-  const replaceRecord = async (id: string, managed: Record<string, unknown>, data: unknown, options?: ReadOptions) => {
+  const replaceRecord = async (id: string, managed: Record<string, unknown>, data: unknown, options?: WriteOptions) => {
     const value = await validate(data, "replace");
     const changes: Record<string, unknown> = {};
     for (const field of model.fields) {
@@ -403,7 +435,7 @@ export function createRepository(
     return settle((queue) => write(id, { ...changes, ...managed }, options, queue));
   };
 
-  const updateRecord = async (id: string, changes: unknown, options: ReadOptions | undefined, queue: StoredObject[]) => {
+  const updateRecord = async (id: string, changes: unknown, options: WriteOptions | undefined, queue: StoredObject[]) => {
     const result = validateBody(model, changes, "patch");
     if (!result.ok) throw new HttpError(400, "Invalid body", { details: result.details });
     const value = result.value;
@@ -624,8 +656,22 @@ export function createRepository(
       return replaceRecord(id, {}, data, options);
     },
 
-    async delete(id) {
+    async delete(id, options) {
       const observed = observersOf(model);
+      if (options?.ifMatch !== undefined) {
+        // The check, a conditional write holding the record, and the delete plan run in one transaction.
+        await settle((queue) =>
+          runInTransaction(adapter, async () => {
+            const before = await lockedRecord(id);
+            checkIfMatch(before, options);
+            const held = await adapter.updateById(model, id, { updatedAt: before.updatedAt }, [{ field: "updatedAt", op: "eq", value: before.updatedAt }]);
+            if (!held) throw await lostRace(id, options);
+            await deleteRecord(id, await derived(before), queue);
+            if (observed) await reportChange(observed, { entity: model, operation: "deleted", id, before, after: null, cause: "write" });
+          }),
+        );
+        return;
+      }
       if (observed) {
         // Observed deletes read the record inside the transaction, so `before` is what the delete removed.
         await settle((queue) =>

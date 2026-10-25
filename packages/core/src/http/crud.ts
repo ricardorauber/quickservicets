@@ -1,5 +1,6 @@
 import { HttpError } from "../errors.ts";
 import { rememberStoredRecord } from "./stored-records.ts";
+import { writeConditionOf } from "./write-conditions.ts";
 import { entityRoutePath, vectorFields, type CrudOperation, type EntityModel } from "../model.ts";
 import { parseListQuery } from "../query.ts";
 import { repositoryFor, type RepositoryRegistry } from "../repository.ts";
@@ -129,13 +130,24 @@ export function createCrudRoutes(models: EntityModel[], repos: RepositoryRegistr
             return created;
           },
         ],
-        ["PATCH", item, "update", async (_, req) => remembered(req, await writeBody(req, "patch", (data) => repo.update(id(req.params), data)))],
+        [
+          "PATCH",
+          item,
+          "update",
+          async (_, req) => {
+            const condition = await writeConditionOf(req, model);
+            return remembered(req, await writeBody(req, "patch", (data) => repo.update(id(req.params), data, condition)));
+          },
+        ],
         [
           "PUT",
           item,
           "replace",
           async (_, req) => {
-            if (!model.file) return remembered(req, await writeBody(req, "replace", (data) => repo.replace(id(req.params), data)));
+            if (!model.file) {
+              const condition = await writeConditionOf(req, model);
+              return remembered(req, await writeBody(req, "replace", (data) => repo.replace(id(req.params), data, condition)));
+            }
             const uploads = options.uploads!;
             const { file, data } = await parseUpload(req, model, uploads);
             return remembered(req, await withStoredFile(model, id(req.params), file, uploads, (managed) => repo.replaceWith(id(req.params), managed, data)));
@@ -146,7 +158,7 @@ export function createCrudRoutes(models: EntityModel[], repos: RepositoryRegistr
           item,
           "delete",
           async (_, req) => {
-            await repo.delete(id(req.params));
+            await repo.delete(id(req.params), await writeConditionOf(req, model));
             return undefined;
           },
         ],

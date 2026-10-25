@@ -1,4 +1,4 @@
-import { defineFeature, entityRoutePath, storedRecordOf, trackStoredRecords, type HandlerMiddleware, type OpenApiDoc } from "../public.ts";
+import { boolean, defineFeature, entityRoutePath, HttpError, object, setWriteCondition, storedRecordOf, trackStoredRecords, type EntityModel, type HandlerMiddleware, type OpenApiDoc } from "../public.ts";
 import { etagOf, noneMatch } from "./tags.ts";
 
 /** The generated routes whose responses carry the written or read record's tag. */
@@ -9,11 +9,33 @@ const TAGGED_METHODS = new Set(["GET", "POST", "PATCH", "PUT"]);
  * header, and a read whose `If-None-Match` lists the current tag answers 304, so clients can cache and later detect
  * concurrent edits. Off unless `etag: {}` (or `QS_ETAG_ENABLED=true`) is set.
  */
+const options = object({
+  required: boolean().default(false).describe("Rejects PATCH, PUT and DELETE requests of the generated routes without If-Match with 428."),
+});
+
 const etagFeature = defineFeature({
   key: "etag",
-  docs: { summary: "Entity tags on record reads and writes, with 304 answers to conditional reads." },
+  docs: { summary: "Entity tags on record reads and writes, with 304 answers to conditional reads and 412 answers to stale conditional writes." },
+  options,
+  tags: {
+    etag: {
+      on: ["entity"],
+      options: ["required"],
+      description: "`@etag required=true` requires If-Match on the entity's PATCH, PUT and DELETE routes.",
+      example: "/** @etag required=true */\nexport type Invoice = { total: number };",
+    },
+  },
   setup(ctx) {
     trackStoredRecords(true);
+    // The generated write routes check If-Match atomically in the repository; a missing one is refused when required.
+    setWriteCondition((req, entity) => {
+      const header = req.headers.get("if-match");
+      if (header === null) {
+        if (etagFeature.optionsFor(entity).required) throw new HttpError(428, "If-Match header is required");
+        return undefined;
+      }
+      return { ifMatch: header };
+    });
     ctx.app.configureServer({ entityTags: { tag: etagOf, noneMatch } });
     const middleware: HandlerMiddleware = {
       stage: "handler",
@@ -35,20 +57,23 @@ const etagFeature = defineFeature({
       },
     };
     ctx.app.use(middleware);
-    ctx.app.onStop(() => trackStoredRecords(false));
+    ctx.app.onStop(() => {
+      trackStoredRecords(false);
+      setWriteCondition(undefined);
+    });
   },
-  openapi(doc, { models }) {
-    return documentTags(doc, models);
+  openapi(doc, { models, options }) {
+    return documentTags(doc, models, (model) => options.required || (model as EntityModel).tags?.etag?.options.required === true);
   },
 });
 
 const ETAG_HEADER = { ETag: { description: "The record's strong entity tag.", schema: { type: "string" } } };
 
 /** Documents the `ETag` header, `If-None-Match` and 304 on the generated routes of every entity. */
-function documentTags(doc: OpenApiDoc, models: readonly { internal?: boolean; key: string; entityName: string; name: string; schema: string | null }[]): OpenApiDoc {
+function documentTags(doc: OpenApiDoc, models: readonly EntityModel[], required: (model: EntityModel) => boolean): OpenApiDoc {
   for (const model of models) {
     if (model.internal) continue;
-    const collection = entityRoutePath(model as never);
+    const collection = entityRoutePath(model);
     type Operation = { parameters?: unknown[]; responses?: Record<string, { description?: string; headers?: Record<string, unknown> }> };
     const item = doc.paths[`${collection}/{id}`] as Record<string, Operation> | undefined;
     const list = doc.paths[collection] as typeof item;
@@ -65,6 +90,19 @@ function documentTags(doc: OpenApiDoc, models: readonly { internal?: boolean; ke
     withHeader(list?.post, "201");
     withHeader(item?.patch, "200");
     withHeader(item?.put, "200");
+    const mustMatch = required(model);
+    for (const write of [item?.patch, item?.put, item?.delete]) {
+      if (!write) continue;
+      write.parameters = [
+        ...(write.parameters ?? []),
+        { name: "If-Match", in: "header", required: mustMatch, description: "Writes only when it lists the record's current tag, or is *.", schema: { type: "string" } },
+      ];
+      write.responses = {
+        ...(write.responses ?? {}),
+        "412": { description: "Precondition failed: the record was changed by another request; the ETag header has its current tag." },
+        ...(mustMatch ? { "428": { description: "Precondition required: the If-Match header is missing." } } : {}),
+      };
+    }
   }
   return doc;
 }

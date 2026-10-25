@@ -12,4 +12,4 @@ description: Every native feature of QuickService, with its reference page.
 | [`queues`](/reference/features/queues/) | Background queues stored in the project's database, with consumers declared as files in queues/. | no |
 | [`health`](/reference/features/health/) | Liveness and readiness routes for orchestrators and load balancers, checking the database, the queue and the checks features add. | no |
 | [`idempotency`](/reference/features/idempotency/) | Idempotency keys: a request repeated with the same Idempotency-Key gets the first response again without running twice. | no |
-| [`etag`](/reference/features/etag/) | Entity tags on record reads and writes, with 304 answers to conditional reads. | no |
+| [`etag`](/reference/features/etag/) | Entity tags on record reads and writes, with 304 answers to conditional reads and 412 answers to stale conditional writes. | no |

@@ -54,7 +54,7 @@ Records for `ids` in that order, skipping missing ids and repeating none; `inclu
 ### `update`
 
 ```ts
-update(id: string, changes: U, options?: ReadOptions): Promise<T>;
+update(id: string, changes: U, options?: WriteOptions): Promise<T>;
 ```
 
 Applies a partial change (reference arrays also take `{ add, remove }`) and returns the record.
@@ -62,7 +62,7 @@ Applies a partial change (reference arrays also take `{ add, remove }`) and retu
 ### `replace`
 
 ```ts
-replace(id: string, data: C, options?: ReadOptions): Promise<T>;
+replace(id: string, data: C, options?: WriteOptions): Promise<T>;
 ```
 
 Replaces every writable field and returns the record.
@@ -70,10 +70,10 @@ Replaces every writable field and returns the record.
 ### `delete`
 
 ```ts
-delete(id: string): Promise<void>;
+delete(id: string, options?: Pick<WriteOptions, "ifMatch" | "tagOf">): Promise<void>;
 ```
 
-Deletes the record, applying the `@onDelete` rules of the records that reference it.
+Deletes the record, applying the `@onDelete` rules of the records that reference it; `ifMatch` makes it conditional.
 
 ### `populate`
 

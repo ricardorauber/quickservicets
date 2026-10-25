@@ -14,7 +14,8 @@ export { availableCpus, isPrimary, poolSizePerWorker, runPrimary, runsScheduledW
 export type { PrimaryOptions, WorkerProcess } from "./workers.ts";
 export type { ResolvedConfig, ServiceConfig } from "./config.ts";
 export { createRepositories, createRepository, READ_METHODS, readRepository, repositoryFor } from "./repository.ts";
-export type { EntityRecord, ListResult, Many, One, Populated, PopulatePath, ReadOptions, ReadRepository, ReferencePath, RelatedField, RelatedRecord, RelatedReferences, Repository, RepositoryOptions, RepositoryRegistry } from "./repository.ts";
+export type { EntityRecord, ListResult, Many, One, Populated, PopulatePath, ReadOptions, ReadRepository, ReferencePath, RelatedField, RelatedRecord, RelatedReferences, Repository, RepositoryOptions, RepositoryRegistry, WriteOptions } from "./repository.ts";
+export { etagOf, ifMatch, listedTags, noneMatch, preconditionFailed } from "./entity-tags.ts";
 export { definePostHook, definePreHook, isHookDefinition, REQUEST_PROPERTIES } from "./hooks.ts";
 export { composeHandlerStage, composeRequestStage, middlewareStages } from "./middleware.ts";
 export type { ErrorMiddleware, ErrorStageContext, HandlerMiddleware, Middleware, MiddlewareStages, OwnedMiddleware, RequestMiddleware, RequestStageContext } from "./middleware.ts";
@@ -49,6 +50,8 @@ export { DOCS_PATH, docsPage, docsRoutes, OPENAPI_PATH, SCALAR_URL, SCALAR_VERSI
 export type { RouteHookSource } from "./http/pipeline.ts";
 export { createCrudRoutes, mergeRoutes, populatePaths } from "./http/crud.ts";
 export { rememberStoredRecord, storedRecordOf, trackStoredRecords } from "./http/stored-records.ts";
+export { setWriteCondition, writeConditionOf } from "./http/write-conditions.ts";
+export type { WriteCondition } from "./http/write-conditions.ts";
 export type { StoredRecordOf } from "./http/stored-records.ts";
 export type { CrudOptions } from "./http/crud.ts";
 export type { CrudRoute } from "./http/crud.ts";
@@ -303,7 +306,7 @@ export type {
 export { idempotencyFeature, idempotencyKeyEntity } from "./features/idempotency/index.ts";
 export type { BeginResult, IdempotencyApi, IdempotencyConflict, IdempotencyRecord, IdempotencyStep, IdempotencyStore, StoredResponse } from "./features/idempotency/index.ts";
 
-export { etagFeature, etagOf } from "./features/etag/index.ts";
+export { etagFeature } from "./features/etag/index.ts";
 
 declare module "./event-types.ts" {
   interface EventMap {

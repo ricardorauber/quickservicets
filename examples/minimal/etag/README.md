@@ -16,15 +16,24 @@ export default defineConfig({ database: memoryAdapter(), etag: {} });
 
 ## Level 1: options and environment
 
-The native is switched by its variable:
+`required` makes every generated write need `If-Match`, and every option has a `QS_*` variable:
+
+```ts
+etag: { required: true }
+```
 
 ```bash
-QS_ETAG_ENABLED=false bun .generated/server.ts
+QS_ETAG_REQUIRED=true bun .generated/server.ts
 ```
 
 ## Level 2: tags
 
-Not applicable: the native declares no tag yet.
+`@etag required=true` requires `If-Match` on one entity's `PATCH`, `PUT` and `DELETE` routes:
+
+```ts
+/** @etag required=true */
+export type Document = { title: string; body: string };
+```
 
 ## Level 3: per request
 
@@ -36,7 +45,7 @@ Not applicable: the native declares no hook yet.
 
 ## Level 5: override files
 
-A custom endpoint tags its own response with `res.etag`, which also answers 304 to a matching `If-None-Match`:
+A custom endpoint tags its own response with `res.etag`, which also answers 304 to a matching `If-None-Match`, and writes conditionally with `{ ifMatch }`:
 
 ```ts
 export default async (repos: Repositories, req: ServiceRequest, res: ServiceResponse) => {

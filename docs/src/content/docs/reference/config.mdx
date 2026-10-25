@@ -375,10 +375,26 @@ export type Order = { total: number };
 
 ### `etag`
 
-Entity tags on record reads and writes, with 304 answers to conditional reads.
+Entity tags on record reads and writes, with 304 answers to conditional reads and 412 answers to stale conditional writes.
 
 Every option, tag, command and hook of `etag` is on [its reference page](/reference/features/etag/).
 
 | Key | Type | Default | Environment variable | Description |
 | --- | --- | --- | --- | --- |
+| `etag.required` | `boolean` | `false` | `QS_ETAG_REQUIRED` | Rejects PATCH, PUT and DELETE requests of the generated routes without If-Match with 428. |
 | `etag.enabled` | `boolean` | `true` | `QS_ETAG_ENABLED` | Turns the feature off when false. |
+
+#### `@etag`
+
+`@etag required=true` requires If-Match on the entity's PATCH, PUT and DELETE routes.
+
+**Applies to:** entities
+
+**Options:** `required`
+
+**Syntax:** `@etag [required=…]` or `@etag off`
+
+```ts
+/** @etag required=true */
+export type Invoice = { total: number };
+```

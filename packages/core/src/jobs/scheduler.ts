@@ -1,4 +1,5 @@
 import { UniqueViolationError, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
+import { withJobOperation } from "../operation-context.ts";
 import type { ResolvedConfig } from "../config.ts";
 import { parseSize } from "../files/limits.ts";
 import type { Repositories } from "../hooks.ts";
@@ -311,7 +312,7 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
         }
         interrupters.set(run.id, settle);
         Promise.resolve()
-          .then(() => definition.run(context))
+          .then(() => withJobOperation({ name: run.job, runId: run.id }, () => definition.run(context)))
           .then(
             (value) => {
               if (settled) return;

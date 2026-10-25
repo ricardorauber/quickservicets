@@ -55,3 +55,17 @@ REPORT_HOUR: integer().default(6) }`); they are checked at startup and read type
 | `jobs.limits` | `object` | — | — | Size limits of run records. |
 | `jobs.limits.result` | `number \| string` | "64KB" | `QS_JOBS_LIMITS_RESULT` | Largest result stored in a run record, in bytes or as `64KB` (default "64KB"). |
 | `jobs.limits.logLines` | `number` | 500 | `QS_JOBS_LIMITS_LOG_LINES` | Most log lines stored in a run record (default 500). |
+
+## Native features
+
+Each native feature is turned on by its key (`<key>: {}`) or by `QS_<KEY>_ENABLED=true`, and off by `<key>: false` or `QS_<KEY>_ENABLED=false`.
+
+### `events`
+
+Write events for every entity, delivered to listeners inside the write's transaction or after its commit.
+
+Every option, tag, command and hook of `events` is on [its reference page](/reference/features/events/).
+
+| Key | Type | Default | Environment variable | Description |
+| --- | --- | --- | --- | --- |
+| `events.enabled` | `boolean` | `true` | `QS_EVENTS_ENABLED` | Turns the feature off when false. |

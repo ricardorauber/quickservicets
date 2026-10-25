@@ -1,4 +1,5 @@
 import { publicTransaction, runInTransaction } from "./transactions.ts";
+import { observersOf, reportChange } from "./write-observers.ts";
 import {
   UniqueViolationError,
   type Aggregate,
@@ -190,6 +191,9 @@ type RelatedBackend = (scope: RelatedScope) => QueryBackend;
 /** The related-records backend of each repository, kept off its public methods. */
 const relatedBackends = new WeakMap<Repository, RelatedBackend>();
 
+/** The fields a write sets, as the `changed` list of an observed write that did not read the record before it. */
+const changedKeys = (changes: Record<string, unknown>) => Object.keys(changes).filter((key) => key !== "updatedAt");
+
 /** Returns the current time, strictly after `previous` so ordering by update time is always meaningful. */
 function nextTimestamp(previous?: Date): Date {
   const now = Date.now();
@@ -263,10 +267,17 @@ export function createRepository(
 
   const notFound = () => new HttpError(404, `${model.entityName} not found`);
 
-  const existing = async (id: string): Promise<StoredRecord> => {
+  const storedRecord = async (id: string): Promise<StoredRecord> => {
     const record = await adapter.findById(model, id);
     if (!record) throw notFound();
-    return hasDerived ? (await deriveRelations(model, [record], models, adapter))[0]! : record;
+    return record;
+  };
+  const derived = async (record: StoredRecord): Promise<StoredRecord> => (hasDerived ? (await deriveRelations(model, [record], models, adapter))[0]! : record);
+  const existing = async (id: string): Promise<StoredRecord> => derived(await storedRecord(id));
+  /** The stored record before a write, read inside the write's transaction with a row lock where the adapter has one. */
+  const lockedRecord = async (id: string): Promise<StoredRecord> => {
+    await adapter.lockForUpdate?.(model, id);
+    return storedRecord(id);
   };
 
   /**
@@ -311,17 +322,23 @@ export function createRepository(
   const writesDirectly = !syncsRelations && !cleansReplaced;
 
   const write = async (id: string, changes: Record<string, unknown>, options?: ReadOptions, queue: StoredObject[] = []): Promise<EntityRecord> => {
-    if (writesDirectly) {
+    const observed = observersOf(model);
+    if (writesDirectly && !observed?.inTransaction) {
       // One conditional update: `updatedAt` must move forward, so a record stored at or after this instant (or a
       // missing one) falls through to the read below, which answers 404 or picks a later timestamp.
       const at = nextTimestamp();
       const updated = await mapUniqueViolation(() =>
         adapter.updateById(model, id, { ...withoutDerived(model, changes), updatedAt: at }, [{ field: "updatedAt", op: "lt", value: at }]),
       );
-      if (updated) return written(updated, options);
+      if (updated) {
+        if (observed) await reportChange(observed, { entity: model, operation: "updated", id, before: null, after: updated, changed: changedKeys(changes), cause: "write" });
+        return written(updated, options);
+      }
     }
-    return (cleansReplaced ? <T>(fn: () => Promise<T>) => runInTransaction(adapter, fn) : atomically)(async () => {
-      const current = await existing(id);
+    const inTransaction = cleansReplaced || observed?.inTransaction ? <T>(fn: () => Promise<T>) => runInTransaction(adapter, fn) : atomically;
+    return inTransaction(async () => {
+      const before = observed?.needsBefore ? await lockedRecord(id) : undefined;
+      const current = before ? await derived(before) : await existing(id);
       await releaseOneToOne(model, id, changes, adapter, touch);
       const updated = await mapUniqueViolation(() =>
         adapter.updateById(model, id, { ...withoutDerived(model, changes), updatedAt: nextTimestamp(current.updatedAt) }),
@@ -329,6 +346,9 @@ export function createRepository(
       if (!updated) throw notFound();
       if (hasDerived) await mapUniqueViolation(() => writeDerived(model, id, changes, models, adapter, touch));
       await removeReplaced(current, changes, queue);
+      if (observed) {
+        await reportChange(observed, { entity: model, operation: "updated", id, before: before ?? null, after: updated, ...(before ? {} : { changed: changedKeys(changes) }), cause: "write" });
+      }
       return written(updated, options);
     });
   };
@@ -343,10 +363,12 @@ export function createRepository(
       }
       const at = nextTimestamp();
       const record: StoredRecord = { ...value, ...managed, id, createdAt: at, updatedAt: at };
-      return atomically(async () => {
+      const observed = observersOf(model);
+      return (observed?.inTransaction ? <T>(fn: () => Promise<T>) => runInTransaction(adapter, fn) : atomically)(async () => {
         await releaseOneToOne(model, undefined, value, adapter, touch);
         const inserted = await mapUniqueViolation(() => adapter.insert(model, withoutDerived(model, record) as StoredRecord));
         if (hasDerived) await mapUniqueViolation(() => writeDerived(model, record.id, value, models, adapter, touch));
+        if (observed) await reportChange(observed, { entity: model, operation: "created", id: inserted.id, before: null, after: inserted, cause: "write" });
         return written(inserted, options);
       });
   };
@@ -472,6 +494,32 @@ export function createRepository(
     };
   };
 
+  /**
+   * Deletes the record `id` (stored as `record`) and what its delete plan removes or changes; with file cleanup, queues
+   * the stored objects to remove once the change succeeded.
+   */
+  const deleteRecord = async (id: string, record: StoredRecord, queue: StoredObject[]): Promise<void> => {
+    const plan = await planDelete(model, id, models, adapter, record);
+    if (!cleansOnDelete) {
+      await executeDeletePlan(plan, adapter, nextTimestamp);
+      return;
+    }
+    const owned: { target: EntityModel; id: string }[] = [];
+    for (const deleted of plan.deletions) {
+      if (!cleansFilesOf(deleted.model)) continue;
+      const stored = deleted.model === model && deleted.id === id ? record : await adapter.findById(deleted.model, deleted.id);
+      if (!stored) continue;
+      const object = deleted.model.file && cleanup!.deleteOnRemove ? objectOf(deleted.model, stored) : undefined;
+      if (object) queue.push(object);
+      if (!cleanup!.deleteWithOwner) continue;
+      for (const { field, target } of ownedFileFields(deleted.model, models)) {
+        for (const fileId of referencedIds(stored[field.name])) owned.push({ target, id: fileId });
+      }
+    }
+    await executeDeletePlan(plan, adapter, nextTimestamp);
+    for (const file of owned) await removeUnreferencedFile(file.target, file.id, queue);
+  };
+
   /** The related-records backend of each reference array followed so far, by field name. */
   const relatedTargets = new Map<string, RelatedBackend>();
 
@@ -557,30 +605,24 @@ export function createRepository(
     },
 
     async delete(id) {
+      const observed = observersOf(model);
+      if (observed) {
+        // Observed deletes read the record inside the transaction, so `before` is what the delete removed.
+        await settle((queue) =>
+          runInTransaction(adapter, async () => {
+            const before = await lockedRecord(id);
+            await deleteRecord(id, await derived(before), queue);
+            await reportChange(observed, { entity: model, operation: "deleted", id, before, after: null, cause: "write" });
+          }),
+        );
+        return;
+      }
       const record = await existing(id);
       if (!cleansOnDelete) {
         await executeDeletePlan(await planDelete(model, id, models, adapter, record), adapter, nextTimestamp);
         return;
       }
-      await settle((queue) =>
-        runInTransaction(adapter, async () => {
-          const plan = await planDelete(model, id, models, adapter, record);
-          const owned: { target: EntityModel; id: string }[] = [];
-          for (const deleted of plan.deletions) {
-            if (!cleansFilesOf(deleted.model)) continue;
-            const stored = deleted.model === model && deleted.id === id ? record : await adapter.findById(deleted.model, deleted.id);
-            if (!stored) continue;
-            const object = deleted.model.file && cleanup!.deleteOnRemove ? objectOf(deleted.model, stored) : undefined;
-            if (object) queue.push(object);
-            if (!cleanup!.deleteWithOwner) continue;
-            for (const { field, target } of ownedFileFields(deleted.model, models)) {
-              for (const fileId of referencedIds(stored[field.name])) owned.push({ target, id: fileId });
-            }
-          }
-          await executeDeletePlan(plan, adapter, nextTimestamp);
-          for (const file of owned) await removeUnreferencedFile(file.target, file.id, queue);
-        }),
-      );
+      await settle((queue) => runInTransaction(adapter, () => deleteRecord(id, record, queue)));
     },
   };
 

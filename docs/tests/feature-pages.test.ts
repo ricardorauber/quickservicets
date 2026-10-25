@@ -99,8 +99,8 @@ describe("index and links", () => {
   });
 
   test("without natives the index says so and no feature page is generated", () => {
-    expect(featuresIndex()).toContain("No native features are registered.");
-    expect(Object.keys(referencePages()).filter((path) => path.startsWith("reference/features/"))).toEqual(["reference/features/index.md"]);
+    expect(featuresIndex([])).toContain("No native features are registered.");
+    expect(Object.keys(referencePages([])).filter((path) => path.startsWith("reference/features/"))).toEqual(["reference/features/index.md"]);
   });
 });
 

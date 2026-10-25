@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
+// The natives the core ships register when the core loads; these tests count them among the disabled features.
+import "./index.ts";
 import { memoryAdapter } from "./adapters/memory.ts";
 import { ConfigError, resolveConfig, type ServiceConfig } from "./config.ts";
 import { defineFeature, registeredNatives, registerNative, unregisterNative, type FeatureConfig } from "./features.ts";
@@ -81,7 +83,7 @@ describe("enabling natives", () => {
     for (const config of [{ audit: false }, {}]) {
       const resolved = resolve(config);
       expect(resolved.features).toEqual([]);
-      expect(resolved.disabledFeatures).toEqual(["audit"]);
+      expect(resolved.disabledFeatures).toEqual(["events", "audit"]);
     }
   });
 
@@ -90,7 +92,7 @@ describe("enabling natives", () => {
     expect(resolve({}).features.map((feature) => feature.key)).toEqual(["stamps"]);
     expect(resolve({ stamps: false }).features).toEqual([]);
     expect(resolve({ stamps: { enabled: false } }).features).toEqual([]);
-    expect(resolve({ stamps: { enabled: false } }).disabledFeatures).toEqual(["stamps"]);
+    expect(resolve({ stamps: { enabled: false } }).disabledFeatures).toEqual(["events", "stamps"]);
   });
 
   test("the implicit enabled option turns a configured native off", () => {
@@ -115,7 +117,8 @@ describe("option resolution", () => {
       { key: "stamps", options: { retention: "30d", enabled: true } },
     ]);
     expect(resolved.features[0]!.definition).toBe(audit);
-    expect(resolved.disabledFeatures).toEqual([]);
+    // The registered natives that are off, like events, are listed too.
+    expect(resolved.disabledFeatures).toEqual(["events"]);
   });
 
   test("invalid options name the key's path, for every feature at once", () => {
@@ -131,7 +134,7 @@ describe("option resolution", () => {
   test("a configuration without features resolves as before", () => {
     const resolved = resolve({});
     expect(resolved.features).toEqual([]);
-    expect(resolved.disabledFeatures).toEqual([]);
+    expect(resolved.disabledFeatures).toEqual(["events"]);
   });
 });
 

@@ -1,5 +1,6 @@
 import type { ResolvedConfig } from "./config.ts";
 import type { FeatureApis, ResolvedFeature } from "./features.ts";
+import { events, type Events } from "./features/events/bus.ts";
 import type { HookCall, Repositories } from "./hooks.ts";
 import type { Endpoint, Server } from "./http/server.ts";
 import { parseDuration } from "./jobs/job.ts";
@@ -88,6 +89,8 @@ export interface FeatureSetupContext<O = Record<string, unknown>> {
    * offer it to other features as `addHook`. Throws `Unknown hook <name> of <key>` for a name the feature does not declare.
    */
   addHook(name: string, fn: (value: never, ctx: never) => unknown): void;
+  /** The bus of the `events` native; using it while the native is disabled throws. */
+  events: Events;
 }
 
 /** A lifecycle step that failed: the feature, the phase and the error. */
@@ -237,6 +240,7 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
             if (!api) throw new Error(`${key} has no feature API`);
             return api;
           }) as FeatureSetupContext["feature"],
+          events,
           addHook: (name, fn) => {
             const list = (feature.options as Record<string, unknown>)[name];
             if (feature.definition.schema.settings.shape?.[name]?.kind !== "hook" || !Array.isArray(list)) throw new Error(`Unknown hook ${name} of ${feature.key}`);

@@ -33,8 +33,8 @@ const keys = (config: Record<string, unknown>) => resolve(config).features.map((
 
 describe("requirement forms", () => {
   test("requires, after and enables take feature keys; requires entries may carry a hint", () => {
-    const definition = defineFeature({ docs: { summary: "Test native." }, key: "trail", requires: ["events", { name: "queues", hint: "deliveries run on queues" }], after: ["cache"], enables: ["audit"] });
-    expect(definition.requires).toEqual([{ name: "events" }, { name: "queues", hint: "deliveries run on queues" }]);
+    const definition = defineFeature({ docs: { summary: "Test native." }, key: "trail", requires: ["signals", { name: "queues", hint: "deliveries run on queues" }], after: ["cache"], enables: ["audit"] });
+    expect(definition.requires).toEqual([{ name: "signals" }, { name: "queues", hint: "deliveries run on queues" }]);
     expect(definition.after).toEqual(["cache"]);
     expect(definition.enables).toEqual(["audit"]);
     expect(Object.isFrozen(definition.requires)).toBe(true);
@@ -51,20 +51,20 @@ describe("requirement forms", () => {
 
 describe("missing requirements", () => {
   test("a required native that is not enabled fails with how to fix it", () => {
-    native({ key: "events" });
-    native({ key: "trail", requires: ["events"] });
+    native({ key: "signals" });
+    native({ key: "trail", requires: ["signals"] });
     const error = failure(() => resolve({ trail: {} }));
     expect(error).toBeInstanceOf(ConfigError);
-    expect(error.message).toBe("trail requires events; add events: {} to quickservice.config.ts");
-    expect(keys({ trail: {}, events: {} })).toEqual(["events", "trail"]);
+    expect(error.message).toBe("trail requires signals; add signals: {} to quickservice.config.ts");
+    expect(keys({ trail: {}, signals: {} })).toEqual(["signals", "trail"]);
   });
 
   test("every missing requirement is one line of one error, with its hint", () => {
-    native({ key: "events" });
+    native({ key: "signals" });
     native({ key: "queues" });
-    native({ key: "trail", requires: ["events", { name: "queues", hint: "deliveries run on queues" }] });
+    native({ key: "trail", requires: ["signals", { name: "queues", hint: "deliveries run on queues" }] });
     expect(failure(() => resolve({ trail: {} })).message.split("\n")).toEqual([
-      "trail requires events; add events: {} to quickservice.config.ts",
+      "trail requires signals; add signals: {} to quickservice.config.ts",
       "trail requires queues; add queues: {} to quickservice.config.ts (deliveries run on queues)",
     ]);
   });
@@ -132,10 +132,10 @@ describe("enables", () => {
 
 describe("order", () => {
   test("a feature comes after the natives it requires, keeping registration order otherwise", () => {
-    native({ key: "trail", requires: ["events"] });
-    native({ key: "events" });
+    native({ key: "trail", requires: ["signals"] });
+    native({ key: "signals" });
     native({ key: "other" });
-    expect(keys({ trail: {}, events: {}, other: {} })).toEqual(["events", "trail", "other"]);
+    expect(keys({ trail: {}, signals: {}, other: {} })).toEqual(["signals", "trail", "other"]);
   });
 
   test("after entries order only when they are enabled", () => {
@@ -159,14 +159,14 @@ describe("order", () => {
 describe("startup log", () => {
   test("one features.enabled entry lists the ordered keys and who enabled each native", () => {
     nativeWithLevel("audit");
-    native({ key: "events" });
-    native({ key: "trail", requires: ["events"], enables: ["audit"] });
+    native({ key: "signals" });
+    native({ key: "trail", requires: ["signals"], enables: ["audit"] });
     const entries: LogEntry[] = [];
     const logger = { info: (entry: LogEntry) => entries.push(entry), warn() {}, error() {} };
-    const config = resolveConfig({ database: memoryAdapter(), logger, trail: {}, events: {} } as never, {});
+    const config = resolveConfig({ database: memoryAdapter(), logger, trail: {}, signals: {} } as never, {});
     logEnabledFeatures(config);
     expect(entries).toHaveLength(1);
-    expect(entries[0]).toMatchObject({ message: "features.enabled", features: [{ key: "audit", enabledBy: ["trail"] }, { key: "events" }, { key: "trail" }] });
+    expect(entries[0]).toMatchObject({ message: "features.enabled", features: [{ key: "audit", enabledBy: ["trail"] }, { key: "signals" }, { key: "trail" }] });
     expect(typeof entries[0]!.timestamp).toBe("string");
   });
 });

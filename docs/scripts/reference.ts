@@ -10,6 +10,8 @@ import { CODES_BY_STATUS } from "../../packages/core/src/errors.ts";
 import { DEFAULT_LIMIT, MAX_LIMIT, MAX_LIST_VALUES, OPERATORS_BY_TYPE } from "../../packages/core/src/query.ts";
 import { configVariable, envNameFor, NOT_OVERRIDABLE } from "../../packages/core/src/environment.ts";
 import { NATIVE_FEATURES_DIR, registeredNatives, type FeatureDefinition, type FeatureTag } from "../../packages/core/src/features.ts";
+// Loading the core registers the natives it ships, which the pages document.
+import "../../packages/core/src/index.ts";
 import { describeOptions, type AnyOptionSchema } from "../../packages/core/src/options.ts";
 import type { CommandDefinition } from "../../packages/core/src/commands.ts";
 
@@ -478,8 +480,7 @@ export function featurePage(native: FeatureDefinition): string {
 }
 
 /** The index of native features, linking each one's page. */
-export function featuresIndex(): string {
-  const natives = registeredNatives();
+export function featuresIndex(natives: readonly FeatureDefinition[] = registeredNatives()): string {
   return [
     "---",
     "title: Native features",
@@ -513,11 +514,11 @@ export const REFERENCE_PAGES: Record<string, () => string> = {
 };
 
 /** Every generated page, keyed by its path inside the content folder: the fixed pages, then one page per native. */
-export function referencePages(): Record<string, string> {
+export function referencePages(natives: readonly FeatureDefinition[] = registeredNatives()): Record<string, string> {
   return {
     ...Object.fromEntries(Object.entries(REFERENCE_PAGES).map(([name, page]) => [`reference/${name}`, page()])),
-    [`${FEATURE_PAGES_DIR}/index.md`]: featuresIndex(),
-    ...Object.fromEntries(registeredNatives().map((native) => [`${FEATURE_PAGES_DIR}/${native.key}.mdx`, featurePage(native)])),
+    [`${FEATURE_PAGES_DIR}/index.md`]: featuresIndex(natives),
+    ...Object.fromEntries(natives.map((native) => [`${FEATURE_PAGES_DIR}/${native.key}.mdx`, featurePage(native)])),
   };
 }
 

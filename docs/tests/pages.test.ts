@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
 import { registeredNatives } from "../../packages/core/src/features.ts";
+import "../../packages/core/src/index.ts";
 import { pagesUnder } from "../scripts/checks.ts";
 
 const content = join(import.meta.dir, "../src/content/docs");

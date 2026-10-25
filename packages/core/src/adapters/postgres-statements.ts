@@ -292,6 +292,25 @@ export class EntityStatements implements ConditionTarget {
     return { text, params: fields.map((field) => this.encode(field, values[field])) };
   }
 
+  /**
+   * Inserts the record, or adds the amounts to the fields of the stored one with its id, in one statement: concurrent
+   * calls never lose a count.
+   */
+  increment(values: Record<string, unknown>, amounts: Record<string, number>): Statement {
+    const fields = this.written(values);
+    const added = Object.keys(amounts).filter((field) => this.columns.has(field));
+    const text = this.text(`increment:${fields.join(",")}:${added.join(",")}`, () => {
+      const names = fields.map((field) => this.columns.get(field)!.name).join(", ");
+      const placeholders = fields.map((_, index) => `$${index + 1}`).join(", ");
+      const assignments = added.map((field) => {
+        const name = this.columns.get(field)!.name;
+        return `${name} = "current".${name} + excluded.${name}`;
+      });
+      return `insert into ${this.table} as "current" (${names}) values (${placeholders}) on conflict ("id") do update set ${assignments.join(", ")} returning ${this.columnList}`;
+    });
+    return { text, params: fields.map((field) => this.encode(field, values[field])) };
+  }
+
   /** Updates the record with that id when it also matches `where`, or reads it when nothing is written. */
   updateById(id: string, values: Record<string, unknown>, where: readonly Condition[]): Statement {
     const fields = this.written(values);

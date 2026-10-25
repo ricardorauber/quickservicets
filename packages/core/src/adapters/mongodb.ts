@@ -356,6 +356,20 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
         return toRecord(entity, await collection(entity).findOneAndUpdate(filter, { $set: changes }, { ...session(), returnDocument: "after" }));
       });
     },
+    increment(entity, id, amounts, insert) {
+      return translateErrors(async () => {
+        const { _id, ...onInsert } = toDocument(entity, { ...insert, id });
+        for (const field of Object.keys(amounts)) delete onInsert[field];
+        const upsert = () => collection(entity).findOneAndUpdate({ _id: id as never }, { $inc: amounts, $setOnInsert: onInsert }, { ...session(), upsert: true, returnDocument: "after" });
+        try {
+          return toRecord(entity, await upsert())!;
+        } catch (error) {
+          // Two concurrent upserts of a new id: one inserts, the other fails on the key and then increments.
+          if ((error as { code?: number }).code !== 11000) throw error;
+          return toRecord(entity, await upsert())!;
+        }
+      });
+    },
     async deleteById(entity, id) {
       return (await collection(entity).deleteOne({ _id: id as never }, session())).deletedCount > 0;
     },

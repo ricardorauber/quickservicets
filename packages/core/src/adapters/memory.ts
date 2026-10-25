@@ -273,6 +273,18 @@ export function memoryAdapter(): DatabaseAdapter {
         return structuredClone(updated);
       });
     },
+    increment(entity, id, amounts, insert) {
+      return scope.run(() => {
+        const table = tableFor(entity);
+        const current = table.get(id);
+        const added = current ? Object.fromEntries(Object.entries(amounts).map(([field, amount]) => [field, Number(current[field] ?? 0) + amount])) : amounts;
+        const next = normalize(entity, { ...(current ?? insert), ...added, id });
+        if (!current) assertUnique(entity, next);
+        remember(table, id);
+        table.set(id, next);
+        return structuredClone(next);
+      });
+    },
     deleteById(entity, id) {
       return scope.run(() => {
         remember(tableFor(entity), id);

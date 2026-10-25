@@ -85,6 +85,11 @@ export interface DatabaseAdapter {
   updateById(entity: EntityModel, id: string, changes: Record<string, unknown>, where?: Condition[]): Promise<StoredRecord | null>;
   deleteById(entity: EntityModel, id: string): Promise<boolean>;
   /**
+   * Atomically adds each number of `amounts` to that field of the record with `id` and returns the record; when no
+   * record has that id, inserts `insert` with the amounts as its values (optional). Concurrent calls never lose a count.
+   */
+  increment?(entity: EntityModel, id: string, amounts: Record<string, number>, insert: StoredRecord): Promise<StoredRecord>;
+  /**
    * Deletes the record with that id and, in the same atomic write, removes its id from the junction-stored reference
    * arrays `pulls` without rewriting their other items. Every record that held the id gets `updatedAt`, or 1 ms after
    * its stored `updatedAt` when that is not earlier. Resolves false when no record was deleted. Optional: without it,

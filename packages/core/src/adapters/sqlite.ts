@@ -134,6 +134,18 @@ export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
         }),
       );
     },
+    increment(entity, id, amounts, insert) {
+      return translateErrors(() =>
+        scope.run(async () => {
+          const table = tableFor(entity);
+          const { columns } = splitRelations(entity, { ...insert, ...amounts, id });
+          // An upsert adds the amounts in one statement, so concurrent increments never lose a count.
+          const set = Object.fromEntries(Object.entries(amounts).map(([field, amount]) => [field, sql`${table[field]} + ${amount}`]));
+          const rows = ready().db.insert(table).values(columns).onConflictDoUpdate({ target: table.id, set }).returning().all() as StoredRecord[];
+          return (await withRelations(entity, rows))[0]!;
+        }),
+      );
+    },
     findById(entity, id, options) {
       return scope.run(() => findById(entity, id, options?.omit));
     },

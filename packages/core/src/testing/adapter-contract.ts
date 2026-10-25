@@ -255,6 +255,18 @@ export function runAdapterContract(name: string, factory: AdapterFactory): void 
       expect(await adapter.updateById(contractItem, item!.id, { title: "B" }, [])).toMatchObject({ id: item!.id, title: "B" });
     });
 
+    test("increment inserts a missing record with the amounts, then adds to it, losing no concurrent count", async () => {
+      // An optional capability: adapters without it are left out.
+      if (!adapter.increment) return;
+      const id = newId();
+      const inserted = await adapter.increment(contractItem, id, { score: 2 }, contractRecord({ title: "counter", score: 0 }));
+      expect(inserted).toMatchObject({ id, title: "counter", score: 2 });
+      expect(await adapter.increment(contractItem, id, { score: 3 }, contractRecord({ title: "ignored", score: 0 }))).toMatchObject({ id, title: "counter", score: 5 });
+      const other = newId();
+      await Promise.all(Array.from({ length: 50 }, () => adapter.increment!(contractItem, other, { score: 1 }, contractRecord({ title: "concurrent", score: 0 }))));
+      expect((await adapter.findById(contractItem, other))!.score).toBe(50);
+    });
+
     test("deletes records and reports misses", async () => {
       const [item] = await insertItems({ title: "A" });
       expect(await adapter.deleteById(contractItem, item!.id)).toBe(true);

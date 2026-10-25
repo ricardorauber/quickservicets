@@ -9,7 +9,8 @@ import { SECURITY_ITEMS, securityMiddlewares, type SecurityStep } from "./pipeli
 import { proxyResolver } from "./proxy.ts";
 import { KEY_PARTS, rateLimitStep, routePatterns } from "./rate-limit.ts";
 import { loadSheddingStep } from "./shedding.ts";
-import { memoryRateLimitStore } from "./store.ts";
+import { memoryRateLimitStore, type RateLimitStore } from "./store.ts";
+import { databaseRateLimitStore, rateLimitCounterEntity } from "./db-store.ts";
 import { buildRouteIndex, type RouteIndex } from "./routes.ts";
 
 const options = object({
@@ -67,7 +68,10 @@ const options = object({
       .default("1000/min")
       .describe("The requests each bucket may make per window, like 1000/min or 10/s; a function of the request context (req, user and tenant) computes it per request."),
     by: list(oneOf(KEY_PARTS)).default(["ip"]).describe("What a bucket is per: the client address (ip), the route, the user or the tenant, combined."),
-    store: oneOf(["memory"]).default("memory").describe("Where the counters live: memory keeps them per worker."),
+    store: oneOf(["memory", "database"])
+      .default("memory")
+      .describe('Where the counters live: "memory" keeps them per worker; "database" shares them across workers and replicas through the project\'s database.'),
+    syncInterval: duration().default("1s").describe('How often the "database" store sends its pending counts and reads the shared totals back.'),
     memory: object({
       maxKeys: integer().min(1).default(100_000).describe("The most buckets the memory store keeps; the least recently used one is evicted."),
     }),
@@ -86,14 +90,45 @@ function idleProblems(idle: string): string[] {
 /** The exemptions of each running setup, shared by the setup and the feature API built from the same context. */
 const exemptionsOf = new WeakMap<object, Exemptions>();
 
+/** How often one worker deletes the expired counters of the database store. */
+export const COUNTER_CLEANUP_INTERVAL = 60_000;
+
+/**
+ * The database store of rate limit counters, checked against the build and the adapter, synced every `syncInterval`
+ * once the app starts, cleaned every minute by the worker that runs scheduled work, and flushed at shutdown.
+ */
+function databaseStore(ctx: FeatureSetupContext<SecurityOptions>): RateLimitStore {
+  const model = ctx.models.find((candidate) => candidate.key === "RateLimitCounter" && candidate.system);
+  if (!model) throw new Error('security.rateLimit.store is "database", but the build did not include RateLimitCounter; rebuild and run quickservice migration add');
+  const adapter = ctx.config.database;
+  if (typeof adapter.increment !== "function") throw new Error('security.rateLimit.store "database" needs an adapter with increment()');
+  const store = databaseRateLimitStore({ adapter, model, logger: ctx.logger });
+  const timers: ReturnType<typeof setInterval>[] = [];
+  ctx.app.onStart(() => {
+    timers.push(setInterval(() => void store.sync(), parseDuration(ctx.options.rateLimit.syncInterval)!));
+    if (ctx.worker.runsScheduledWork) {
+      const clean = () =>
+        store.cleanup().catch((error: unknown) =>
+          safeLog(ctx.logger, "error", { timestamp: new Date().toISOString(), message: "security.rateLimit.cleanup-failed", error: { message: (error as Error)?.message ?? String(error) } }),
+        );
+      timers.push(setInterval(() => void clean(), COUNTER_CLEANUP_INTERVAL));
+    }
+  });
+  ctx.app.onStop(async () => {
+    for (const timer of timers.splice(0)) clearInterval(timer);
+    await store.sync();
+  });
+  return store;
+}
+
 /** The steps of the enabled items, in no particular order; the pipeline orders them. */
 function itemSteps(ctx: FeatureSetupContext<SecurityOptions>, index: () => RouteIndex | undefined, ipOf: (request: Request) => string): SecurityStep[] {
   const { options } = ctx;
   const steps: SecurityStep[] = [];
   if (options.rateLimit.enabled) {
     const { rateLimit } = options;
-    const store = memoryRateLimitStore({ maxKeys: rateLimit.memory.maxKeys });
-    if (Math.max(ctx.worker.count, ctx.config.server.workers) > 1) {
+    const store = rateLimit.store === "database" ? databaseStore(ctx) : memoryRateLimitStore({ maxKeys: rateLimit.memory.maxKeys });
+    if (rateLimit.store === "memory" && Math.max(ctx.worker.count, ctx.config.server.workers) > 1) {
       safeLog(ctx.logger, "warn", { timestamp: new Date().toISOString(), message: 'security.rateLimit uses per-worker memory counters; set security.rateLimit.store to "database" to share them' });
     }
     steps.push(rateLimitStep(rateLimit, { store, ipOf, tagged: index()?.routes ?? [], ...(rateLimit.by.includes("route") ? { routes: routePatterns(taggedRoutes()) } : {}) }));
@@ -129,6 +164,8 @@ const securityFeature = defineFeature({
   docs: { summary: "Safe defaults for every service: security headers, CORS, request limits, timeouts, load shedding, rate limits, IP lists and log masking, each a switchable item." },
   enabledByDefault: true,
   options,
+  // The shared counters are part of the model only while the database store is on.
+  entities: ({ options }) => (options.rateLimit.enabled && options.rateLimit.store === "database" ? [rateLimitCounterEntity()] : []),
   validate: (resolved) => [...(resolved.cors.enabled ? corsProblems(resolved.cors, "security.cors") : []), ...(resolved.timeouts.enabled ? idleProblems(resolved.timeouts.idle) : [])],
   tags: {
     rateLimit: {
@@ -207,4 +244,6 @@ export { securityFeature };
 export type { SecurityApi } from "./api.ts";
 export type { ExemptibleItem } from "./exempt.ts";
 export { memoryRateLimitStore, slidingWindowHit } from "./store.ts";
+export { databaseRateLimitStore } from "./db-store.ts";
+export type { DatabaseRateLimitStore } from "./db-store.ts";
 export type { MemoryRateLimitStore, RateLimitHit, RateLimitResult, RateLimitStore, WindowCounts } from "./store.ts";

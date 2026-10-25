@@ -175,6 +175,12 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
         }),
       );
     },
+    increment(entity, id, amounts, insert) {
+      return translateErrors(async () => {
+        const { columns } = splitRelations(entity, { ...insert, ...amounts, id });
+        return (await read(entity, statementsFor(entity).increment(columns, amounts)))[0]!;
+      });
+    },
     async findById(entity, id, options) {
       return (await read(entity, statementsFor(entity).findById(id, options?.omit)))[0] ?? null;
     },

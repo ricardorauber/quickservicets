@@ -5,6 +5,8 @@ import {
   entityRoutePath,
   loadConfig,
   parseFieldPaths,
+  registeredProjectFeatures,
+  replacedNatives,
   populatePathErrors,
   type Projection,
   operationForRoute,
@@ -29,6 +31,7 @@ import { generateTypesFile } from "./generate-types.ts";
 import { extractQueryItems } from "../endpoints/query-items.ts";
 import { describeEndpoints } from "../openapi/endpoint-docs.ts";
 import { generateOpenApi } from "../openapi/generate-openapi.ts";
+import { assertFeatureImports, featureTypeLines, generateFeaturesFile, overrideLine } from "./project-features.ts";
 
 export const GENERATED_DIR = ".generated";
 
@@ -52,6 +55,10 @@ export interface BuildSummary {
   entities: number;
   endpoints: number;
   hooks: number;
+  /** Features written in the project's `features/` folder. */
+  features?: number;
+  /** `Override:` lines, one per project feature that replaces a native. */
+  overrides?: string[];
   warnings: string[];
 }
 
@@ -228,13 +235,15 @@ export function generateJobsFile(jobs: JobEntry[]): string {
 }
 
 const SERVER_FILE = `${HEADER}
-import { createApp, handleShutdownSignals, isPrimary, logEnabledFeatures, resolveConfig, runsScheduledWork, runWorkers } from "@quickservice/core";
+import { createApp, handleShutdownSignals, isPrimary, logEnabledFeatures, registerProjectFeatures, resolveConfig, runsScheduledWork, runWorkers } from "@quickservice/core";
 import projectConfig from "../quickservice.config.ts";
+import { features } from "./features.ts";
 import { models } from "./models.ts";
 import { crudRoutes, endpoints, hooks } from "./routes.ts";
 import { jobs } from "./jobs.ts";
 import openApi from "./openapi.json";
 
+registerProjectFeatures(features);
 const config = resolveConfig(projectConfig);
 if (isPrimary(config)) {
   // With several workers this process only supervises them; each worker runs this file again.
@@ -270,7 +279,10 @@ export function vectorIndexWarnings(models: EntityModel[], kind: string | undefi
 
 /** Builds the project at `projectRoot` into `.generated/`, replacing the previous output only on success. */
 export async function build(projectRoot: string): Promise<BuildSummary> {
+  assertFeatureImports(projectRoot);
   const config = await loadConfig(projectRoot);
+  const featureKeys = registeredProjectFeatures().map((feature) => feature.key);
+  const overrides = replacedNatives().map(overrideLine);
   const models = parseEntities(projectRoot);
   const hooks = await scanHooks(projectRoot);
   const jobs = await scanJobs(projectRoot);
@@ -324,7 +336,8 @@ export async function build(projectRoot: string): Promise<BuildSummary> {
 
   const files: Record<string, string> = {
     "models.ts": `${HEADER}\nimport type { EntityModel } from "@quickservice/core";\n\nexport const models: EntityModel[] = ${JSON.stringify(models, null, 2)};\n`,
-    "types.ts": generateTypesFile(models),
+    "types.ts": [generateTypesFile(models), ...featureTypeLines(featureKeys)].join("\n"),
+    "features.ts": generateFeaturesFile(HEADER, featureKeys),
     "routes.ts": generateRoutesFile(models, resolved, hooks),
     "jobs.ts": generateJobsFile(jobs),
     "server.ts": SERVER_FILE,
@@ -341,5 +354,5 @@ export async function build(projectRoot: string): Promise<BuildSummary> {
   warnings.push(...endpointDocs.warnings);
   const dialect = sqlDialectOf(config.database.kind);
   if (dialect && (await hasPendingChanges(projectRoot, models, dialect))) warnings.push(PENDING_MIGRATION_WARNING);
-  return { entities: models.length, endpoints: endpoints.length, hooks: hooks.size, warnings };
+  return { entities: models.length, endpoints: endpoints.length, hooks: hooks.size, features: featureKeys.length, overrides, warnings };
 }

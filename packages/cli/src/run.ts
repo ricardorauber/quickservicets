@@ -28,7 +28,12 @@ export async function run(args: string[], output: Output = consoleOutput, cwd = 
     if (command === "build") {
       const { build } = await import("./build/build.ts");
       const summary = await build(cwd);
-      output.log(`Built ${summary.entities} entities, ${summary.endpoints} custom endpoints and ${summary.hooks} hooks.`);
+      for (const line of summary.overrides ?? []) output.log(line);
+      output.log(
+        (summary.features ?? 0) > 0
+          ? `Built ${summary.entities} entities, ${summary.endpoints} custom endpoints, ${summary.hooks} hooks and ${summary.features} project features.`
+          : `Built ${summary.entities} entities, ${summary.endpoints} custom endpoints and ${summary.hooks} hooks.`,
+      );
       for (const warning of summary.warnings) output.error(`Warning: ${warning}`);
       return 0;
     }

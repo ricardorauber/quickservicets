@@ -9,7 +9,7 @@ import { localStorage } from "./storage/local.ts";
 import { availableCpus, WORKERS_ENV } from "./workers.ts";
 import type { StorageAdapter } from "./storage/storage.ts";
 import { ConfigError } from "./config-error.ts";
-import { resolveFeatures, type NativeFeatures, type ResolvedFeature } from "./features.ts";
+import { loadProjectFeatures, resolveFeatures, type NativeFeatures, type ResolvedFeature } from "./features.ts";
 
 export const CONFIG_FILE = "quickservice.config.ts";
 export const DEFAULT_PORT = 3000;
@@ -314,6 +314,7 @@ export async function loadConfig(projectRoot: string, env: Record<string, string
   if (!existsSync(file)) {
     throw new ConfigError(`Config file not found: ${file}`);
   }
+  await loadProjectFeatures(projectRoot);
   const module = (await import(file)) as { default?: ServiceConfig };
   return resolveConfig(module.default as ServiceConfig, env, projectRoot);
 }

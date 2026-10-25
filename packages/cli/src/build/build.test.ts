@@ -70,7 +70,7 @@ test("builds are deterministic", async () => {
   const first = Object.fromEntries(readdirSync(join(root, ".generated")).map((file) => [file, read(root, file)]));
   await build(root);
   const second = Object.fromEntries(readdirSync(join(root, ".generated")).map((file) => [file, read(root, file)]));
-  expect(Object.keys(first).sort()).toEqual(["jobs.ts", "models.ts", "openapi.json", "routes.ts", "server.ts", "types.ts"]);
+  expect(Object.keys(first).sort()).toEqual(["features.ts", "jobs.ts", "models.ts", "openapi.json", "routes.ts", "server.ts", "types.ts"]);
   expect(second).toEqual(first);
 });
 

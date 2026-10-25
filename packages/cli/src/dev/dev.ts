@@ -78,6 +78,7 @@ async function buildOnce(projectRoot: string, deps: DevDependencies): Promise<bo
     deps.error(error instanceof Error ? error.message : String(error));
     return false;
   }
+  for (const line of summary.overrides ?? []) deps.log(line);
   for (const warning of summary.warnings) {
     if (warning !== PENDING_MIGRATION_WARNING) deps.error(`Warning: ${warning}`);
   }

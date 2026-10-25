@@ -1,3 +1,5 @@
+import { existsSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { ConfigError } from "./config-error.ts";
 import { jsonLogger, safeLog, type Logger } from "./logger.ts";
 import { boolean, object, resolveOptions, type AnyOptionSchema, type ObjectOptionSchema, type Options, type OptionsInput } from "./options.ts";
@@ -79,6 +81,8 @@ export interface ResolvedFeature {
   definition: FeatureDefinition;
   /** Registered with `registerNative`. */
   native: boolean;
+  /** Written in the project, in `features/<key>/index.ts`. */
+  project: boolean;
 }
 
 /** Config keys of the core; no feature may use one. */
@@ -144,10 +148,21 @@ export function defineFeature<S extends AnyOptionSchema = ObjectOptionSchema<{}>
       return resolved as FeatureOptions<S>;
     },
   };
+  Object.defineProperty(definition, FEATURE_BRAND, { value: true });
   return Object.freeze(definition);
 }
 
+/** Marks the values `defineFeature` returns, shared by every copy of the core loaded in a process. */
+const FEATURE_BRAND = Symbol.for("quickservice.feature");
+
+/** Whether a value is a feature definition returned by `defineFeature`. */
+export function isFeatureDefinition(value: unknown): value is FeatureDefinition {
+  return typeof value === "object" && value !== null && (value as Record<symbol, unknown>)[FEATURE_BRAND] === true;
+}
+
 const natives = new Map<string, FeatureDefinition>();
+/** The project's own features, by key; one with a native's key replaces that native. */
+const projectFeatures = new Map<string, FeatureDefinition>();
 
 /** Registers a feature that lives in the core as a native; its key becomes a top-level config key. */
 export function registerNative<S extends AnyOptionSchema>(definition: FeatureDefinition<S>): FeatureDefinition<S> {
@@ -159,6 +174,45 @@ export function registerNative<S extends AnyOptionSchema>(definition: FeatureDef
 /** The registered natives, in registration order. */
 export function registeredNatives(): FeatureDefinition[] {
   return [...natives.values()];
+}
+
+/** A project feature as found in `features/<folder>/index.ts`: the folder name and the module's default export. */
+export interface ProjectFeatureModule {
+  folder: string;
+  definition: unknown;
+}
+
+/**
+ * Registers the project's features, replacing those registered before (one project per process at a time). Each
+ * must default-export `defineFeature(...)` with the key of its folder; one with a native's key replaces that native.
+ */
+export function registerProjectFeatures(modules: readonly ProjectFeatureModule[]): void {
+  const problems: string[] = [];
+  const found = new Map<string, FeatureDefinition>();
+  for (const { folder, definition } of modules) {
+    const file = `features/${folder}/index.ts`;
+    if (!isFeatureDefinition(definition)) problems.push(`${file}: must default-export defineFeature(...)`);
+    else if (definition.key !== folder) problems.push(`${file}: the key is ${definition.key}, but the folder is ${folder}`);
+    else found.set(folder, definition);
+  }
+  if (problems.length > 0) throw new ConfigError(problems.join("\n"));
+  projectFeatures.clear();
+  for (const [key, definition] of found) projectFeatures.set(key, definition);
+}
+
+/** The project's registered features, by folder order. */
+export function registeredProjectFeatures(): FeatureDefinition[] {
+  return [...projectFeatures.values()];
+}
+
+/** The natives the project replaces with a feature of its own, by key. */
+export function replacedNatives(): string[] {
+  return [...natives.keys()].filter((key) => projectFeatures.has(key));
+}
+
+/** The features a configuration may enable: the natives the project does not replace, then the project's features. */
+export function activeFeatureDefinitions(): FeatureDefinition[] {
+  return [...[...natives.values()].filter((definition) => !projectFeatures.has(definition.key)), ...projectFeatures.values()];
 }
 
 /** Removes a registered native; for tests that register their own. */
@@ -181,7 +235,7 @@ type ConfigValue = { state: "off" } | { state: "absent" } | { state: "on"; input
  * `enabledByDefault`, or by an enabled feature that lists it in `enables`, and disabled by `false`, by no key, or by
  * `enabled: false`. Requirements are checked, and the enabled features are ordered after what they depend on.
  */
-export function resolveFeatures(config: Record<string, unknown>, definitions: readonly FeatureDefinition[] = registeredNatives()): ResolvedFeatures {
+export function resolveFeatures(config: Record<string, unknown>, definitions: readonly FeatureDefinition[] = activeFeatureDefinitions()): ResolvedFeatures {
   const problems: string[] = [];
   const byKey = new Map(definitions.map((definition) => [definition.key, definition]));
   const values = new Map<string, ConfigValue>();
@@ -261,8 +315,15 @@ export function resolveFeatures(config: Record<string, unknown>, definitions: re
     if (enabled.has(definition.key)) resolvedOptions.set(definition, enabled.get(definition.key)!);
     else resolvedOptions.delete(definition);
   }
+  for (const key of replacedNatives()) resolvedOptions.delete(natives.get(key)!);
   return {
-    features: ordered.map((definition) => ({ key: definition.key, options: enabled.get(definition.key)!, definition, native: natives.get(definition.key) === definition })),
+    features: ordered.map((definition) => ({
+      key: definition.key,
+      options: enabled.get(definition.key)!,
+      definition,
+      native: natives.get(definition.key) === definition,
+      project: projectFeatures.get(definition.key) === definition,
+    })),
     disabledFeatures: definitions.filter((definition) => !enabled.has(definition.key)).map((definition) => definition.key),
     enabledBy,
   };
@@ -317,4 +378,28 @@ export function logEnabledFeatures(config: { features: readonly ResolvedFeature[
     message: "features.enabled",
     features: config.features.map(({ key }) => (config.enabledBy[key] ? { key, enabledBy: config.enabledBy[key] } : { key })),
   });
+}
+
+/** The folder of project features, at the project root. */
+export const FEATURES_DIR = "features";
+
+/** The folders of `features/` that hold an `index.ts`, sorted. */
+export function projectFeatureFolders(projectRoot: string): string[] {
+  const dir = join(projectRoot, FEATURES_DIR);
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && existsSync(join(dir, entry.name, "index.ts")))
+    .map((entry) => entry.name)
+    .sort();
+}
+
+/** Imports and registers the project's `features/<key>/index.ts` files, before its config is resolved. */
+export async function loadProjectFeatures(projectRoot: string): Promise<FeatureDefinition[]> {
+  const modules: ProjectFeatureModule[] = [];
+  for (const folder of projectFeatureFolders(projectRoot)) {
+    const module = (await import(join(projectRoot, FEATURES_DIR, folder, "index.ts"))) as { default?: unknown };
+    modules.push({ folder, definition: module.default });
+  }
+  registerProjectFeatures(modules);
+  return registeredProjectFeatures();
 }

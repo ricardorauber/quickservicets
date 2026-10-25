@@ -142,5 +142,18 @@ export type {
   SecretOptionSchema,
   UrlOptionSchema,
 } from "./options.ts";
-export { BUILT_IN_CONFIG_KEYS, defineFeature, logEnabledFeatures, registeredNatives, registerNative } from "./features.ts";
-export type { FeatureConfig, FeatureDefinition, FeatureDocs, FeatureInput, FeatureOptions, FeatureRequirement, NativeFeatures, ResolvedFeature } from "./features.ts";
+export {
+  BUILT_IN_CONFIG_KEYS,
+  defineFeature,
+  FEATURES_DIR,
+  isFeatureDefinition,
+  loadProjectFeatures,
+  logEnabledFeatures,
+  projectFeatureFolders,
+  registeredNatives,
+  registeredProjectFeatures,
+  registerNative,
+  registerProjectFeatures,
+  replacedNatives,
+} from "./features.ts";
+export type { FeatureConfig, FeatureDefinition, FeatureDocs, FeatureInput, FeatureOptions, FeatureRequirement, NativeFeatures, ProjectFeatureModule, ResolvedFeature } from "./features.ts";

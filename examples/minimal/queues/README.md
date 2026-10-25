@@ -1,20 +1,21 @@
 # queues
 
-The smallest project that shows the `queues` native: a `User` entity, the consumer file `queues/send-email.ts`, and an endpoint `POST /users/[id]/welcome` that adds a message to it with `req.queue.add`. Messages are stored in the project's database, in the `queue_messages` table.
+The smallest project that shows the `queues` native: users tagged `@publish created`, an `Outbox` entity recording sent emails, the consumers `queues/send-email.ts` (which fails for addresses at `fail.test`) and `queues/events.ts`, an endpoint `POST /users/[id]/welcome` that adds a message with a dedupe key, a `digest` project feature shipping a queue the project replaces, and a small in-memory broker.
 
 ```bash
 bun run test
 ```
 
+The queues guide (`docs/src/content/docs/guides/queues.md`, on the site at `/guides/queues/`) explains every piece.
+
 ## Level 0: enable
 
-Turn the native on and add a consumer file to `queues/`; its path names the queue (`send-email`):
+Turn the native on and add a consumer file to `queues/`; its path names the queue (`send-email`), and `req.queue.add` adds messages to it:
 
 ```ts
+// quickservice.config.ts
 export default defineConfig({ database: memoryAdapter(), queues: {} });
-```
 
-```ts
 // queues/send-email.ts
 export default queue<{ userId: string }>(async ({ payload, repos }) => {
   const user = await repos.users.findById(payload.userId);
@@ -22,31 +23,25 @@ export default queue<{ userId: string }>(async ({ payload, repos }) => {
 });
 ```
 
-Endpoints and hooks add messages with `req.queue.add`, jobs with `ctx.queue.add`, and any other code with `queues.add`:
-
-```ts
-export default async (_repos: unknown, req: ServiceRequest) => req.queue.add("send-email", { userId: req.params.id! });
-```
-
 ## Level 1: options and environment
 
-Every option has a default and a `QS_*` variable; a queue file's options win over them. Every process runs the consumers, one message per queue at a time by default; `consume: false` keeps a process from consuming while it still adds messages:
+Every option has a default and a `QS_*` variable; `overrides` sets the options of one queue over its file's, and a per-queue variable wins over both:
 
 ```ts
-queues: { concurrency: 4, retries: 5, retryDelay: "30s" }
+queues: { concurrency: 4, overrides: { "send-email": { concurrency: 2 } } }
 ```
 
 ```bash
-QS_QUEUES_CONSUME=false bun .generated/server.ts
+QS_QUEUES_OVERRIDES_SEND_EMAIL_CONCURRENCY=8 bun .generated/server.ts
 ```
 
 ## Level 2: tags
 
-`@publish` sends an entity's write events to a queue in the write's transaction (`events` queue by default); it needs `events: {}`:
+`@publish` sends an entity's write events to a queue in the write's transaction (`events` by default); it needs `events: {}`:
 
 ```ts
 /** @publish created,updated queue=events */
-export type User = { email: string };
+export type User = { email: string; name: string };
 ```
 
 ## Level 3: per request
@@ -64,29 +59,29 @@ queues: { defaultPriority: ({ req }) => (req?.headers.get("x-vip") ? 10 : 0) }
 ```ts
 queues: {
   beforeEnqueue: (step) => ({ ...step, payload: { ...(step.payload as object), source: "api" } }),
-  onDead: ({ message, error }) => console.error(message.queue, message.id, error),
+  onDead: ({ message, error }) => console.error("dead", message.queue, message.id, error),
 }
 ```
 
 ```ts
-events.on("queue.message.dead", (event) => console.error(event.payload.queue, event.payload.messageId));
+events.on("queue.message.dead", (event) => console.error("dead", event.payload.queue, event.payload.messageId));
 ```
 
 ## Level 5: override files
 
-A queue a feature ships in `features/<key>/queues/<name>.ts` is named `<key>/<name>`; a project file `queues/<key>/<name>.ts` replaces it, with an `Override:` line in the build output:
+The `digest` feature ships `features/digest/queues/notify.ts`, the queue `digest/notify`; the project's `queues/digest/notify.ts` replaces it, and the build prints an `Override:` line:
 
 ```ts
-// queues/billing/close.ts replaces features/billing/queues/close.ts
-export default queue(async ({ payload }) => closeInvoice(payload));
+// queues/digest/notify.ts
+export default queue<{ userId: string }>(() => ({ sentBy: "project" }));
 ```
 
 ## Level 6: replace the implementation
 
-Messages live in the project's database through `databaseBroker()`; any object with the `QueueBroker` methods replaces it, and `runQueueBrokerContract` from `@quickservice/core/testing` checks it:
+Messages live in the project's database through `databaseBroker()`; any object with the `QueueBroker` methods replaces it, like the in-memory broker of `memory-broker.ts`, and `runQueueBrokerContract` from `@quickservice/core/testing` checks a broker:
 
 ```ts
-queues: { broker: rabbitBroker({ url: env.RABBIT_URL }) }
+queues: { broker: memoryBroker() }
 ```
 
 ## Level 7: eject

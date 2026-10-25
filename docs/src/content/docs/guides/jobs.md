@@ -555,6 +555,7 @@ To keep jobs off some instances, for example the ones that serve traffic, start 
 
 ## Related reference
 
+- [Queues](/guides/queues/): background work triggered by events, one message per occurrence, instead of a schedule.
 - [Configuration](/reference/config/): every `jobs.*` key with its default.
 - [CLI: `job run`](/reference/cli/#job-run), [`job list`](/reference/cli/#job-list) and [`job runs`](/reference/cli/#job-runs).
 - [Repositories and queries](/reference/api/): the read methods of `repos.jobRuns`.

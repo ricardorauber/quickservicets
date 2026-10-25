@@ -240,5 +240,6 @@ An error thrown by the logger never changes the response.
 - [Environment](/guides/environment/): typed variables, `QS_*` overrides and their precedence.
 - [Events](/guides/events/): the `events` key, for write events, listeners, the outbox and durable consumers.
 - [Security](/guides/security/): the `security` key, on by default: security headers, CORS, request limits, timeouts, load shedding, rate limits, IP lists and log masking.
+- [Queues](/guides/queues/): the `queues` key, for background work in the project's database with retries, dead letters, dedupe and `@publish`.
 
 Next: [Jobs](/guides/jobs/).

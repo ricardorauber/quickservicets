@@ -30,11 +30,11 @@ test("quickservice eject queues turns the native into features/queues/ and the e
 
   const service = await startTestService({ files: filesOf(root) });
   try {
-    const user = (await (await service.fetch("/users", post({ email: "ada@example.com" }))).json()) as { id: string };
+    const user = (await (await service.fetch("/users", post({ email: "ada@example.com", name: "Ada" }))).json()) as { id: string };
     const added = (await (await service.fetch(`/users/${user.id}/welcome`, post())).json()) as { id: string };
     const repos = (service.repos as unknown as { queueMessages: { findById(id: string): Promise<Message | null> } }).queueMessages;
     for (let attempt = 0; attempt < 300 && (await repos.findById(added.id))?.status !== "completed"; attempt++) await Bun.sleep(10);
-    expect(await repos.findById(added.id)).toMatchObject({ status: "completed", result: { sentTo: "ada@example.com" } });
+    expect(await repos.findById(added.id)).toMatchObject({ status: "completed", result: { outboxId: expect.any(String) } });
   } finally {
     await service.stop();
   }

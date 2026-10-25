@@ -58,6 +58,13 @@ export default defineConfig({ database: memoryAdapter(), security: { proxy: { tr
 export default handler;
 ```
 
+`@ipAllow` serves a route only to some addresses, and `@ipDeny` refuses some, on top of `security.ip.allow` and `deny`:
+
+```ts
+/** @ipAllow private,loopback */
+export default handler;
+```
+
 `@securityHeaders` changes the security headers of one endpoint or of an entity's routes, and `@securityHeaders off` sends none there:
 
 ```ts

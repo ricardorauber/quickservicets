@@ -2,6 +2,7 @@ import { boolean, cidr, defineFeature, duration, integer, list, object, oneOf, p
 import type { SecurityApi } from "./api.ts";
 import { corsProblems, corsStep, ownOptionsRoutes, routeCorsOptions } from "./cors.ts";
 import { Exemptions } from "./exempt.ts";
+import { ipStep } from "./ip.ts";
 import { DEFAULT_ATTACHMENT_TYPES, fileHeaders } from "./files.ts";
 import { DEFAULT_CSP, DEFAULT_DOCS_CSP, headersStep } from "./headers.ts";
 import { bodyStep, FORM_OVERHEAD, largestUpload, limitsStep } from "./limits.ts";
@@ -76,7 +77,10 @@ const options = object({
       maxKeys: integer().min(1).default(100_000).describe("The most buckets the memory store keeps; the least recently used one is evicted."),
     }),
   }).describe("Limits how many requests each client address makes in a time window, answering 429 with RateLimit headers."),
-  ip: toggle({}).describe("Accepts or refuses requests by client address."),
+  ip: toggle({
+    allow: list(cidr()).default([]).describe("When not empty, only these addresses are served: addresses, CIDR blocks or loopback, private and linklocal."),
+    deny: list(cidr()).default([]).describe("Addresses refused with 403; a deny match wins over an allow match."),
+  }).describe("Accepts or refuses requests by client address (req.ip), for the whole service or with tags for single routes."),
   masking: toggle({}).describe("Keeps secret values and sensitive fields out of logs and error responses."),
 });
 
@@ -139,6 +143,10 @@ function itemSteps(ctx: FeatureSetupContext<SecurityOptions>, index: () => Route
     ctx.app.onStop(() => shedding.stop());
     steps.push(shedding);
   }
+  if (options.ip.enabled) {
+    const step = ipStep(options.ip, ipOf, index()?.routes ?? []);
+    if (step) steps.push(step);
+  }
   if (options.cors.enabled) steps.push(corsStep(options.cors, ownOptionsRoutes(taggedRoutes()), index));
   if (options.limits.enabled) steps.push(limitsStep(options.limits));
   if (options.limits.enabled || options.timeouts.enabled) {
@@ -168,6 +176,22 @@ const securityFeature = defineFeature({
   entities: ({ options }) => (options.rateLimit.enabled && options.rateLimit.store === "database" ? [rateLimitCounterEntity()] : []),
   validate: (resolved) => [...(resolved.cors.enabled ? corsProblems(resolved.cors, "security.cors") : []), ...(resolved.timeouts.enabled ? idleProblems(resolved.timeouts.idle) : [])],
   tags: {
+    ipAllow: {
+      on: ["endpoint", "entity"],
+      scope: "ip",
+      shorthand: "allow",
+      options: ["allow"],
+      description: "Serves one route, or each route of an entity, only to the listed addresses, on top of the global lists.",
+      example: "/** @ipAllow private,loopback */\nexport default handler;",
+    },
+    ipDeny: {
+      on: ["endpoint", "entity"],
+      scope: "ip",
+      shorthand: "deny",
+      options: ["deny"],
+      description: "Refuses the listed addresses on one route, or on each route of an entity, on top of the global lists.",
+      example: "/** @ipDeny 203.0.113.0/24 */\nexport default handler;",
+    },
     rateLimit: {
       on: ["endpoint", "entity"],
       scope: "rateLimit",

@@ -108,9 +108,41 @@ Every option, tag, command and hook of `security` is on [its reference page](/re
 | `security.rateLimit.store` | `"memory" \| "database"` | `"memory"` | `QS_SECURITY_RATE_LIMIT_STORE` | Where the counters live: "memory" keeps them per worker; "database" shares them across workers and replicas through the project's database. |
 | `security.rateLimit.syncInterval` | `duration` | `"1s"` | `QS_SECURITY_RATE_LIMIT_SYNC_INTERVAL` | How often the "database" store sends its pending counts and reads the shared totals back. |
 | `security.rateLimit.memory.maxKeys` | `integer` | `100000` | `QS_SECURITY_RATE_LIMIT_MEMORY_MAX_KEYS` | The most buckets the memory store keeps; the least recently used one is evicted. |
-| `security.ip.enabled` | `boolean` | `true` | `QS_SECURITY_IP_ENABLED` | Accepts or refuses requests by client address. Turns it off when false. |
+| `security.ip.enabled` | `boolean` | `true` | `QS_SECURITY_IP_ENABLED` | Accepts or refuses requests by client address (req.ip), for the whole service or with tags for single routes. Turns it off when false. |
+| `security.ip.allow` | `cidr[]` | `[]` | `QS_SECURITY_IP_ALLOW` | When not empty, only these addresses are served: addresses, CIDR blocks or loopback, private and linklocal. |
+| `security.ip.deny` | `cidr[]` | `[]` | `QS_SECURITY_IP_DENY` | Addresses refused with 403; a deny match wins over an allow match. |
 | `security.masking.enabled` | `boolean` | `true` | `QS_SECURITY_MASKING_ENABLED` | Keeps secret values and sensitive fields out of logs and error responses. Turns it off when false. |
 | `security.enabled` | `boolean` | `true` | `QS_SECURITY_ENABLED` | Turns the feature off when false. |
+
+#### `@ipAllow`
+
+Serves one route, or each route of an entity, only to the listed addresses, on top of the global lists.
+
+**Applies to:** endpoints, entities
+
+**Options:** `ip.allow`
+
+**Syntax:** `@ipAllow <allow>` or `@ipAllow off`
+
+```ts
+/** @ipAllow private,loopback */
+export default handler;
+```
+
+#### `@ipDeny`
+
+Refuses the listed addresses on one route, or on each route of an entity, on top of the global lists.
+
+**Applies to:** endpoints, entities
+
+**Options:** `ip.deny`
+
+**Syntax:** `@ipDeny <deny>` or `@ipDeny off`
+
+```ts
+/** @ipDeny 203.0.113.0/24 */
+export default handler;
+```
 
 #### `@rateLimit`
 

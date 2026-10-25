@@ -1,10 +1,12 @@
 /**
  * Type-checks every TypeScript project of the repository with its own tsconfig: `bun run typecheck`.
  * Projects with a `quickservice.config.ts` are built first, because their code imports what the build generates.
- * Prints the compiler output of each failing project and exits non-zero when any project has errors.
+ * Also reports `unsafe()` calls that receive built SQL text (see `unsafe-sql.ts`).
+ * Prints the compiler output of each failing project and every SQL problem, and exits non-zero when there is any.
  */
 import { existsSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
+import { checkUnsafeSql, formatProblem } from "./unsafe-sql.ts";
 
 const root = join(import.meta.dir, "..");
 const tsc = Bun.resolveSync("typescript/bin/tsc", root);
@@ -43,5 +45,8 @@ if (import.meta.main) {
     console.log(`${result.ok ? "ok  " : "FAIL"} ${result.project}`);
     if (!result.ok) console.log(result.output);
   }
-  process.exit(results.every((result) => result.ok) ? 0 : 1);
+  const problems = checkUnsafeSql(root);
+  console.log(`${problems.length === 0 ? "ok  " : "FAIL"} unsafe() calls`);
+  for (const problem of problems) console.log(formatProblem(problem));
+  process.exit(results.every((result) => result.ok) && problems.length === 0 ? 0 : 1);
 }

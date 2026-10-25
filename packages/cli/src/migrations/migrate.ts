@@ -266,18 +266,22 @@ function postgresDriver(client: SQL, defaultSchema: string | null): MigrationDri
   return {
     warnings: [],
     async ensureHistory() {
+      // quickservice-allow-unsafe: the history table name is a constant
       await client.unsafe(
         `create table if not exists ${HISTORY_TABLE} (id text primary key, name text not null, applied_at timestamptz not null)`,
       );
     },
     async readHistory() {
       const [row] = (await client.unsafe("select to_regclass($1) as found", [HISTORY_TABLE])) as { found: string | null }[];
-      return row?.found ? ((await client.unsafe(`select id, name from ${HISTORY_TABLE} order by id`)) as AppliedMigration[]) : [];
+      if (!row?.found) return [];
+      // quickservice-allow-unsafe: the history table name is a constant
+      return (await client.unsafe(`select id, name from ${HISTORY_TABLE} order by id`)) as AppliedMigration[];
     },
     async readSchemaHistory(schema) {
       const table = schemaHistoryTable("postgres", schema);
       const [row] = (await client.unsafe("select to_regclass($1) as found", [table])) as { found: string | null }[];
       if (!row?.found) return new Map();
+      // quickservice-allow-unsafe: the table name is built by schemaHistoryTable from a validated schema name
       return recordsOf((await client.unsafe(`select id, default_schemas from ${table}`)) as SchemaRecordRow[]);
     },
     async runStep(migration, direction, module, repos) {
@@ -289,8 +293,11 @@ function postgresDriver(client: SQL, defaultSchema: string | null): MigrationDri
         const runner: SqlRunner = {
           dialect: "postgres",
           placeholder: (index) => `$${index}`,
+          // quickservice-allow-unsafe: runs the statements of migration files, with their values as parameters
           statement: (text, params) => tx.unsafe(text, params),
+          // quickservice-allow-unsafe: runs the statements of migration files, with their values as parameters
           exec: (text, params = []) => tx.unsafe(numbered(text), params),
+          // quickservice-allow-unsafe: runs the statements of migration files, with their values as parameters
           rows: async <T>(text: string, params: unknown[] = []) => (await tx.unsafe(numbered(text), params)) as T[],
         };
         const step = { runner, history: HISTORY_TABLE, defaultSchema: defaultSchema ?? "", db, repos };

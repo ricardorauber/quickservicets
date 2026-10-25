@@ -135,6 +135,7 @@ if (postgresUrl) {
     const query = async <T>(text: string) => {
       const admin = new SQL(postgresUrl);
       try {
+        // quickservice-allow-unsafe: runs the literal queries this test file passes to it
         return (await admin.unsafe(text)) as T[];
       } finally {
         await admin.close();

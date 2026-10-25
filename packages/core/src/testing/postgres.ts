@@ -12,7 +12,10 @@ export async function postgresDdl(models: EntityModel[]): Promise<string[]> {
 /** Drops everything in the public schema and creates the tables of `models`, for tests that skip migrations. */
 export async function resetPostgresTables(client: SQL, models: EntityModel[]): Promise<void> {
   await client.unsafe("drop schema if exists public cascade; create schema public;");
-  for (const statement of await postgresDdl(models)) await client.unsafe(statement);
+  for (const statement of await postgresDdl(models)) {
+    // quickservice-allow-unsafe: runs the DDL drizzle-kit generates from the models
+    await client.unsafe(statement);
+  }
 }
 
 export interface StatementLog {

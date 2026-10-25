@@ -37,6 +37,7 @@ async function postgresDatabase(models: EntityModel[]): Promise<TestDatabase> {
     async close() {
       await database.disconnect();
       const admin = new SQL(url);
+      // quickservice-allow-unsafe: drops this test's schema, quoted by schemaIdentifier
       await admin.unsafe(`drop schema "${schemaIdentifier(schema)}" cascade`);
       await admin.close();
     },

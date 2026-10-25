@@ -153,9 +153,11 @@ describe.each(factories.filter(([name]) => name === "sqlite" || name === "postgr
     const second = await repos.organizations!.create({ name: "y", members: [c!.id, b!.id] });
     const untouched = await repos.organizations!.create({ name: "z", members: [a!.id] });
     const rows = async () => {
-      const text = "select owner_id, target_id, position from organizations__members order by owner_id, position";
       const client = (adapter as unknown as { client: unknown }).client;
-      const result = name === "sqlite" ? (client as { query(sql: string): { all(): unknown[] } }).query(text).all() : await (client as { unsafe(sql: string): Promise<unknown[]> }).unsafe(text);
+      const result =
+        name === "sqlite"
+          ? (client as { query(sql: string): { all(): unknown[] } }).query("select owner_id, target_id, position from organizations__members order by owner_id, position").all()
+          : await (client as { unsafe(sql: string): Promise<unknown[]> }).unsafe("select owner_id, target_id, position from organizations__members order by owner_id, position");
       return (result as { owner_id: string; target_id: string; position: number }[]).map((row) => [row.owner_id, row.target_id, Number(row.position)]);
     };
     const before = await rows();

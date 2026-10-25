@@ -47,3 +47,5 @@ Type-check every project of the repository (the test suite runs this too):
 ```bash
 bun run typecheck
 ```
+
+Two more checks guard contributions. `bun run typecheck` also fails when code outside `packages/core/src/adapters/` passes SQL text built at runtime to `unsafe()`: pass values as parameters, or put `// quickservice-allow-unsafe: <reason>` on the line above a call that must build its text. `bun run audit` runs `bun audit` and fails on a critical vulnerability unless `scripts/audit-allow.json` lists it with an id, package, reason and `expires` date; the test suite runs it when `CI` is set.

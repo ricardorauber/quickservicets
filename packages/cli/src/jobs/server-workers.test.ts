@@ -20,7 +20,7 @@ const postgresUrl = process.env.TEST_POSTGRES_URL;
 (postgresUrl ? test : test.skip)("with two workers the scheduler runs in worker 0 only and each scheduled run is claimed once", async () => {
   const { SQL } = await import("bun");
   const admin = new SQL(postgresUrl!);
-  await admin.unsafe(`drop schema if exists "${SCHEMA}" cascade`);
+  await admin.unsafe('drop schema if exists "workerjobs" cascade');
   const root = createLinkedProject({
     "quickservice.config.ts": `import { defineConfig, postgresAdapter } from "@quickservice/core";
 export default defineConfig({ database: postgresAdapter({ url: ${JSON.stringify(postgresUrl)} }), schema: "${SCHEMA}", server: { workers: 2 } });
@@ -59,13 +59,13 @@ export default defineConfig({ database: postgresAdapter({ url: ${JSON.stringify(
     expect(output.match(/quickservice listening on/g)).toHaveLength(2);
     expect(output.match(/"message":"worker\.started"/g)).toHaveLength(2);
     expect(finished()).toBeGreaterThanOrEqual(3);
-    const runs = (await admin.unsafe(`select scheduled_at, result from "${SCHEMA}".job_runs where trigger = 'schedule'`)) as { scheduled_at: Date; result: unknown }[];
+    const runs = (await admin.unsafe(`select scheduled_at, result from "workerjobs".job_runs where trigger = 'schedule'`)) as { scheduled_at: Date; result: unknown }[];
     expect(runs.length).toBeGreaterThanOrEqual(3);
     expect(new Set(runs.map((run) => new Date(run.scheduled_at).getTime())).size).toBe(runs.length);
     // The result column holds the JSON text of the job's return value.
     expect(new Set(runs.map((run) => (typeof run.result === "string" ? JSON.parse(run.result) : run.result)))).toEqual(new Set(["0"]));
   } finally {
-    await admin.unsafe(`drop schema if exists "${SCHEMA}" cascade`);
+    await admin.unsafe('drop schema if exists "workerjobs" cascade');
     await admin.close();
   }
 }, 60_000);

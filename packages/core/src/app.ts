@@ -74,10 +74,17 @@ export interface AppOptions {
   jobs?: ReadonlyMap<string, JobDefinition>;
   /** The time source of the job scheduler (default: the system clock). */
   clock?: JobClock;
+  /** The default exports of the enabled features' convention folders (`featureFolders` of `.generated/features.ts`). */
+  featureFolders?: FeatureFolderRegistry;
 }
+
+/** The default exports of features' convention folders, by feature key, folder name and file name. */
+export type FeatureFolderRegistry = Record<string, Record<string, ReadonlyMap<string, unknown>>>;
 
 export interface App {
   server: Server;
+  /** The default exports of the enabled features' convention folders. */
+  featureFolders: FeatureFolderRegistry;
   repos: RepositoryRegistry;
   /** Claims, executes and records job runs. */
   jobRunner: JobRunner;
@@ -98,7 +105,7 @@ export interface App {
 }
 
 /** Assembles repositories, generated and custom routes and their hooks into a server. */
-export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, config, openApi, jobs: allJobs = new Map(), clock }: AppOptions): App {
+export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, config, openApi, jobs: allJobs = new Map(), clock, featureFolders = {} }: AppOptions): App {
   // Endpoints and jobs of features that are not enabled in this configuration are left out.
   const enabledFeatures = new Set(config.features?.map((feature) => feature.key) ?? []);
   const endpoints = allEndpoints.some((endpoint) => endpoint.feature !== undefined)
@@ -202,5 +209,5 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
     scheduler.stop();
     await jobRunner.shutdown(parseDuration(config.jobs.shutdownGrace) ?? 0);
   };
-  return { server, repos, jobRunner, scheduler, runCleanup, abandonedRuns, shutdown };
+  return { server, featureFolders, repos, jobRunner, scheduler, runCleanup, abandonedRuns, shutdown };
 }

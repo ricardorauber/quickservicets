@@ -66,6 +66,23 @@ export interface FeatureInput<S extends AnyOptionSchema> {
    * set its options (`@<name> key=value`).
    */
   tags?: Readonly<Record<string, FeatureTag>>;
+  /**
+   * Convention folders the feature gives the project, by name: the build scans `<dir>/**\/*.ts` in the project and in
+   * the feature's folder into the `featureFolders` registry, keyed by each file's path without extension.
+   */
+  folders?: Readonly<Record<string, FeatureFolder>>;
+  /** Project-relative paths `quickservice dev` watches for this feature, besides its folders. */
+  watch?: readonly string[];
+}
+
+/** A convention folder a feature declares. */
+export interface FeatureFolder {
+  /** The project-relative folder, like `queues`. */
+  dir: string;
+  /** Checks a file's default export: returns true, or the reason it is rejected. */
+  check?: (value: unknown, file: string) => true | string;
+  /** One sentence on what the folder holds. */
+  description: string;
 }
 
 /** Where a feature tag may be written. */
@@ -134,6 +151,10 @@ export interface FeatureDefinition<S extends AnyOptionSchema = AnyOptionSchema> 
   readonly jobs?: string;
   /** The feature's JSDoc tags, by name. */
   readonly tags?: Readonly<Record<string, FeatureTag>>;
+  /** The convention folders the feature declares, by name. */
+  readonly folders?: Readonly<Record<string, FeatureFolder>>;
+  /** Project-relative paths `quickservice dev` watches for this feature. */
+  readonly watch?: readonly string[];
   /**
    * The feature's resolved options, once a configuration enabling it has been resolved in this process; throws
    * otherwise. The feature's own code reads its typed options here instead of receiving the config.
@@ -224,6 +245,8 @@ export function defineFeature<S extends AnyOptionSchema = ObjectOptionSchema<{}>
     ...(input.entities !== undefined ? { entities: entitiesField(input.entities, invalid) } : {}),
     ...folderFields(input, invalid),
     ...(input.tags !== undefined ? { tags: tagsField(input.tags, schema, invalid) } : {}),
+    ...(input.folders !== undefined ? { folders: foldersField(input.folders, invalid) } : {}),
+    ...(input.watch !== undefined ? { watch: watchField(input.watch, invalid) } : {}),
     options() {
       const resolved = resolvedOptions.get(definition as FeatureDefinition);
       if (!resolved) throw new Error(`${key} is not enabled; add ${key}: {} to quickservice.config.ts`);
@@ -247,6 +270,46 @@ function folderFields(input: { endpoints?: unknown; hooks?: unknown; jobs?: unkn
     fields[name] = value;
   }
   return fields;
+}
+
+const FOLDER_NAME = /^[a-z][a-zA-Z0-9-]*$/;
+
+function foldersField(folders: Readonly<Record<string, FeatureFolder>>, invalid: (reason: string) => Error): Readonly<Record<string, FeatureFolder>> {
+  if (typeof folders !== "object" || folders === null || Array.isArray(folders)) throw invalid("folders must map folder names to folder definitions");
+  const checked: Record<string, FeatureFolder> = {};
+  for (const [name, folder] of Object.entries(folders)) {
+    if (!FOLDER_NAME.test(name)) throw invalid(`folder ${name}: names must match ^[a-z][a-zA-Z0-9-]*$`);
+    if (typeof folder?.dir !== "string" || folder.dir === "" || folder.dir.startsWith("/") || folder.dir.split("/").includes("..")) {
+      throw invalid(`folder ${name}: dir must be a folder inside the project`);
+    }
+    if (folder.check !== undefined && typeof folder.check !== "function") throw invalid(`folder ${name}: check must be a function`);
+    checked[name] = Object.freeze({ ...folder, dir: folder.dir.replace(/^\.\//, "").replace(/\/+$/, "") });
+  }
+  return Object.freeze(checked);
+}
+
+function watchField(paths: readonly string[], invalid: (reason: string) => Error): readonly string[] {
+  if (!Array.isArray(paths) || !paths.every((path) => typeof path === "string" && path !== "")) throw invalid("watch must be a list of project paths");
+  return Object.freeze([...paths]);
+}
+
+/** Folders the core owns; no feature may declare one. */
+export const RESERVED_FOLDERS = ["entities", "endpoints", "hooks", "jobs", "migrations", "node_modules", ".generated", "features", "plugins"] as const;
+
+/** Fails when an enabled feature declares a reserved folder, or two enabled features declare the same folder. */
+export function assertFeatureFolders(features: readonly Pick<ResolvedFeature, "key" | "definition">[]): void {
+  const owners = new Map<string, string>();
+  const problems: string[] = [];
+  for (const feature of features) {
+    for (const folder of Object.values(feature.definition.folders ?? {})) {
+      const top = folder.dir.split("/")[0]!;
+      if ((RESERVED_FOLDERS as readonly string[]).includes(top)) problems.push(`Folder ${folder.dir} of ${feature.key} is reserved by the core`);
+      const owner = owners.get(folder.dir);
+      if (owner && owner !== feature.key) problems.push(`Folder ${folder.dir} is declared by both ${owner} and ${feature.key}`);
+      owners.set(folder.dir, feature.key);
+    }
+  }
+  if (problems.length > 0) throw new ConfigError(problems.join("\n"));
 }
 
 const TAG_NAME = /^[a-z][a-zA-Z0-9]*$/;

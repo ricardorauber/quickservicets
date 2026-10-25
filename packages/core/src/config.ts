@@ -13,7 +13,7 @@ import { applyEnvironment } from "./environment.ts";
 import { declaredVariables, readVariables, setEnvValues, type DeclaredVariable } from "./env-vars.ts";
 import { maskSecrets } from "./secrets.ts";
 import type { AnyOptionSchema } from "./options.ts";
-import { activeFeatureDefinitions, loadProjectFeatures, resolveFeatures, type NativeFeatures, type ResolvedFeature } from "./features.ts";
+import { activeFeatureDefinitions, assertFeatureFolders, loadProjectFeatures, resolveFeatures, type NativeFeatures, type ResolvedFeature } from "./features.ts";
 
 export const CONFIG_FILE = "quickservice.config.ts";
 export const DEFAULT_PORT = 3000;
@@ -308,6 +308,7 @@ export function resolveConfig(
   config = environment.config as unknown as ServiceConfig;
   const production = config.production ?? false;
   const { features, disabledFeatures, enabledBy } = resolveFeatures(config as unknown as Record<string, unknown>);
+  assertFeatureFolders(features);
   const variables = declaredVariables(config.env, features.map((feature) => ({ key: feature.key, env: feature.definition.env })));
   const envValues = readVariables(variables, env);
   const resolved: ResolvedConfig = {

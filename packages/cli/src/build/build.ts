@@ -27,7 +27,7 @@ import type { EndpointRoute } from "../endpoints/scan-endpoints.ts";
 import { parseEndpointTags, type EndpointMetadata } from "../hooks/endpoint-tags.ts";
 import type { HookEntry } from "../hooks/scan-hooks.ts";
 import type { JobEntry } from "../jobs/scan-jobs.ts";
-import { scanProjectFiles } from "./feature-files.ts";
+import { featureWatchPaths, scanFeatureFolders, scanProjectFiles } from "./feature-files.ts";
 import { activeFeatureTags, assertNoHookConflicts } from "../entities/feature-tags.ts";
 import { validateHookReferences } from "../hooks/validate-hook-references.ts";
 import { hasPendingChanges, sqlDialectOf } from "../migrations/add.ts";
@@ -66,6 +66,8 @@ export interface BuildSummary {
   overrides?: string[];
   /** Endpoints, hooks and jobs that come from features' folders. */
   fromFeatures?: { endpoints: number; hooks: number; jobs: number };
+  /** Project paths of the enabled features' convention folders and `watch` lists, for `quickservice dev`. */
+  watch?: string[];
   warnings: string[];
 }
 
@@ -249,7 +251,7 @@ export function generateJobsFile(jobs: JobEntry[]): string {
 const SERVER_FILE = `${HEADER}
 import { createApp, handleShutdownSignals, isPrimary, logConfigWarnings, logEnabledFeatures, registerProjectFeatures, resolveConfig, runsScheduledWork, runWorkers } from "@quickservice/core";
 import projectConfig from "../quickservice.config.ts";
-import { features } from "./features.ts";
+import { featureFolders, features } from "./features.ts";
 import { models } from "./models.ts";
 import { crudRoutes, endpoints, hooks } from "./routes.ts";
 import { jobs } from "./jobs.ts";
@@ -264,7 +266,7 @@ if (isPrimary(config)) {
 } else {
   logEnabledFeatures(config);
   await config.database.connect(models, { defaultSchema: config.schema, workers: config.server.workers });
-  const { server, scheduler, shutdown } = createApp({ models, crudRoutes, endpoints, hooks, config, openApi, jobs });
+  const { server, scheduler, shutdown } = createApp({ models, crudRoutes, endpoints, hooks, config, openApi, jobs, featureFolders });
   const listening = server.listen();
   console.log(\`quickservice listening on http://localhost:\${listening.port}\`);
   if (runsScheduledWork()) scheduler.start();
@@ -291,9 +293,9 @@ export function vectorIndexWarnings(models: EntityModel[], kind: string | undefi
 }
 
 /** Builds the project at `projectRoot` into `.generated/`, replacing the previous output only on success. */
-export async function build(projectRoot: string): Promise<BuildSummary> {
+export async function build(projectRoot: string, env: Record<string, string | undefined> = process.env): Promise<BuildSummary> {
   assertFeatureImports(projectRoot);
-  const config = await loadConfig(projectRoot);
+  const config = await loadConfig(projectRoot, env);
   const featureKeys = registeredProjectFeatures().map((feature) => feature.key);
   const variables = declaredVariables(config.env, config.features.map((feature) => ({ key: feature.key, env: feature.definition.env })));
   const parsed = parseProjectModels(projectRoot, config.features);
@@ -302,6 +304,7 @@ export async function build(projectRoot: string): Promise<BuildSummary> {
   const scanned = await scanProjectFiles(projectRoot, config.features);
   overrides.push(...scanned.overrides);
   const { hooks, jobs } = scanned;
+  const folderFiles = await scanFeatureFolders(projectRoot, config.features, overrides);
   assertNoHookConflicts(activeFeatureTags(), hooks);
   const endpoints: ScannedEndpoint[] = scanned.endpoints.map((route) => ({
     route,
@@ -354,7 +357,7 @@ export async function build(projectRoot: string): Promise<BuildSummary> {
   const files: Record<string, string> = {
     "models.ts": `${HEADER}\nimport type { EntityModel } from "@quickservice/core";\n\nexport const models: EntityModel[] = ${JSON.stringify(models, null, 2)};\n`,
     "types.ts": [generateTypesFile(models, envVarsLines(variables)), ...featureTypeLines(featureKeys)].join("\n"),
-    "features.ts": generateFeaturesFile(HEADER, featureKeys),
+    "features.ts": generateFeaturesFile(HEADER, featureKeys, folderFiles.map((entry) => ({ ...entry, specifier: importPath(entry.file) }))),
     "routes.ts": generateRoutesFile(models, resolved, hooks),
     "jobs.ts": generateJobsFile(jobs),
     "server.ts": SERVER_FILE,
@@ -372,5 +375,5 @@ export async function build(projectRoot: string): Promise<BuildSummary> {
   warnings.push(...endpointDocs.warnings);
   const dialect = sqlDialectOf(config.database.kind);
   if (dialect && (await hasPendingChanges(projectRoot, models, dialect))) warnings.push(PENDING_MIGRATION_WARNING);
-  return { entities: models.length, endpoints: endpoints.length, hooks: hooks.size, features: featureKeys.length, overrides, fromFeatures: scanned.fromFeatures, warnings };
+  return { entities: models.length, endpoints: endpoints.length, hooks: hooks.size, features: featureKeys.length, overrides, fromFeatures: scanned.fromFeatures, watch: featureWatchPaths(config.features), warnings };
 }

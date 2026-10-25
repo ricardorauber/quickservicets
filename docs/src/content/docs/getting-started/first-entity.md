@@ -46,7 +46,7 @@ $ quickservice dev
 quickservice listening on http://localhost:3000
 ```
 
-`dev` builds the project, starts the server, and rebuilds and restarts it every time you save a file in `entities/`, `endpoints/`, `hooks/` or the config. Set `PORT` to use another port, for example `PORT=4000 bun run dev`. Each request then logs one JSON line in this terminal.
+`dev` builds the project, starts the server, and rebuilds and restarts it every time you save a file in `entities/`, `endpoints/`, `hooks/`, `jobs/`, `features/`, the config or a `.env` file. Set `PORT` to use another port, for example `PORT=4000 bun run dev`. Each request then logs one JSON line in this terminal.
 
 :::tip
 You can also build and start in two steps, which is what you would do in production:

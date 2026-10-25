@@ -35,15 +35,42 @@ export function assertFeatureImports(projectRoot: string): void {
 
 const identifierOf = (key: string, index: number) => `feature${index}_${key.replace(/[^A-Za-z0-9_$]/g, "_")}`;
 
-/** `.generated/features.ts`: every project feature, imported by a project-relative path. */
-export function generateFeaturesFile(header: string, keys: readonly string[]): string {
+/** One file of a feature's convention folder, as the generated registry imports it. */
+export interface RegistryFile {
+  feature: string;
+  folder: string;
+  name: string;
+  /** The import specifier, relative to `.generated/` or through the core package. */
+  specifier: string;
+}
+
+/**
+ * `.generated/features.ts`: every project feature, imported by a project-relative path, and `featureFolders`, the
+ * default exports of the features' convention folders by feature key, folder name and file name.
+ */
+export function generateFeaturesFile(header: string, keys: readonly string[], folderFiles: readonly RegistryFile[] = []): string {
+  const registry = new Map<string, Map<string, string[]>>();
+  folderFiles.forEach((entry, index) => {
+    const folders = registry.get(entry.feature) ?? new Map<string, string[]>();
+    registry.set(entry.feature, folders);
+    folders.set(entry.folder, [...(folders.get(entry.folder) ?? []), `[${JSON.stringify(entry.name)}, folder${index}]`]);
+  });
+  const registryLines = [...registry].flatMap(([feature, folders]) => [
+    `  ${JSON.stringify(feature)}: {`,
+    ...[...folders].map(([folder, entries]) => `    ${JSON.stringify(folder)}: new Map<string, unknown>([${entries.join(", ")}]),`),
+    "  },",
+  ]);
   return [
     header,
-    'import type { ProjectFeatureModule } from "@quickservice/core";',
+    'import type { FeatureFolderRegistry, ProjectFeatureModule } from "@quickservice/core";',
     ...keys.map((key, index) => `import ${identifierOf(key, index)} from "../${FEATURES_DIR}/${key}/index.ts";`),
+    ...folderFiles.map((entry, index) => `import folder${index} from ${JSON.stringify(entry.specifier)};`),
     "",
     "/** The project's features, registered by the server before it resolves the config. */",
     `export const features: ProjectFeatureModule[] = [${keys.map((key, index) => `{ folder: ${JSON.stringify(key)}, definition: ${identifierOf(key, index)} }`).join(", ")}];`,
+    "",
+    "/** The default exports of the features' convention folders, by feature key, folder name and file name. */",
+    registryLines.length > 0 ? `export const featureFolders: FeatureFolderRegistry = {\n${registryLines.join("\n")}\n};` : "export const featureFolders: FeatureFolderRegistry = {};",
     "",
   ].join("\n");
 }

@@ -43,7 +43,7 @@ export { createCrudRoutes, mergeRoutes, populatePaths } from "./http/crud.ts";
 export type { CrudOptions } from "./http/crud.ts";
 export type { CrudRoute } from "./http/crud.ts";
 export { createApp } from "./app.ts";
-export type { App, AppEndpoint, AppOptions, CrudRouteEntry } from "./app.ts";
+export type { App, AppEndpoint, AppOptions, CrudRouteEntry, FeatureFolderRegistry } from "./app.ts";
 export { jsonLogger, safeLog } from "./logger.ts";
 export { entityModel, field } from "./entity-model.ts";
 export type { EntityModelOptions, FieldDefinition, FieldInput } from "./entity-model.ts";
@@ -149,8 +149,10 @@ export type {
 export {
   BUILT_IN_CONFIG_KEYS,
   defineFeature,
+  assertFeatureFolders,
   FEATURES_DIR,
   featureDir,
+  RESERVED_FOLDERS,
   isFeatureDefinition,
   NATIVE_FEATURES_DIR,
   loadProjectFeatures,
@@ -166,7 +168,7 @@ export {
 } from "./features.ts";
 export { prepareFeatureTargets, tagsOf } from "./feature-targets.ts";
 export type { OptionsTarget } from "./feature-targets.ts";
-export type { FeatureConfig, FeatureDefinition, FeatureDocs, FeatureEntities, FeatureEntitiesContext, FeatureInput, FeatureTag, FeatureTagTarget, TargetOptions, FeatureOptions, FeatureRequirement, NativeFeatures, ProjectFeatureModule, ResolvedFeature } from "./features.ts";
+export type { FeatureConfig, FeatureDefinition, FeatureDocs, FeatureEntities, FeatureEntitiesContext, FeatureFolder, FeatureInput, FeatureTag, FeatureTagTarget, TargetOptions, FeatureOptions, FeatureRequirement, NativeFeatures, ProjectFeatureModule, ResolvedFeature } from "./features.ts";
 export { applyEnvironment, CONFIG_OVERRIDES, configVariable, envNameFor, featureVariables, logConfigWarnings, NOT_OVERRIDABLE, optionLeaves, overrideVariables, unknownVariableWarnings } from "./environment.ts";
 export { maskSecrets, SECRET_MASK } from "./secrets.ts";
 export type { ConfigOverride, EnvAlias, EnvironmentResult, OptionLeaf } from "./environment.ts";

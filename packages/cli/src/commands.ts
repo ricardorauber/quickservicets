@@ -14,7 +14,8 @@ export const COMMANDS: CommandDoc[] = [
   {
     name: "dev",
     usage: "quickservice dev",
-    description: "Builds and serves the project, rebuilding and restarting when entities, endpoints, hooks or the config change.",
+    description:
+      "Builds and serves the project, rebuilding and restarting when entities, endpoints, hooks, jobs, features, the config, the `.env` files, or a folder or `watch` path of an enabled feature change.",
   },
   {
     name: "build",

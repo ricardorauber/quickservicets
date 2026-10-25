@@ -1,5 +1,5 @@
 import { featureDir, type ResolvedFeature } from "@quickservice/core";
-import { resolve } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { featureFileName } from "../entities/parse-entities.ts";
 import { scanEndpointFolder, scanEndpoints, type EndpointRoute } from "../endpoints/scan-endpoints.ts";
 import { BuildError } from "../errors.ts";
@@ -104,4 +104,62 @@ export function hasJobFiles(projectRoot: string, features: readonly ResolvedFeat
     const folder = featureFolderOf(feature, "jobs", projectRoot);
     return folder !== undefined && listJobFolder(folder).length > 0;
   });
+}
+
+/** One file of a feature's convention folder, from the project or from the feature's own folder. */
+export interface FolderFile {
+  /** The key of the feature that declares the folder. */
+  feature: string;
+  /** The folder's name in the feature definition. */
+  folder: string;
+  /** The file's path inside the folder, without extension. */
+  name: string;
+  /** How the build names the file: project-relative, or through the core package for a native. */
+  file: string;
+  /** Absolute path of the file. */
+  source: string;
+}
+
+const TEST_FILE = /\.(test|spec)\.ts$/;
+
+/** The `.ts` files under a folder, subfolders included, test and declaration files excluded, by name without extension. */
+function folderFiles(root: string): { name: string; source: string }[] {
+  return listJobFolder(root)
+    .filter((file) => !TEST_FILE.test(file))
+    .map((source) => ({ name: relative(root, source).split(sep).join("/").slice(0, -".ts".length), source }));
+}
+
+/**
+ * The files of every convention folder the enabled features declare: the project's `<dir>/` and the same folder inside
+ * the feature's folder, where a project file replaces the feature's file of the same name. Each file must
+ * default-export a value its folder's `check` accepts.
+ */
+export async function scanFeatureFolders(projectRoot: string, features: readonly ResolvedFeature[], overrides: string[] = []): Promise<FolderFile[]> {
+  const files: FolderFile[] = [];
+  for (const feature of features) {
+    for (const [folder, definition] of Object.entries(feature.definition.folders ?? {})) {
+      const fromProject = folderFiles(join(projectRoot, definition.dir)).map(({ name, source }) => ({ feature: feature.key, folder, name, source, file: relative(projectRoot, source).split(sep).join("/") }));
+      const projectNames = new Map(fromProject.map((entry) => [entry.name, entry]));
+      const fromFeature = folderFiles(resolve(featureDir(feature, projectRoot), definition.dir)).flatMap(({ name, source }) => {
+        const file = featureFileName(projectRoot, source);
+        const replacement = projectNames.get(name);
+        if (!replacement) return [{ feature: feature.key, folder, name, source, file }];
+        overrides.push(fileOverrideLine(replacement.file, file, feature.key));
+        return [];
+      });
+      for (const entry of [...fromFeature, ...fromProject].sort((a, b) => a.name.localeCompare(b.name))) {
+        const module = (await import(entry.source)) as Record<string, unknown>;
+        if (!Object.hasOwn(module, "default")) throw new BuildError(`${entry.file}: must have a default export`);
+        const verdict = definition.check ? definition.check(module.default, entry.file) : true;
+        if (verdict !== true) throw new BuildError(`${entry.file}: ${typeof verdict === "string" ? verdict : `rejected by the ${folder} folder of ${feature.key}`}`);
+        files.push(entry);
+      }
+    }
+  }
+  return files;
+}
+
+/** The project paths `quickservice dev` watches for the enabled features: their folders and `watch` paths. */
+export function featureWatchPaths(features: readonly ResolvedFeature[]): string[] {
+  return [...new Set(features.flatMap((feature) => [...Object.values(feature.definition.folders ?? {}).map((folder) => folder.dir), ...(feature.definition.watch ?? [])]))];
 }

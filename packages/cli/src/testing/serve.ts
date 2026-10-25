@@ -7,11 +7,12 @@ export async function serveBuilt(root: string, env: Record<string, string | unde
   const { models } = (await import(join(generated, "models.ts"))) as { models: never[] };
   const routes = (await import(join(generated, "routes.ts"))) as { crudRoutes: never[]; endpoints: never[]; hooks: Map<string, never> };
   const { jobs } = (await import(join(generated, "jobs.ts"))) as { jobs: Map<string, never> };
+  const { featureFolders } = (await import(join(generated, "features.ts"))) as { featureFolders: Record<string, Record<string, Map<string, unknown>>> };
   const openApi = (await import(join(generated, "openapi.json"))).default as { info?: { title?: string } };
   const projectConfig = (await import(join(root, "quickservice.config.ts"))).default as ServiceConfig;
   const config = resolveConfig({ logger: { info() {}, warn() {}, error() {} }, ...projectConfig }, env, root);
   await config.database.connect(models, { defaultSchema: config.schema });
-  const app = createApp({ models, crudRoutes: routes.crudRoutes, endpoints: routes.endpoints, hooks: routes.hooks, config, openApi, jobs });
+  const app = createApp({ models, crudRoutes: routes.crudRoutes, endpoints: routes.endpoints, hooks: routes.hooks, config, openApi, jobs, featureFolders });
   const request = async (method: string, path: string, body?: unknown) => {
     const init: RequestInit = body === undefined ? { method } : { method, body: JSON.stringify(body), headers: { "content-type": "application/json" } };
     const response = await app.server.fetch(new Request(`http://localhost${path}`, init));

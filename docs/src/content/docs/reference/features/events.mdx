@@ -23,5 +23,39 @@ It is not enabled by default: turn it on with `events: {}` or `QS_EVENTS_ENABLED
 | --- | --- | --- | --- | --- | --- |
 | `events.outbox.enabled` | `boolean` | `true` | `QS_EVENTS_OUTBOX_ENABLED` | no | Turns this section off when false. |
 | `events.outbox.events` | `string[]` | `["*"]` | `QS_EVENTS_OUTBOX_EVENTS` | no | The event patterns stored in the outbox. |
-| `events.outbox.retention` | `duration` | `"7d"` | `QS_EVENTS_OUTBOX_RETENTION` | no | How long outbox rows are kept. |
+| `events.outbox.retention` | `duration` | `"7d"` | `QS_EVENTS_OUTBOX_RETENTION` | no | How long outbox rows are kept; rows with undelivered deliveries stay. |
+| `events.outbox.dispatch` | `boolean` | `true` | `QS_EVENTS_OUTBOX_DISPATCH` | no | Runs the delivery dispatcher in this worker. |
+| `events.outbox.delivery.pollInterval` | `duration` | `"1s"` | `QS_EVENTS_OUTBOX_DELIVERY_POLL_INTERVAL` | no | How often the dispatcher looks for due deliveries. |
+| `events.outbox.delivery.batch` | `integer` | `100` | `QS_EVENTS_OUTBOX_DELIVERY_BATCH` | no | Deliveries claimed per poll. |
+| `events.outbox.delivery.timeout` | `duration` | `"30s"` | `QS_EVENTS_OUTBOX_DELIVERY_TIMEOUT` | no | How long a delivery may run before it is aborted and retried; the lease of a claimed row. |
+| `events.outbox.delivery.retries` | `integer` | `10` | `QS_EVENTS_OUTBOX_DELIVERY_RETRIES` | no | Failed attempts before a delivery becomes failed. |
+| `events.outbox.delivery.retryDelay` | `duration` | `"10s"` | `QS_EVENTS_OUTBOX_DELIVERY_RETRY_DELAY` | no | The first retry delay, doubled each attempt. |
+| `events.outbox.delivery.maxRetryDelay` | `duration` | `"1h"` | `QS_EVENTS_OUTBOX_DELIVERY_MAX_RETRY_DELAY` | no | The longest retry delay. |
 | `events.enabled` | `boolean` | `true` | `QS_EVENTS_ENABLED` | no | Turns the feature off when false. |
+
+## Commands
+
+### `events outbox`
+
+Prints, per durable consumer, how many deliveries are pending, delivering, delivered and failed, and the age of the oldest pending one.
+
+```bash
+quickservice events outbox
+```
+
+### `events retry`
+
+Resets failed deliveries to pending with attempt 0, one by id or every failed one of a consumer, and prints how many.
+
+```bash
+quickservice events retry <delivery id> | quickservice events retry --consumer <name> --failed
+```
+
+**Arguments:**
+
+- `<id>`: The id of one failed delivery.
+
+**Flags:**
+
+- `--consumer` (`string`): The consumer whose failed deliveries are reset.
+- `--failed` (`boolean`, default `false`): Resets the consumer's failed deliveries.

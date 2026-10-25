@@ -1,5 +1,6 @@
 import { parseDuration, runInTransaction, type AnyEvent, type DatabaseAdapter, type EntityModel, type FieldModel, type StoredRecord } from "../public.ts";
 import { compilePattern, type CompiledPattern } from "./patterns.ts";
+import { deliveryRows } from "./delivery.ts";
 
 /** One stored event of the outbox, as `readOutbox` returns it. */
 export interface OutboxRecord {
@@ -41,6 +42,8 @@ export function outboxEventEntity(): EntityModel {
 interface OutboxState {
   adapter: DatabaseAdapter;
   model: EntityModel;
+  /** The delivery rows of durable consumers. */
+  deliveryModel?: EntityModel;
   /** The patterns of `outbox.events`, then those other natives added. */
   patterns: { text: string; compiled: CompiledPattern }[];
   /** Whether each type is stored, decided once per type. */
@@ -52,8 +55,14 @@ let state: OutboxState | undefined;
 const added: string[] = [];
 
 /** Starts the outbox for a running service with the patterns of `outbox.events`. */
-export function startOutbox(adapter: DatabaseAdapter, model: EntityModel, patterns: readonly string[]): void {
-  state = { adapter, model, patterns: [...patterns, ...added].map((text) => ({ text, compiled: compilePattern(text) })), stored: new Map() };
+export function startOutbox(adapter: DatabaseAdapter, model: EntityModel, patterns: readonly string[], deliveryModel?: EntityModel): void {
+  state = {
+    adapter,
+    model,
+    ...(deliveryModel ? { deliveryModel } : {}),
+    patterns: [...patterns, ...added].map((text) => ({ text, compiled: compilePattern(text) })),
+    stored: new Map(),
+  };
 }
 
 /** Stops the outbox: nothing is stored until it starts again. */
@@ -98,14 +107,14 @@ export function storesType(type: string): boolean {
 export const outboxRunning = () => state !== undefined;
 
 /** The adapter and model of the running outbox; throws when it is off. */
-export function outboxStore(): { adapter: DatabaseAdapter; model: EntityModel } {
+export function outboxStore(): { adapter: DatabaseAdapter; model: EntityModel; deliveryModel?: EntityModel } {
   if (!state) throw new Error("The outbox is not enabled; set events: { outbox: true } in quickservice.config.ts");
-  return { adapter: state.adapter, model: state.model };
+  return { adapter: state.adapter, model: state.model, ...(state.deliveryModel ? { deliveryModel: state.deliveryModel } : {}) };
 }
 
-/** Stores an event as an outbox row, in the transaction of the caller. */
+/** Stores an event as an outbox row, with one pending delivery row per matching consumer, in the caller's transaction. */
 export async function insertOutboxRow(event: AnyEvent): Promise<void> {
-  const { adapter, model } = outboxStore();
+  const { adapter, model, deliveryModel } = outboxStore();
   const at = event.at instanceof Date ? event.at : new Date(event.at);
   const row: StoredRecord = {
     id: event.id,
@@ -117,6 +126,7 @@ export async function insertOutboxRow(event: AnyEvent): Promise<void> {
     ...(event.requestId ? { requestId: event.requestId } : {}),
   };
   await adapter.insert(model, row);
+  if (deliveryModel) for (const delivery of deliveryRows(event, at)) await adapter.insert(deliveryModel, delivery);
 }
 
 /** Runs `fn` in a transaction of the outbox's database. */
@@ -215,7 +225,12 @@ export const OUTBOX_CLEANUP_BATCH = 1000;
  * Deletes outbox rows older than `retentionMs` before `now`, in batches of 1000; `keep` tells which of them must stay.
  * Resolves with the number deleted.
  */
-export async function cleanOutbox(options: { retentionMs: number; now: number; keep?: (ids: string[]) => Promise<Set<string>> }): Promise<number> {
+export async function cleanOutbox(options: {
+  retentionMs: number;
+  now: number;
+  keep?: (ids: string[]) => Promise<Set<string>>;
+  removed?: (ids: string[]) => Promise<void>;
+}): Promise<number> {
   const { adapter, model } = outboxStore();
   const cutoff = new Date(options.now - options.retentionMs);
   let deleted = 0;
@@ -225,10 +240,15 @@ export async function cleanOutbox(options: { retentionMs: number; now: number; k
     const { data } = await adapter.findMany(model, { where, sort: [{ field: "id", direction: "asc" }], limit: OUTBOX_CLEANUP_BATCH, offset: 0, withTotal: false });
     if (data.length === 0) return deleted;
     const kept = options.keep ? await options.keep(data.map((row) => row.id)) : new Set<string>();
+    const removed: string[] = [];
     for (const row of data) {
       if (kept.has(row.id)) continue;
-      if (await adapter.deleteById(model, row.id)) deleted++;
+      if (await adapter.deleteById(model, row.id)) {
+        deleted++;
+        removed.push(row.id);
+      }
     }
+    await options.removed?.(removed);
     if (data.length < OUTBOX_CLEANUP_BATCH) return deleted;
     after = data.at(-1)!.id;
   }

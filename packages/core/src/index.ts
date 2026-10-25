@@ -226,7 +226,7 @@ export type { DeclaredVariable, EnvVars } from "./env-vars.ts";
 import type { eventsFeature } from "./features/events/index.ts";
 import type { FeatureConfig as NativeConfig } from "./features.ts";
 export { addOutboxPatterns, events, eventsFeature, listen, readOutbox, tailOutbox } from "./features/events/index.ts";
-export type { OutboxRecord } from "./features/events/index.ts";
+export type { ConsumerOptions, DeliveryContext, DeliveryStatus, OutboxRecord } from "./features/events/index.ts";
 export type { EventListener, Events, ListenerContext, ListenerFile, ListenerPhase, ListenOptions } from "./features/events/index.ts";
 
 declare module "./features.ts" {

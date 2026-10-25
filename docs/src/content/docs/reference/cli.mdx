@@ -118,3 +118,34 @@ Prints the CLI version.
 ```bash
 quickservice --version
 ```
+
+## Commands of native features
+
+Each native feature's commands are available while the feature is enabled.
+
+### `events`
+
+#### `events outbox`
+
+Prints, per durable consumer, how many deliveries are pending, delivering, delivered and failed, and the age of the oldest pending one.
+
+```bash
+quickservice events outbox
+```
+
+#### `events retry`
+
+Resets failed deliveries to pending with attempt 0, one by id or every failed one of a consumer, and prints how many.
+
+```bash
+quickservice events retry <delivery id> | quickservice events retry --consumer <name> --failed
+```
+
+**Arguments:**
+
+- `<id>`: The id of one failed delivery.
+
+**Flags:**
+
+- `--consumer` (`string`): The consumer whose failed deliveries are reset.
+- `--failed` (`boolean`, default `false`): Resets the consumer's failed deliveries.

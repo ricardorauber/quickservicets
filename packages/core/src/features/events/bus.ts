@@ -14,7 +14,8 @@ import {
   type WriteEvent,
 } from "../public.ts";
 import * as patterns from "./patterns.ts";
-import { inOutboxTransaction, insertOutboxRow, storesType } from "./outbox.ts";
+import { addOutboxPatterns, inOutboxTransaction, insertOutboxRow, outboxRunning, storesType } from "./outbox.ts";
+import { registerConsumer, type ConsumerOptions } from "./delivery.ts";
 
 /** When a listener runs: inside the write's transaction (awaited, may veto it) or after the commit (the default). */
 export type ListenerPhase = "afterCommit" | "inTransaction";
@@ -93,6 +94,12 @@ export interface Events {
    * every listener gets it at once.
    */
   emit<K extends string>(type: K, payload: PayloadOf<K>): Promise<string>;
+  /**
+   * Registers a durable consumer, from setup: every stored event matching `pattern` gets a delivery row in its write's
+   * transaction, delivered at least once by the dispatchers of every worker, with retries and backoff. Needs
+   * `events: { outbox: true }`.
+   */
+  deliver(name: string, options: ConsumerOptions): void;
   /** Resolves once every after-commit delivery started so far has finished. */
   idle(): Promise<void>;
 }
@@ -118,6 +125,11 @@ export const events: Events = {
     const event: CustomEvent = { id: Bun.randomUUIDv7(), type, payload, ...operationFields(), at: new Date() };
     await publish(event);
     return event.id;
+  },
+  deliver(name, options) {
+    enabledCheck();
+    if (!outboxRunning()) throw new Error(`${name} needs events: { outbox: true }`);
+    addOutboxPatterns(registerConsumer(name, options));
   },
   async idle() {
     while (pending.size > 0) await Promise.allSettled([...pending]);

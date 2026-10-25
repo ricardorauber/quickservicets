@@ -23,6 +23,7 @@ import { queueClient } from "./client.ts";
 import type { QueueMessage } from "./message.ts";
 import type { QueueAddResult, QueueContext, QueueDefinition } from "./queue.ts";
 import type { AddSource } from "./state.ts";
+import type { MessagePlacement } from "./message-options.ts";
 
 /** The effective settings of one queue. */
 export interface QueueSettings {
@@ -58,12 +59,17 @@ export interface DatabaseQueueOptions {
   clock?: JobClock;
   /** How the process names itself in `worker` (default: `<hostname>:<pid>`). */
   worker?: string;
+  /** A number from 0 to 1 that sets the jitter of retry delays (default: `Math.random`). */
+  random?: () => number;
 }
 
 /** The messages of the project's database: stores new ones and runs the consumers of the declared queues. */
 export interface DatabaseQueue {
-  /** Inserts a `waiting` message, joining the current transaction, and wakes the queue's loop once it is committed. */
-  enqueue(name: string, payload: unknown, source: AddSource): Promise<QueueAddResult>;
+  /**
+   * Inserts a `waiting` message, joining the current transaction, and wakes the queue's loop once it is committed; it
+   * runs now with priority 0 unless `placement` says otherwise.
+   */
+  enqueue(name: string, payload: unknown, source: AddSource, placement?: MessagePlacement): Promise<QueueAddResult>;
   /** Starts one consumer loop per declared queue, and the reclaiming of expired leases. */
   start(repos: Repositories): void;
   /** Runs every loop at once, as an `add` in this process does for its queue. */
@@ -98,12 +104,18 @@ interface Running {
   done: Promise<void>;
 }
 
-type Outcome = { kind: "completed"; value: unknown } | { kind: "failed"; error: unknown } | { kind: "interrupted" };
+type Outcome = { kind: "completed"; value: unknown } | { kind: "failed"; error: unknown } | { kind: "timedOut"; timeout: string } | { kind: "interrupted" };
+
+/** The share of a retry delay its random jitter may add or remove. */
+export const RETRY_JITTER = 0.1;
 
 const condition = (field: string, op: "eq" | "lt" | "lte" | "gt", value: unknown): Condition => ({ field, op, value }) as Condition;
 
 /** The reason `ctx.signal` is aborted with when the worker shuts down. */
 const shutdownReason = () => new DOMException("Interrupted by shutdown", "AbortError");
+
+/** The reason `ctx.signal` is aborted with when a message runs longer than its timeout. */
+const timeoutReason = (timeout: string) => new DOMException(`Timed out after ${timeout}`, "TimeoutError");
 
 /** Calls `fn` every `ms` on `clock` until the returned function is called. */
 function repeat(clock: JobClock, ms: number, fn: () => void): () => void {
@@ -129,6 +141,7 @@ export function createDatabaseQueue(options: DatabaseQueueOptions): DatabaseQueu
   const clock = options.clock ?? systemClock;
   const worker = options.worker ?? `${hostname()}:${process.pid}`;
   const pollMs = parseDuration(options.pollInterval) ?? 1000;
+  const random = options.random ?? Math.random;
   const loops = new Map<string, Loop>();
   const runs = new Map<string, Running>();
   let repos: Repositories | undefined;
@@ -164,7 +177,8 @@ export function createDatabaseQueue(options: DatabaseQueueOptions): DatabaseQueu
     const now = new Date(clock.now());
     const { data } = await adapter.findMany(model, {
       where: [condition("queue", "eq", name), condition("status", "eq", "waiting"), condition("runAt", "lte", now)],
-      sort: [{ field: "runAt", direction: "asc" }, { field: "id", direction: "asc" }],
+      // Higher priorities first, then the earliest due, then the oldest.
+      sort: [{ field: "priority", direction: "desc" }, { field: "runAt", direction: "asc" }, { field: "id", direction: "asc" }],
       limit: count * 2 + 8,
       offset: 0,
       withTotal: false,
@@ -229,9 +243,26 @@ export function createDatabaseQueue(options: DatabaseQueueOptions): DatabaseQueu
       log("info", "queue.message.completed", { ...fields, durationMs });
       return;
     }
-    const lastError = runError(outcome.error, production);
-    await adapter.updateById(model, row.id, { status: "dead", finishedAt: now, lastError, lockedUntil: null, updatedAt: now }, guard);
+    const lastError = outcome.kind === "timedOut" ? { message: `Timed out after ${outcome.timeout}` } : runError(outcome.error, production);
+    await fail(row, lastError, now, guard);
     log("warn", "queue.message.failed", { ...fields, durationMs, error: { message: lastError.message } });
+  };
+
+  /** How long a message waits before its next attempt: the doubled delay up to the longest, with a random jitter. */
+  const retryDelayOf = (row: QueueMessage) => {
+    const settings = options.settings(row.queue);
+    const base = (parseDuration(settings.retryDelay) ?? 10_000) * 2 ** (row.attempt - 1);
+    const capped = Math.min(base, parseDuration(settings.maxRetryDelay) ?? 3_600_000);
+    return Math.max(0, Math.round(capped * (1 + (random() * 2 - 1) * RETRY_JITTER)));
+  };
+
+  /** The failure rule: back to `waiting` after a delay while attempts remain, `dead` after the last one. */
+  const fail = async (row: QueueMessage, lastError: { message: string; stack?: string }, now: Date, guard: Condition[]) => {
+    if (row.attempt < row.maxAttempts) {
+      const runAt = new Date(now.getTime() + retryDelayOf(row));
+      return adapter.updateById(model, row.id, { status: "waiting", runAt, lastError, lockedUntil: null, worker: null, updatedAt: now }, guard);
+    }
+    return adapter.updateById(model, row.id, { status: "dead", finishedAt: now, lastError, lockedUntil: null, updatedAt: now }, guard);
   };
 
   /** Runs a claimed message in the background, waking its loop once it finished. */
@@ -258,6 +289,13 @@ export function createDatabaseQueue(options: DatabaseQueueOptions): DatabaseQueu
         .updateById(model, row.id, { lockedUntil: new Date(now + timeoutMs), updatedAt: new Date(now) }, [condition("status", "eq", "active"), condition("attempt", "eq", row.attempt)])
         .catch(() => {});
     });
+    // A message running longer than its timeout fails at once; its handler settling later changes nothing.
+    const timeout = options.settings(row.queue).timeout;
+    let timeoutHandle: unknown = clock.setTimeout(() => {
+      timeoutHandle = undefined;
+      controller.abort(timeoutReason(timeout));
+      settle({ kind: "timedOut", timeout });
+    }, timeoutMs);
     log("info", "queue.message.started", { queue: row.queue, messageId: row.id, attempt: row.attempt });
     const context: QueueContext = {
       payload: row.payload,
@@ -280,6 +318,7 @@ export function createDatabaseQueue(options: DatabaseQueueOptions): DatabaseQueu
     const done = outcome.promise
       .then((result) => {
         stopLease();
+        clock.clearTimeout(timeoutHandle);
         return record(row, result, startedAt, jobLog);
       })
       .catch((error: unknown) => log("error", "queue.record.failed", { queue: row.queue, messageId: row.id, error: { message: (error as Error)?.message ?? String(error) } }))
@@ -305,7 +344,13 @@ export function createDatabaseQueue(options: DatabaseQueueOptions): DatabaseQueu
       });
       for (const row of data) {
         if (runs.has(row.id)) continue;
-        const returned = await adapter.updateById(model, row.id, { status: "waiting", worker: null, lockedUntil: null, updatedAt: now }, [condition("status", "eq", "active"), condition("lockedUntil", "eq", row.lockedUntil)]);
+        const guard = [condition("status", "eq", "active"), condition("lockedUntil", "eq", row.lockedUntil)];
+        const message = row as unknown as QueueMessage;
+        // A message whose last attempt lost its lease has failed; the others run that attempt's successor.
+        const returned =
+          message.attempt >= message.maxAttempts
+            ? await fail(message, { message: `Lease expired after ${options.settings(message.queue).timeout}` }, now, guard)
+            : await adapter.updateById(model, row.id, { status: "waiting", worker: null, lockedUntil: null, updatedAt: now }, guard);
         if (!returned) continue;
         count++;
         log("info", "queue.message.reclaimed", { queue: row.queue, messageId: row.id, attempt: row.attempt });
@@ -331,8 +376,9 @@ export function createDatabaseQueue(options: DatabaseQueueOptions): DatabaseQueu
   };
 
   return {
-    async enqueue(name, payload, source) {
+    async enqueue(name, payload, source, placement) {
       const now = new Date(clock.now());
+      const { runAt, priority } = placement ?? { runAt: now, priority: 0 };
       const settings = options.settings(name);
       const row: StoredRecord = {
         id: Bun.randomUUIDv7(),
@@ -341,8 +387,8 @@ export function createDatabaseQueue(options: DatabaseQueueOptions): DatabaseQueu
         queue: name,
         payload: payload as StoredRecord[string],
         status: "waiting",
-        priority: 0,
-        runAt: now,
+        priority,
+        runAt,
         attempt: 0,
         maxAttempts: settings.retries + 1,
         enqueuedAt: now,

@@ -2,58 +2,17 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { memoryAdapter } from "./adapters/memory.ts";
 import { sqliteAdapter } from "./adapters/sqlite.ts";
 import { postgresAdapter } from "./adapters/postgres.ts";
 import type { DatabaseAdapter } from "./adapter.ts";
-import { captureLogger, fakeClock, type FakeClock } from "./jobs/test-support.ts";
+import type { FakeClock } from "./jobs/test-support.ts";
 import { systemClock } from "./jobs/scheduler.ts";
-import { createDatabaseQueue, RECLAIM_INTERVAL, type DatabaseQueueOptions } from "./features/queues/database.ts";
-import { queueMessageEntity, type QueueMessage } from "./features/queues/message.ts";
-import { queue, type QueueDefinition } from "./features/queues/queue.ts";
+import { RECLAIM_INTERVAL } from "./features/queues/database.ts";
+import { queue } from "./features/queues/queue.ts";
+import { all, memory, model, setUp, until } from "./queue-test-support.ts";
 import { resetPostgresTables } from "./testing/postgres.ts";
 import { createSqliteTables } from "./testing/sql.ts";
 import "./index.ts";
-
-const model = queueMessageEntity();
-const DEFAULTS = { concurrency: 1, timeout: "5m", retries: 3, retryDelay: "10s", maxRetryDelay: "1h" };
-
-function setUp(adapter: DatabaseAdapter, definitions: Record<string, QueueDefinition>, extra: Partial<DatabaseQueueOptions> & { concurrency?: number; timeout?: string } = {}) {
-  const { logger, entries } = captureLogger();
-  const clock = (extra.clock ?? fakeClock()) as FakeClock;
-  const store = createDatabaseQueue({
-    adapter,
-    model,
-    definitions: new Map(Object.entries(definitions)),
-    settings: () => ({ ...DEFAULTS, ...(extra.concurrency ? { concurrency: extra.concurrency } : {}), ...(extra.timeout ? { timeout: extra.timeout } : {}) }),
-    pollInterval: "1s",
-    logger,
-    production: false,
-    resultLimit: "64KB",
-    worker: "test:1",
-    ...extra,
-    clock,
-  });
-  return { store, clock, entries };
-}
-
-async function memory() {
-  const adapter = memoryAdapter();
-  await adapter.connect([model]);
-  return adapter;
-}
-
-const all = async (adapter: DatabaseAdapter) =>
-  (await adapter.findMany(model, { where: [], sort: [{ field: "id", direction: "asc" }], limit: 10_000, offset: 0, withTotal: false })).data as unknown as QueueMessage[];
-
-const until = async (check: () => Promise<boolean> | boolean, clock?: FakeClock) => {
-  for (let attempt = 0; attempt < 500; attempt++) {
-    if (await check()) return;
-    if (clock) await clock.flush();
-    else await Bun.sleep(5);
-  }
-  throw new Error("timed out waiting");
-};
 
 describe("claiming", () => {
   test("messages are processed, completed with the handler's result, and the claim is conditional", async () => {
@@ -229,7 +188,7 @@ describe("records", () => {
       }),
       big: queue(() => "x".repeat(100)),
     };
-    const dev = setUp(adapter, definitions, { resultLimit: 50 });
+    const dev = setUp(adapter, definitions, { resultLimit: 50, retries: 0 });
     await dev.store.enqueue("fail", {}, {});
     await dev.store.enqueue("big", {}, {});
     dev.store.start({} as never);
@@ -244,7 +203,7 @@ describe("records", () => {
     dev.store.stop();
 
     const production = await memory();
-    const prod = setUp(production, definitions, { production: true });
+    const prod = setUp(production, definitions, { production: true, retries: 0 });
     await prod.store.enqueue("fail", {}, {});
     prod.store.start({} as never);
     await until(async () => (await all(production))[0]!.status === "dead", prod.clock);
@@ -267,7 +226,7 @@ describe("leases", () => {
   test("a long handler keeps its lease, and an expired lease of a stopped instance is reclaimed and run again", async () => {
     const adapter = await memory();
     const clockRef: { clock?: FakeClock } = {};
-    const { store, clock, entries } = setUp(adapter, { long: queue(async () => clockRef.clock!.sleep(5000)) }, { timeout: "3s" });
+    const { store, clock, entries } = setUp(adapter, { long: queue(async () => clockRef.clock!.sleep(2500)) }, { timeout: "3s" });
     clockRef.clock = clock;
     await store.enqueue("long", {}, {});
     store.start({} as never);
@@ -276,7 +235,7 @@ describe("leases", () => {
     expect(first.lockedUntil!.getTime()).toBe(clock.now() + 3000);
     await clock.advance(2000);
     expect((await all(adapter))[0]!.lockedUntil!.getTime()).toBeGreaterThan(first.lockedUntil!.getTime());
-    await clock.advance(3000);
+    await clock.advance(1000);
     expect((await all(adapter))[0]!.status).toBe("completed");
     store.stop();
 

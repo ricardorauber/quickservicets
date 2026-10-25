@@ -10,7 +10,14 @@ export interface QueuePayloads {}
 export type QueueName = Extract<keyof QueuePayloads, string>;
 
 /** Options of one `add` call. */
-export interface QueueAddOptions {}
+export interface QueueAddOptions {
+  /** Runs the message once this duration passed, like `5m`; not with `runAt`. */
+  delay?: string;
+  /** Runs the message at this time or later, a `Date` or ISO 8601 text; a time in the past runs as soon as possible. */
+  runAt?: Date | string;
+  /** Messages with a higher priority run first, from -100 to 100 (default 0). */
+  priority?: number;
+}
 
 /** What `add` resolves with: the message's id, and whether an existing message was returned instead of a new one. */
 export interface QueueAddResult {

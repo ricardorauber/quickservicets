@@ -1,6 +1,7 @@
 import { boolean, defineFeature, duration, integer, object, parseDuration, record } from "../public.ts";
 import { queueClient } from "./client.ts";
 import { createDatabaseQueue, type QueueSettings } from "./database.ts";
+import { messagePlacement } from "./message-options.ts";
 import { queueMessageEntity } from "./message.ts";
 import { isQueueDefinition, type QueueDefinition } from "./queue.ts";
 import { running, sharedState, type RunningQueues } from "./state.ts";
@@ -93,11 +94,11 @@ const queuesFeature = defineFeature({
     });
 
     const native: RunningQueues = {
-      async add(name, payload, _options, source) {
+      async add(name, payload, options, source) {
         if (!names.has(name)) throw new Error(`Unknown queue ${name}`);
         const stored = jsonPayload(payload);
         if (stored === undefined) throw new Error(`Queue payload for ${name} is not JSON-serializable`);
-        return store.enqueue(name, stored, source);
+        return store.enqueue(name, stored, source, messagePlacement(options, Date.now()));
       },
     };
     running.current = native;

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { build } from "../build/build.ts";
 import { createProject } from "../testing/project.ts";
 import { run } from "../run.ts";
 import { DATABASES, initProject } from "./init.ts";
@@ -26,6 +27,16 @@ describe("files for each database", () => {
     expect(Object.keys(pkg.dependencies)).toEqual(["@quickservice/core", "@quickservice/cli"]);
     expect(Object.keys(pkg.scripts)).toEqual(["dev", "build", "migrate", "start"]);
   });
+});
+
+test("the tsconfig includes features, and the new project builds", async () => {
+  const root = emptyDir();
+  expect(await run(["init", root, "--db", "memory"], { log: () => {}, error: () => {} }, dirname(root))).toBe(0);
+  expect(JSON.parse(read(root, "tsconfig.json")).include).toEqual(["quickservice.config.ts", "entities", "endpoints", "hooks", "features", ".generated/**/*.ts"]);
+  mkdirSync(join(root, "node_modules/@quickservice"), { recursive: true });
+  symlinkSync(join(import.meta.dir, "../../../core"), join(root, "node_modules/@quickservice/core"), "dir");
+  writeFileSync(join(root, "entities/Post.ts"), "export type Post = { title: string };\n");
+  expect((await build(root)).entities).toBe(3);
 });
 
 test("the .gitignore keeps secrets, dependencies and generated files out of git", async () => {

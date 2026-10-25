@@ -85,7 +85,7 @@ The operating system spreads connections across the workers only on Linux. On ma
 
 ## Environment variables
 
-Bun loads `.env` from the project folder, so values there reach `process.env` in the config. `init` adds `.env` to `.gitignore`; keep secrets there or in your host's settings.
+Bun loads `.env` from the project folder, so values there reach `process.env` in the config. `init` adds `.env` to `.gitignore`; keep secrets there or in your host's settings. The [Environment](/guides/environment/) guide shows how to declare the variables a service needs with types, check them at startup and with `quickservice env check`, and keep secrets out of logs.
 
 | Variable | Read by | Effect |
 | --- | --- | --- |
@@ -237,5 +237,6 @@ An error thrown by the logger never changes the response.
 
 - [Configuration reference](/reference/config/): every key with its type and default.
 - [CLI](/reference/cli/): the commands that read the config.
+- [Environment](/guides/environment/): typed variables, `QS_*` overrides and their precedence.
 
 Next: [Jobs](/guides/jobs/).

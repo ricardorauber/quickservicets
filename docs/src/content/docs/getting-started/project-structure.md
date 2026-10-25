@@ -21,8 +21,12 @@ my-api/
 │       └── get.ts             # GET /health
 ├── entities/
 │   └── User.ts                # /users
+├── features/                  # your own features, optional
+│   └── greeting/
+│       └── index.ts           # enabled by greeting: {} in the config
 ├── hooks/
 │   └── authorized.ts          # the @authorized tag
+├── jobs/                      # scheduled jobs, optional
 ├── migrations/                # SQLite, PostgreSQL and MongoDB only
 ├── package.json
 ├── quickservice.config.ts
@@ -90,6 +94,12 @@ curl -H "authorization: Bearer token" localhost:3000/health
 { "ok": true }
 ```
 
+## `features/`
+
+Features of your own, one folder per feature: `features/greeting/index.ts` default-exports `defineFeature({ key: "greeting", ... })`, and `greeting: {}` in the config turns it on. A feature can add entities, endpoints, hooks, jobs, tags, commands and code that runs when the server starts, with the same contract as the framework's native features; one with the key of a native replaces it. The [Project features](/guides/project-features/) guide covers each part.
+
+Features may also give the project new convention folders, like `queues/` or `greetings/`: the feature declares the folder, and the build reads every file in it, the way it reads `entities/`. Such a folder appears only when a feature that declares it is enabled.
+
 ## `quickservice.config.ts`
 
 The project configuration: the database, plus optional settings for the server, files, storage, populate depth, migrations and the API docs.
@@ -131,7 +141,7 @@ The `Repositories` type is what gives `repos.users` its types in endpoints and h
 ## Other files
 
 - **`package.json`** has the two framework dependencies and the `dev`, `build`, `migrate` and `start` scripts.
-- **`tsconfig.json`** includes `.generated/**/*.ts`, so your editor sees the generated types. TypeScript skips folders whose name starts with a dot unless a pattern names their files.
+- **`tsconfig.json`** includes `features` and `.generated/**/*.ts`, so your editor checks your features and sees the generated types. TypeScript skips folders whose name starts with a dot unless a pattern names their files.
 - **`uploads/`** appears once someone uploads a file: it is the default local storage for `File` and `Media` records. `init` lists it in `.gitignore` too.
 - With SQLite, the database file (`data.db` by default) sits in the project folder too, and is also in `.gitignore`.
 

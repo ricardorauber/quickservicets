@@ -111,7 +111,7 @@ const TSCONFIG = `${JSON.stringify(
       allowImportingTsExtensions: true,
     },
     // TypeScript skips folders starting with a dot unless a pattern names their files.
-    include: ["quickservice.config.ts", "entities", "endpoints", "hooks", ".generated/**/*.ts"],
+    include: ["quickservice.config.ts", "entities", "endpoints", "hooks", "features", ".generated/**/*.ts"],
   },
   null,
   2,

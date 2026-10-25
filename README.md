@@ -17,6 +17,10 @@ bun run docs:build   # builds the static site into docs/dist
 
 To build a first project, follow the [Getting started](docs/src/content/docs/getting-started/index.md) section of the docs (served at http://localhost:4321/getting-started/ by `bun run docs:dev`). It covers installing, creating a project with `init`, writing a first entity and calling its API.
 
+## Features
+
+Everything beyond the generated API is a feature turned on by a key in `quickservice.config.ts`. A project can write its own in `features/<key>/`, with the same extension points as the framework's native features, or replace a native with one; the [Project features](docs/src/content/docs/guides/project-features.md) guide shows how.
+
 ## Using PostgreSQL or MongoDB
 
 Run `init` with `--db postgres` or `--db mongodb` and set the values in the `.env` it creates: `DATABASE_URL`, plus `DATABASE_NAME` for MongoDB.

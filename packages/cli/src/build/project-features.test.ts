@@ -163,8 +163,9 @@ export const wrong: ServiceConfig = { database: memoryAdapter(), greeting: { tex
     const root = project({ "features/greeting/index.ts": GREETING }, "greeting: {}");
     await build(root);
     const server = readFileSync(join(root, ".generated/server.ts"), "utf8");
-    expect(server.indexOf("registerProjectFeatures(features);")).toBeGreaterThan(0);
-    expect(server.indexOf("registerProjectFeatures(features);")).toBeLessThan(server.indexOf("resolveConfig(projectConfig)"));
+    // startService registers the features it receives before it resolves the config.
+    expect(server).toContain('import { featureFolders, features } from "./features.ts";');
+    expect(server).toMatch(/startService\(\{[^}]*\bfeatures\b[^}]*\}\)/);
     const child = Bun.spawn(["bun", "-e", `import("${join(root, ".generated/features.ts")}").then(async ({ features }) => { const core = await import("@quickservice/core"); core.registerProjectFeatures(features); const config = core.resolveConfig((await import("${join(root, "quickservice.config.ts")}")).default, {}); console.log(JSON.stringify(config.features.map((f) => [f.key, f.options, f.project]))); })`], { cwd: root, stdout: "pipe", stderr: "pipe" });
     const [stdout, stderr] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     expect(stderr).toBe("");

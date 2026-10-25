@@ -11,6 +11,8 @@ interface CompiledRoute<T> {
   method: string;
   segments: { static?: string; param?: string }[];
   route: RoutePattern<T>;
+  /** The name of a trailing `[...name]` segment, which matches the rest of the path (one segment or more). */
+  rest?: string;
 }
 
 export type RouteMatch<T> =
@@ -18,10 +20,15 @@ export type RouteMatch<T> =
   | { kind: "methodNotAllowed"; allow: string[] }
   | { kind: "notFound" };
 
-/** Normalizes a route path to a pattern where every dynamic segment is `:`, e.g. `/users/[id]` → `/users/:`. */
+/**
+ * Normalizes a route path to a pattern where every dynamic segment is `:` and a trailing `[...rest]` segment is `*`,
+ * e.g. `/users/[id]` → `/users/:`.
+ */
 export function patternOf(path: string): string {
-  return `/${splitPath(path).map((segment) => (/^\[.+\]$/.test(segment) ? ":" : segment)).join("/")}`;
+  return `/${splitPath(path).map((segment) => (REST_SEGMENT.test(segment) ? "*" : /^\[.+\]$/.test(segment) ? ":" : segment)).join("/")}`;
 }
+
+const REST_SEGMENT = /^\[\.\.\.(.+)\]$/;
 
 export function splitPath(path: string): string[] {
   return path.split("/").filter((segment) => segment !== "");
@@ -47,17 +54,26 @@ const emptyBucket = (): Bucket<unknown> => ({ byMethod: new Map(), all: [] });
  */
 export class Router<T> {
   private readonly shapes = new Map<number, Shape<T>>();
+  /** Routes ending in a `[...rest]` segment, tried when no route of the path's length matches. */
+  private readonly restRoutes: CompiledRoute<T>[] = [];
 
   constructor(routes: RoutePattern<T>[]) {
     for (const route of routes) {
+      const parts = splitPath(route.path);
+      const rest = REST_SEGMENT.exec(parts[parts.length - 1] ?? "")?.[1];
       const compiled: CompiledRoute<T> = {
         method: route.method.toUpperCase(),
         route,
-        segments: splitPath(route.path).map((segment) => {
+        segments: (rest === undefined ? parts : parts.slice(0, -1)).map((segment) => {
           const dynamic = /^\[(.+)\]$/.exec(segment);
           return dynamic ? { param: dynamic[1]! } : { static: segment };
         }),
+        ...(rest !== undefined ? { rest } : {}),
       };
+      if (rest !== undefined) {
+        this.restRoutes.push(compiled);
+        continue;
+      }
       let shape = this.shapes.get(compiled.segments.length);
       if (!shape) this.shapes.set(compiled.segments.length, (shape = { byFirst: new Map(), rest: emptyBucket() as Bucket<T> }));
       const first = compiled.segments[0]?.static;
@@ -74,6 +90,34 @@ export class Router<T> {
   }
 
   match(method: string, path: string): RouteMatch<T> {
+    const result = this.matchExact(method, path);
+    return result.kind === "found" || this.restRoutes.length === 0 ? result : this.matchRest(method, path, result);
+  }
+
+  /** Matches the routes ending in `[...rest]`, the longest prefix first, when no exact route matched. */
+  private matchRest(method: string, path: string, exact: RouteMatch<T>): RouteMatch<T> {
+    const parts = splitPath(path);
+    const upper = method.toUpperCase();
+    const candidates = this.restRoutes.filter((route) => route.segments.length < parts.length && matches(route, parts));
+    let best: CompiledRoute<T> | undefined;
+    for (const route of candidates) {
+      if (route.method !== upper) continue;
+      if (!best || route.segments.length > best.segments.length || (route.segments.length === best.segments.length && moreSpecific(route, best))) best = route;
+    }
+    if (!best) {
+      const allow = new Set(exact.kind === "methodNotAllowed" ? exact.allow : []);
+      for (const route of candidates) allow.add(route.method);
+      return allow.size === 0 ? { kind: "notFound" } : { kind: "methodNotAllowed", allow: [...allow].sort() };
+    }
+    const params: Record<string, string> = {};
+    best.segments.forEach((segment, index) => {
+      if (segment.param !== undefined) params[segment.param] = decodeSegment(parts[index]!);
+    });
+    params[best.rest!] = parts.slice(best.segments.length).map(decodeSegment).join("/");
+    return { kind: "found", route: best.route, params };
+  }
+
+  private matchExact(method: string, path: string): RouteMatch<T> {
     const parts = splitPath(path);
     const shape = this.shapes.get(parts.length);
     if (!shape) return { kind: "notFound" };
@@ -96,7 +140,7 @@ export class Router<T> {
 }
 
 function matches<T>(route: CompiledRoute<T>, parts: string[]): boolean {
-  for (let index = 0; index < parts.length; index++) {
+  for (let index = 0; index < route.segments.length; index++) {
     const segment = route.segments[index]!;
     if (segment.param === undefined && segment.static !== parts[index]) return false;
   }

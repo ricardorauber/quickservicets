@@ -6,6 +6,7 @@ import { maskSecrets } from "./secrets.ts";
 import { jsonLogger, safeLog, type Logger } from "./logger.ts";
 import type { EntityModel } from "./model.ts";
 import { tagsOf, type OptionsTarget } from "./feature-targets.ts";
+import type { FeatureSetupContext } from "./lifecycle.ts";
 import { boolean, object, resolveOptions, type AnyOptionSchema, type ObjectOptionSchema, type Options, type OptionsInput } from "./options.ts";
 
 /**
@@ -73,7 +74,15 @@ export interface FeatureInput<S extends AnyOptionSchema> {
   folders?: Readonly<Record<string, FeatureFolder>>;
   /** Project-relative paths `quickservice dev` watches for this feature, besides its folders. */
   watch?: readonly string[];
+  /**
+   * Runs in each worker process before the database connects, in feature order; registers lifecycle callbacks and
+   * runtime routes through `ctx.app`.
+   */
+  setup?: FeatureSetup<FeatureOptions<S>>;
 }
+
+/** The `setup` field of a feature definition. */
+export type FeatureSetup<O = Record<string, unknown>> = Bivariant<(ctx: FeatureSetupContext<O>) => void | Promise<void>>;
 
 /** A convention folder a feature declares. */
 export interface FeatureFolder {
@@ -155,6 +164,8 @@ export interface FeatureDefinition<S extends AnyOptionSchema = AnyOptionSchema> 
   readonly folders?: Readonly<Record<string, FeatureFolder>>;
   /** Project-relative paths `quickservice dev` watches for this feature. */
   readonly watch?: readonly string[];
+  /** The feature's setup, run in each worker process before the database connects. */
+  readonly setup?: FeatureSetup<FeatureOptions<S>>;
   /**
    * The feature's resolved options, once a configuration enabling it has been resolved in this process; throws
    * otherwise. The feature's own code reads its typed options here instead of receiving the config.
@@ -247,6 +258,7 @@ export function defineFeature<S extends AnyOptionSchema = ObjectOptionSchema<{}>
     ...(input.tags !== undefined ? { tags: tagsField(input.tags, schema, invalid) } : {}),
     ...(input.folders !== undefined ? { folders: foldersField(input.folders, invalid) } : {}),
     ...(input.watch !== undefined ? { watch: watchField(input.watch, invalid) } : {}),
+    ...(input.setup !== undefined ? { setup: functionField(input.setup, "setup", invalid) } : {}),
     options() {
       const resolved = resolvedOptions.get(definition as FeatureDefinition);
       if (!resolved) throw new Error(`${key} is not enabled; add ${key}: {} to quickservice.config.ts`);
@@ -286,6 +298,11 @@ function foldersField(folders: Readonly<Record<string, FeatureFolder>>, invalid:
     checked[name] = Object.freeze({ ...folder, dir: folder.dir.replace(/^\.\//, "").replace(/\/+$/, "") });
   }
   return Object.freeze(checked);
+}
+
+function functionField<F>(value: F, name: string, invalid: (reason: string) => Error): F {
+  if (typeof value !== "function") throw invalid(`${name} must be a function`);
+  return value;
 }
 
 function watchField(paths: readonly string[], invalid: (reason: string) => Error): readonly string[] {

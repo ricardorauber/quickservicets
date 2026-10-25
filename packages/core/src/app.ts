@@ -1,5 +1,5 @@
 import type { ResolvedConfig } from "./config.ts";
-import { jsonLogger } from "./logger.ts";
+import { jsonLogger, safeLog, type Logger } from "./logger.ts";
 import type { HookCall, HookDefinition, Repositories } from "./hooks.ts";
 import { createCrudRoutes, mergeRoutes, type CrudRoute } from "./http/crud.ts";
 import { withHooks } from "./http/pipeline.ts";
@@ -14,6 +14,9 @@ import { createJobRunCleanup, type JobRunCleanup } from "./jobs/retention.ts";
 import { createRequestJobs } from "./jobs/triggers.ts";
 import type { CrudOperation, EntityModel, ParsedTags } from "./model.ts";
 import { prepareFeatureTargets } from "./feature-targets.ts";
+import type { RuntimeRoute } from "./lifecycle.ts";
+import { patternOf } from "./http/router.ts";
+import { DOCS_PATH, OPENAPI_PATH } from "./http/docs.ts";
 import { projectResult, type Projection } from "./projection.ts";
 import { createRepositories, repositoryFor, type RepositoryRegistry } from "./repository.ts";
 
@@ -76,6 +79,8 @@ export interface AppOptions {
   clock?: JobClock;
   /** The default exports of the enabled features' convention folders (`featureFolders` of `.generated/features.ts`). */
   featureFolders?: FeatureFolderRegistry;
+  /** Routes features registered during setup; an endpoint or generated route with the same method and path wins. */
+  runtimeRoutes?: readonly RuntimeRoute[];
 }
 
 /** The default exports of features' convention folders, by feature key, folder name and file name. */
@@ -105,7 +110,38 @@ export interface App {
 }
 
 /** Assembles repositories, generated and custom routes and their hooks into a server. */
-export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, config, openApi, jobs: allJobs = new Map(), clock, featureFolders = {} }: AppOptions): App {
+/**
+ * The runtime routes that no endpoint or generated route takes, logging each one an endpoint replaces; fails when two
+ * features register the same route or one takes a path of the API docs.
+ */
+function runtimeRoutesOf(routes: readonly RuntimeRoute[], taken: Route[], logger: Logger): RuntimeRoute[] {
+  const key = (route: { method: string; path: string }) => `${route.method.toUpperCase()} ${patternOf(route.path)}`;
+  const owners = new Map<string, RuntimeRoute>();
+  for (const route of routes) {
+    const name = `${route.method.toUpperCase()} ${route.path}`;
+    if (route.method.toUpperCase() === "GET" && (patternOf(route.path) === DOCS_PATH || patternOf(route.path) === OPENAPI_PATH)) {
+      throw new Error(`Runtime route ${name} of ${route.feature} takes a path reserved for the API docs`);
+    }
+    const previous = owners.get(key(route));
+    if (previous) throw new Error(`Runtime route ${name} is registered by both ${previous.feature} and ${route.feature}`);
+    owners.set(key(route), route);
+  }
+  const takenKeys = new Map(taken.map((route) => [key(route), route]));
+  return routes.filter((route) => {
+    const winner = takenKeys.get(key(route));
+    if (!winner) return true;
+    safeLog(logger, "info", {
+      timestamp: new Date().toISOString(),
+      message: "route.replaced",
+      route: `${route.method.toUpperCase()} ${route.path}`,
+      feature: route.feature,
+      replacedBy: `endpoint ${winner.method.toUpperCase()} ${winner.path}`,
+    });
+    return false;
+  });
+}
+
+export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, config, openApi, jobs: allJobs = new Map(), clock, featureFolders = {}, runtimeRoutes = [] }: AppOptions): App {
   // Endpoints and jobs of features that are not enabled in this configuration are left out.
   const enabledFeatures = new Set(config.features?.map((feature) => feature.key) ?? []);
   const endpoints = allEndpoints.some((endpoint) => endpoint.feature !== undefined)
@@ -158,6 +194,12 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
   }));
   const docs = openApi && config.docs?.enabled ? docsRoutes(openApi) : [];
   const logger = config.logger ?? jsonLogger;
+  const routes = mergeRoutes(generated, custom);
+  const runtime: Route[] = runtimeRoutesOf(runtimeRoutes, routes, logger).map((route) => ({
+    method: route.method,
+    path: route.path,
+    handler: withHooks(route.handler, route.hooks, hooks),
+  }));
   const jobRunModel = models.find((model) => model.key === "JobRun" && model.system);
   const jobRunner = createJobRunner({
     jobs,
@@ -171,7 +213,7 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
     clock,
   });
   const server = createServer({
-    routes: [...mergeRoutes(generated, custom), ...docs],
+    routes: [...routes, ...runtime, ...docs],
     repos: repos as unknown as Repositories,
     config,
     jobs: createRequestJobs(jobRunner, { logger, clock }),

@@ -60,6 +60,8 @@ export const CONFIG_OVERRIDES: readonly ConfigOverride[] = [
   { path: "jobs.shutdownGrace", schema: duration() },
   { path: "jobs.limits.result", schema: size() },
   { path: "jobs.limits.logLines", schema: integer().min(1) },
+  { path: "lifecycle.startTimeout", schema: duration() },
+  { path: "lifecycle.stopTimeout", schema: duration() },
 ];
 
 /** Keys that hold behavior (adapters, loggers, code), which no environment variable can express. */

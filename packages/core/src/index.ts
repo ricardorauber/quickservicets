@@ -9,7 +9,7 @@ export type { Condition, FilterOperator, ListQuery, SizeComparison, SizeFilter, 
 export { UniqueViolationError } from "./adapter.ts";
 export type { AdapterKind, Aggregate, AggregateValues, ConnectOptions, ReadColumns, DatabaseAdapter, FindManyOptions, FindManyResult, ReferencePull, RelatedScope, StoredRecord } from "./adapter.ts";
 export { memoryAdapter } from "./adapters/memory.ts";
-export { CONFIG_FILE, ConfigError, DEFAULT_PORT, DEFAULT_POPULATE_DEPTH, defineConfig, JOB_DEFAULTS, loadConfig, resolveConfig, WORKERS_NEED_DATABASE_SERVER } from "./config.ts";
+export { CONFIG_FILE, ConfigError, DEFAULT_PORT, DEFAULT_POPULATE_DEPTH, defineConfig, JOB_DEFAULTS, LIFECYCLE_DEFAULTS, loadConfig, resolveConfig, WORKERS_NEED_DATABASE_SERVER } from "./config.ts";
 export { availableCpus, isPrimary, poolSizePerWorker, runPrimary, runsScheduledWork, runWorkers, SERVER_WORKERS_ENV, WORKER_INDEX_ENV, WORKERS_ENV, workerIndex } from "./workers.ts";
 export type { PrimaryOptions, WorkerProcess } from "./workers.ts";
 export type { ResolvedConfig, ServiceConfig } from "./config.ts";
@@ -43,6 +43,10 @@ export { createCrudRoutes, mergeRoutes, populatePaths } from "./http/crud.ts";
 export type { CrudOptions } from "./http/crud.ts";
 export type { CrudRoute } from "./http/crud.ts";
 export { createApp } from "./app.ts";
+export { startService } from "./service.ts";
+export type { RunningService, StartServiceOptions } from "./service.ts";
+export { createFeatureLifecycle, featureLogger, LifecycleError, logLifecycleFailure, withTimeout } from "./lifecycle.ts";
+export type { FeatureApp, FeatureLifecycle, FeatureLifecycleOptions, FeatureSetupContext, RuntimeRoute, RuntimeRouteOptions, StartContext, WorkerInfo } from "./lifecycle.ts";
 export type { App, AppEndpoint, AppOptions, CrudRouteEntry, FeatureFolderRegistry } from "./app.ts";
 export { jsonLogger, safeLog } from "./logger.ts";
 export { entityModel, field } from "./entity-model.ts";
@@ -168,7 +172,7 @@ export {
 } from "./features.ts";
 export { prepareFeatureTargets, tagsOf } from "./feature-targets.ts";
 export type { OptionsTarget } from "./feature-targets.ts";
-export type { FeatureConfig, FeatureDefinition, FeatureDocs, FeatureEntities, FeatureEntitiesContext, FeatureFolder, FeatureInput, FeatureTag, FeatureTagTarget, TargetOptions, FeatureOptions, FeatureRequirement, NativeFeatures, ProjectFeatureModule, ResolvedFeature } from "./features.ts";
+export type { FeatureConfig, FeatureDefinition, FeatureDocs, FeatureEntities, FeatureEntitiesContext, FeatureFolder, FeatureInput, FeatureSetup, FeatureTag, FeatureTagTarget, TargetOptions, FeatureOptions, FeatureRequirement, NativeFeatures, ProjectFeatureModule, ResolvedFeature } from "./features.ts";
 export { applyEnvironment, CONFIG_OVERRIDES, configVariable, envNameFor, featureVariables, logConfigWarnings, NOT_OVERRIDABLE, optionLeaves, overrideVariables, unknownVariableWarnings } from "./environment.ts";
 export { maskSecrets, SECRET_MASK } from "./secrets.ts";
 export type { ConfigOverride, EnvAlias, EnvironmentResult, OptionLeaf } from "./environment.ts";

@@ -39,6 +39,9 @@ Every key that holds a value can also be set by an environment variable named af
 | `migrations.autoInDev` | `boolean` | true | `QS_MIGRATIONS_AUTO_IN_DEV` | Whether `quickservice dev` creates migrations automatically for model changes (default true). |
 | `env` | `Record<string, AnyOptionSchema>` | — | not overridable | Environment variables the service needs, by name, with their option schemas (like `{ DATABASE_URL: url(),
 REPORT_HOUR: integer().default(6) }`); they are checked at startup and read typed from `env`. |
+| `lifecycle` | `object` | — | — | Time limits of the features' lifecycle callbacks. |
+| `lifecycle.startTimeout` | `string` | "30s" | `QS_LIFECYCLE_START_TIMEOUT` | Longest each feature `setup` and `onStart` call may take, as a duration (default "30s"). |
+| `lifecycle.stopTimeout` | `string` | "10s" | `QS_LIFECYCLE_STOP_TIMEOUT` | Longest each feature `onShutdown` and `onStop` call may take, as a duration (default "10s"). |
 | `jobs` | `object` | — | — | Scheduled job settings; each job's own options override them. |
 | `jobs.enabled` | `boolean` | true | `QS_JOBS_ENABLED` (or `JOBS_ENABLED`) | Run scheduled jobs in this instance (default true); `JOBS_ENABLED=false` overrides it. |
 | `jobs.timeZone` | `string` | "UTC" | `QS_JOBS_TIME_ZONE` | IANA time zone cron schedules are evaluated in (default "UTC"). |

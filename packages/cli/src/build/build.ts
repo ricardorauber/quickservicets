@@ -249,7 +249,7 @@ export function generateJobsFile(jobs: JobEntry[]): string {
 }
 
 const SERVER_FILE = `${HEADER}
-import { createApp, handleShutdownSignals, isPrimary, logConfigWarnings, logEnabledFeatures, registerProjectFeatures, resolveConfig, runsScheduledWork, runWorkers } from "@quickservice/core";
+import { startService } from "@quickservice/core";
 import projectConfig from "../quickservice.config.ts";
 import { featureFolders, features } from "./features.ts";
 import { models } from "./models.ts";
@@ -257,21 +257,7 @@ import { crudRoutes, endpoints, hooks } from "./routes.ts";
 import { jobs } from "./jobs.ts";
 import openApi from "./openapi.json";
 
-registerProjectFeatures(features);
-const config = resolveConfig(projectConfig);
-logConfigWarnings(config);
-if (isPrimary(config)) {
-  // With several workers this process only supervises them; each worker runs this file again.
-  await runWorkers(config, import.meta.path);
-} else {
-  logEnabledFeatures(config);
-  await config.database.connect(models, { defaultSchema: config.schema, workers: config.server.workers });
-  const { server, scheduler, shutdown } = createApp({ models, crudRoutes, endpoints, hooks, config, openApi, jobs, featureFolders });
-  const listening = server.listen();
-  console.log(\`quickservice listening on http://localhost:\${listening.port}\`);
-  if (runsScheduledWork()) scheduler.start();
-  handleShutdownSignals(shutdown);
-}
+await startService({ projectConfig, models, crudRoutes, endpoints, hooks, jobs, openApi, features, featureFolders });
 `;
 
 /** On MongoDB and memory, unpaired reference arrays are embedded, so their `@joinTable` has no effect. */

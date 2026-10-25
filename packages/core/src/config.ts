@@ -83,6 +83,13 @@ export interface ServiceConfig extends NativeFeatures {
    * REPORT_HOUR: integer().default(6) }`); they are checked at startup and read typed from `env`.
    */
   env?: Record<string, AnyOptionSchema>;
+  /** Time limits of the features' lifecycle callbacks. */
+  lifecycle?: {
+    /** Longest each feature `setup` and `onStart` call may take, as a duration (default "30s"). */
+    startTimeout?: string;
+    /** Longest each feature `onShutdown` and `onStop` call may take, as a duration (default "10s"). */
+    stopTimeout?: string;
+  };
   /** Scheduled job settings; each job's own options override them. */
   jobs?: {
     /** Run scheduled jobs in this instance (default true); `JOBS_ENABLED=false` overrides it. */
@@ -113,7 +120,9 @@ export interface ServiceConfig extends NativeFeatures {
 export const DEFAULT_POPULATE_DEPTH = 2;
 
 export interface ResolvedConfig
-  extends Omit<ServiceConfig, "server" | "production" | "schema" | "populate" | "storage" | "files" | "docs" | "jobs"> {
+  extends Omit<ServiceConfig, "server" | "production" | "schema" | "populate" | "storage" | "files" | "docs" | "jobs" | "lifecycle"> {
+  /** Time limits of the features' lifecycle callbacks, as durations. */
+  lifecycle: { startTimeout: string; stopTimeout: string };
   docs: { enabled: boolean };
   /** `workers` is the resolved number of processes, `"auto"` included. */
   server: { port: number; publicUrl?: string; workers: number };
@@ -293,6 +302,18 @@ function resolveJobs(config: ServiceConfig): ResolvedConfig["jobs"] {
   };
 }
 
+export const LIFECYCLE_DEFAULTS: ResolvedConfig["lifecycle"] = { startTimeout: "30s", stopTimeout: "10s" };
+
+function resolveLifecycle(config: ServiceConfig): ResolvedConfig["lifecycle"] {
+  const resolved = { ...LIFECYCLE_DEFAULTS };
+  for (const key of ["startTimeout", "stopTimeout"] as const) {
+    const value = config.lifecycle?.[key] ?? LIFECYCLE_DEFAULTS[key];
+    if (parseDuration(value) === undefined) throw new ConfigError(`Invalid lifecycle.${key}: expected a duration like 30s, 10m or 2h, got ${JSON.stringify(value)}`);
+    resolved[key] = value;
+  }
+  return resolved;
+}
+
 export function resolveConfig(
   config: ServiceConfig,
   env: Record<string, string | undefined> = process.env,
@@ -325,6 +346,7 @@ export function resolveConfig(
     storage: resolveStorage(config, projectRoot),
     files: resolveFiles(config),
     jobs: resolveJobs(config),
+    lifecycle: resolveLifecycle(config),
   };
   // Published last, so `env` only ever holds the variables of a configuration that resolved.
   publishEnv(envValues, variables);

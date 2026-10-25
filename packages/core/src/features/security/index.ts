@@ -1,10 +1,10 @@
-import { boolean, cidr, defineFeature, duration, integer, list, object, oneOf, parseSize, safeLog, size, string, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext } from "../public.ts";
+import { boolean, cidr, defineFeature, duration, integer, list, object, oneOf, parseDuration, parseSize, safeLog, size, string, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext } from "../public.ts";
 import type { SecurityApi } from "./api.ts";
 import { corsProblems, corsStep, ownOptionsRoutes, routeCorsOptions } from "./cors.ts";
 import { Exemptions } from "./exempt.ts";
 import { DEFAULT_ATTACHMENT_TYPES, fileHeaders } from "./files.ts";
 import { DEFAULT_CSP, DEFAULT_DOCS_CSP, headersStep } from "./headers.ts";
-import { FORM_OVERHEAD, largestUpload, limitsSteps } from "./limits.ts";
+import { bodyStep, FORM_OVERHEAD, largestUpload, limitsStep } from "./limits.ts";
 import { SECURITY_ITEMS, securityMiddlewares, type SecurityStep } from "./pipeline.ts";
 import { proxyResolver } from "./proxy.ts";
 import { buildRouteIndex, type RouteIndex } from "./routes.ts";
@@ -49,12 +49,23 @@ const options = object({
     headerCount: integer().min(1).default(100).describe("The most headers a request may have."),
     url: size().default("8KB").describe("The longest path and query string."),
   }).describe("Refuses oversized URLs (414), headers (431) and bodies (413) before reading them."),
-  timeouts: toggle({}).describe("Closes idle connections and requests whose body arrives too slowly."),
+  timeouts: toggle({
+    idle: duration().default("30s").describe("How long a connection may stay idle before it is closed, at most 255s (the Bun limit); 0s turns it off."),
+    read: duration().default("30s").describe("How long a request body other than an upload has to arrive, from the first read."),
+    upload: duration().default("10m").describe("How long a multipart upload has to arrive, from the first read."),
+  }).describe("Closes idle connections and refuses requests whose body arrives too slowly with 408."),
   loadShedding: toggle({}).describe("Refuses new requests with 503 while a worker has too many in flight."),
   rateLimit: toggle({}).describe("Limits how many requests each client makes in a time window, answering 429."),
   ip: toggle({}).describe("Accepts or refuses requests by client address."),
   masking: toggle({}).describe("Keeps secret values and sensitive fields out of logs and error responses."),
 });
+
+/** The longest idle timeout Bun accepts, in seconds. */
+const MAX_IDLE_SECONDS = 255;
+
+function idleProblems(idle: string): string[] {
+  return parseDuration(idle)! > MAX_IDLE_SECONDS * 1000 ? [`Invalid security.timeouts.idle: expected at most ${MAX_IDLE_SECONDS}s (the Bun limit), got ${idle}`] : [];
+}
 
 /** The exemptions of each running setup, shared by the setup and the feature API built from the same context. */
 const exemptionsOf = new WeakMap<object, Exemptions>();
@@ -65,7 +76,16 @@ function itemSteps(ctx: FeatureSetupContext<SecurityOptions>, index: () => Route
   const steps: SecurityStep[] = [];
   if (options.headers.enabled) steps.push(headersStep(options.headers, ctx.config.production));
   if (options.cors.enabled) steps.push(corsStep(options.cors, ownOptionsRoutes(taggedRoutes()), index));
-  if (options.limits.enabled) steps.push(...limitsSteps(options.limits));
+  if (options.limits.enabled) steps.push(limitsStep(options.limits));
+  if (options.limits.enabled || options.timeouts.enabled) {
+    const timeouts = options.timeouts.enabled ? options.timeouts : undefined;
+    steps.push(
+      bodyStep({
+        ...(options.limits.enabled ? { maxBytes: parseSize(options.limits.body)! } : {}),
+        ...(timeouts ? { read: parseDuration(timeouts.read)!, upload: parseDuration(timeouts.upload)! } : {}),
+      }),
+    );
+  }
   return steps;
 }
 
@@ -80,7 +100,7 @@ const securityFeature = defineFeature({
   docs: { summary: "Safe defaults for every service: security headers, CORS, request limits, timeouts, load shedding, rate limits, IP lists and log masking, each a switchable item." },
   enabledByDefault: true,
   options,
-  validate: (resolved) => (resolved.cors.enabled ? corsProblems(resolved.cors, "security.cors") : []),
+  validate: (resolved) => [...(resolved.cors.enabled ? corsProblems(resolved.cors, "security.cors") : []), ...(resolved.timeouts.enabled ? idleProblems(resolved.timeouts.idle) : [])],
   tags: {
     cors: {
       on: ["endpoint", "entity"],
@@ -111,6 +131,7 @@ const securityFeature = defineFeature({
       const upload = largestUpload(ctx.models, ctx.config.files.maxSize);
       ctx.app.configureServer({ maxRequestBodySize: Math.max(parseSize(ctx.options.limits.body)!, upload > 0 ? upload + FORM_OVERHEAD : 0) });
     }
+    if (ctx.options.timeouts.enabled) ctx.app.configureServer({ idleTimeout: Math.ceil(parseDuration(ctx.options.timeouts.idle)! / 1000) });
     if (ctx.options.files.enabled) ctx.app.configureServer({ fileHeaders: fileHeaders(ctx.options.files.attachmentTypes) });
     const proxy = ctx.options.proxy;
     // Without trusted proxies, req.ip is the peer address; production still checks for forwarded headers to warn once.

@@ -35,6 +35,8 @@ export interface ServerSettings {
   fileHeaders?: FileHeaders;
   /** The largest body the socket accepts, in bytes (default: Bun's); larger bodies are refused before any code runs. */
   maxRequestBodySize?: number;
+  /** Seconds a connection may stay idle before the socket closes it, 0 for never (default: Bun's). */
+  idleTimeout?: number;
 }
 
 export interface ServerOptions extends ServerSettings {
@@ -172,7 +174,7 @@ function withRequestProperties(req: ServiceRequest, properties: ReadonlyMap<stri
   return req;
 }
 
-export function createServer({ routes, repos, config, jobs = noRequestJobs, middleware, requestProperties, clientIp, maxRequestBodySize }: ServerOptions): Server {
+export function createServer({ routes, repos, config, jobs = noRequestJobs, middleware, requestProperties, clientIp, maxRequestBodySize, idleTimeout }: ServerOptions): Server {
   const handlerStage = middleware?.handler ?? [];
   const errorStage = middleware?.error ?? [];
   const requestStage = middleware?.request ?? [];
@@ -277,6 +279,7 @@ export function createServer({ routes, repos, config, jobs = noRequestJobs, midd
         },
         ...((config.server?.workers ?? 1) > 1 ? { reusePort: true } : {}),
         ...(maxRequestBodySize !== undefined ? { maxRequestBodySize } : {}),
+        ...(idleTimeout !== undefined ? { idleTimeout } : {}),
       });
     },
   };

@@ -57,31 +57,56 @@ export function largestUpload(models: readonly EntityModel[], defaultMaxSize: nu
   return largest;
 }
 
-/** The steps of the `limits` item: URL and header checks, then the body policy of non-multipart requests. */
-export function limitsSteps(options: LimitsOptions): SecurityStep[] {
+/** The step of the `limits` item that checks the URL and the headers. */
+export function limitsStep(options: LimitsOptions): SecurityStep {
   const maxUrl = parseSize(options.url)!;
   const maxHeaders = parseSize(options.headers)!;
-  const maxBody = parseSize(options.body)!;
-  const policy = { maxBytes: maxBody };
-  return [
-    {
-      name: "limits",
-      before(state: SecurityState) {
-        const { request } = state.ctx;
-        if (pathAndQueryLength(request.url) > maxUrl) throw new HttpError(414, "URL is too long");
-        if (!headersWithinLimits(request.headers, maxHeaders, options.headerCount)) throw new HttpError(431, "Request headers are too large");
-      },
+  return {
+    name: "limits",
+    before(state: SecurityState) {
+      const { request } = state.ctx;
+      if (pathAndQueryLength(request.url) > maxUrl) throw new HttpError(414, "URL is too long");
+      if (!headersWithinLimits(request.headers, maxHeaders, options.headerCount)) throw new HttpError(431, "Request headers are too large");
     },
-    {
-      name: "body",
-      before(state: SecurityState) {
-        const { request } = state.ctx;
-        if (request.method === "GET" || request.method === "HEAD" || isMultipartRequest(request)) return;
-        const declared = request.headers.get("content-length");
-        if (declared !== null && Number(declared) > maxBody) throw bodyTooLarge(maxBody);
-        // A declared length is enforced by the runtime; a streamed body is counted while it is read.
-        if (declared === null) setBodyPolicy(request, policy);
-      },
+  };
+}
+
+/** What the body policy step applies: the body limit of the `limits` item and the read deadlines of `timeouts`. */
+export interface BodySettings {
+  /** The largest non-multipart body, in bytes. */
+  maxBytes?: number;
+  /** Milliseconds a non-multipart body has to arrive in. */
+  read?: number;
+  /** Milliseconds a multipart body has to arrive in. */
+  upload?: number;
+}
+
+/**
+ * The body policy step: refuses a non-multipart body declaring more than the limit before reading it, and gives every
+ * body its policy, which the body readers honor.
+ */
+export function bodyStep(settings: BodySettings): SecurityStep {
+  const { maxBytes } = settings;
+  const json = { ...(maxBytes !== undefined ? { maxBytes } : {}), ...(settings.read !== undefined ? { readTimeout: settings.read } : {}) };
+  const multipart = settings.upload !== undefined ? { readTimeout: settings.upload } : undefined;
+  // A declared length within the limit is enforced by the runtime, so only a deadline needs a policy then.
+  const declared = settings.read !== undefined ? { readTimeout: settings.read } : undefined;
+  return {
+    name: "body",
+    before(state: SecurityState) {
+      const { request } = state.ctx;
+      if (request.method === "GET" || request.method === "HEAD") return;
+      if (isMultipartRequest(request)) {
+        if (multipart) setBodyPolicy(request, multipart);
+        return;
+      }
+      const length = request.headers.get("content-length");
+      if (length === null) {
+        setBodyPolicy(request, json);
+        return;
+      }
+      if (maxBytes !== undefined && Number(length) > maxBytes) throw bodyTooLarge(maxBytes);
+      if (declared) setBodyPolicy(request, declared);
     },
-  ];
+  };
 }

@@ -35,7 +35,7 @@ export type {
   ServiceResponse,
 } from "./hooks.ts";
 export { createServer, peerAddress, toResponse } from "./http/server.ts";
-export { bodyPolicyOf, bodyTooLarge, readBodyBytes, readBodyChunks, readBodyText, setBodyPolicy } from "./http/body.ts";
+export { bodyPolicyOf, bodyTooLarge, bodyTooSlow, readBodyBytes, readBodyChunks, readBodyText, setBodyPolicy } from "./http/body.ts";
 export type { BodyPolicy } from "./http/body.ts";
 export type { Endpoint, FetchOptions, HandlerResult, Route, Server, ServerOptions, ServerSettings } from "./http/server.ts";
 export { Router, patternOf, splitPath } from "./http/router.ts";

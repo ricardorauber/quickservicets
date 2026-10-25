@@ -95,7 +95,10 @@ Every option, tag, command and hook of `security` is on [its reference page](/re
 | `security.limits.headers` | `size` | `"16KB"` | `QS_SECURITY_LIMITS_HEADERS` | The largest total length of the request's header names and values. |
 | `security.limits.headerCount` | `integer` | `100` | `QS_SECURITY_LIMITS_HEADER_COUNT` | The most headers a request may have. |
 | `security.limits.url` | `size` | `"8KB"` | `QS_SECURITY_LIMITS_URL` | The longest path and query string. |
-| `security.timeouts.enabled` | `boolean` | `true` | `QS_SECURITY_TIMEOUTS_ENABLED` | Closes idle connections and requests whose body arrives too slowly. Turns it off when false. |
+| `security.timeouts.enabled` | `boolean` | `true` | `QS_SECURITY_TIMEOUTS_ENABLED` | Closes idle connections and refuses requests whose body arrives too slowly with 408. Turns it off when false. |
+| `security.timeouts.idle` | `duration` | `"30s"` | `QS_SECURITY_TIMEOUTS_IDLE` | How long a connection may stay idle before it is closed, at most 255s (the Bun limit); 0s turns it off. |
+| `security.timeouts.read` | `duration` | `"30s"` | `QS_SECURITY_TIMEOUTS_READ` | How long a request body other than an upload has to arrive, from the first read. |
+| `security.timeouts.upload` | `duration` | `"10m"` | `QS_SECURITY_TIMEOUTS_UPLOAD` | How long a multipart upload has to arrive, from the first read. |
 | `security.loadShedding.enabled` | `boolean` | `true` | `QS_SECURITY_LOAD_SHEDDING_ENABLED` | Refuses new requests with 503 while a worker has too many in flight. Turns it off when false. |
 | `security.rateLimit.enabled` | `boolean` | `true` | `QS_SECURITY_RATE_LIMIT_ENABLED` | Limits how many requests each client makes in a time window, answering 429. Turns it off when false. |
 | `security.ip.enabled` | `boolean` | `true` | `QS_SECURITY_IP_ENABLED` | Accepts or refuses requests by client address. Turns it off when false. |

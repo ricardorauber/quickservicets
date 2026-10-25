@@ -6,10 +6,11 @@ import { DEFAULT_MAX_FILE_SIZE, parseSize } from "./files/limits.ts";
 import { parseDuration } from "./jobs/job.ts";
 import { assertTimeZone, ScheduleError } from "./jobs/schedule.ts";
 import { localStorage } from "./storage/local.ts";
-import { availableCpus, WORKERS_ENV } from "./workers.ts";
+import { availableCpus, SERVER_WORKERS_ENV, WORKERS_ENV } from "./workers.ts";
 import type { StorageAdapter } from "./storage/storage.ts";
 import { ConfigError } from "./config-error.ts";
-import { loadProjectFeatures, resolveFeatures, type NativeFeatures, type ResolvedFeature } from "./features.ts";
+import { applyEnvironment } from "./environment.ts";
+import { activeFeatureDefinitions, loadProjectFeatures, resolveFeatures, type NativeFeatures, type ResolvedFeature } from "./features.ts";
 
 export const CONFIG_FILE = "quickservice.config.ts";
 export const DEFAULT_PORT = 3000;
@@ -20,14 +21,14 @@ export interface ServiceConfig extends NativeFeatures {
   database: DatabaseAdapter;
   /** HTTP server settings. */
   server?: {
-    /** Port to listen on (default `PORT`, then 3000). */
+    /** Port to listen on (default 3000); `PORT` overrides it. */
     port?: number;
     /** Absolute base URL of the API, used in file URLs (default: relative URLs). */
     publicUrl?: string;
     /** Processes serving requests on the shared port, an integer or `"auto"` for the CPUs available, read from the container's CPU quota on Linux (default `"auto"` in production on Linux with PostgreSQL or MongoDB, otherwise 1); `QS_WORKERS` overrides it. Above 1 it needs PostgreSQL or MongoDB, and connections spread across the processes only on Linux. */
     workers?: number | "auto";
   };
-  /** Production mode: hides internal error details and disables the API docs (default `NODE_ENV === "production"`). */
+  /** Production mode: hides internal error details and disables the API docs (default false); `NODE_ENV=production` turns it on. */
   production?: boolean;
   /** API docs settings. */
   docs?: {
@@ -50,7 +51,7 @@ export interface ServiceConfig extends NativeFeatures {
     access?: "direct" | "proxy" | "signed";
     /** Lifetime of signed URLs in seconds (default 900). */
     signedUrlTtl?: number;
-    /** HMAC secret of signed proxy URLs (default `FILES_SIGNING_SECRET`). */
+    /** HMAC secret of signed proxy URLs; `FILES_SIGNING_SECRET` sets it. */
     signingSecret?: string;
     /** Delete a file record's object when the record is deleted (default true). */
     deleteOnRemove?: boolean;
@@ -140,16 +141,18 @@ export interface ResolvedConfig
   disabledFeatures: string[];
   /** The natives enabled through another feature's `enables`, with the keys of the features that listed them. */
   enabledBy: Record<string, string[]>;
+  /** Problems that do not stop the service, like unknown `QS_*` variables; logged once at startup and printed by the build. */
+  warnings: string[];
 }
 
 const SCHEMA_NAME = /^[a-z][a-z0-9-]*$/;
 
 function resolveSchema(config: ServiceConfig, env: Record<string, string | undefined>): string | null {
-  if (env.DATABASE_SCHEMA !== undefined && env.DATABASE_SCHEMA !== "") {
-    if (!SCHEMA_NAME.test(env.DATABASE_SCHEMA)) {
-      throw new ConfigError(`Invalid DATABASE_SCHEMA: "${env.DATABASE_SCHEMA}" must match ^[a-z][a-z0-9-]*$`);
-    }
-    return env.DATABASE_SCHEMA;
+  const name = ["QS_SCHEMA", "DATABASE_SCHEMA"].find((candidate) => env[candidate] !== undefined && env[candidate] !== "");
+  if (name) {
+    const value = env[name]!;
+    if (!SCHEMA_NAME.test(value)) throw new ConfigError(`Invalid ${name}${name === "QS_SCHEMA" ? " (schema)" : ""}: "${value}" must match ^[a-z][a-z0-9-]*$`);
+    return value;
   }
   if (config.schema === undefined) return null;
   if (!SCHEMA_NAME.test(config.schema)) throw new ConfigError(`Invalid schema: "${config.schema}" must match ^[a-z][a-z0-9-]*$`);
@@ -162,10 +165,11 @@ export function defineConfig(config: ServiceConfig): ServiceConfig {
   return config;
 }
 
-function resolvePort(config: ServiceConfig, env: Record<string, string | undefined>): number {
-  const raw = config.server?.port ?? (env.PORT === undefined ? DEFAULT_PORT : Number(env.PORT));
+/** The port; `QS_SERVER_PORT` and `PORT` are applied to the config before. */
+function resolvePort(config: ServiceConfig): number {
+  const raw = config.server?.port ?? DEFAULT_PORT;
   if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 1 || raw > 65535) {
-    throw new ConfigError(`Invalid server.port: expected an integer between 1 and 65535, got ${String(config.server?.port ?? env.PORT)}`);
+    throw new ConfigError(`Invalid server.port: expected an integer between 1 and 65535, got ${String(config.server?.port)}`);
   }
   return raw;
 }
@@ -185,11 +189,13 @@ function resolveWorkers(
   production: boolean,
   platform: string,
 ): number {
-  const fromEnv = env[WORKERS_ENV] !== undefined && env[WORKERS_ENV].trim() !== "";
-  const raw: unknown = fromEnv ? env[WORKERS_ENV]!.trim() : (config.server?.workers ?? defaultWorkers(config, production, platform));
+  // QS_SERVER_WORKERS wins over the older QS_WORKERS.
+  const variable = [SERVER_WORKERS_ENV, WORKERS_ENV].find((name) => env[name] !== undefined && env[name].trim() !== "");
+  const fromEnv = variable !== undefined;
+  const raw: unknown = fromEnv ? env[variable]!.trim() : (config.server?.workers ?? defaultWorkers(config, production, platform));
   const value = raw === "auto" ? cpus() : fromEnv && /^\d+$/.test(raw as string) ? Number(raw) : raw;
   if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
-    const source = fromEnv ? `${WORKERS_ENV} (server.workers)` : "server.workers";
+    const source = fromEnv ? `${variable} (server.workers)` : "server.workers";
     throw new ConfigError(`Invalid ${source}: expected a positive integer or "auto", got ${JSON.stringify(raw)}`);
   }
   // Memory and SQLite hold their data in the process, so separate processes would not share it.
@@ -208,10 +214,11 @@ function resolveStorage(config: ServiceConfig, projectRoot: string): ResolvedCon
 
 export const DEFAULT_SIGNED_URL_TTL = 900;
 
-function resolveFiles(config: ServiceConfig, env: Record<string, string | undefined>): ResolvedConfig["files"] {
+/** File settings; `FILES_SIGNING_SECRET` and the `QS_FILES_*` variables are applied to the config before. */
+function resolveFiles(config: ServiceConfig): ResolvedConfig["files"] {
   const maxSize = config.files?.maxSize === undefined ? DEFAULT_MAX_FILE_SIZE : parseSize(config.files.maxSize);
   if (maxSize === undefined) throw new ConfigError(`Invalid files.maxSize: ${String(config.files?.maxSize)}`);
-  const signingSecret = config.files?.signingSecret ?? (env.FILES_SIGNING_SECRET || undefined);
+  const signingSecret = config.files?.signingSecret || undefined;
   return {
     maxSize,
     accept: config.files?.accept ?? ["*/*"],
@@ -235,17 +242,14 @@ export const JOB_DEFAULTS: ResolvedConfig["jobs"] = {
   limits: { result: "64KB", logLines: 500 },
 };
 
-function resolveJobsEnabled(config: ServiceConfig, env: Record<string, string | undefined>): boolean {
-  const raw = env.JOBS_ENABLED?.trim().toLowerCase();
-  if (raw === "false" || raw === "0") return false;
-  if (raw === "true" || raw === "1") return true;
-  if (raw !== undefined && raw !== "") throw new ConfigError(`Invalid JOBS_ENABLED: expected true or false, got "${env.JOBS_ENABLED}"`);
+/** Whether jobs run here; `JOBS_ENABLED` and `QS_JOBS_ENABLED` are applied to the config before. */
+function resolveJobsEnabled(config: ServiceConfig): boolean {
   const enabled = config.jobs?.enabled ?? JOB_DEFAULTS.enabled;
   if (typeof enabled !== "boolean") throw new ConfigError(`Invalid jobs.enabled: expected a boolean, got ${JSON.stringify(enabled)}`);
   return enabled;
 }
 
-function resolveJobs(config: ServiceConfig, env: Record<string, string | undefined>): ResolvedConfig["jobs"] {
+function resolveJobs(config: ServiceConfig): ResolvedConfig["jobs"] {
   const jobs = config.jobs ?? {};
   const invalid = (key: string, expected: string, value: unknown) =>
     new ConfigError(`Invalid jobs.${key}: expected ${expected}, got ${JSON.stringify(value)}`);
@@ -270,7 +274,7 @@ function resolveJobs(config: ServiceConfig, env: Record<string, string | undefin
   const logLines = jobs.limits?.logLines ?? JOB_DEFAULTS.limits.logLines;
   if (typeof logLines !== "number" || !Number.isInteger(logLines) || logLines < 1) throw invalid("limits.logLines", "an integer of at least 1", logLines);
   return {
-    enabled: resolveJobsEnabled(config, env),
+    enabled: resolveJobsEnabled(config),
     timeZone,
     timeout: duration("timeout"),
     retries,
@@ -291,21 +295,25 @@ export function resolveConfig(
   if (!config || typeof config !== "object" || !config.database) {
     throw new ConfigError("Invalid config: database is required");
   }
-  const production = config.production ?? env.NODE_ENV === "production";
+  // Variables win over aliases, which win over the config's values; the environment is read only here.
+  const environment = applyEnvironment(config as unknown as Record<string, unknown>, env, activeFeatureDefinitions());
+  config = environment.config as unknown as ServiceConfig;
+  const production = config.production ?? false;
   const { features, disabledFeatures, enabledBy } = resolveFeatures(config as unknown as Record<string, unknown>);
   return {
     ...config,
     features,
     disabledFeatures,
     enabledBy,
-    server: { ...config.server, port: resolvePort(config, env), workers: resolveWorkers(config, env, cpus, production, platform) },
+    warnings: environment.warnings,
+    server: { ...config.server, port: resolvePort(config), workers: resolveWorkers(config, env, cpus, production, platform) },
     production,
     docs: { enabled: config.docs?.enabled ?? !production },
     schema: resolveSchema(config, env),
     populate: { maxDepth: config.populate?.maxDepth ?? DEFAULT_POPULATE_DEPTH },
     storage: resolveStorage(config, projectRoot),
-    files: resolveFiles(config, env),
-    jobs: resolveJobs(config, env),
+    files: resolveFiles(config),
+    jobs: resolveJobs(config),
   };
 }
 

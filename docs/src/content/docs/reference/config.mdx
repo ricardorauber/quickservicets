@@ -7,42 +7,44 @@ description: Every key of quickservice.config.ts.
 
 The project configuration lives in `quickservice.config.ts` and is written with `defineConfig({ ... })`. Nested keys are shown with dots.
 
-| Key | Type | Default | Description |
-| --- | --- | --- | --- |
-| `database` | `DatabaseAdapter` | — | The database adapter: `memoryAdapter()`, `sqliteAdapter(...)`, `postgresAdapter(...)` or `mongodbAdapter(...)`. |
-| `server` | `object` | — | HTTP server settings. |
-| `server.port` | `number` | `PORT`, then 3000 | Port to listen on (default `PORT`, then 3000). |
-| `server.publicUrl` | `string` | relative URLs | Absolute base URL of the API, used in file URLs (default: relative URLs). |
-| `server.workers` | `number \| "auto"` | `"auto"` in production on Linux with PostgreSQL or MongoDB, otherwise 1 | Processes serving requests on the shared port, an integer or `"auto"` for the CPUs available, read from the container's CPU quota on Linux (default `"auto"` in production on Linux with PostgreSQL or MongoDB, otherwise 1); `QS_WORKERS` overrides it. Above 1 it needs PostgreSQL or MongoDB, and connections spread across the processes only on Linux. |
-| `production` | `boolean` | `NODE_ENV === "production"` | Production mode: hides internal error details and disables the API docs (default `NODE_ENV === "production"`). |
-| `docs` | `object` | — | API docs settings. |
-| `docs.enabled` | `boolean` | enabled unless `production` | Serve the API docs at `GET /docs` and `GET /openapi.json` (default: enabled unless `production`). |
-| `logger` | `Logger` | JSON lines on stdout | Receives one entry per request; defaults to JSON lines on stdout. |
-| `schema` | `string` | — | Default database schema for entities without an explicit one; `DATABASE_SCHEMA` overrides it. |
-| `storage` | `Record<string, StorageAdapter>` | a local storage in `uploads/` | Named file storages; file entities use `default` unless `@storage` names another (default: a local storage in `uploads/`). |
-| `files` | `object` | — | File upload and access settings. |
-| `files.maxSize` | `number \| string` | 10 MB | Largest upload in bytes or as `10MB` (default 10 MB). |
-| `files.accept` | `string[]` | any | Accepted MIME patterns (default any). |
-| `files.access` | `"direct" \| "proxy" \| "signed"` | direct when the storage has a public URL, otherwise proxy | How file URLs work (default: direct when the storage has a public URL, otherwise proxy). |
-| `files.signedUrlTtl` | `number` | 900 | Lifetime of signed URLs in seconds (default 900). |
-| `files.signingSecret` | `string` | `FILES_SIGNING_SECRET` | HMAC secret of signed proxy URLs (default `FILES_SIGNING_SECRET`). |
-| `files.deleteOnRemove` | `boolean` | true | Delete a file record's object when the record is deleted (default true). |
-| `files.deleteReplaced` | `boolean` | true | Delete replaced content and files no longer referenced after a reference changes (default true). |
-| `files.deleteWithOwner` | `boolean` | true | Delete the files a record references when the record is deleted (default true). |
-| `repositories` | `object` | — | Repository settings. |
-| `repositories.findAllMax` | `number` | 10000 | Most records a fluent query's `all()` may return (default 10000). |
-| `populate` | `object` | — | Populate settings. |
-| `populate.maxDepth` | `number` | 2 | Maximum number of segments in a populate path (default 2). |
-| `migrations` | `object` | — | Migration settings. |
-| `migrations.autoInDev` | `boolean` | true | Whether `quickservice dev` creates migrations automatically for model changes (default true). |
-| `jobs` | `object` | — | Scheduled job settings; each job's own options override them. |
-| `jobs.enabled` | `boolean` | true | Run scheduled jobs in this instance (default true); `JOBS_ENABLED=false` overrides it. |
-| `jobs.timeZone` | `string` | "UTC" | IANA time zone cron schedules are evaluated in (default "UTC"). |
-| `jobs.timeout` | `string` | "5m" | Longest a run may last, as a duration like `30s`, `10m` or `2h` (default "5m"). |
-| `jobs.retries` | `number` | 0 | How many times a failed run is retried (default 0). |
-| `jobs.retryDelay` | `string` | "30s" | Delay before the first retry, doubled for each next one, as a duration (default "30s"). |
-| `jobs.retention` | `string` | "30d" | How long run records are kept, as a duration (default "30d"). |
-| `jobs.shutdownGrace` | `string` | "10s" | How long shutdown waits for running jobs before recording them as interrupted, as a duration (default "10s"). |
-| `jobs.limits` | `object` | — | Size limits of run records. |
-| `jobs.limits.result` | `number \| string` | "64KB" | Largest result stored in a run record, in bytes or as `64KB` (default "64KB"). |
-| `jobs.limits.logLines` | `number` | 500 | Most log lines stored in a run record (default 500). |
+Every key that holds a value can also be set by an environment variable named after its path (`server.port` is `QS_SERVER_PORT`), which wins over the config file; the older names in parentheses still work, and a `QS_*` name wins over them. Keys that hold code are not overridable.
+
+| Key | Type | Default | Environment variable | Description |
+| --- | --- | --- | --- | --- |
+| `database` | `DatabaseAdapter` | — | not overridable | The database adapter: `memoryAdapter()`, `sqliteAdapter(...)`, `postgresAdapter(...)` or `mongodbAdapter(...)`. |
+| `server` | `object` | — | — | HTTP server settings. |
+| `server.port` | `number` | 3000 | `QS_SERVER_PORT` (or `PORT`) | Port to listen on (default 3000); `PORT` overrides it. |
+| `server.publicUrl` | `string` | relative URLs | `QS_SERVER_PUBLIC_URL` | Absolute base URL of the API, used in file URLs (default: relative URLs). |
+| `server.workers` | `number \| "auto"` | `"auto"` in production on Linux with PostgreSQL or MongoDB, otherwise 1 | `QS_SERVER_WORKERS` (or `QS_WORKERS`) | Processes serving requests on the shared port, an integer or `"auto"` for the CPUs available, read from the container's CPU quota on Linux (default `"auto"` in production on Linux with PostgreSQL or MongoDB, otherwise 1); `QS_WORKERS` overrides it. Above 1 it needs PostgreSQL or MongoDB, and connections spread across the processes only on Linux. |
+| `production` | `boolean` | false | `QS_PRODUCTION` (or `NODE_ENV`) | Production mode: hides internal error details and disables the API docs (default false); `NODE_ENV=production` turns it on. |
+| `docs` | `object` | — | — | API docs settings. |
+| `docs.enabled` | `boolean` | enabled unless `production` | `QS_DOCS_ENABLED` | Serve the API docs at `GET /docs` and `GET /openapi.json` (default: enabled unless `production`). |
+| `logger` | `Logger` | JSON lines on stdout | not overridable | Receives one entry per request; defaults to JSON lines on stdout. |
+| `schema` | `string` | — | `QS_SCHEMA` (or `DATABASE_SCHEMA`) | Default database schema for entities without an explicit one; `DATABASE_SCHEMA` overrides it. |
+| `storage` | `Record<string, StorageAdapter>` | a local storage in `uploads/` | not overridable | Named file storages; file entities use `default` unless `@storage` names another (default: a local storage in `uploads/`). |
+| `files` | `object` | — | — | File upload and access settings. |
+| `files.maxSize` | `number \| string` | 10 MB | `QS_FILES_MAX_SIZE` | Largest upload in bytes or as `10MB` (default 10 MB). |
+| `files.accept` | `string[]` | any | `QS_FILES_ACCEPT` | Accepted MIME patterns (default any). |
+| `files.access` | `"direct" \| "proxy" \| "signed"` | direct when the storage has a public URL, otherwise proxy | `QS_FILES_ACCESS` | How file URLs work (default: direct when the storage has a public URL, otherwise proxy). |
+| `files.signedUrlTtl` | `number` | 900 | `QS_FILES_SIGNED_URL_TTL` | Lifetime of signed URLs in seconds (default 900). |
+| `files.signingSecret` | `string` | — | `QS_FILES_SIGNING_SECRET` (or `FILES_SIGNING_SECRET`) | HMAC secret of signed proxy URLs; `FILES_SIGNING_SECRET` sets it. |
+| `files.deleteOnRemove` | `boolean` | true | `QS_FILES_DELETE_ON_REMOVE` | Delete a file record's object when the record is deleted (default true). |
+| `files.deleteReplaced` | `boolean` | true | `QS_FILES_DELETE_REPLACED` | Delete replaced content and files no longer referenced after a reference changes (default true). |
+| `files.deleteWithOwner` | `boolean` | true | `QS_FILES_DELETE_WITH_OWNER` | Delete the files a record references when the record is deleted (default true). |
+| `repositories` | `object` | — | — | Repository settings. |
+| `repositories.findAllMax` | `number` | 10000 | `QS_REPOSITORIES_FIND_ALL_MAX` | Most records a fluent query's `all()` may return (default 10000). |
+| `populate` | `object` | — | — | Populate settings. |
+| `populate.maxDepth` | `number` | 2 | `QS_POPULATE_MAX_DEPTH` | Maximum number of segments in a populate path (default 2). |
+| `migrations` | `object` | — | — | Migration settings. |
+| `migrations.autoInDev` | `boolean` | true | `QS_MIGRATIONS_AUTO_IN_DEV` | Whether `quickservice dev` creates migrations automatically for model changes (default true). |
+| `jobs` | `object` | — | — | Scheduled job settings; each job's own options override them. |
+| `jobs.enabled` | `boolean` | true | `QS_JOBS_ENABLED` (or `JOBS_ENABLED`) | Run scheduled jobs in this instance (default true); `JOBS_ENABLED=false` overrides it. |
+| `jobs.timeZone` | `string` | "UTC" | `QS_JOBS_TIME_ZONE` | IANA time zone cron schedules are evaluated in (default "UTC"). |
+| `jobs.timeout` | `string` | "5m" | `QS_JOBS_TIMEOUT` | Longest a run may last, as a duration like `30s`, `10m` or `2h` (default "5m"). |
+| `jobs.retries` | `number` | 0 | `QS_JOBS_RETRIES` | How many times a failed run is retried (default 0). |
+| `jobs.retryDelay` | `string` | "30s" | `QS_JOBS_RETRY_DELAY` | Delay before the first retry, doubled for each next one, as a duration (default "30s"). |
+| `jobs.retention` | `string` | "30d" | `QS_JOBS_RETENTION` | How long run records are kept, as a duration (default "30d"). |
+| `jobs.shutdownGrace` | `string` | "10s" | `QS_JOBS_SHUTDOWN_GRACE` | How long shutdown waits for running jobs before recording them as interrupted, as a duration (default "10s"). |
+| `jobs.limits` | `object` | — | — | Size limits of run records. |
+| `jobs.limits.result` | `number \| string` | "64KB" | `QS_JOBS_LIMITS_RESULT` | Largest result stored in a run record, in bytes or as `64KB` (default "64KB"). |
+| `jobs.limits.logLines` | `number` | 500 | `QS_JOBS_LIMITS_LOG_LINES` | Most log lines stored in a run record (default 500). |

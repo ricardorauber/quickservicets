@@ -5,7 +5,9 @@ import { COMMANDS } from "../../packages/cli/src/commands.ts";
 import { documentedEntityTags } from "../../packages/cli/src/entities/entity-tags.ts";
 import { documentedFieldTags } from "../../packages/cli/src/entities/field-tags.ts";
 import { documentedEndpointTags } from "../../packages/cli/src/hooks/endpoint-tags.ts";
-import { configKeys, CONTENT, REPO, referencePages } from "../scripts/reference.ts";
+import { defineFeature, registerNative, unregisterNative } from "../../packages/core/src/features.ts";
+import { object, string } from "../../packages/core/src/options.ts";
+import { configKeys, configPage, CONTENT, REPO, referencePages } from "../scripts/reference.ts";
 
 const pages = referencePages();
 
@@ -30,6 +32,32 @@ describe("config", () => {
     for (const path of ["database", "server.port", "files.access", "populate.maxDepth", "repositories.findAllMax"]) expect(byPath[path]).toBeDefined();
     expect(byPath["populate.maxDepth"]).toMatchObject({ type: "number", defaultValue: "2" });
     expect(pages["reference/config.mdx"]).toContain("| `repositories.findAllMax` | `number` | 10000 |");
+  });
+});
+
+describe("config variables", () => {
+  test("each key shows its environment variable, or that it is not overridable", () => {
+    const page = pages["reference/config.mdx"]!;
+    expect(page).toContain("| `server.port` | `number` | 3000 | `QS_SERVER_PORT` (or `PORT`) |");
+    expect(page).toContain("| `jobs.limits.logLines` | `number` | 500 | `QS_JOBS_LIMITS_LOG_LINES` |");
+    expect(page).toContain("| `database` | `DatabaseAdapter` | — | not overridable |");
+  });
+
+  test("registered natives list their options with their variables", () => {
+    const audit = defineFeature({ key: "audit", options: object({ greeting: string().default("Hello").describe("How entries start.") }), docs: { summary: "Records changes." } });
+    registerNative(audit);
+    try {
+      const page = configPage();
+      expect(page).toContain("### `audit`");
+      expect(page).toContain('| `audit.greeting` | `string` | `"Hello"` | `QS_AUDIT_GREETING` | How entries start. |');
+      expect(page).toContain("| `audit.enabled` | `boolean` | `true` | `QS_AUDIT_ENABLED` |");
+      unregisterNative("audit");
+      registerNative(defineFeature({ key: "audit", options: object({ greeting: string().default("Hi") }) }));
+      expect(configPage()).not.toBe(page);
+    } finally {
+      unregisterNative("audit");
+    }
+    expect(configPage()).toBe(pages["reference/config.mdx"]!);
   });
 });
 

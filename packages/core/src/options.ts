@@ -249,11 +249,11 @@ export function provider<T extends object>(name: string, methods: readonly (keyo
   return node("provider", { name, methods: Object.freeze([...methods]) }) as never;
 }
 
-/** ` of 1 to 5 characters`, ` of at least 3 items`, or ` from 1 to 5` for numbers (no unit). */
+/** ` of 1 to 5 characters`, ` of at least 3 items`, or ` between 1 and 5` for numbers (no unit). */
 function bounds(settings: OptionSettings, unit?: string): string {
   const { min, max } = settings;
   const counted = (n: number) => (unit ? `${n} ${unit}${n === 1 ? "" : "s"}` : String(n));
-  if (min !== undefined && max !== undefined) return unit ? ` of ${min} to ${counted(max)}` : ` from ${min} to ${max}`;
+  if (min !== undefined && max !== undefined) return unit ? ` of ${min} to ${counted(max)}` : ` between ${min} and ${max}`;
   if (min !== undefined) return ` of at least ${counted(min)}`;
   if (max !== undefined) return ` of at most ${counted(max)}`;
   return "";

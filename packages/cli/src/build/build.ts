@@ -235,7 +235,7 @@ export function generateJobsFile(jobs: JobEntry[]): string {
 }
 
 const SERVER_FILE = `${HEADER}
-import { createApp, handleShutdownSignals, isPrimary, logEnabledFeatures, registerProjectFeatures, resolveConfig, runsScheduledWork, runWorkers } from "@quickservice/core";
+import { createApp, handleShutdownSignals, isPrimary, logConfigWarnings, logEnabledFeatures, registerProjectFeatures, resolveConfig, runsScheduledWork, runWorkers } from "@quickservice/core";
 import projectConfig from "../quickservice.config.ts";
 import { features } from "./features.ts";
 import { models } from "./models.ts";
@@ -245,6 +245,7 @@ import openApi from "./openapi.json";
 
 registerProjectFeatures(features);
 const config = resolveConfig(projectConfig);
+logConfigWarnings(config);
 if (isPrimary(config)) {
   // With several workers this process only supervises them; each worker runs this file again.
   await runWorkers(config, import.meta.path);
@@ -348,7 +349,7 @@ export async function build(projectRoot: string): Promise<BuildSummary> {
   // Earlier versions wrote through a staging folder.
   rmSync(join(projectRoot, `${GENERATED_DIR}.staging`), { recursive: true, force: true });
 
-  const warnings: string[] = [...joinTableWarnings(models, config.database.kind), ...vectorIndexWarnings(models, config.database.kind)];
+  const warnings: string[] = [...config.warnings, ...joinTableWarnings(models, config.database.kind), ...vectorIndexWarnings(models, config.database.kind)];
   const tsconfigWarning = generatedIncludeWarning(projectRoot);
   if (tsconfigWarning) warnings.push(tsconfigWarning);
   warnings.push(...endpointDocs.warnings);

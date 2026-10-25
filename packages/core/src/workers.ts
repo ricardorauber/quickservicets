@@ -4,6 +4,8 @@ import { flushLogs, jsonLogger, safeLog, type Logger } from "./logger.ts";
 
 /** Overrides `server.workers`: a positive integer or `auto`. */
 export const WORKERS_ENV = "QS_WORKERS";
+/** The `QS_*` name of `server.workers`, which wins over `QS_WORKERS`. */
+export const SERVER_WORKERS_ENV = "QS_SERVER_WORKERS";
 /** Set by the primary process on each worker it starts: `0` to `workers - 1`. */
 export const WORKER_INDEX_ENV = "QS_WORKER_INDEX";
 
@@ -143,7 +145,7 @@ export function runWorkers(config: { server: { workers: number }; logger?: Logge
     logger: config.logger,
     spawn: (index) =>
       Bun.spawn([process.execPath, script], {
-        env: { ...process.env, [WORKERS_ENV]: String(workers), [WORKER_INDEX_ENV]: String(index) },
+        env: { ...process.env, [WORKERS_ENV]: String(workers), [SERVER_WORKERS_ENV]: String(workers), [WORKER_INDEX_ENV]: String(index) },
         stdin: "ignore",
         stdout: "inherit",
         stderr: "inherit",

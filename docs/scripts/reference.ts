@@ -8,6 +8,9 @@ import { documentedEndpointTags } from "../../packages/cli/src/hooks/endpoint-ta
 import type { DocumentedTag } from "../../packages/cli/src/tag-docs.ts";
 import { CODES_BY_STATUS } from "../../packages/core/src/errors.ts";
 import { DEFAULT_LIMIT, MAX_LIMIT, MAX_LIST_VALUES, OPERATORS_BY_TYPE } from "../../packages/core/src/query.ts";
+import { configVariable, envNameFor, NOT_OVERRIDABLE } from "../../packages/core/src/environment.ts";
+import { registeredNatives } from "../../packages/core/src/features.ts";
+import { describeOptions } from "../../packages/core/src/options.ts";
 
 export const REPO = join(import.meta.dir, "../..");
 export const CONTENT = join(REPO, "docs/src/content/docs");
@@ -84,18 +87,49 @@ function tagsPage(): string {
   ].join("\n");
 }
 
-function configPage(): string {
+/** The environment variable column of a config key: its `QS_*` name and alias, `not overridable`, or empty for objects. */
+function variableOf(key: ConfigKey): string {
+  const root = key.path.split(".")[0]!;
+  if (NOT_OVERRIDABLE.includes(root)) return "not overridable";
+  const variable = configVariable(key.path);
+  if (!variable) return "—";
+  return variable.alias ? `${code(variable.name)} (or ${code(variable.alias)})` : code(variable.name);
+}
+
+/** One section per registered native, listing its options from its schema. */
+function nativeSections(): string[] {
+  return registeredNatives().flatMap((native) => [
+    `### \`${native.key}\``,
+    "",
+    ...(native.docs?.summary ? [native.docs.summary, ""] : []),
+    "| Key | Type | Default | Environment variable | Description |",
+    "| --- | --- | --- | --- | --- |",
+    ...describeOptions(native.schema, native.key).map(
+      (option) =>
+        `| ${code(option.path)} | ${code(option.type)} | ${option.default === undefined ? "—" : code(JSON.stringify(option.default))} | ${code(envNameFor(option.path))} | ${option.description ?? ""} |`,
+    ),
+    "",
+  ]);
+}
+
+export function configPage(): string {
   const rows = configKeys().map(
-    (key) => `| ${code(key.path)} | ${code(key.type)} | ${key.defaultValue ?? "—"} | ${key.description ?? ""} |`,
+    (key) => `| ${code(key.path)} | ${code(key.type)} | ${key.defaultValue ?? "—"} | ${variableOf(key)} | ${key.description ?? ""} |`,
   );
+  const natives = nativeSections();
   return [
     frontmatter("Configuration", "Every key of quickservice.config.ts."),
     "The project configuration lives in `quickservice.config.ts` and is written with `defineConfig({ ... })`. Nested keys are shown with dots.",
     "",
-    "| Key | Type | Default | Description |",
-    "| --- | --- | --- | --- |",
+    "Every key that holds a value can also be set by an environment variable named after its path (`server.port` is `QS_SERVER_PORT`), which wins over the config file; the older names in parentheses still work, and a `QS_*` name wins over them. Keys that hold code are not overridable.",
+    "",
+    "| Key | Type | Default | Environment variable | Description |",
+    "| --- | --- | --- | --- | --- |",
     ...rows,
     "",
+    ...(natives.length > 0
+      ? ["## Native features", "", "Each native feature is turned on by its key (`<key>: {}`) or by `QS_<KEY>_ENABLED=true`, and off by `<key>: false` or `QS_<KEY>_ENABLED=false`.", "", ...natives]
+      : []),
   ].join("\n");
 }
 

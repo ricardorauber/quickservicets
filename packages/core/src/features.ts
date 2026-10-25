@@ -1,6 +1,7 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { ConfigError } from "./config-error.ts";
+import { featureVariables } from "./environment.ts";
 import { jsonLogger, safeLog, type Logger } from "./logger.ts";
 import { boolean, object, resolveOptions, type AnyOptionSchema, type ObjectOptionSchema, type Options, type OptionsInput } from "./options.ts";
 
@@ -121,6 +122,8 @@ export function defineFeature<S extends AnyOptionSchema = ObjectOptionSchema<{}>
   if (options.kind !== "object" || !options.settings.shape) throw invalid("options must be an object({...}) schema");
   if (Object.hasOwn(options.settings.shape, "enabled")) throw invalid("enabled is an implicit option and cannot be declared");
   const schema = object({ ...(options.settings.shape as AnyShape), enabled: enabledOption() } as AnyShape & EnabledShape);
+  // Each option is set by one environment variable, so two options may not share a name.
+  featureVariables(key, schema);
   const keyList = (field: "after" | "enables", entries: readonly unknown[] = []): readonly string[] => {
     if (!Array.isArray(entries)) throw invalid(`${field} must be a list of feature keys`);
     for (const entry of entries) if (typeof entry !== "string" || !FEATURE_KEY.test(entry)) throw invalid(`${field} has an invalid key ${JSON.stringify(entry)}`);

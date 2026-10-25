@@ -93,10 +93,11 @@ Bun loads `.env` from the project folder, so values there reach `process.env` in
 | `DATABASE_NAME` | the config written by `init` | MongoDB database name. |
 | `DATABASE_PATH` | the config written by `init` | SQLite file path. |
 | `DATABASE_SCHEMA` | QuickService | Default database schema; overrides `schema` in the config. Must match `^[a-z][a-z0-9-]*$`. |
-| `PORT` | QuickService | Port to listen on when `server.port` is not set (default 3000). |
+| `PORT` | QuickService | Port to listen on; overrides `server.port` (default 3000). |
 | `QS_WORKERS` | QuickService | Number of server processes, or `auto`; overrides `server.workers`. |
-| `NODE_ENV` | QuickService | `production` turns on production mode when `production` is not set. |
-| `FILES_SIGNING_SECRET` | QuickService | Secret of signed file URLs when `files.signingSecret` is not set. |
+| `NODE_ENV` | QuickService | `production` turns on production mode, even when `production` is set in the config. |
+| `FILES_SIGNING_SECRET` | QuickService | Secret of signed file URLs; overrides `files.signingSecret`. |
+| `QS_<KEY>` | QuickService | Any config key that holds a value, named after its path: `QS_SERVER_PORT`, `QS_JOBS_RETRIES`, `QS_FILES_ACCEPT`. See below. |
 | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION`, `S3_ENDPOINT` | `s3Storage` | Credentials, region and endpoint left out of the options; the `AWS_*` versions also work. |
 
 The `DATABASE_*` names other than `DATABASE_SCHEMA` are a convention of the generated config, not built in: rename them as you like. `DATABASE_SCHEMA` lets one build run against a different schema per environment:
@@ -112,9 +113,31 @@ An invalid name stops the command:
 Invalid DATABASE_SCHEMA: "Bad" must match ^[a-z][a-z0-9-]*$
 ```
 
+### Overriding any key
+
+Every config key that holds a value can be set by a variable named `QS_` plus its path in upper snake case: `server.port` is `QS_SERVER_PORT`, `jobs.limits.logLines` is `QS_JOBS_LIMITS_LOG_LINES`. A feature's options follow the same rule under its key (`history.retention` is `QS_HISTORY_RETENTION`), and `QS_<KEY>_ENABLED=true` or `false` turns a feature on or off without editing the config. The [configuration reference](/reference/config/) lists every variable.
+
+A variable wins over the older names above, which win over the config file, which wins over the defaults. Values are read from text: numbers, `true`/`false`/`1`/`0` for booleans, and lists as comma-separated items or a JSON array:
+
+```bash
+QS_SERVER_PORT=4000 QS_JOBS_RETRIES=2 QS_FILES_ACCEPT="image/*, application/pdf" bun .generated/server.ts
+```
+
+A value that does not fit stops the service, naming the variable and the key:
+
+```text
+Invalid QS_SERVER_PORT (server.port): expected an integer between 1 and 65535, got "abc"
+```
+
+Keys that hold code (`database`, `logger`, `storage`) are not overridable. A `QS_*` variable that matches no key is not an error, since environments are often shared; the server logs it once at startup and `quickservice build` prints it as a warning, with the closest name:
+
+```text
+Warning: Unknown environment variable QS_SERVR_PORT (did you mean QS_SERVER_PORT?)
+```
+
 ### Production mode
 
-`production` defaults to `NODE_ENV === "production"`. In production:
+`production` defaults to `false`, and `NODE_ENV=production` turns it on. In production:
 
 - 500 responses hide the error details. In development they include the stack:
 

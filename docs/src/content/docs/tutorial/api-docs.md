@@ -79,7 +79,7 @@ curl -s localhost:3000/openapi.json | jq '{openapi, info, paths: (.paths | keys)
 The build also writes the same document to `.generated/openapi.json`.
 
 :::note
-Both routes are off in production. They follow `docs.enabled`, which defaults to `true` unless `production` is set (and `production` defaults to `NODE_ENV === "production"`). When they are off, they answer 404 `Route not found`. Set `docs: { enabled: true }` to keep them in production.
+Both routes are off in production. They follow `docs.enabled`, which defaults to `true` unless `production` is set (and `NODE_ENV=production` turns `production` on). When they are off, they answer 404 `Route not found`. Set `docs: { enabled: true }` to keep them in production.
 :::
 
 ## What gets documented

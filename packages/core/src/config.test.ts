@@ -32,9 +32,10 @@ describe("defaults", () => {
     expect(resolved.server.port).toBe(3000);
     expect(resolved.production).toBe(false);
   });
-  test("explicit values win", () => {
+  test("explicit values win over defaults, and environment variables win over them", () => {
+    expect(resolveConfig({ database: memoryAdapter(), server: { port: 4000 }, production: true }, {})).toMatchObject({ server: { port: 4000 }, production: true });
     const resolved = resolveConfig({ database: memoryAdapter(), server: { port: 4000 }, production: true }, { PORT: "5000" });
-    expect(resolved).toMatchObject({ server: { port: 4000 }, production: true });
+    expect(resolved).toMatchObject({ server: { port: 5000 }, production: true });
   });
 });
 
@@ -157,7 +158,7 @@ describe("server.workers", () => {
     expect(resolveConfig({ database: postgres, production: true }, {}, undefined, twoCpus, "linux").server.workers).toBe(2);
     expect(resolveConfig({ database: postgres }, {}, undefined, twoCpus, "linux").server.workers).toBe(1);
     expect(resolveConfig({ database: postgres }, production, undefined, twoCpus, "darwin").server.workers).toBe(1);
-    expect(resolveConfig({ database: postgres, production: false }, production, undefined, twoCpus, "linux").server.workers).toBe(1);
+    expect(resolveConfig({ database: postgres, production: false }, {}, undefined, twoCpus, "linux").server.workers).toBe(1);
     expect(resolveConfig({ database: memoryAdapter() }, production, undefined, twoCpus, "linux").server.workers).toBe(1);
     expect(resolveConfig({ database: sqliteAdapter({ path: ":memory:" }) }, production, undefined, twoCpus, "linux").server.workers).toBe(1);
   });

@@ -30,13 +30,15 @@ test("quickservice eject events turns the native into features/events/ and the e
 
   const service = await startTestService({ files: filesOf(root) });
   try {
-    const created = (await (await service.fetch("/users", post({ name: "Ada", email: "ada@example.com" }))).json()) as { id: string };
-    await service.fetch(`/users/${created.id}`, { ...post({ name: "Ada L." }), method: "PATCH" });
-    expect((await service.fetch("/users", post({ name: "Bob", email: "nope" }))).status).toBe(400);
+    type Rows<T> = { query(): { all(): Promise<T[]> }; findById(id: string): Promise<T | null> };
+    const repos = service.repos as unknown as { posts: Rows<{ commentCount: number }>; notifications: Rows<{ channel: string }> };
+    const created = (await (await service.fetch("/posts", post({ title: "Hello" }))).json()) as { id: string };
+    await service.fetch("/comments", post({ body: "one", post: created.id }));
     await events.idle();
-    const audit = (service.repos as unknown as { auditEntries: { query(): { all(): Promise<{ type: string }[]> } } }).auditEntries;
-    for (let attempt = 0; attempt < 100 && (await audit.query().all()).length < 2; attempt++) await Bun.sleep(10);
-    expect((await audit.query().all()).map((entry) => entry.type).sort()).toEqual(["user.created", "user.updated"]);
+    expect((await repos.posts.findById(created.id))!.commentCount).toBe(1);
+    expect((await service.fetch(`/posts/${created.id}/publish`, post({}))).status).toBe(200);
+    await events.idle();
+    expect((await repos.notifications.query().all()).map((sent) => sent.channel)).toEqual(["in-app"]);
   } finally {
     await service.stop();
   }

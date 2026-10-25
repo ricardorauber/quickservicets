@@ -322,5 +322,6 @@ curl -s localhost:3000/openapi.json | jq '.paths["/users/me"].get | {summary, de
 
 - [JSDoc tags](/reference/tags/#overridehooks): `@overrideHooks` and the other built-in tags, which hooks cannot be named after.
 - [Errors](/reference/errors/): the error body hooks produce with `HttpError`.
+- [Events](/guides/events/): code that runs after every write of an entity, or inside its transaction, instead of around one route.
 
 Next: [Files](/guides/files/).

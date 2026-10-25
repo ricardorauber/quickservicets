@@ -384,3 +384,4 @@ test("today's greeting", async () => {
 
 - [Environment](/guides/environment/): options and variables from the environment.
 - [Configuration reference](/reference/config/) and [CLI](/reference/cli/): the keys, tags and commands of the natives.
+- [Events](/guides/events/): listener files, `ctx.events` and durable consumers in a feature.

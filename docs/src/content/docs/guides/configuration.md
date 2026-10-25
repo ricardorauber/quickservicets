@@ -238,5 +238,6 @@ An error thrown by the logger never changes the response.
 - [Configuration reference](/reference/config/): every key with its type and default.
 - [CLI](/reference/cli/): the commands that read the config.
 - [Environment](/guides/environment/): typed variables, `QS_*` overrides and their precedence.
+- [Events](/guides/events/): the `events` key, for write events, listeners, the outbox and durable consumers.
 
 Next: [Jobs](/guides/jobs/).

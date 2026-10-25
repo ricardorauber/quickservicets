@@ -41,6 +41,7 @@ const PAGES = [
   "guides/jobs.md",
   "guides/environment.md",
   "guides/project-features.md",
+  "guides/events.md",
   "reference/index.md",
   "reference/tags.mdx",
   "reference/config.mdx",

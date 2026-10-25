@@ -356,6 +356,21 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
         return toRecord(entity, await collection(entity).findOneAndUpdate(filter, { $set: changes }, { ...session(), returnDocument: "after" }));
       });
     },
+    insertOrSkip(entity, record, unique) {
+      return translateErrors(async () => {
+        // The filter's value is written into the inserted document, so the rest is set on insert.
+        const { [unique]: value, ...document } = toDocument(entity, record);
+        try {
+          const result = await collection(entity).updateOne({ [unique]: value } as never, { $setOnInsert: document as never }, { ...session(), upsert: true });
+          if (result.upsertedCount === 0) return null;
+        } catch (error) {
+          // Two concurrent upserts of one value: the unique index lets one insert.
+          if ((error as { code?: number }).code === 11000) return null;
+          throw error;
+        }
+        return toRecord(entity, await collection(entity).findOne({ _id: record.id as never }, session()))!;
+      });
+    },
     increment(entity, id, amounts, insert) {
       return translateErrors(async () => {
         const { _id, ...onInsert } = toDocument(entity, { ...insert, id });

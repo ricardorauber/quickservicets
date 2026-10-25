@@ -90,6 +90,12 @@ export interface DatabaseAdapter {
    */
   increment?(entity: EntityModel, id: string, amounts: Record<string, number>, insert: StoredRecord): Promise<StoredRecord>;
   /**
+   * Inserts the record unless a stored record has the same value of its unique field `unique`, resolving null then;
+   * a conflict never fails the current transaction, and a conflicting insert of another uncommitted transaction is
+   * waited for (optional; without it, callers insert and catch `UniqueViolationError`).
+   */
+  insertOrSkip?(entity: EntityModel, record: StoredRecord, unique: string): Promise<StoredRecord | null>;
+  /**
    * Deletes the record with that id and, in the same atomic write, removes its id from the junction-stored reference
    * arrays `pulls` without rewriting their other items. Every record that held the id gets `updatedAt`, or 1 ms after
    * its stored `updatedAt` when that is not earlier. Resolves false when no record was deleted. Optional: without it,

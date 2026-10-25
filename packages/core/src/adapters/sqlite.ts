@@ -134,6 +134,16 @@ export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
         }),
       );
     },
+    insertOrSkip(entity, record) {
+      return translateErrors(() =>
+        scope.run(async () => {
+          const { columns } = splitRelations(entity, record);
+          // A conflicting row leaves the statement without effect instead of failing it.
+          const rows = ready().db.insert(tableFor(entity)).values(columns).onConflictDoNothing().returning().all() as StoredRecord[];
+          return rows.length > 0 ? (await withRelations(entity, rows))[0]! : null;
+        }),
+      );
+    },
     increment(entity, id, amounts, insert) {
       return translateErrors(() =>
         scope.run(async () => {

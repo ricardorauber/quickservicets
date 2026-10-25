@@ -1,5 +1,6 @@
 import { hostname } from "node:os";
 import {
+  UniqueViolationError,
   afterCommit,
   heartbeatInterval,
   operationContextEnabled,
@@ -32,6 +33,8 @@ export interface QueueSettings {
   retries: number;
   retryDelay: string;
   maxRetryDelay: string;
+  /** How long a completed message keeps deduplicating its key; without it, a key is free once its message finished. */
+  dedupeWindow?: string;
 }
 
 /** How often every process with consumers returns messages whose lease expired to `waiting`. */
@@ -142,6 +145,9 @@ type Outcome = { kind: "completed"; value: unknown } | { kind: "failed"; error: 
 
 /** The share of a retry delay its random jitter may add or remove. */
 export const RETRY_JITTER = 0.1;
+
+/** The value of the unique `dedupeSlot` column of a live message with a dedupe key. */
+export const slotOf = (queue: string, dedupeKey: string) => `${queue}:${dedupeKey}`;
 
 const condition = (field: string, op: "eq" | "lt" | "lte" | "gt", value: unknown): Condition => ({ field, op, value }) as Condition;
 
@@ -274,7 +280,9 @@ export function createDatabaseQueue(options: DatabaseQueueOptions): DatabaseQueu
     if (outcome.kind === "completed") {
       const { result, note } = storableResult(outcome.value, resultLimit);
       if (note) jobLog.warn(note);
-      await adapter.updateById(model, row.id, { status: "completed", finishedAt: now, lockedUntil: null, ...(result !== undefined ? { result: result as StoredRecord[string] } : {}), updatedAt: now }, guard);
+      // Without a dedupe window the key is free again once the message completed.
+      const release = row.dedupeKey && !options.settings(row.queue).dedupeWindow ? { dedupeSlot: null } : {};
+      await adapter.updateById(model, row.id, { status: "completed", finishedAt: now, lockedUntil: null, ...release, ...(result !== undefined ? { result: result as StoredRecord[string] } : {}), updatedAt: now }, guard);
       log("info", "queue.message.completed", { ...fields, durationMs });
       return;
     }
@@ -297,7 +305,7 @@ export function createDatabaseQueue(options: DatabaseQueueOptions): DatabaseQueu
       const runAt = new Date(now.getTime() + retryDelayOf(row));
       return adapter.updateById(model, row.id, { status: "waiting", runAt, lastError, lockedUntil: null, worker: null, updatedAt: now }, guard);
     }
-    const dead = await adapter.updateById(model, row.id, { status: "dead", finishedAt: now, lastError, lockedUntil: null, updatedAt: now }, guard);
+    const dead = await adapter.updateById(model, row.id, { status: "dead", finishedAt: now, lastError, lockedUntil: null, dedupeSlot: null, updatedAt: now }, guard);
     if (dead) log("error", "queue.message.dead", { queue: row.queue, messageId: row.id, attempt: row.attempt, error: { message: lastError.message } });
     return dead;
   };
@@ -405,7 +413,30 @@ export function createDatabaseQueue(options: DatabaseQueueOptions): DatabaseQueu
   /** Moves one dead message back to waiting; false when it is no longer dead. */
   const requeue = async (row: StoredRecord): Promise<boolean> => {
     const now = new Date(clock.now());
-    const requeued = await adapter.updateById(model, row.id, { status: "waiting", attempt: 0, runAt: now, finishedAt: null, startedAt: null, lockedUntil: null, worker: null, updatedAt: now }, [condition("status", "eq", "dead")]);
+    const key = row.dedupeKey as string | null | undefined;
+    const slot = key ? slotOf(row.queue as string, key) : undefined;
+    const inUse = (holder: StoredRecord) => new Error(`Queue message ${row.id} has dedupe key ${key} in use by ${holder.id}`);
+    if (slot) {
+      // The key goes back to the message, unless a newer message holds it.
+      const holder = await adapter.findOne(model, [condition("dedupeSlot", "eq", slot)]);
+      if (holder && holder.id !== row.id) {
+        if (deduplicates(holder, now)) throw inUse(holder);
+        await release(holder, slot, now);
+      }
+    }
+    let requeued: StoredRecord | null;
+    try {
+      requeued = await adapter.updateById(
+        model,
+        row.id,
+        { status: "waiting", attempt: 0, runAt: now, finishedAt: null, startedAt: null, lockedUntil: null, worker: null, ...(slot ? { dedupeSlot: slot } : {}), updatedAt: now },
+        [condition("status", "eq", "dead")],
+      );
+    } catch (error) {
+      if (!(error instanceof UniqueViolationError) || !slot) throw error;
+      const holder = await adapter.findOne(model, [condition("dedupeSlot", "eq", slot)]);
+      throw holder ? inUse(holder) : error;
+    }
     if (requeued) wakeLoop(loops.get(row.queue as string));
     return requeued !== null;
   };
@@ -452,6 +483,29 @@ export function createDatabaseQueue(options: DatabaseQueueOptions): DatabaseQueu
   const cleanupSafely = () =>
     void cleanup().catch((error: unknown) => log("error", "queue.cleanup.failed", { error: { message: (error as Error)?.message ?? String(error) } }));
 
+  /** Inserts a message unless another one holds its dedupe slot; resolves null then. */
+  const insertOrSkip = async (row: StoredRecord): Promise<StoredRecord | null> => {
+    if (adapter.insertOrSkip) return adapter.insertOrSkip(model, row, "dedupeSlot");
+    try {
+      return await adapter.insert(model, row);
+    } catch (error) {
+      if (error instanceof UniqueViolationError) return null;
+      throw error;
+    }
+  };
+
+  /** Whether a message holding a dedupe slot still deduplicates its key: while it is live, or completed within the window. */
+  const deduplicates = (holder: StoredRecord, now: Date): boolean => {
+    if (holder.status === "waiting" || holder.status === "active") return true;
+    if (holder.status !== "completed" || !holder.finishedAt) return false;
+    const window = parseDuration(options.settings(holder.queue as string).dedupeWindow);
+    return window !== undefined && new Date(holder.finishedAt as Date).getTime() >= now.getTime() - window;
+  };
+
+  /** Frees the slot of a message that no longer deduplicates, unless it changed since it was read. */
+  const release = (holder: StoredRecord, slot: string, now: Date) =>
+    adapter.updateById(model, holder.id, { dedupeSlot: null, updatedAt: now }, [condition("dedupeSlot", "eq", slot), condition("status", "eq", holder.status)]);
+
   const stop = () => {
     claiming = false;
     stopReclaiming?.();
@@ -467,7 +521,7 @@ export function createDatabaseQueue(options: DatabaseQueueOptions): DatabaseQueu
   return {
     async enqueue(name, payload, source, placement) {
       const now = new Date(clock.now());
-      const { runAt, priority } = placement ?? { runAt: now, priority: 0 };
+      const { runAt, priority, dedupeKey } = placement ?? { runAt: now, priority: 0 };
       const settings = options.settings(name);
       const row: StoredRecord = {
         id: Bun.randomUUIDv7(),
@@ -483,10 +537,29 @@ export function createDatabaseQueue(options: DatabaseQueueOptions): DatabaseQueu
         enqueuedAt: now,
         ...(source.requestId ? { requestId: source.requestId } : {}),
       };
-      // Inside a transaction the insert joins it, so the message exists only once the transaction commits.
-      await adapter.insert(model, row);
-      void afterCommit(() => wakeLoop(loops.get(name)));
-      return { id: row.id, deduplicated: false };
+      const wake = () => void afterCommit(() => wakeLoop(loops.get(name)));
+      if (dedupeKey === undefined) {
+        // Inside a transaction the insert joins it, so the message exists only once the transaction commits.
+        await adapter.insert(model, row);
+        wake();
+        return { id: row.id, deduplicated: false };
+      }
+      const slot = slotOf(name, dedupeKey);
+      // The unique slot lets one of several concurrent adds insert; the others find the message holding it.
+      for (let round = 0; round < 5; round++) {
+        if (await insertOrSkip({ ...row, dedupeKey, dedupeSlot: slot })) {
+          wake();
+          return { id: row.id, deduplicated: false };
+        }
+        const holder = await adapter.findOne(model, [condition("dedupeSlot", "eq", slot)]);
+        if (!holder) continue;
+        if (deduplicates(holder, now)) {
+          log("info", "queue.message.deduplicated", { queue: name, dedupeKey, messageId: holder.id });
+          return { id: holder.id, deduplicated: true };
+        }
+        await release(holder, slot, now);
+      }
+      throw new Error(`Queue message for ${name} with dedupe key ${dedupeKey} could not be added; try again`);
     },
     start(startRepos) {
       if (claiming) return;
@@ -529,7 +602,14 @@ export function createDatabaseQueue(options: DatabaseQueueOptions): DatabaseQueu
     },
     async retryDead(queue) {
       let count = 0;
-      for (const row of await rowsWhere([condition("queue", "eq", queue), condition("status", "eq", "dead")])) if (await requeue(row)) count++;
+      for (const row of await rowsWhere([condition("queue", "eq", queue), condition("status", "eq", "dead")])) {
+        try {
+          if (await requeue(row)) count++;
+        } catch (error) {
+          // A message whose key a newer message holds stays dead.
+          if (!(error instanceof Error) || !error.message.includes("in use by")) throw error;
+        }
+      }
       return count;
     },
     async dead(queue, { limit = 20 } = {}) {

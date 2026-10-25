@@ -17,6 +17,11 @@ export interface QueueAddOptions {
   runAt?: Date | string;
   /** Messages with a higher priority run first, from -100 to 100 (default 0). */
   priority?: number;
+  /**
+   * Adds the message at most once per key, 1 to 255 characters: while a message of the queue with this key waits or
+   * runs (or completed within the queue's `dedupeWindow`), `add` returns that message with `deduplicated: true`.
+   */
+  dedupeKey?: string;
 }
 
 /** What `add` resolves with: the message's id, and whether an existing message was returned instead of a new one. */

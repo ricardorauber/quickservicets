@@ -32,7 +32,7 @@ describe("queue options", () => {
   test("a queue file's retries set maxAttempts at enqueue time, over the queues default; add stores delay and priority", async () => {
     const service = await startTestService({ files, env: { QS_QUEUES_CONSUME: "false" } });
     try {
-      const add = async (body: unknown) => (await (await service.fetch("/add", post(body))).json()) as { id: string; error?: string };
+      const add = async (body: unknown) => (await (await service.fetch("/add", post(body))).json()) as { id: string; deduplicated?: boolean; error?: string };
       expect(await messages(service).findById((await add({ name: "once" })).id)).toMatchObject({ maxAttempts: 2 });
       expect(await messages(service).findById((await add({ name: "usual" })).id)).toMatchObject({ maxAttempts: 4, priority: 0 });
       const before = Date.now();
@@ -42,6 +42,9 @@ describe("queue options", () => {
       expect(await messages(service).findById((await add({ name: "usual", options: { runAt: "2026-12-01T09:00:00Z" } })).id)).toMatchObject({ runAt: new Date("2026-12-01T09:00:00Z") });
       expect((await add({ name: "usual", options: { priority: 101 } })).error).toBe("Invalid queue options: priority must be an integer from -100 to 100");
       expect((await add({ name: "usual", options: { delay: "1m", runAt: "2026-12-01T09:00:00Z" } })).error).toBe("Invalid queue options: give delay or runAt, not both");
+      const keyed = await add({ name: "usual", options: { dedupeKey: "order-1" } });
+      expect(await add({ name: "usual", options: { dedupeKey: "order-1" } })).toEqual({ id: keyed.id, deduplicated: true });
+      expect((await add({ name: "usual", options: { dedupeKey: "" } })).error).toBe("Invalid queue options: dedupeKey must be 1 to 255 characters");
     } finally {
       await service.stop();
     }

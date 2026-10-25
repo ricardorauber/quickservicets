@@ -27,6 +27,7 @@ const options = object({
       timeout: duration().optional().describe("The longest a message of the queue may run."),
       retries: integer().min(0).optional().describe("How many times a failed message of the queue is retried."),
       retryDelay: duration().optional().describe("The first retry delay of the queue."),
+      dedupeWindow: duration().optional().describe("How long a completed message of the queue keeps deduplicating its key."),
     }),
   ).describe("Options of single queues by queue name, over the queue file's options."),
 });
@@ -82,6 +83,7 @@ const queuesFeature = defineFeature({
         retries: file.retries ?? ctx.options.retries,
         retryDelay: file.retryDelay ?? ctx.options.retryDelay,
         maxRetryDelay: ctx.options.maxRetryDelay,
+        ...(file.dedupeWindow ? { dedupeWindow: file.dedupeWindow } : {}),
       };
     };
     const store = createDatabaseQueue({

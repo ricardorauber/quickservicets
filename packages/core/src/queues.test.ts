@@ -63,6 +63,7 @@ describe("the QueueMessage model", () => {
       "attempt",
       "maxAttempts",
       "dedupeKey",
+      "dedupeSlot",
       "lockedUntil",
       "worker",
       "lastError",

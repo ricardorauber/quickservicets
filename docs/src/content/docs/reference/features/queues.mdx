@@ -34,6 +34,7 @@ It is not enabled by default: turn it on with `queues: {}` or `QS_QUEUES_ENABLED
 | `queues.overrides.<name>.timeout` | `record of duration` | — | `QS_QUEUES_OVERRIDES_<NAME>_TIMEOUT` | no | The longest a message of the queue may run. |
 | `queues.overrides.<name>.retries` | `record of integer` | — | `QS_QUEUES_OVERRIDES_<NAME>_RETRIES` | no | How many times a failed message of the queue is retried. |
 | `queues.overrides.<name>.retryDelay` | `record of duration` | — | `QS_QUEUES_OVERRIDES_<NAME>_RETRY_DELAY` | no | The first retry delay of the queue. |
+| `queues.overrides.<name>.dedupeWindow` | `record of duration` | — | `QS_QUEUES_OVERRIDES_<NAME>_DEDUPE_WINDOW` | no | How long a completed message of the queue keeps deduplicating its key. |
 | `queues.enabled` | `boolean` | `true` | `QS_QUEUES_ENABLED` | no | Turns the feature off when false. |
 
 ## Commands

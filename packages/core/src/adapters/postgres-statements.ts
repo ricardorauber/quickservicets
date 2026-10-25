@@ -292,6 +292,17 @@ export class EntityStatements implements ConditionTarget {
     return { text, params: fields.map((field) => this.encode(field, values[field])) };
   }
 
+  /** Inserts the record unless it conflicts with a unique column of a stored row, returning no row then. */
+  insertOrSkip(values: Record<string, unknown>): Statement {
+    const fields = this.written(values);
+    const text = this.text(`insert-or-skip:${fields.join(",")}`, () => {
+      const names = fields.map((field) => this.columns.get(field)!.name).join(", ");
+      const placeholders = fields.map((_, index) => `$${index + 1}`).join(", ");
+      return `insert into ${this.table} (${names}) values (${placeholders}) on conflict do nothing returning ${this.columnList}`;
+    });
+    return { text, params: fields.map((field) => this.encode(field, values[field])) };
+  }
+
   /**
    * Inserts the record, or adds the amounts to the fields of the stored one with its id, in one statement: concurrent
    * calls never lose a count.

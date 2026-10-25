@@ -234,6 +234,17 @@ export function memoryAdapter(): DatabaseAdapter {
         return structuredClone(stored);
       });
     },
+    insertOrSkip(entity, record, unique) {
+      return scope.run(() => {
+        const stored = normalize(entity, record);
+        const value = stored[unique];
+        if (value !== null && value !== undefined && [...tableFor(entity).values()].some((existing) => existing[unique] === value)) return null;
+        assertUnique(entity, stored);
+        remember(tableFor(entity), stored.id);
+        tableFor(entity).set(stored.id, stored);
+        return structuredClone(stored);
+      });
+    },
     findById(entity, id, options) {
       return scope.run(() => {
         const record = tableFor(entity).get(id);

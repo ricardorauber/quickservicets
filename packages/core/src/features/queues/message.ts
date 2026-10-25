@@ -18,6 +18,8 @@ export type QueueMessage = {
   attempt: number;
   maxAttempts: number;
   dedupeKey?: string | null;
+  /** `<queue>:<dedupeKey>` while the message deduplicates its key. */
+  dedupeSlot?: string | null;
   lockedUntil?: Date | null;
   /** `<hostname>:<pid>` of the process running it. */
   worker?: string | null;
@@ -43,6 +45,8 @@ export function queueMessageEntity(): EntityModel {
     column({ name: "attempt", type: "number", optional: false, min: 0 }),
     column({ name: "maxAttempts", type: "number", optional: false, min: 1 }),
     column({ name: "dedupeKey", type: "string", optional: true }),
+    // `<queue>:<dedupeKey>` while the message deduplicates its key; unique, so concurrent adds insert one message.
+    { name: "dedupeSlot", type: "string", optional: true, unique: true, storage: "column" } as FieldModel,
     column({ name: "lockedUntil", type: "date", optional: true }),
     column({ name: "worker", type: "string", optional: true }),
     json({

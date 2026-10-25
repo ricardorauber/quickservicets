@@ -20,7 +20,7 @@ import {
   type OnDeleteAction,
   type TypeDescriptor,
 } from "@quickservice/core";
-import { listJobFiles } from "../jobs/scan-jobs.ts";
+import { hasJobFiles } from "../build/feature-files.ts";
 import { EntityParseError } from "./errors.ts";
 import { withContributedEntities } from "./feature-entities.ts";
 import { applyEntityTags, type EntityTagTarget } from "./entity-tags.ts";
@@ -230,7 +230,7 @@ export function parseProjectModels(projectRoot: string, features: readonly Resol
   const contributed = withContributedEntities(parsed.models, features);
   const models = withBuiltInEntities(contributed.models);
   return {
-    models: listJobFiles(projectRoot).length > 0 ? withJobRunEntity(models) : models,
+    models: hasJobFiles(projectRoot, features) ? withJobRunEntity(models) : models,
     overrides: [...parsed.overrides, ...contributed.overrides],
   };
 }

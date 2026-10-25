@@ -38,6 +38,8 @@ export interface AppEndpoint {
   query?: QueryItem[];
   /** Success status from `@status`, used when the handler does not call `res.status`. */
   status?: number;
+  /** The key of the feature whose folder holds the endpoint; left out while that feature is disabled. */
+  feature?: string;
   handler: Endpoint;
 }
 
@@ -93,7 +95,15 @@ export interface App {
 }
 
 /** Assembles repositories, generated and custom routes and their hooks into a server. */
-export function createApp({ models, crudRoutes, endpoints, hooks, config, openApi, jobs = new Map(), clock }: AppOptions): App {
+export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, config, openApi, jobs: allJobs = new Map(), clock }: AppOptions): App {
+  // Endpoints and jobs of features that are not enabled in this configuration are left out.
+  const enabledFeatures = new Set(config.features?.map((feature) => feature.key) ?? []);
+  const endpoints = allEndpoints.some((endpoint) => endpoint.feature !== undefined)
+    ? allEndpoints.filter((endpoint) => endpoint.feature === undefined || enabledFeatures.has(endpoint.feature))
+    : allEndpoints;
+  const jobs = [...allJobs.values()].some((definition) => definition.feature !== undefined)
+    ? new Map([...allJobs].filter(([, definition]) => definition.feature === undefined || enabledFeatures.has(definition.feature)))
+    : allJobs;
   const fileAccess = { storage: config.storage, files: config.files, publicUrl: config.server.publicUrl };
   const fileCleanup = {
     storage: config.storage,

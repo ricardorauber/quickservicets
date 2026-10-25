@@ -9,8 +9,10 @@ import { isBuiltInEndpointTag } from "./endpoint-tags.ts";
 export interface HookEntry {
   name: string;
   phase: HookPhase;
-  /** File path relative to the project root. */
+  /** File path relative to the project root, or `@quickservice/core/features/...` for a native's file. */
   file: string;
+  /** The key of the feature whose folder holds the file. */
+  feature?: string;
   /** `options.docs` of the hook definition. */
   docs?: HookDocs;
 }
@@ -22,7 +24,11 @@ export function isReservedHookName(name: string): boolean {
 }
 
 export async function scanHooks(projectRoot: string): Promise<Map<string, HookEntry>> {
-  const dir = join(projectRoot, "hooks");
+  return scanHookFolder(join(projectRoot, "hooks"), (file) => relative(projectRoot, file));
+}
+
+/** Scans one hooks folder; `nameOf` gives the name the build shows for each file. */
+export async function scanHookFolder(dir: string, nameOf: (file: string) => string): Promise<Map<string, HookEntry>> {
   let entries: string[];
   try {
     entries = readdirSync(dir).filter((entry) => entry.endsWith(".ts")).sort();
@@ -31,7 +37,7 @@ export async function scanHooks(projectRoot: string): Promise<Map<string, HookEn
   }
   const hooks = new Map<string, HookEntry>();
   for (const entry of entries) {
-    const file = relative(projectRoot, join(dir, entry));
+    const file = nameOf(join(dir, entry));
     const name = entry.slice(0, -3);
     if (!HOOK_NAME.test(name)) {
       throw new BuildError(`${file}: hook file names must match ^[a-z][a-zA-Z0-9]*$`);

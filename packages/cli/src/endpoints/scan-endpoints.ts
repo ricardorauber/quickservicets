@@ -12,8 +12,12 @@ export interface EndpointRoute {
   /** Path with dynamic segments normalized to `:`, used to compare routes, e.g. `/organizations/:`. */
   pattern: string;
   params: string[];
-  /** File path relative to the project root. */
+  /** File path relative to the project root, or `@quickservice/core/features/...` for a native's file. */
   file: string;
+  /** Absolute path of the file (default: the file under the project root). */
+  source?: string;
+  /** The key of the feature whose folder holds the file. */
+  feature?: string;
 }
 
 const PARAM_NAME = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
@@ -43,7 +47,11 @@ function parseSegment(folder: string, relativeFolder: string): Segment {
 }
 
 export function scanEndpoints(projectRoot: string): EndpointRoute[] {
-  const root = join(projectRoot, "endpoints");
+  return scanEndpointFolder(join(projectRoot, "endpoints"), (file) => relative(projectRoot, file)).map(({ source: _source, ...route }) => route);
+}
+
+/** Scans one endpoints folder; `nameOf` gives the name the build shows for each file. */
+export function scanEndpointFolder(root: string, nameOf: (file: string) => string): EndpointRoute[] {
   const routes: EndpointRoute[] = [];
 
   const walk = (dir: string, segments: Segment[]): void => {
@@ -56,7 +64,7 @@ export function scanEndpoints(projectRoot: string): EndpointRoute[] {
     const dynamicFolders: string[] = [];
     for (const entry of entries) {
       const full = join(dir, entry);
-      const relativePath = relative(projectRoot, full);
+      const relativePath = nameOf(full);
       if (statSync(full).isDirectory()) {
         const segment = parseSegment(entry, relativePath);
         if (segment.param !== undefined) dynamicFolders.push(relativePath);
@@ -79,6 +87,7 @@ export function scanEndpoints(projectRoot: string): EndpointRoute[] {
         pattern,
         params: segments.flatMap((segment) => (segment.param === undefined ? [] : [segment.param])),
         file: relativePath,
+        source: full,
       });
     }
   };

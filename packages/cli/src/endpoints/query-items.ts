@@ -175,7 +175,7 @@ export function extractQueryItems(projectRoot: string, routes: EndpointRoute[]):
   const candidates = routes.filter((route) => QUERY_METHODS.has(route.method));
   const result = new Map<string, QueryItem[]>();
   if (candidates.length === 0) return result;
-  const files = candidates.map((route) => join(projectRoot, route.file));
+  const files = candidates.map((route) => route.source ?? join(projectRoot, route.file));
   const program = ts.createProgram(files, {
     strict: true,
     noEmit: true,

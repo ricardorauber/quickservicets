@@ -14,7 +14,7 @@ import {
 } from "@quickservice/core";
 import { join } from "node:path";
 import { parseProjectEntities } from "../entities/parse-entities.ts";
-import { scanJobs } from "./scan-jobs.ts";
+import { scanProjectJobs } from "../build/feature-files.ts";
 
 /** What a job command prints and the exit code it ends with. */
 export interface JobCommandResult {
@@ -27,11 +27,11 @@ export interface JobCommandResult {
 
 export const DEFAULT_RUNS_LIMIT = 20;
 
-/** The job registry of the project, imported from `jobs/`. */
-export async function loadJobRegistry(projectRoot: string): Promise<Map<string, JobDefinition>> {
+/** The job registry of the project, imported from `jobs/` and from the job folders of its enabled features. */
+export async function loadJobRegistry(projectRoot: string, features: ResolvedConfig["features"] = []): Promise<Map<string, JobDefinition>> {
   const registry = new Map<string, JobDefinition>();
-  for (const entry of await scanJobs(projectRoot)) {
-    const module = (await import(join(projectRoot, entry.file))) as { default: JobDefinition };
+  for (const entry of await scanProjectJobs(projectRoot, features)) {
+    const module = (await import(entry.source ?? join(projectRoot, entry.file))) as { default: JobDefinition };
     registry.set(entry.name, module.default);
   }
   return registry;
@@ -64,7 +64,7 @@ const eq = (field: string, value: unknown) => ({ field, op: "eq" as const, value
 /** `quickservice job run <name> [--force]`: runs the job in this process as a `manual` run and reports its final outcome. */
 export async function runJobCommand(projectRoot: string, name: string | undefined, options: { force?: boolean } = {}): Promise<JobCommandResult> {
   const config = await loadConfig(projectRoot);
-  const jobs = await loadJobRegistry(projectRoot);
+  const jobs = await loadJobRegistry(projectRoot, config.features);
   const job = assertKnown(jobs, name);
   return withJobApp(projectRoot, config, jobs, async ({ jobRunner }, model) => {
     const claimed = await runOnDemand(jobRunner, { job, trigger: "manual", at: new Date(), force: options.force });
@@ -106,7 +106,7 @@ function table(rows: string[][]): string[] {
 /** `quickservice job list`: every job with its schedule, time zone and next run time. */
 export async function listJobsCommand(projectRoot: string, now: Date = new Date()): Promise<JobCommandResult> {
   const config = await loadConfig(projectRoot);
-  const jobs = await loadJobRegistry(projectRoot);
+  const jobs = await loadJobRegistry(projectRoot, config.features);
   if (jobs.size === 0) return { code: 0, lines: ["No jobs"], errors: [] };
   const rows = [["JOB", "SCHEDULE", "TIME ZONE", "NEXT RUN"]];
   for (const [name, definition] of jobs) {
@@ -122,7 +122,7 @@ export async function listJobRunsCommand(projectRoot: string, name: string | und
   const limit = options.limit === undefined ? DEFAULT_RUNS_LIMIT : Number(options.limit);
   if (!Number.isInteger(limit) || limit < 1) throw new Error("--limit must be a positive integer");
   const config = await loadConfig(projectRoot);
-  const jobs = await loadJobRegistry(projectRoot);
+  const jobs = await loadJobRegistry(projectRoot, config.features);
   const job = assertKnown(jobs, name);
   return withJobApp(projectRoot, config, jobs, async (_app, model) => {
     const { data } = await config.database.findMany(model, {

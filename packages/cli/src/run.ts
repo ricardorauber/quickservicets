@@ -34,6 +34,10 @@ export async function run(args: string[], output: Output = consoleOutput, cwd = 
           ? `Built ${summary.entities} entities, ${summary.endpoints} custom endpoints, ${summary.hooks} hooks and ${summary.features} project features.`
           : `Built ${summary.entities} entities, ${summary.endpoints} custom endpoints and ${summary.hooks} hooks.`,
       );
+      const fromFeatures = summary.fromFeatures;
+      if (fromFeatures && fromFeatures.endpoints + fromFeatures.hooks + fromFeatures.jobs > 0) {
+        output.log(`Features added ${fromFeatures.endpoints} endpoints, ${fromFeatures.hooks} hooks and ${fromFeatures.jobs} jobs.`);
+      }
       for (const warning of summary.warnings) output.error(`Warning: ${warning}`);
       return 0;
     }

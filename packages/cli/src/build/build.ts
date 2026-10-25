@@ -22,10 +22,11 @@ import { join } from "node:path";
 import ts from "typescript";
 import { parseProjectModels } from "../entities/parse-entities.ts";
 import { BuildError } from "../errors.ts";
-import { scanEndpoints, type EndpointRoute } from "../endpoints/scan-endpoints.ts";
+import type { EndpointRoute } from "../endpoints/scan-endpoints.ts";
 import { parseEndpointTags, type EndpointMetadata } from "../hooks/endpoint-tags.ts";
-import { scanHooks, type HookEntry } from "../hooks/scan-hooks.ts";
-import { scanJobs, type JobEntry } from "../jobs/scan-jobs.ts";
+import type { HookEntry } from "../hooks/scan-hooks.ts";
+import type { JobEntry } from "../jobs/scan-jobs.ts";
+import { scanProjectFiles } from "./feature-files.ts";
 import { validateHookReferences } from "../hooks/validate-hook-references.ts";
 import { hasPendingChanges, sqlDialectOf } from "../migrations/add.ts";
 import { envVarsLines, generateTypesFile } from "./generate-types.ts";
@@ -59,8 +60,10 @@ export interface BuildSummary {
   hooks: number;
   /** Features written in the project's `features/` folder. */
   features?: number;
-  /** `Override:` lines, one per project feature that replaces a native. */
+  /** `Override:` lines: project features replacing natives, and project files replacing feature files. */
   overrides?: string[];
+  /** Endpoints, hooks and jobs that come from features' folders. */
+  fromFeatures?: { endpoints: number; hooks: number; jobs: number };
   warnings: string[];
 }
 
@@ -95,6 +98,9 @@ const CRUD_ROUTES: [string, string, CrudRouteEntry["operation"]][] = [
   ["PUT", "/[id]", "replace"],
   ["DELETE", "/[id]", "delete"],
 ];
+
+/** How a generated file imports a scanned file: through the core package for a native, by a relative path otherwise. */
+export const importPath = (file: string) => (file.startsWith("@quickservice/") ? file : `../${file}`);
 
 /** The generated CRUD routes of every non-internal entity, with their resolved hooks. */
 export function crudTable(models: EntityModel[]): CrudRouteEntry[] {
@@ -192,12 +198,12 @@ function generateRoutesFile(
   const hookNames = [...hooks.keys()].sort();
   const imports = [
     'import type { AppEndpoint, CrudRouteEntry, Endpoint, HookDefinition } from "@quickservice/core";',
-    ...endpoints.map((endpoint, index) => `import endpoint${index} from ${JSON.stringify(`../${endpoint.route.file}`)};`),
-    ...hookNames.map((name) => `import hook_${name} from ${JSON.stringify(`../${hooks.get(name)!.file}`)};`),
+    ...endpoints.map((endpoint, index) => `import endpoint${index} from ${JSON.stringify(importPath(endpoint.route.file))};`),
+    ...hookNames.map((name) => `import hook_${name} from ${JSON.stringify(importPath(hooks.get(name)!.file))};`),
   ];
   const endpointEntries = endpoints.map(
     (endpoint, index) =>
-      `  { method: ${JSON.stringify(endpoint.route.method)}, path: ${JSON.stringify(endpoint.route.path)}, hooks: ${JSON.stringify(endpoint.hooks)}, ${endpoint.projection ? `projection: ${JSON.stringify(endpoint.projection)}, ` : ""}${endpoint.populate ? `populate: ${JSON.stringify(endpoint.populate)}, ` : ""}${endpoint.query ? `query: ${JSON.stringify(endpoint.query)}, ` : ""}${endpoint.status !== undefined ? `status: ${endpoint.status}, ` : ""}handler: endpoint${index} as Endpoint },`,
+      `  { method: ${JSON.stringify(endpoint.route.method)}, path: ${JSON.stringify(endpoint.route.path)}, hooks: ${JSON.stringify(endpoint.hooks)}, ${endpoint.projection ? `projection: ${JSON.stringify(endpoint.projection)}, ` : ""}${endpoint.populate ? `populate: ${JSON.stringify(endpoint.populate)}, ` : ""}${endpoint.query ? `query: ${JSON.stringify(endpoint.query)}, ` : ""}${endpoint.status !== undefined ? `status: ${endpoint.status}, ` : ""}${endpoint.route.feature ? `feature: ${JSON.stringify(endpoint.route.feature)}, ` : ""}handler: endpoint${index} as Endpoint },`,
   );
   return [
     HEADER,
@@ -221,10 +227,10 @@ export function generateJobsFile(jobs: JobEntry[]): string {
   return [
     HEADER,
     'import type { JobDefinition } from "@quickservice/core";',
-    ...jobs.map((entry, index) => `import job${index} from ${JSON.stringify(`../${entry.file}`)};`),
+    ...jobs.map((entry, index) => `import job${index} from ${JSON.stringify(importPath(entry.file))};`),
     "",
     "export const jobs = new Map<string, JobDefinition>([",
-    ...jobs.map((entry, index) => `  [${JSON.stringify(entry.name)}, job${index}],`),
+    ...jobs.map((entry, index) => `  [${JSON.stringify(entry.name)}, ${entry.feature ? `{ ...job${index}, feature: ${JSON.stringify(entry.feature)} }` : `job${index}`}],`),
     "]);",
     "",
     'declare module "@quickservice/core" {',
@@ -289,11 +295,12 @@ export async function build(projectRoot: string): Promise<BuildSummary> {
   const parsed = parseProjectModels(projectRoot, config.features);
   const overrides = [...replacedNatives().map(overrideLine), ...parsed.overrides];
   const models = parsed.models;
-  const hooks = await scanHooks(projectRoot);
-  const jobs = await scanJobs(projectRoot);
-  const endpoints: ScannedEndpoint[] = scanEndpoints(projectRoot).map((route) => ({
+  const scanned = await scanProjectFiles(projectRoot, config.features);
+  overrides.push(...scanned.overrides);
+  const { hooks, jobs } = scanned;
+  const endpoints: ScannedEndpoint[] = scanned.endpoints.map((route) => ({
     route,
-    ...parseEndpointTags(readFileSync(join(projectRoot, route.file), "utf8"), route.file),
+    ...parseEndpointTags(readFileSync(route.source ?? join(projectRoot, route.file), "utf8"), route.file),
   }));
   validateHookReferences(
     models,
@@ -360,5 +367,5 @@ export async function build(projectRoot: string): Promise<BuildSummary> {
   warnings.push(...endpointDocs.warnings);
   const dialect = sqlDialectOf(config.database.kind);
   if (dialect && (await hasPendingChanges(projectRoot, models, dialect))) warnings.push(PENDING_MIGRATION_WARNING);
-  return { entities: models.length, endpoints: endpoints.length, hooks: hooks.size, features: featureKeys.length, overrides, warnings };
+  return { entities: models.length, endpoints: endpoints.length, hooks: hooks.size, features: featureKeys.length, overrides, fromFeatures: scanned.fromFeatures, warnings };
 }

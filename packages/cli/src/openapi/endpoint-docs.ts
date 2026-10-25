@@ -231,7 +231,7 @@ export function describeEndpoints(
   models: EntityModel[],
   endpoints: EndpointDocInput[],
 ): { docs: EndpointDoc[]; warnings: string[] } {
-  const files = endpoints.map((endpoint) => join(projectRoot, endpoint.route.file));
+  const files = endpoints.map((endpoint) => endpoint.route.source ?? join(projectRoot, endpoint.route.file));
   const program = ts.createProgram(files, {
     strict: true,
     noEmit: true,

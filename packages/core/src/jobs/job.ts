@@ -72,6 +72,8 @@ export interface JobDefinition {
   schedule: JobSchedule;
   run: JobFn;
   options: JobOptions;
+  /** The key of the feature whose folder holds the job; it does not run while that feature is disabled. */
+  feature?: string;
 }
 
 /** Declares a scheduled job. The default export of each file in `jobs/` must be one. */

@@ -54,6 +54,12 @@ export interface FeatureInput<S extends AnyOptionSchema> {
    * options returning models.
    */
   entities?: FeatureEntities<FeatureOptions<S>>;
+  /** A folder of endpoint files relative to the feature's folder (`"./endpoints"`), routed like the project's `endpoints/`. */
+  endpoints?: string;
+  /** A folder of hook files relative to the feature's folder (`"./hooks"`), named like the project's `hooks/`. */
+  hooks?: string;
+  /** A folder of job files relative to the feature's folder (`"./jobs"`); each job is named `<key>/<path>`. */
+  jobs?: string;
 }
 
 /** What a function form of `entities` receives. */
@@ -93,6 +99,12 @@ export interface FeatureDefinition<S extends AnyOptionSchema = AnyOptionSchema> 
   readonly env?: Readonly<Record<string, AnyOptionSchema>>;
   /** The entities the feature contributes. */
   readonly entities?: FeatureEntities<FeatureOptions<S>>;
+  /** The feature's folder of endpoint files, relative to its folder. */
+  readonly endpoints?: string;
+  /** The feature's folder of hook files, relative to its folder. */
+  readonly hooks?: string;
+  /** The feature's folder of job files, relative to its folder. */
+  readonly jobs?: string;
   /**
    * The feature's resolved options, once a configuration enabling it has been resolved in this process; throws
    * otherwise. The feature's own code reads its typed options here instead of receiving the config.
@@ -175,6 +187,7 @@ export function defineFeature<S extends AnyOptionSchema = ObjectOptionSchema<{}>
     enables: keyList("enables", input.enables),
     ...(input.env ? { env: Object.freeze({ ...input.env }) } : {}),
     ...(input.entities !== undefined ? { entities: entitiesField(input.entities, invalid) } : {}),
+    ...folderFields(input, invalid),
     options() {
       const resolved = resolvedOptions.get(definition as FeatureDefinition);
       if (!resolved) throw new Error(`${key} is not enabled; add ${key}: {} to quickservice.config.ts`);
@@ -183,6 +196,18 @@ export function defineFeature<S extends AnyOptionSchema = ObjectOptionSchema<{}>
   };
   Object.defineProperty(definition, FEATURE_BRAND, { value: true });
   return Object.freeze(definition);
+}
+
+/** The contribution folders a definition declares, each a path relative to the feature's folder. */
+function folderFields(input: { endpoints?: unknown; hooks?: unknown; jobs?: unknown }, invalid: (reason: string) => Error): { endpoints?: string; hooks?: string; jobs?: string } {
+  const fields: { endpoints?: string; hooks?: string; jobs?: string } = {};
+  for (const name of ["endpoints", "hooks", "jobs"] as const) {
+    const value = input[name];
+    if (value === undefined) continue;
+    if (typeof value !== "string" || value === "") throw invalid(`${name} must be a folder relative to the feature's folder`);
+    fields[name] = value;
+  }
+  return fields;
 }
 
 function entitiesField<O>(entities: FeatureEntities<O>, invalid: (reason: string) => Error): FeatureEntities<O> {

@@ -8,6 +8,7 @@ import { assertTimeZone, ScheduleError } from "./jobs/schedule.ts";
 import { localStorage } from "./storage/local.ts";
 import { availableCpus, WORKERS_ENV } from "./workers.ts";
 import type { StorageAdapter } from "./storage/storage.ts";
+import { ConfigError } from "./config-error.ts";
 
 export const CONFIG_FILE = "quickservice.config.ts";
 export const DEFAULT_PORT = 3000;
@@ -148,12 +149,7 @@ function resolveSchema(config: ServiceConfig, env: Record<string, string | undef
   return config.schema;
 }
 
-export class ConfigError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "ConfigError";
-  }
-}
+export { ConfigError };
 
 export function defineConfig(config: ServiceConfig): ServiceConfig {
   return config;

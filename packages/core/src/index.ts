@@ -104,3 +104,41 @@ export { createRequestJobs, noRequestJobs, runOnDemand } from "./jobs/triggers.t
 export { createJobRunCleanup, RUN_CLEANUP_BATCH, RUN_CLEANUP_INTERVAL } from "./jobs/retention.ts";
 export type { JobRunCleanup, JobRunCleanupOptions } from "./jobs/retention.ts";
 export type { JobName, JobNames, OnDemandRequest, RequestJobs, RunJobOptions } from "./jobs/triggers.ts";
+export {
+  boolean,
+  describeOptions,
+  duration,
+  expectationOf,
+  integer,
+  list,
+  number,
+  object,
+  oneOf,
+  OptionError,
+  optionTypeOf,
+  parseOptionString,
+  provider,
+  resolveOption,
+  resolveOptions,
+  secret,
+  size,
+  string,
+  url,
+} from "./options.ts";
+export type {
+  AnyOptionSchema,
+  BaseOptionSchema,
+  BoundedOptionSchema,
+  ListOptionSchema,
+  ObjectOptionSchema,
+  OptionContext,
+  OptionDescription,
+  OptionFunction,
+  OptionKind,
+  Options,
+  OptionSchema,
+  OptionSettings,
+  OptionsInput,
+  SecretOptionSchema,
+  UrlOptionSchema,
+} from "./options.ts";

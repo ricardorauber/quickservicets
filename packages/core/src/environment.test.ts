@@ -10,7 +10,7 @@ import type { LogEntry } from "./logger.ts";
 import { integer, object, secret, string } from "./options.ts";
 import { resolveOption } from "./options.ts";
 
-const audit = defineFeature({
+const audit = defineFeature({ docs: { summary: "Test native." },
   key: "audit",
   options: object({ greeting: string().perRequest().default("Hello"), level: integer().default(1), token: secret().optional() }),
 });
@@ -38,7 +38,7 @@ describe("naming", () => {
   });
 
   test("two options that map to one variable make defineFeature throw", () => {
-    expect(failure(() => defineFeature({ key: "x", options: object({ fooBar: string(), foo: object({ bar: string() }) }) })).message).toBe(
+    expect(failure(() => defineFeature({ docs: { summary: "Test native." }, key: "x", options: object({ fooBar: string(), foo: object({ bar: string() }) }) })).message).toBe(
       "Invalid feature x: options x.fooBar and x.foo.bar both map to QS_X_FOO_BAR",
     );
   });
@@ -128,7 +128,7 @@ describe("overrides", () => {
     expect(failure(() => resolve({ QS_AUDIT_TOKEN: "x", QS_AUDIT_LEVEL: "high" }, { audit: {} })).message).toBe(
       'Invalid QS_AUDIT_LEVEL (audit.level): expected an integer, got "high"',
     );
-    const masked = defineFeature({ key: "vault", options: object({ token: secret().min(8) }) });
+    const masked = defineFeature({ docs: { summary: "Test native." }, key: "vault", options: object({ token: secret().min(8) }) });
     registerNative(masked);
     try {
       const message = failure(() => resolve({ QS_VAULT_TOKEN: "short" }, { vault: {} } as never)).message;

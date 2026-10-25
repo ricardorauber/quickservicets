@@ -32,7 +32,7 @@ const hello = defineCommand({
 });
 const registered: string[] = [];
 const native = (key: string, commands: CommandDefinition[], extra: Record<string, unknown> = {}) => {
-  registerNative(defineFeature({ key, commands, ...extra }));
+  registerNative(defineFeature({ docs: { summary: "Test native." }, key, commands, ...extra }));
   registered.push(key);
 };
 afterEach(() => {

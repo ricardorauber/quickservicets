@@ -9,7 +9,7 @@ import { createLinkedProject, MEMORY_CONFIG } from "../testing/project.ts";
 import { build } from "./build.ts";
 
 const GREETING = `import { defineFeature, object, string } from "@quickservice/core";
-export default defineFeature({ key: "greeting", options: object({ text: string().default("Hi") }) });
+export default defineFeature({ docs: { summary: "Test native." }, key: "greeting", options: object({ text: string().default("Hi") }) });
 `;
 const config = (keys = "") => `import { defineConfig, memoryAdapter } from "@quickservice/core";
 export default defineConfig({ database: memoryAdapter()${keys ? `, ${keys}` : ""} });
@@ -60,16 +60,16 @@ describe("discovery", () => {
   });
 
   test("project features follow the dependency rules of natives", async () => {
-    const trail = `import { defineFeature } from "@quickservice/core";\nexport default defineFeature({ key: "trail", requires: ["greeting"] });\n`;
+    const trail = `import { defineFeature } from "@quickservice/core";\nexport default defineFeature({ docs: { summary: "Test native." }, key: "trail", requires: ["greeting"] });\n`;
     const root = project({ "features/greeting/index.ts": GREETING, "features/trail/index.ts": trail }, "trail: {}");
     expect((await failure(() => loadConfig(root, {}))).message).toBe("trail requires greeting; add greeting: {} to quickservice.config.ts");
   });
 });
 
 describe("replacing a native", () => {
-  const audit = defineFeature({ key: "audit", options: object({ level: integer().default(1) }) });
+  const audit = defineFeature({ docs: { summary: "Test native." }, key: "audit", options: object({ level: integer().default(1) }) });
   const AUDIT = `import { defineFeature, object, string } from "@quickservice/core";
-export default defineFeature({ key: "audit", options: object({ sink: string().default("stdout") }) });
+export default defineFeature({ docs: { summary: "Test native." }, key: "audit", options: object({ sink: string().default("stdout") }) });
 `;
 
   test("a project feature with a native's key replaces it", async () => {

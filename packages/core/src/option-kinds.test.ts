@@ -103,9 +103,9 @@ describe("cidr", () => {
 });
 
 describe("environment", () => {
-  const security = defineFeature({ key: "security", options: object({ cors: toggle({ origins: list(string()).default([]) }), allow: list(cidr()).default([]) }) });
-  const http = defineFeature({ key: "http", options: object({ services: record(object({ url: url(), timeout: string().optional() })) }) });
-  const flags = defineFeature({ key: "flags", options: object({ rules: record(toggle({ users: list(string()).default([]) })) }) });
+  const security = defineFeature({ docs: { summary: "Test native." }, key: "security", options: object({ cors: toggle({ origins: list(string()).default([]) }), allow: list(cidr()).default([]) }) });
+  const http = defineFeature({ docs: { summary: "Test native." }, key: "http", options: object({ services: record(object({ url: url(), timeout: string().optional() })) }) });
+  const flags = defineFeature({ docs: { summary: "Test native." }, key: "flags", options: object({ rules: record(toggle({ users: list(string()).default([]) })) }) });
   const apply = (config: Record<string, unknown>, env: Record<string, string>) => applyEnvironment(config, env, [security, http, flags]).config;
 
   test("strings parse into toggles, records, rates and lists of cidrs", () => {

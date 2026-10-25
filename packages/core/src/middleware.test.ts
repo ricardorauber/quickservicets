@@ -117,8 +117,8 @@ describe("ordering", () => {
   } });
 
   test("features in order, then by order ascending, with the project's last", async () => {
-    registerNative(defineFeature({ key: "a", middleware: [tracing("a", 0)] }));
-    registerNative(defineFeature({ key: "b", middleware: [tracing("b", -1)] }));
+    registerNative(defineFeature({ docs: { summary: "Test native." }, key: "a", middleware: [tracing("a", 0)] }));
+    registerNative(defineFeature({ docs: { summary: "Test native." }, key: "b", middleware: [tracing("b", -1)] }));
     registered.push("a", "b");
     const config = resolveConfig({ database: memoryAdapter(), logger, a: {}, b: {}, middleware: [tracing("project", -5), { stage: "request", run: (_ctx: unknown, next: () => Promise<Response>) => next() }] } as never, {});
     const handler: Endpoint = (_repos, req) => ({ trail: req.context.trail });
@@ -153,15 +153,15 @@ describe("request properties", () => {
   });
 
   test("a property named like a built-in request property or another feature's fails startup", () => {
-    registerNative(defineFeature({ key: "ex", request: { params: () => 1 } }));
+    registerNative(defineFeature({ docs: { summary: "Test native." }, key: "ex", request: { params: () => 1 } }));
     try {
       const config = resolveConfig({ database: memoryAdapter(), ex: {} } as never, {});
       expect(() => createApp({ models: [], crudRoutes: [], endpoints: [], hooks: new Map(), config })).toThrow("Request property params of ex conflicts with the built-in request property params");
     } finally {
       unregisterNative("ex");
     }
-    registerNative(defineFeature({ key: "one", request: { clock: () => 1 } }));
-    registerNative(defineFeature({ key: "two", request: { clock: () => 2 } }));
+    registerNative(defineFeature({ docs: { summary: "Test native." }, key: "one", request: { clock: () => 1 } }));
+    registerNative(defineFeature({ docs: { summary: "Test native." }, key: "two", request: { clock: () => 2 } }));
     try {
       const config = resolveConfig({ database: memoryAdapter(), one: {}, two: {} } as never, {});
       expect(() => createApp({ models: [], crudRoutes: [], endpoints: [], hooks: new Map(), config })).toThrow("Request property clock of two conflicts with one");

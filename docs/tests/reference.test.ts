@@ -7,7 +7,7 @@ import { documentedFieldTags } from "../../packages/cli/src/entities/field-tags.
 import { documentedEndpointTags } from "../../packages/cli/src/hooks/endpoint-tags.ts";
 import { defineFeature, registerNative, unregisterNative } from "../../packages/core/src/features.ts";
 import { hook, object, string } from "../../packages/core/src/options.ts";
-import { configKeys, configPage, CONTENT, REPO, referencePages } from "../scripts/reference.ts";
+import { configKeys, configPage, CONTENT, REPO, referencePages, stalePages } from "../scripts/reference.ts";
 
 const pages = referencePages();
 
@@ -52,7 +52,7 @@ describe("config variables", () => {
       expect(page).toContain('| `audit.greeting` | `string` | `"Hello"` | `QS_AUDIT_GREETING` | How entries start. |');
       expect(page).toContain("| `audit.enabled` | `boolean` | `true` | `QS_AUDIT_ENABLED` |");
       unregisterNative("audit");
-      registerNative(defineFeature({ key: "audit", options: object({ greeting: string().default("Hi") }) }));
+      registerNative(defineFeature({ docs: { summary: "Test native." }, key: "audit", options: object({ greeting: string().default("Hi") }) }));
       expect(configPage()).not.toBe(page);
     } finally {
       unregisterNative("audit");
@@ -62,7 +62,7 @@ describe("config variables", () => {
 
   test("a native's tags are listed under its options with their targets and options", () => {
     const tags = { audit: { on: ["entity", "endpoint"] as const, options: ["greeting"], description: "Sets how one entity or route is audited.", example: '/** @audit greeting="Good day" */' } };
-    registerNative(defineFeature({ key: "audit", options: object({ greeting: string().default("Hello") }), tags }));
+    registerNative(defineFeature({ docs: { summary: "Test native." }, key: "audit", options: object({ greeting: string().default("Hello") }), tags }));
     try {
       const page = configPage();
       const section = page.slice(page.indexOf("### `audit`"));
@@ -90,7 +90,7 @@ describe("tag syntax", () => {
   test("a tag's syntax line shows its shorthand, and its options name their scoped paths", () => {
     const options = object({ rateLimit: object({ rate: string().default("100/min"), by: string().default("ip") }) });
     const tags = { limit: { on: ["endpoint"] as const, scope: "rateLimit", shorthand: "rate", options: ["rate", "by"], description: "Limits a route.", example: "/** @limit 10/min */" } };
-    registerNative(defineFeature({ key: "guard", options, tags }));
+    registerNative(defineFeature({ docs: { summary: "Test native." }, key: "guard", options, tags }));
     try {
       const section = configPage().slice(configPage().indexOf("#### `@limit`"));
       expect(section).toContain("**Options:** `rateLimit.rate`, `rateLimit.by`");
@@ -113,16 +113,7 @@ describe("cli", () => {
 });
 
 test("the committed reference pages are up to date (run `bun run docs:reference`)", () => {
-  const stale = Object.entries(pages)
-    .filter(([path, content]) => {
-      try {
-        return readFileSync(join(CONTENT, path), "utf8") !== content;
-      } catch {
-        return true;
-      }
-    })
-    .map(([path]) => path);
-  expect(stale).toEqual([]);
+  expect(stalePages(pages)).toEqual([]);
 });
 
 describe("http, errors and api pages", () => {

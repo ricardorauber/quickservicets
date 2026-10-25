@@ -24,7 +24,7 @@ const failure = async (work: () => Promise<unknown>): Promise<Error> => {
 
 const registered: string[] = [];
 const native = (key: string, openapi: (doc: OpenApiDoc) => OpenApiDoc | void) => {
-  registerNative(defineFeature({ key, openapi }));
+  registerNative(defineFeature({ docs: { summary: "Test native." }, key, openapi }));
   registered.push(key);
 };
 afterEach(() => {

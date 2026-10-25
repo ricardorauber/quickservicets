@@ -7,12 +7,12 @@ import { integer, object } from "./options.ts";
 
 const registered: string[] = [];
 const native = (input: FeatureInput<never> & { options?: never }): FeatureDefinition => {
-  const definition = registerNative(defineFeature(input)) as FeatureDefinition;
+  const definition = registerNative(defineFeature({ docs: { summary: "Test native." }, ...input })) as FeatureDefinition;
   registered.push(definition.key);
   return definition;
 };
 const nativeWithLevel = (key: string, extra: Partial<FeatureInput<never>> = {}) => {
-  const definition = registerNative(defineFeature({ key, options: object({ level: integer().default(1) }), ...extra }));
+  const definition = registerNative(defineFeature({ docs: { summary: "Test native." }, key, options: object({ level: integer().default(1) }), ...extra }));
   registered.push(key);
   return definition;
 };
@@ -33,19 +33,19 @@ const keys = (config: Record<string, unknown>) => resolve(config).features.map((
 
 describe("requirement forms", () => {
   test("requires, after and enables take feature keys; requires entries may carry a hint", () => {
-    const definition = defineFeature({ key: "trail", requires: ["events", { name: "queues", hint: "deliveries run on queues" }], after: ["cache"], enables: ["audit"] });
+    const definition = defineFeature({ docs: { summary: "Test native." }, key: "trail", requires: ["events", { name: "queues", hint: "deliveries run on queues" }], after: ["cache"], enables: ["audit"] });
     expect(definition.requires).toEqual([{ name: "events" }, { name: "queues", hint: "deliveries run on queues" }]);
     expect(definition.after).toEqual(["cache"]);
     expect(definition.enables).toEqual(["audit"]);
     expect(Object.isFrozen(definition.requires)).toBe(true);
-    expect(defineFeature({ key: "plain" })).toMatchObject({ requires: [], after: [], enables: [] });
+    expect(defineFeature({ docs: { summary: "Test native." }, key: "plain" })).toMatchObject({ requires: [], after: [], enables: [] });
   });
 
   test("invalid entries make defineFeature throw", () => {
-    expect(failure(() => defineFeature({ key: "x", requires: ["Events"] })).message).toBe('Invalid feature x: requires has an invalid key "Events"');
-    expect(failure(() => defineFeature({ key: "x", requires: [{ name: "" }] })).message).toStartWith("Invalid feature x: requires has an invalid key");
-    expect(failure(() => defineFeature({ key: "x", after: ["a b"] })).message).toBe('Invalid feature x: after has an invalid key "a b"');
-    expect(failure(() => defineFeature({ key: "x", enables: [3 as never] })).message).toBe("Invalid feature x: enables has an invalid key 3");
+    expect(failure(() => defineFeature({ docs: { summary: "Test native." }, key: "x", requires: ["Events"] })).message).toBe('Invalid feature x: requires has an invalid key "Events"');
+    expect(failure(() => defineFeature({ docs: { summary: "Test native." }, key: "x", requires: [{ name: "" }] })).message).toStartWith("Invalid feature x: requires has an invalid key");
+    expect(failure(() => defineFeature({ docs: { summary: "Test native." }, key: "x", after: ["a b"] })).message).toBe('Invalid feature x: after has an invalid key "a b"');
+    expect(failure(() => defineFeature({ docs: { summary: "Test native." }, key: "x", enables: [3 as never] })).message).toBe("Invalid feature x: enables has an invalid key 3");
   });
 });
 

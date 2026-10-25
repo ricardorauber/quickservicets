@@ -127,15 +127,15 @@ describe("hook names", () => {
     expect(() => registerNative(defineFeature({ key: "audit", docs: { summary: "s" }, options: object({ writeHook: hook() }) }))).toThrow(
       "Invalid feature audit: hook option writeHook must be named before<Step>, after<Step> or on<Event>",
     );
-    expect(() => defineFeature({ key: "audit", options: object({ nested: object({ hooked: hook() }) }) })).toThrow("hook option nested.hooked");
-    expect(() => defineFeature({ key: "audit", options: object({ beforeWrite: hook(), afterWrite: hook(), onFailure: hook() }) })).not.toThrow();
+    expect(() => defineFeature({ docs: { summary: "Test native." }, key: "audit", options: object({ nested: object({ hooked: hook() }) }) })).toThrow("hook option nested.hooked");
+    expect(() => defineFeature({ docs: { summary: "Test native." }, key: "audit", options: object({ beforeWrite: hook(), afterWrite: hook(), onFailure: hook() }) })).not.toThrow();
   });
 });
 
 describe("feature APIs", () => {
   test("a feature adds a hook through another feature's API, run after the config's hooks", async () => {
     const order: string[] = [];
-    const b = defineFeature({
+    const b = defineFeature({ docs: { summary: "Test native." },
       key: "b",
       requires: ["audit"],
       setup(ctx) {
@@ -163,12 +163,12 @@ describe("feature APIs", () => {
   });
 
   test("a disabled feature, an unlisted feature and an unknown hook throw", async () => {
-    const after = defineFeature({ key: "b", after: ["audit"], setup: (ctx) => void ctx.feature("audit") });
+    const after = defineFeature({ docs: { summary: "Test native." }, key: "b", after: ["audit"], setup: (ctx) => void ctx.feature("audit") });
     register(audit, after);
     expect((await failure(() => lifecycleOf({ b: {} }).setup())).message).toBe("b failed in setup: b uses audit, which is not enabled; add audit: {} to quickservice.config.ts");
-    register(defineFeature({ key: "c", setup: (ctx) => void ctx.feature("audit") }));
+    register(defineFeature({ docs: { summary: "Test native." }, key: "c", setup: (ctx) => void ctx.feature("audit") }));
     expect((await failure(() => lifecycleOf({ audit: {}, c: {} }).setup())).message).toBe("c failed in setup: c uses audit; add it to requires or after");
-    register(defineFeature({ key: "d", requires: ["audit"], setup: (ctx) => ctx.feature("audit").addHook("nope" as never, () => undefined) }));
+    register(defineFeature({ docs: { summary: "Test native." }, key: "d", requires: ["audit"], setup: (ctx) => ctx.feature("audit").addHook("nope" as never, () => undefined) }));
     expect((await failure(() => lifecycleOf({ audit: {}, d: {} }).setup())).message).toBe("d failed in setup: Unknown hook nope of audit");
   });
 });

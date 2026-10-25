@@ -121,7 +121,7 @@ export const text: string = env.REPORT_HOUR;
   }, 30_000);
 
   test("a feature's variables are typed with the project's, and a conflicting kind fails", async () => {
-    registerNative(defineFeature({ key: "example", enabledByDefault: true, env: { EXAMPLE_API_URL: url().optional() } }));
+    registerNative(defineFeature({ docs: { summary: "Test native." }, key: "example", enabledByDefault: true, env: { EXAMPLE_API_URL: url().optional() } }));
     const root = project();
     await withVariables(variables, () => build(root));
     expect(readFileSync(join(root, ".generated/types.ts"), "utf8")).toContain("    EXAMPLE_API_URL: string | undefined;");

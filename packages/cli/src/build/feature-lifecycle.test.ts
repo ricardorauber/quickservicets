@@ -9,7 +9,7 @@ const config = (keys = "", database = "memoryAdapter()") => `import { defineConf
 export default defineConfig({ database: ${database}${keys ? `, ${keys}` : ""} });
 `;
 const feature = (key: string, body: string, extra = "") => `import { defineFeature } from "@quickservice/core";
-export default defineFeature({ key: "${key}", ${extra} async setup(ctx) {
+export default defineFeature({ docs: { summary: "Test native." }, key: "${key}", ${extra} async setup(ctx) {
 ${body}
 } });
 `;

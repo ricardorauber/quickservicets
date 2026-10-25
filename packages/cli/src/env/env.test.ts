@@ -35,7 +35,7 @@ afterEach(() => unregisterNative("example"));
 
 describe(".env.example", () => {
   test("one block per variable, with secrets and variables without a default left empty", async () => {
-    registerNative(defineFeature({ key: "example", enabledByDefault: true, env: { EXAMPLE_API_URL: url().optional().describe("Example API") } }));
+    registerNative(defineFeature({ docs: { summary: "Test native." }, key: "example", enabledByDefault: true, env: { EXAMPLE_API_URL: url().optional().describe("Example API") } }));
     const root = project();
     await withVariables(valid, () => build(root));
     expect(read(root)).toBe(`${ENV_EXAMPLE_HEADER}

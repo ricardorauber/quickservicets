@@ -31,7 +31,7 @@ describe("masking", () => {
   });
 
   test("the resolved config masks files.signingSecret and secret feature options", () => {
-    registerNative(defineFeature({ key: "vault", options: object({ token: secret(), name: string().default("main") }) }));
+    registerNative(defineFeature({ docs: { summary: "Test native." }, key: "vault", options: object({ token: secret(), name: string().default("main") }) }));
     const config = resolveConfig({ database: memoryAdapter(), files: { signingSecret: SECRET }, vault: { token: SECRET } } as ServiceConfig, {});
     expect(config.files.signingSecret).toBe(SECRET);
     expect(config.features[0]!.options.token).toBe(SECRET);

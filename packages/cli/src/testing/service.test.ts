@@ -18,7 +18,7 @@ const failure = async (work: () => Promise<unknown>): Promise<Error> => {
   throw new Error("expected a failure");
 };
 const ticker = (clear: boolean) => `import { defineFeature } from "@quickservice/core";
-export default defineFeature({ key: "ticker", setup(ctx) {
+export default defineFeature({ docs: { summary: "Test native." }, key: "ticker", setup(ctx) {
   let timer: ReturnType<typeof setInterval> | undefined;
   ctx.app.onStart(() => { timer = setInterval(() => {}, 1000); });
   ${clear ? "ctx.app.onStop(() => clearInterval(timer));" : ""}
@@ -42,7 +42,7 @@ describe("starting a project", () => {
 
   test("the environment reaches the build and the service, and the database is always the memory adapter", async () => {
     const feature = `import { defineFeature, object, string } from "@quickservice/core";
-export default defineFeature({ key: "greeting", options: object({ text: string().default("Hi") }), setup(ctx) {
+export default defineFeature({ docs: { summary: "Test native." }, key: "greeting", options: object({ text: string().default("Hi") }), setup(ctx) {
   ctx.app.route("GET", "/greeting", () => ({ text: ctx.options.text }));
 } });
 `;
@@ -82,7 +82,7 @@ describe("failures", () => {
 
   test("a startup error rejects with it and leaves no folder", async () => {
     const before = temporaryProjects();
-    const broken = 'import { defineFeature } from "@quickservice/core";\nexport default defineFeature({ key: "broken", setup() { throw new Error("no key"); } });\n';
+    const broken = 'import { defineFeature } from "@quickservice/core";\nexport default defineFeature({ docs: { summary: "Test native." }, key: "broken", setup() { throw new Error("no key"); } });\n';
     const error = await failure(() => startTestService({ files: { "quickservice.config.ts": CONFIG("broken: {}"), "features/broken/index.ts": broken } }));
     expect(error.message).toBe("Startup failed: broken failed in setup: no key");
     expect(temporaryProjects()).toEqual(before);

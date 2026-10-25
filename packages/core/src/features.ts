@@ -556,6 +556,8 @@ const projectFeatures = new Map<string, FeatureDefinition>();
 /** Registers a feature that lives in the core as a native; its key becomes a top-level config key. */
 export function registerNative<S extends AnyOptionSchema>(definition: FeatureDefinition<S>): FeatureDefinition<S> {
   if (natives.has(definition.key)) throw new Error(`Native ${definition.key} is registered twice`);
+  // Every native has a reference page, which starts with its summary.
+  if (!definition.docs?.summary) throw new Error(`Native ${definition.key} needs docs.summary for its reference page`);
   natives.set(definition.key, definition as unknown as FeatureDefinition);
   return definition;
 }

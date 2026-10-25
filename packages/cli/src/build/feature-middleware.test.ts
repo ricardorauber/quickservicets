@@ -44,7 +44,7 @@ declare module "@quickservice/core" {
   interface RequestUser { id: string }
   interface RequestExtensions { example: Greeter }
 }
-export default defineFeature({
+export default defineFeature({ docs: { summary: "Test native." },
   key: "example",
   request: { example: (req: ServiceRequest): Greeter => ({ greet: (name) => \`Hello, \${name} from \${req.path}\` }) },
   middleware: [{ stage: "handler", run: (req, _res, next) => { req.user = { id: "u1" }; return next(); } }],
@@ -65,7 +65,7 @@ export const badGreet = (req: ServiceRequest) => req.example.greet(1);
 describe("features end to end", () => {
   test("a feature's request property and handler middleware reach the project's endpoints", async () => {
     registerNative(
-      defineFeature({
+      defineFeature({ docs: { summary: "Test native." },
         key: "example",
         request: { example: (req) => ({ greet: (name: string) => `Hello, ${name}! (${req.method} ${req.route})` }) },
         middleware: [{ stage: "handler", run: (req, _res, next) => ((req.user = { id: "u1" } as never), next()) }],
@@ -83,7 +83,7 @@ describe("features end to end", () => {
 
   test("optionsFor(req) returns the endpoint's tag options, or the entity's for a generated route", async () => {
     const schema = object({ greeting: string().default("Hello") });
-    const audit: FeatureDefinition<typeof schema> = defineFeature({
+    const audit: FeatureDefinition<typeof schema> = defineFeature({ docs: { summary: "Test native." },
       key: "audit",
       options: schema,
       tags: { audit: { on: ["entity", "endpoint"], options: ["greeting"], description: "d", example: "e" } },

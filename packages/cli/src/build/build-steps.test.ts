@@ -14,7 +14,7 @@ const runs = globalThis as unknown as Record<string, number>;
 /** A project feature whose build step writes `hello.txt` from its greetings, counting its runs in a global. */
 const greeter = (key: string, body = "") => `import { defineFeature } from "@quickservice/core";
 import { readFileSync } from "node:fs";
-export default defineFeature({
+export default defineFeature({ docs: { summary: "Test native." },
   key: "${key}",
   folders: { greetings: { dir: "greetings", description: "Greetings." } },
   async build(ctx) {
@@ -60,7 +60,7 @@ describe("running build steps", () => {
   test("steps run in feature order with the context the feature needs", async () => {
     const order: unknown[] = [];
     const recorder = (key: string, extra = "") => `import { defineFeature, object, string } from "@quickservice/core";
-export default defineFeature({ key: "${key}", ${extra} options: object({ label: string().default("${key}") }), build(ctx) {
+export default defineFeature({ docs: { summary: "Test native." }, key: "${key}", ${extra} options: object({ label: string().default("${key}") }), build(ctx) {
   (globalThis as any).order.push({ key: ctx.options.label, outDir: ctx.outDir.endsWith(".generated/${key}"), root: ctx.root, models: ctx.models.map((model) => model.key), production: ctx.production });
 } });
 `;

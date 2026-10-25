@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import ts from "typescript";
 import { COMMANDS } from "../../packages/cli/src/commands.ts";
@@ -9,7 +9,7 @@ import type { DocumentedTag } from "../../packages/cli/src/tag-docs.ts";
 import { CODES_BY_STATUS } from "../../packages/core/src/errors.ts";
 import { DEFAULT_LIMIT, MAX_LIMIT, MAX_LIST_VALUES, OPERATORS_BY_TYPE } from "../../packages/core/src/query.ts";
 import { configVariable, envNameFor, NOT_OVERRIDABLE } from "../../packages/core/src/environment.ts";
-import { registeredNatives, type FeatureTag } from "../../packages/core/src/features.ts";
+import { NATIVE_FEATURES_DIR, registeredNatives, type FeatureDefinition, type FeatureTag } from "../../packages/core/src/features.ts";
 import { describeOptions, type AnyOptionSchema } from "../../packages/core/src/options.ts";
 import type { CommandDefinition } from "../../packages/core/src/commands.ts";
 
@@ -136,6 +136,8 @@ function nativeSections(): string[] {
     `### \`${native.key}\``,
     "",
     ...(native.docs?.summary ? [native.docs.summary, ""] : []),
+    `Every option, tag, command and hook of \`${native.key}\` is on [its reference page](${featurePageUrl(native.key)}).`,
+    "",
     "| Key | Type | Default | Environment variable | Description |",
     "| --- | --- | --- | --- | --- |",
     ...describeOptions(native.schema, native.key).map(
@@ -337,6 +339,169 @@ function apiPage(): string {
   ].join("\n");
 }
 
+/** The site URL of a native's reference page. */
+export const featurePageUrl = (key: string) => `/reference/features/${key}/`;
+
+/** The kind of a hook option, from its name: `before`, `after` or `on`. */
+export const hookKind = (name: string): "before" | "after" | "on" => (name.startsWith("before") ? "before" : name.startsWith("after") ? "after" : "on");
+
+/** The options of a native as its page lists them; fails naming the native when one has no description. */
+function documentedOptions(native: FeatureDefinition) {
+  const options = describeOptions(native.schema, native.key);
+  const undocumented = options.filter((option) => !option.description).map((option) => option.path);
+  if (undocumented.length > 0) throw new Error(`Native ${native.key}: ${undocumented.join(", ")} ${undocumented.length === 1 ? "has" : "have"} no description; add .describe(...)`);
+  return options;
+}
+
+/**
+ * The members of a native's feature API: the interface its folder names for its key in a `FeatureApis` augmentation
+ * (`interface FeatureApis { history: HistoryApi }`), read from the native's source files.
+ */
+export function featureApiMembers(key: string, dir: string = join(NATIVE_FEATURES_DIR, key)): ApiMember[] {
+  if (!existsSync(dir)) return [];
+  const sources = readdirSync(dir, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile() && /\.ts$/.test(entry.name) && !/\.test\.ts$/.test(entry.name))
+    .map((entry) => join(entry.parentPath, entry.name))
+    .sort()
+    .map((file) => ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.ESNext, true));
+  const interfaces: ts.InterfaceDeclaration[] = [];
+  const collect = (node: ts.Node) => {
+    if (ts.isInterfaceDeclaration(node)) interfaces.push(node);
+    ts.forEachChild(node, collect);
+  };
+  for (const source of sources) collect(source);
+  const augmentation = interfaces.find((declaration) => declaration.name.text === "FeatureApis");
+  const member = augmentation?.members.find((entry) => entry.name?.getText() === key || entry.name?.getText() === JSON.stringify(key));
+  const typeName = member && ts.isPropertySignature(member) && member.type && ts.isTypeReferenceNode(member.type) ? member.type.typeName.getText() : undefined;
+  const api = interfaces.find((declaration) => declaration.name.text === typeName);
+  if (!api) return [];
+  const source = api.getSourceFile();
+  return api.members.map((entry) => ({
+    name: entry.name?.getText(source) ?? "",
+    signature: source.text.slice(entry.getStart(source), entry.end).replace(/\s+/g, " ").trim(),
+    description: ts
+      .getJSDocCommentsAndTags(entry)
+      .filter(ts.isJSDoc)
+      .map((comment) => ts.getTextOfJSDocComment(comment.comment) ?? "")
+      .join(" ")
+      .trim(),
+  }));
+}
+
+/** The reference page of one native: how to turn it on and off, its options, tags, commands, hooks and API. */
+export function featurePage(native: FeatureDefinition): string {
+  const options = documentedOptions(native);
+  const key = native.key;
+  const enabledName = envNameFor(`${key}.enabled`);
+  const hooks = options.filter((option) => option.type === "hook");
+  const tags = Object.entries(native.tags ?? {});
+  const commands = native.commands ?? [];
+  const api = native.api ? featureApiMembers(key) : [];
+  const keys = (list: readonly string[]) => list.map((entry) => code(entry)).join(", ");
+  return [
+    frontmatter(key, native.docs!.summary.replaceAll("\n", " ")),
+    native.docs!.summary,
+    "",
+    "## Enabling",
+    "",
+    "Turn it on in `quickservice.config.ts`:",
+    "",
+    "```ts",
+    `${key}: {}`,
+    "```",
+    "",
+    native.enabledByDefault
+      ? `It is enabled by default; turn it off with ${code(`${key}: false`)} or ${code(`${enabledName}=false`)}.`
+      : `It is not enabled by default: turn it on with ${code(`${key}: {}`)} or ${code(`${enabledName}=true`)}, and off with ${code(`${key}: false`)} or ${code(`${enabledName}=false`)}.`,
+    "",
+    ...(native.requires.length > 0
+      ? [`**Requires:** ${native.requires.map((requirement) => `[${code(requirement.name)}](${featurePageUrl(requirement.name)})${requirement.hint ? ` (${requirement.hint})` : ""}`).join(", ")}`, ""]
+      : []),
+    ...(native.after.length > 0 ? [`**Runs after:** ${keys(native.after)}`, ""] : []),
+    ...(native.enables.length > 0 ? [`**Enables:** ${keys(native.enables)}`, ""] : []),
+    "## Options",
+    "",
+    "| Key | Type | Default | Environment variable | Per request | Description |",
+    "| --- | --- | --- | --- | --- | --- |",
+    ...options.map(
+      (option) =>
+        `| ${code(option.path)} | ${code(option.type)} | ${option.default === undefined ? "—" : code(JSON.stringify(option.default))} | ${option.type === "hook" ? "not overridable" : code(envNameFor(option.path))} | ${option.perRequest ? "yes" : "no"} | ${option.description ?? ""} |`,
+    ),
+    "",
+    ...(tags.length > 0
+      ? [
+          "## Tags",
+          "",
+          ...tags.flatMap(([name, tag]) => [
+            `### \`@${name}\``,
+            "",
+            tag.description,
+            "",
+            `**Applies to:** ${tag.on.map((target) => TARGET_TITLES[target]).join(", ")}`,
+            "",
+            `**Syntax:** ${code(tagSyntax(name, tag))} or ${code(`@${name} off`)}`,
+            "",
+            `**Options:** ${tag.options && tag.options.length > 0 ? tagOptionPaths(tag).map((option) => code(`${key}.${option}`)).join(", ") : "none"}`,
+            "",
+            "```ts",
+            tag.example,
+            "```",
+            "",
+          ]),
+        ]
+      : []),
+    ...(commands.length > 0
+      ? ["## Commands", "", ...commands.flatMap((command) => [`### \`${command.name}\``, "", command.description, "", "```bash", command.usage, "```", "", ...commandDetails(command)])]
+      : []),
+    ...(hooks.length > 0
+      ? [
+          "## Hooks",
+          "",
+          "Hooks are functions (or lists of functions) written in the config; `before` hooks may change the value or cancel the step by throwing, `after` and `on` hooks observe.",
+          "",
+          "| Hook | Kind | Description |",
+          "| --- | --- | --- |",
+          ...hooks.map((option) => `| ${code(option.path)} | ${hookKind(option.path.split(".").at(-1)!)} | ${option.description ?? ""} |`),
+          "",
+        ]
+      : []),
+    ...(native.api
+      ? [
+          "## Feature API",
+          "",
+          `Other features reach it with ${code(`ctx.feature("${key}")`)} in their setup, listing ${code(key)} in \`requires\` or \`after\`.`,
+          "",
+          ...api.flatMap((member) => [`### \`${member.name}\``, "", "```ts", member.signature, "```", "", member.description, ""]),
+        ]
+      : []),
+  ].join("\n");
+}
+
+/** The index of native features, linking each one's page. */
+export function featuresIndex(): string {
+  const natives = registeredNatives();
+  return [
+    "---",
+    "title: Native features",
+    "description: Every native feature of QuickService, with its reference page.",
+    "---",
+    "",
+    "<!-- Generated by `bun run docs:reference`. Do not edit by hand. -->",
+    "",
+    ...(natives.length === 0
+      ? ["No native features are registered."]
+      : [
+          "| Feature | Summary | Enabled by default |",
+          "| --- | --- | --- |",
+          ...natives.map((native) => `| [${code(native.key)}](${featurePageUrl(native.key)}) | ${native.docs?.summary ?? ""} | ${native.enabledByDefault ? "yes" : "no"} |`),
+        ]),
+    "",
+  ].join("\n");
+}
+
+/** The folder of the native features' pages, inside the content folder. */
+export const FEATURE_PAGES_DIR = "reference/features";
+
 /** Page generators keyed by their path inside the `reference/` folder. */
 export const REFERENCE_PAGES: Record<string, () => string> = {
   "tags.mdx": tagsPage,
@@ -347,7 +512,30 @@ export const REFERENCE_PAGES: Record<string, () => string> = {
   "api.mdx": apiPage,
 };
 
-/** Every generated page, keyed by its path inside the content folder. */
+/** Every generated page, keyed by its path inside the content folder: the fixed pages, then one page per native. */
 export function referencePages(): Record<string, string> {
-  return Object.fromEntries(Object.entries(REFERENCE_PAGES).map(([name, page]) => [`reference/${name}`, page()]));
+  return {
+    ...Object.fromEntries(Object.entries(REFERENCE_PAGES).map(([name, page]) => [`reference/${name}`, page()])),
+    [`${FEATURE_PAGES_DIR}/index.md`]: featuresIndex(),
+    ...Object.fromEntries(registeredNatives().map((native) => [`${FEATURE_PAGES_DIR}/${native.key}.mdx`, featurePage(native)])),
+  };
+}
+
+/**
+ * The generated pages that are missing or differ from the files in `contentDir`, and the native pages in it that no
+ * registered native generates any more.
+ */
+export function stalePages(pages: Record<string, string>, contentDir: string = CONTENT): string[] {
+  const stale = Object.entries(pages)
+    .filter(([path, content]) => {
+      try {
+        return readFileSync(join(contentDir, path), "utf8") !== content;
+      } catch {
+        return true;
+      }
+    })
+    .map(([path]) => path);
+  const dir = join(contentDir, FEATURE_PAGES_DIR);
+  const leftovers = existsSync(dir) ? readdirSync(dir).map((name) => `${FEATURE_PAGES_DIR}/${name}`).filter((path) => !Object.hasOwn(pages, path)) : [];
+  return [...stale, ...leftovers.sort()];
 }

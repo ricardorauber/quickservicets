@@ -21,7 +21,7 @@ const failure = async (work: () => Promise<unknown>): Promise<Error> => {
 const modelsOf = async (root: string) => (await import(join(root, ".generated/models.ts"))).models as EntityModel[];
 
 const tag = { on: ["entity", "endpoint"] as const, options: ["greeting", "retention", "channels"], description: "Audits writes.", example: '/** @audit greeting="Good day" */' };
-const audit = defineFeature({
+const audit = defineFeature({ docs: { summary: "Test native." },
   key: "audit",
   options: object({ greeting: string().default("Hello"), retention: duration().default("30d"), channels: list(string()).default(["log"]) }),
   tags: { audit: tag },
@@ -58,7 +58,7 @@ describe("registration and targets", () => {
   });
 
   test("field and endpoint tags are stored on the field and the generated endpoint entry", async () => {
-    register(defineFeature({ key: "audit", options: object({ greeting: string().default("Hello") }), tags: { audit: { ...tag, on: ["field", "endpoint"], options: ["greeting"] } } }));
+    register(defineFeature({ docs: { summary: "Test native." }, key: "audit", options: object({ greeting: string().default("Hello") }), tags: { audit: { ...tag, on: ["field", "endpoint"], options: ["greeting"] } } }));
     const root = project({
       "entities/Post.ts": 'export type Post = {\n  /** @audit greeting=Hey */\n  title: string;\n};\n',
       "endpoints/stats/get.ts": "/** @audit off */\nexport default () => ({ ok: true });\n",
@@ -102,19 +102,19 @@ describe("option validation", () => {
   });
 
   test("a flag tag takes no options, and definitions may only list the feature's options", async () => {
-    register(defineFeature({ key: "audit", options: object({ greeting: string().default("Hello") }), tags: { audit: { on: ["entity"], description: "d", example: "e" } } }));
+    register(defineFeature({ docs: { summary: "Test native." }, key: "audit", options: object({ greeting: string().default("Hello") }), tags: { audit: { on: ["entity"], description: "d", example: "e" } } }));
     const root = project({ "entities/Post.ts": "/** @audit greeting=Hi */\nexport type Post = { a: string };\n" });
     expect((await failure(() => build(root))).message).toBe("entities/Post.ts: invalid @audit: takes no options, got greeting");
-    expect(() => defineFeature({ key: "other", tags: { other: { on: ["entity"], options: ["nope"], description: "d", example: "e" } } })).toThrow(
+    expect(() => defineFeature({ docs: { summary: "Test native." }, key: "other", tags: { other: { on: ["entity"], options: ["nope"], description: "d", example: "e" } } })).toThrow(
       "Invalid feature other: tag @other: nope is not an option of the feature",
     );
-    expect(() => defineFeature({ key: "other", tags: { other: { on: ["table" as never], description: "d", example: "e" } } })).toThrow("on must list entity, field or endpoint");
+    expect(() => defineFeature({ docs: { summary: "Test native." }, key: "other", tags: { other: { on: ["table" as never], description: "d", example: "e" } } })).toThrow("on must list entity, field or endpoint");
   });
 });
 
 describe("conflicts and unknown tags", () => {
   test("a feature tag named like a built-in tag, a hook or another feature's tag fails naming both owners", async () => {
-    register(defineFeature({ key: "audit", tags: { unique: { on: ["entity"], description: "d", example: "e" } } }));
+    register(defineFeature({ docs: { summary: "Test native." }, key: "audit", tags: { unique: { on: ["entity"], description: "d", example: "e" } } }));
     expect((await failure(() => build(project({ "entities/Post.ts": "export type Post = { a: string };\n" })))).message).toBe(
       "Tag @unique of audit conflicts with the built-in tag @unique",
     );
@@ -124,7 +124,7 @@ describe("conflicts and unknown tags", () => {
     expect((await failure(() => build(project({ "entities/Post.ts": "export type Post = { a: string };\n", "hooks/audit.ts": hook })))).message).toBe(
       "Tag @audit of audit conflicts with the hook hooks/audit.ts",
     );
-    const other = `import { defineFeature } from "@quickservice/core";\nexport default defineFeature({ key: "other", tags: { audit: { on: ["entity"], description: "d", example: "e" } } });\n`;
+    const other = `import { defineFeature } from "@quickservice/core";\nexport default defineFeature({ docs: { summary: "Test native." }, key: "other", tags: { audit: { on: ["entity"], description: "d", example: "e" } } });\n`;
     expect((await failure(() => build(project({ "features/other/index.ts": other }, "audit: {}, other: {}")))).message).toBe("Tag @audit of other conflicts with audit");
   });
 

@@ -29,7 +29,7 @@ const NOTE = () => entityModel("Note", { text: field({ type: "string" }) });
 
 const registered: string[] = [];
 const native = (key: string, input: Record<string, unknown>) => {
-  registerNative(defineFeature({ key, ...input }));
+  registerNative(defineFeature({ docs: { summary: "Test native." }, key, ...input }));
   registered.push(key);
 };
 afterEach(() => {
@@ -95,7 +95,7 @@ describe("object and function forms", () => {
 });
 
 describe("folders", () => {
-  const FEATURE = `import { defineFeature } from "@quickservice/core";\nexport default defineFeature({ key: "notes", entities: "./entities" });\n`;
+  const FEATURE = `import { defineFeature } from "@quickservice/core";\nexport default defineFeature({ docs: { summary: "Test native." }, key: "notes", entities: "./entities" });\n`;
 
   test("a project feature's entity folder is parsed with the project's entities, references both ways", async () => {
     const root = project(
@@ -143,7 +143,7 @@ describe("conflicts and overrides", () => {
     native("notes", { entities: [NOTE()] });
     native("memos", { entities: [NOTE()] });
     expect((await failure(() => build(project({}, "notes: {}, memos: {}")))).message).toBe("Features notes and memos both contribute the entity Note");
-    const FOLDER = (key: string) => `import { defineFeature } from "@quickservice/core";\nexport default defineFeature({ key: "${key}", entities: "./entities" });\n`;
+    const FOLDER = (key: string) => `import { defineFeature } from "@quickservice/core";\nexport default defineFeature({ docs: { summary: "Test native." }, key: "${key}", entities: "./entities" });\n`;
     const root = project(
       {
         "features/alpha/index.ts": FOLDER("alpha"),
@@ -172,7 +172,7 @@ describe("conflicts and overrides", () => {
   test("a project entity file replaces a feature folder's entity", async () => {
     const root = project(
       {
-        "features/notes/index.ts": `import { defineFeature } from "@quickservice/core";\nexport default defineFeature({ key: "notes", entities: "./entities" });\n`,
+        "features/notes/index.ts": `import { defineFeature } from "@quickservice/core";\nexport default defineFeature({ docs: { summary: "Test native." }, key: "notes", entities: "./entities" });\n`,
         "features/notes/entities/Note.ts": "export type Note = { text: string };\n",
         "entities/Note.ts": "export type Note = { body: string };\n",
       },

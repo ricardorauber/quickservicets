@@ -93,7 +93,7 @@ describe("definition errors", () => {
   test("a scope that is not an object, an option outside the scope and a shorthand outside the options throw", () => {
     const options = object({ rateLimit: object({ rate: string().default("1/s"), by: string().default("ip") }), headers: string().default("x") });
     const define = (tag: Record<string, unknown>) => () =>
-      defineFeature({ key: "guard", options, tags: { limit: { on: ["entity"], description: "d", example: "e", ...tag } } });
+      defineFeature({ docs: { summary: "Test native." }, key: "guard", options, tags: { limit: { on: ["entity"], description: "d", example: "e", ...tag } } });
     expect(define({ scope: "nope", options: ["rate"] })).toThrow("Invalid tag @limit of guard: scope nope is not an object of the options");
     expect(define({ scope: "headers", options: ["rate"] })).toThrow("Invalid tag @limit of guard: scope headers is not an object of the options");
     expect(define({ scope: "rateLimit", options: ["rate", "burst"] })).toThrow("Invalid tag @limit of guard: burst is not an option of rateLimit");
@@ -132,7 +132,7 @@ describe("optionsFor", () => {
 describe("toggle scopes", () => {
   test("a tag scoped to a toggle sets its keys, and off turns the toggle off, for its target only", async () => {
     const guard = registerNative(
-      defineFeature({
+      defineFeature({ docs: { summary: "Test native." },
         key: "guard",
         options: object({ cors: toggle({ origins: list(string()).default([]) }) }),
         tags: { cors: { on: ["endpoint"], scope: "cors", shorthand: "origins", options: ["origins"], description: "Sets CORS.", example: "/** @cors https://a.dev */" } },

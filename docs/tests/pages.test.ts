@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
+import { registeredNatives } from "../../packages/core/src/features.ts";
 import { pagesUnder } from "../scripts/checks.ts";
 
 const content = join(import.meta.dir, "../src/content/docs");
@@ -46,6 +47,7 @@ const PAGES = [
   "reference/http.mdx",
   "reference/errors.mdx",
   "reference/api.mdx",
+  "reference/features/index.md",
   "recipes/index.md",
   "recipes/permission-checks.md",
   "recipes/uploads-with-entities.md",
@@ -56,5 +58,6 @@ const PAGES = [
 ];
 
 test("every page of the site exists, in English only", () => {
-  expect(pagesUnder(content)).toEqual([...PAGES].sort());
+  const featurePages = registeredNatives().map((native) => `reference/features/${native.key}.mdx`);
+  expect(pagesUnder(content)).toEqual([...PAGES, ...featurePages].sort());
 });

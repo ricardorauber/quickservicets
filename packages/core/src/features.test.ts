@@ -9,7 +9,7 @@ const audit = defineFeature({
   options: object({ level: integer().default(1), target: string().optional() }),
   docs: { summary: "Records who changed what." },
 });
-const stamps = defineFeature({ key: "stamps", options: object({ retention: duration().default("30d") }), enabledByDefault: true });
+const stamps = defineFeature({ docs: { summary: "Test native." }, key: "stamps", options: object({ retention: duration().default("30d") }), enabledByDefault: true });
 
 declare module "./features.ts" {
   interface NativeFeatures {
@@ -45,7 +45,7 @@ describe("definitions", () => {
     expect(audit.docs).toEqual({ summary: "Records who changed what." });
     expect(audit.enabledByDefault).toBe(false);
     expect(Object.keys(audit.schema.settings.shape!)).toEqual(["level", "target", "enabled"]);
-    expect(defineFeature({ key: "plain" }).schema.settings.shape).toHaveProperty("enabled");
+    expect(defineFeature({ docs: { summary: "Test native." }, key: "plain" }).schema.settings.shape).toHaveProperty("enabled");
   });
 
   test("definitions are immutable", () => {
@@ -56,19 +56,19 @@ describe("definitions", () => {
   });
 
   test("invalid keys and options are refused", () => {
-    expect(failure(() => defineFeature({ key: "Bad Key" })).message).toBe("Invalid feature Bad Key: the key must match ^[a-z][a-z0-9-]*$");
-    expect(failure(() => defineFeature({ key: "1st" })).message).toStartWith("Invalid feature 1st:");
-    expect(failure(() => defineFeature({ key: "x", options: string() as never })).message).toBe("Invalid feature x: options must be an object({...}) schema");
-    expect(failure(() => defineFeature({ key: "x", options: object({ enabled: string() }) })).message).toBe(
+    expect(failure(() => defineFeature({ docs: { summary: "Test native." }, key: "Bad Key" })).message).toBe("Invalid feature Bad Key: the key must match ^[a-z][a-z0-9-]*$");
+    expect(failure(() => defineFeature({ docs: { summary: "Test native." }, key: "1st" })).message).toStartWith("Invalid feature 1st:");
+    expect(failure(() => defineFeature({ docs: { summary: "Test native." }, key: "x", options: string() as never })).message).toBe("Invalid feature x: options must be an object({...}) schema");
+    expect(failure(() => defineFeature({ docs: { summary: "Test native." }, key: "x", options: object({ enabled: string() }) })).message).toBe(
       "Invalid feature x: enabled is an implicit option and cannot be declared",
     );
   });
 
   test("built-in config keys are reserved", () => {
-    expect(failure(() => defineFeature({ key: "jobs" })).message).toBe("Invalid feature jobs: jobs is a built-in config key");
-    expect(failure(() => defineFeature({ key: "server" })).message).toBe("Invalid feature server: server is a built-in config key");
+    expect(failure(() => defineFeature({ docs: { summary: "Test native." }, key: "jobs" })).message).toBe("Invalid feature jobs: jobs is a built-in config key");
+    expect(failure(() => defineFeature({ docs: { summary: "Test native." }, key: "server" })).message).toBe("Invalid feature server: server is a built-in config key");
     for (const key of ["database", "env", "plugins", "middleware", "lifecycle", "features"]) {
-      expect(failure(() => defineFeature({ key })).message).toContain(`${key} is a built-in config key`);
+      expect(failure(() => defineFeature({ docs: { summary: "Test native." }, key })).message).toContain(`${key} is a built-in config key`);
     }
   });
 });
@@ -138,7 +138,7 @@ describe("option resolution", () => {
 describe("options()", () => {
   test("reads the resolved options once a configuration enabling the feature is resolved", () => {
     register(audit);
-    const local = defineFeature({ key: "local", options: object({ level: integer().default(0) }) });
+    const local = defineFeature({ docs: { summary: "Test native." }, key: "local", options: object({ level: integer().default(0) }) });
     expect(failure(() => local.options()).message).toBe("local is not enabled; add local: {} to quickservice.config.ts");
     resolve({ audit: { level: 2 } });
     const level: number = audit.options().level;

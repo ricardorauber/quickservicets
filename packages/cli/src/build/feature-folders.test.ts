@@ -27,7 +27,7 @@ const greetings = { dir: "greetings", check: (value: unknown) => typeof value ==
 const cleanups: (() => void)[] = [];
 const native = (extra: Record<string, unknown> = {}, files?: Record<string, string>) => {
   if (files) cleanups.push(writeNativeFolder("audit", files));
-  registerNative(defineFeature({ key: "audit", folders: { greetings }, ...extra }));
+  registerNative(defineFeature({ docs: { summary: "Test native." }, key: "audit", folders: { greetings }, ...extra }));
   cleanups.push(() => unregisterNative("audit"));
 };
 afterEach(() => {
@@ -71,7 +71,7 @@ describe("scanning folders", () => {
 
   test("a project feature's folder is imported by relative paths", async () => {
     const feature = `import { defineFeature } from "@quickservice/core";
-export default defineFeature({ key: "audit", folders: { greetings: { dir: "greetings", description: "Greetings." } } });
+export default defineFeature({ docs: { summary: "Test native." }, key: "audit", folders: { greetings: { dir: "greetings", description: "Greetings." } } });
 `;
     const root = project({ "features/audit/index.ts": feature, "features/audit/greetings/formal.ts": 'export default "Good day";\n' });
     await build(root);
@@ -101,7 +101,7 @@ describe("reserved and shared folders", () => {
     expect(() => resolveConfig({ database: memoryAdapter(), audit: {} } as never, {})).toThrow("Folder hooks of audit is reserved by the core");
     cleanups.splice(0).forEach((cleanup) => cleanup());
     native();
-    registerNative(defineFeature({ key: "notes", folders: { messages: { ...greetings } } }));
+    registerNative(defineFeature({ docs: { summary: "Test native." }, key: "notes", folders: { messages: { ...greetings } } }));
     cleanups.push(() => unregisterNative("notes"));
     expect(() => resolveConfig({ database: memoryAdapter(), audit: {}, notes: {} } as never, {})).toThrow("Folder greetings is declared by both audit and notes");
     expect(() => resolveConfig({ database: memoryAdapter(), audit: {} } as never, {})).not.toThrow();
@@ -159,7 +159,7 @@ describe("dev watch paths", () => {
     const root = project({
       "greetings/formal.ts": 'export default "Good day";\n',
       "content/notes.md": "# Notes\n",
-      "features/extra/index.ts": 'import { defineFeature } from "@quickservice/core";\nexport default defineFeature({ key: "extra" });\n',
+      "features/extra/index.ts": 'import { defineFeature } from "@quickservice/core";\nexport default defineFeature({ docs: { summary: "Test native." }, key: "extra" });\n',
     });
     let builds = 0;
     let starts = 0;

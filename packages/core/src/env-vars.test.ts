@@ -30,7 +30,7 @@ describe("declarations", () => {
   });
 
   test("feature variables merge with the project's; different kinds fail", () => {
-    const example = defineFeature({ key: "example", env: { EXAMPLE_API_URL: url().optional(), SHARED: string().describe("From the feature.").default("feature") } });
+    const example = defineFeature({ docs: { summary: "Test native." }, key: "example", env: { EXAMPLE_API_URL: url().optional(), SHARED: string().describe("From the feature.").default("feature") } });
     registerNative(example);
     expect(resolve(values, { example: {} }).features).toHaveLength(1);
     expect(vars.EXAMPLE_API_URL).toBeUndefined();
@@ -51,7 +51,7 @@ describe("declarations", () => {
   });
 
   test("a disabled feature declares nothing", () => {
-    registerNative(defineFeature({ key: "example", env: { EXAMPLE_TOKEN: secret() } }));
+    registerNative(defineFeature({ docs: { summary: "Test native." }, key: "example", env: { EXAMPLE_TOKEN: secret() } }));
     expect(() => resolve(values)).not.toThrow();
     expect(failure(() => resolve(values, { example: {} })).message).toContain("EXAMPLE_TOKEN is required (secret)");
   });

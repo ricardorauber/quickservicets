@@ -40,12 +40,12 @@ const NATIVE_FILES = files(() => "../../public.ts");
 const PROJECT_FILES = files(() => "@quickservice/core");
 const prefixed = (prefix: string, entries: Record<string, string>) => Object.fromEntries(Object.entries(entries).map(([path, content]) => [`${prefix}${path}`, content]));
 const featureIndex = (key: string) =>
-  `import { defineFeature } from "@quickservice/core";\nexport default defineFeature({ key: "${key}", endpoints: "./endpoints", hooks: "./hooks", jobs: "./jobs" });\n`;
+  `import { defineFeature } from "@quickservice/core";\nexport default defineFeature({ docs: { summary: "Test native." }, key: "${key}", endpoints: "./endpoints", hooks: "./hooks", jobs: "./jobs" });\n`;
 
 const cleanups: (() => void)[] = [];
 const notesNative = () => {
   cleanups.push(writeNativeFolder("notes", NATIVE_FILES));
-  registerNative(defineFeature({ key: "notes", endpoints: "./endpoints", hooks: "./hooks", jobs: "./jobs" }));
+  registerNative(defineFeature({ docs: { summary: "Test native." }, key: "notes", endpoints: "./endpoints", hooks: "./hooks", jobs: "./jobs" }));
   cleanups.push(() => unregisterNative("notes"));
 };
 afterEach(() => {
@@ -129,7 +129,7 @@ describe("project overrides", () => {
   });
 
   test("a feature endpoint overrides a generated route, and a project endpoint overrides the feature's", async () => {
-    const feature = `import { defineFeature } from "@quickservice/core";\nexport default defineFeature({ key: "profiles", endpoints: "./endpoints" });\n`;
+    const feature = `import { defineFeature } from "@quickservice/core";\nexport default defineFeature({ docs: { summary: "Test native." }, key: "profiles", endpoints: "./endpoints" });\n`;
     const read_ = 'export default (_repos: unknown, req: { params: { id: string } }) => ({ id: req.params.id, email: "feature" });\n';
     const root = project({ "features/profiles/index.ts": feature, "features/profiles/endpoints/users/[id]/get.ts": read_ }, "profiles: {}");
     await build(root);

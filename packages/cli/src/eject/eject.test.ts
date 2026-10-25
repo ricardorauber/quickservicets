@@ -13,7 +13,7 @@ import { rewriteImports } from "./eject.ts";
 
 const NATIVE = {
   "index.ts": `import { defineFeature, object, string } from "../public.ts";
-export default defineFeature({ key: "audit", options: object({ greeting: string().default("Hello") }), jobs: "./jobs", endpoints: "./endpoints" });
+export default defineFeature({ docs: { summary: "Test native." }, key: "audit", options: object({ greeting: string().default("Hello") }), jobs: "./jobs", endpoints: "./endpoints" });
 `,
   "jobs/prune.ts": `import { job } from "../../public.ts";
 import { message } from "../lib/message.ts";

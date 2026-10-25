@@ -244,15 +244,28 @@ export interface QueueTypeEntry {
   specifier: string;
 }
 
-/** The `QueuePayloads` entries of the declared queues, each typed with its file's payload. */
-export function queuePayloadLines(queues: readonly QueueTypeEntry[]): string[] {
-  if (queues.length === 0) return [];
+/** A queue entities publish their write events to, with the event types it receives. */
+export interface PublishedQueueEntry {
+  name: string;
+  /** Event types like `user.created`. */
+  types: readonly string[];
+}
+
+/**
+ * The `QueuePayloads` entries of the declared queues, each typed with its file's payload, and of the queues entities
+ * publish to, typed with the write events they receive (over the file's type, which may itself use them).
+ */
+export function queuePayloadLines(queues: readonly QueueTypeEntry[], published: readonly PublishedQueueEntry[] = []): string[] {
+  const publishedNames = new Set(published.map((entry) => entry.name));
+  const files = queues.filter((entry) => !publishedNames.has(entry.name));
+  if (files.length === 0 && published.length === 0) return [];
   return [
-    'import type { QueuePayloadOf } from "@quickservice/core";',
+    `import type { ${[...(files.length > 0 ? ["QueuePayloadOf"] : []), ...(published.length > 0 ? ["EventMap"] : [])].join(", ")} } from "@quickservice/core";`,
     "",
     'declare module "@quickservice/core" {',
     "  interface QueuePayloads {",
-    ...queues.map((entry) => `    ${JSON.stringify(entry.name)}: QueuePayloadOf<typeof import(${JSON.stringify(entry.specifier)}).default>;`),
+    ...files.map((entry) => `    ${JSON.stringify(entry.name)}: QueuePayloadOf<typeof import(${JSON.stringify(entry.specifier)}).default>;`),
+    ...published.map((entry) => `    ${JSON.stringify(entry.name)}: ${entry.types.map((type) => `EventMap[${JSON.stringify(type)}]`).join(" | ")};`),
     "  }",
     "}",
     "",

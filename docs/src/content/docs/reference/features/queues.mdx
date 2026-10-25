@@ -17,6 +17,8 @@ queues: {}
 
 It is not enabled by default: turn it on with `queues: {}` or `QS_QUEUES_ENABLED=true`, and off with `queues: false` or `QS_QUEUES_ENABLED=false`.
 
+**Runs after:** `events`
+
 ## Options
 
 | Key | Type | Default | Environment variable | Per request | Description |
@@ -35,7 +37,27 @@ It is not enabled by default: turn it on with `queues: {}` or `QS_QUEUES_ENABLED
 | `queues.overrides.<name>.retries` | `record of integer` | — | `QS_QUEUES_OVERRIDES_<NAME>_RETRIES` | no | How many times a failed message of the queue is retried. |
 | `queues.overrides.<name>.retryDelay` | `record of duration` | — | `QS_QUEUES_OVERRIDES_<NAME>_RETRY_DELAY` | no | The first retry delay of the queue. |
 | `queues.overrides.<name>.dedupeWindow` | `record of duration` | — | `QS_QUEUES_OVERRIDES_<NAME>_DEDUPE_WINDOW` | no | How long a completed message of the queue keeps deduplicating its key. |
+| `queues.publish.queue` | `string` | `"events"` | `QS_QUEUES_PUBLISH_QUEUE` | no | The queue an entity tagged @publish sends its write events to. |
+| `queues.publish.events` | `("created" \| "updated" \| "deleted")[]` | `["created","updated","deleted"]` | `QS_QUEUES_PUBLISH_EVENTS` | no | The write operations a tagged entity publishes: created, updated and deleted. |
+| `queues.publish.fields` | `string[]` | — | `QS_QUEUES_PUBLISH_FIELDS` | no | The only fields, with id, kept in a published event's before and after; all but hidden and sensitive fields without it. |
 | `queues.enabled` | `boolean` | `true` | `QS_QUEUES_ENABLED` | no | Turns the feature off when false. |
+
+## Tags
+
+### `@publish`
+
+`@publish` sends the entity's write events to a queue (`publish.queue`, default `events`) in the write's transaction; `events` limits the operations, `fields` the fields of `before` and `after`.
+
+**Applies to:** entities
+
+**Syntax:** `@publish <events> [queue=…] [fields=…]` or `@publish off`
+
+**Options:** `queues.publish.events`, `queues.publish.queue`, `queues.publish.fields`
+
+```ts
+/** @publish created,updated queue=crm-sync */
+export type User = { email: string };
+```
 
 ## Commands
 

@@ -35,7 +35,8 @@ import { runBuildSteps, type BuildStepResult } from "./build-steps.ts";
 import { activeFeatureTags, assertNoHookConflicts, useFeatureTags } from "../entities/feature-tags.ts";
 import { validateHookReferences } from "../hooks/validate-hook-references.ts";
 import { hasPendingChanges, sqlDialectOf } from "../migrations/add.ts";
-import { envVarsLines, generateTypesFile, queuePayloadLines, type QueueTypeEntry } from "./generate-types.ts";
+import { envVarsLines, generateTypesFile, queuePayloadLines, type PublishedQueueEntry, type QueueTypeEntry } from "./generate-types.ts";
+import { publishProblems, publishTargets, type PublishTarget } from "./queue-publish.ts";
 import { extractQueryItems } from "../endpoints/query-items.ts";
 import { describeEndpoints } from "../openapi/endpoint-docs.ts";
 import { generateOpenApi } from "../openapi/generate-openapi.ts";
@@ -273,6 +274,17 @@ function queueTypes(files: readonly FolderFile[]): QueueTypeEntry[] {
   return files.filter((entry) => entry.feature === "queues" && entry.folder === "queues").map((entry) => ({ name: entry.name, specifier: importPath(entry.file) }));
 }
 
+/** The queues entities publish to, with the write event types each receives. */
+function publishedQueues(targets: readonly PublishTarget[]): PublishedQueueEntry[] {
+  const byQueue = new Map<string, string[]>();
+  for (const { entity, queue, events } of targets) {
+    const types = byQueue.get(queue) ?? [];
+    for (const operation of events) types.push(`${entity.entityName.charAt(0).toLowerCase()}${entity.entityName.slice(1)}.${operation}`);
+    byQueue.set(queue, types);
+  }
+  return [...byQueue].map(([name, types]) => ({ name, types: [...new Set(types)] }));
+}
+
 /** On MongoDB and memory, unpaired reference arrays are embedded, so their `@joinTable` has no effect. */
 export function joinTableWarnings(models: EntityModel[], kind: string | undefined): string[] {
   if (kind !== "mongodb" && kind !== "memory") return [];
@@ -320,6 +332,8 @@ async function buildProject(projectRoot: string, config: ResolvedConfig, options
   overrides.push(...scanned.overrides);
   const { hooks, jobs } = scanned;
   const folderFiles = await scanFeatureFolders(projectRoot, config.features, overrides);
+  const publishing = publishTargets(models, config.features);
+  const publishWarnings = publishProblems(publishing, new Set(queueTypes(folderFiles).map((entry) => entry.name)));
   assertNoHookConflicts(activeFeatureTags(), hooks);
   const endpoints: ScannedEndpoint[] = scanned.endpoints.map((route) => ({
     route,
@@ -377,7 +391,7 @@ async function buildProject(projectRoot: string, config: ResolvedConfig, options
 
   const files: Record<string, string> = {
     "models.ts": `${HEADER}\nimport type { EntityModel } from "@quickservice/core";\n\nexport const models: EntityModel[] = ${JSON.stringify(models, null, 2)};\n`,
-    "types.ts": [generateTypesFile(models, envVarsLines(variables)), ...featureTypeLines(featureKeys), ...queuePayloadLines(queueTypes(folderFiles))].join("\n"),
+    "types.ts": [generateTypesFile(models, envVarsLines(variables)), ...featureTypeLines(featureKeys), ...queuePayloadLines(queueTypes(folderFiles), publishedQueues(publishing))].join("\n"),
     "features.ts": generateFeaturesFile(HEADER, featureKeys, folderFiles.map((entry) => ({ ...entry, specifier: importPath(entry.file) }))),
     "routes.ts": generateRoutesFile(models, resolved, hooks),
     "jobs.ts": generateJobsFile(jobs),
@@ -393,7 +407,7 @@ async function buildProject(projectRoot: string, config: ResolvedConfig, options
 
   const buildSteps = await runBuildSteps({ root: projectRoot, generatedDir: join(projectRoot, GENERATED_DIR), config, models, folderFiles, only: options.steps });
   const envExampleWarning = writeEnvExample(projectRoot, variables);
-  const warnings: string[] = [...config.warnings, ...(envExampleWarning ? [envExampleWarning] : []), ...joinTableWarnings(models, config.database.kind), ...vectorIndexWarnings(models, config.database.kind)];
+  const warnings: string[] = [...config.warnings, ...publishWarnings, ...(envExampleWarning ? [envExampleWarning] : []), ...joinTableWarnings(models, config.database.kind), ...vectorIndexWarnings(models, config.database.kind)];
   const tsconfigWarning = generatedIncludeWarning(projectRoot);
   if (tsconfigWarning) warnings.push(tsconfigWarning);
   warnings.push(...endpointDocs.warnings);

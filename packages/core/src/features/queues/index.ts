@@ -1,9 +1,10 @@
-import { boolean, defineFeature, duration, integer, object, parseDuration, record } from "../public.ts";
+import { boolean, defineFeature, duration, integer, list, object, oneOf, parseDuration, record, string, type EntityModel, type FeatureSetupContext, type WriteEvent } from "../public.ts";
 import { queueClient } from "./client.ts";
 import { queueCommands } from "./commands.ts";
 import { createDatabaseQueue, type QueueSettings } from "./database.ts";
 import { messagePlacement } from "./message-options.ts";
 import { queueMessageEntity } from "./message.ts";
+import { PUBLISH_OPERATIONS, publishedPayload, type PublishSettings } from "./publish.ts";
 import { isQueueDefinition, type QueueDefinition } from "./queue.ts";
 import { running, sharedState, type RunningQueues } from "./state.ts";
 
@@ -30,7 +31,18 @@ const options = object({
       dedupeWindow: duration().optional().describe("How long a completed message of the queue keeps deduplicating its key."),
     }),
   ).describe("Options of single queues by queue name, over the queue file's options."),
+  publish: object({
+    queue: string().default("events").describe("The queue an entity tagged @publish sends its write events to."),
+    events: list(oneOf(PUBLISH_OPERATIONS))
+      .default([...PUBLISH_OPERATIONS])
+      .describe("The write operations a tagged entity publishes: created, updated and deleted."),
+    fields: list(string()).optional().describe("The only fields, with id, kept in a published event's before and after; all but hidden and sensitive fields without it."),
+  })
+    .default({})
+    .describe("Where and what entities tagged @publish send: each write event becomes a message, added in the write's transaction."),
 });
+
+const lowerFirst = (name: string) => `${name.charAt(0).toLowerCase()}${name.slice(1)}`;
 
 /** Undoes the process-wide state of the running service's setup. */
 const lifecycle = sharedState("lifecycle", () => ({ teardown: undefined as (() => void) | undefined }));
@@ -54,7 +66,19 @@ const queuesFeature = defineFeature({
   key: "queues",
   docs: { summary: "Background queues stored in the project's database, with consumers declared as files in queues/." },
   options,
+  // Publishing write events needs the events native when an entity uses @publish; it runs first when enabled.
+  after: ["events"],
   entities: () => [queueMessageEntity()],
+  tags: {
+    publish: {
+      on: ["entity"],
+      scope: "publish",
+      options: ["events", "queue", "fields"],
+      shorthand: "events",
+      description: "`@publish` sends the entity's write events to a queue (`publish.queue`, default `events`) in the write's transaction; `events` limits the operations, `fields` the fields of `before` and `after`.",
+      example: "/** @publish created,updated queue=crm-sync */\nexport type User = { email: string };",
+    },
+  },
   folders: {
     queues: {
       dir: "queues",
@@ -75,6 +99,13 @@ const queuesFeature = defineFeature({
     const declared = new Map<string, QueueDefinition>();
     for (const [name, file] of ctx.folders.queues ?? []) if (isQueueDefinition(file)) declared.set(name, file);
     const names = new Set(declared.keys());
+    // Entities tagged @publish send their write events to a queue, which add then knows.
+    const publishing = ctx.models.flatMap((entity) => {
+      if (entity.system || entity.link) return [];
+      const target = queuesFeature.optionsFor(entity);
+      return target.on === true ? [{ entity, settings: target.publish as PublishSettings }] : [];
+    });
+    for (const { settings } of publishing) names.add(settings.queue);
     const settingsOf = (name: string): QueueSettings => {
       const file = declared.get(name)?.options ?? {};
       return {
@@ -109,6 +140,7 @@ const queuesFeature = defineFeature({
       retryDead: (queue) => store.retryDead(queue),
     };
     running.current = native;
+    if (publishing.length > 0) publishWrites(ctx, publishing, (queue, payload, event) => native.add(queue, payload, { dedupeKey: event.id }, event.requestId ? { requestId: event.requestId } : {}));
     const stop = () => {
       lifecycle.teardown = undefined;
       if (running.current === native) running.current = undefined;
@@ -124,6 +156,27 @@ const queuesFeature = defineFeature({
     ctx.app.onStop(() => store.drain(Math.min(parseDuration(ctx.config.jobs.shutdownGrace) ?? 10_000, stopLimit)));
   },
 });
+
+/** Adds an `inTransaction` listener per tagged entity that adds one message per listed write event. */
+function publishWrites(
+  ctx: Pick<FeatureSetupContext, "config" | "feature">,
+  publishing: { entity: EntityModel; settings: PublishSettings }[],
+  add: (queue: string, payload: unknown, event: WriteEvent) => Promise<unknown>,
+): void {
+  if (!ctx.config.features.some((feature) => feature.key === "events")) {
+    const names = publishing.map(({ entity }) => entity.entityName).join(", ");
+    throw new Error(`queues requires events; add events: {} to quickservice.config.ts (@publish on ${names} sends write events)`);
+  }
+  for (const { entity, settings } of publishing) {
+    const payloadOf = publishedPayload(entity, settings);
+    const listener = async (event: WriteEvent) => {
+      if (event.entity !== entity.entityName || !settings.events.includes(event.operation)) return;
+      // Inside the write's transaction: the message exists exactly when the write commits.
+      await add(settings.queue, payloadOf(event), event);
+    };
+    ctx.feature("events").on(`${lowerFirst(entity.entityName)}.*`, listener as never, { phase: "inTransaction" });
+  }
+}
 
 export default queuesFeature;
 export { queuesFeature };

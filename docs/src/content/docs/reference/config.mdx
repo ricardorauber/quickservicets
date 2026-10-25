@@ -288,4 +288,22 @@ Every option, tag, command and hook of `queues` is on [its reference page](/refe
 | `queues.overrides.<name>.retries` | `record of integer` | — | `QS_QUEUES_OVERRIDES_<NAME>_RETRIES` | How many times a failed message of the queue is retried. |
 | `queues.overrides.<name>.retryDelay` | `record of duration` | — | `QS_QUEUES_OVERRIDES_<NAME>_RETRY_DELAY` | The first retry delay of the queue. |
 | `queues.overrides.<name>.dedupeWindow` | `record of duration` | — | `QS_QUEUES_OVERRIDES_<NAME>_DEDUPE_WINDOW` | How long a completed message of the queue keeps deduplicating its key. |
+| `queues.publish.queue` | `string` | `"events"` | `QS_QUEUES_PUBLISH_QUEUE` | The queue an entity tagged @publish sends its write events to. |
+| `queues.publish.events` | `("created" \| "updated" \| "deleted")[]` | `["created","updated","deleted"]` | `QS_QUEUES_PUBLISH_EVENTS` | The write operations a tagged entity publishes: created, updated and deleted. |
+| `queues.publish.fields` | `string[]` | — | `QS_QUEUES_PUBLISH_FIELDS` | The only fields, with id, kept in a published event's before and after; all but hidden and sensitive fields without it. |
 | `queues.enabled` | `boolean` | `true` | `QS_QUEUES_ENABLED` | Turns the feature off when false. |
+
+#### `@publish`
+
+`@publish` sends the entity's write events to a queue (`publish.queue`, default `events`) in the write's transaction; `events` limits the operations, `fields` the fields of `before` and `after`.
+
+**Applies to:** entities
+
+**Options:** `publish.events`, `publish.queue`, `publish.fields`
+
+**Syntax:** `@publish <events> [queue=…] [fields=…]` or `@publish off`
+
+```ts
+/** @publish created,updated queue=crm-sync */
+export type User = { email: string };
+```

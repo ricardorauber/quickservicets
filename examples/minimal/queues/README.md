@@ -42,7 +42,12 @@ QS_QUEUES_CONSUME=false bun .generated/server.ts
 
 ## Level 2: tags
 
-Not applicable: queues have no entity, field or endpoint of their own, so the native adds no tag yet.
+`@publish` sends an entity's write events to a queue in the write's transaction (`events` queue by default); it needs `events: {}`:
+
+```ts
+/** @publish created,updated queue=events */
+export type User = { email: string };
+```
 
 ## Level 3: per request
 

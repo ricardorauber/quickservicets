@@ -28,6 +28,7 @@ describe("options", () => {
         maxRetryDelay: "1h",
         retention: { completed: "7d", dead: "30d" },
         overrides: {},
+        publish: { queue: "events", events: ["created", "updated", "deleted"] },
       });
     }
     const described = describeOptions(queuesFeature.schema, "queues");

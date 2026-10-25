@@ -138,6 +138,8 @@ export interface ResolvedConfig
   features: ResolvedFeature[];
   /** The keys of the registered features that are disabled. */
   disabledFeatures: string[];
+  /** The natives enabled through another feature's `enables`, with the keys of the features that listed them. */
+  enabledBy: Record<string, string[]>;
 }
 
 const SCHEMA_NAME = /^[a-z][a-z0-9-]*$/;
@@ -290,11 +292,12 @@ export function resolveConfig(
     throw new ConfigError("Invalid config: database is required");
   }
   const production = config.production ?? env.NODE_ENV === "production";
-  const { features, disabledFeatures } = resolveFeatures(config as unknown as Record<string, unknown>);
+  const { features, disabledFeatures, enabledBy } = resolveFeatures(config as unknown as Record<string, unknown>);
   return {
     ...config,
     features,
     disabledFeatures,
+    enabledBy,
     server: { ...config.server, port: resolvePort(config, env), workers: resolveWorkers(config, env, cpus, production, platform) },
     production,
     docs: { enabled: config.docs?.enabled ?? !production },

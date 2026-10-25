@@ -11,3 +11,4 @@ description: Every native feature of QuickService, with its reference page.
 | [`events`](/reference/features/events/) | Write events for every entity, delivered to listeners inside the write's transaction or after its commit. | no |
 | [`queues`](/reference/features/queues/) | Background queues stored in the project's database, with consumers declared as files in queues/. | no |
 | [`health`](/reference/features/health/) | Liveness and readiness routes for orchestrators and load balancers, checking the database, the queue and the checks features add. | no |
+| [`idempotency`](/reference/features/idempotency/) | Idempotency keys: a request repeated with the same Idempotency-Key gets the first response again without running twice. | no |

@@ -69,6 +69,8 @@ export interface Server {
 class ResponseControls implements ServiceResponse {
   statusCode: number | undefined;
   readonly headers = new Headers();
+  /** The status of a success response when the handler sets none: the route's `@status`. */
+  defaultStatus: number | undefined;
 
   status(code: number): ServiceResponse {
     this.statusCode = code;
@@ -238,6 +240,7 @@ export function createServer({ routes, repos, config: serverConfig, jobs = noReq
       const req = createRequest(request, url, match.params, requestId, jobs, match.route.value.path, clientIp);
       state.req = properties ? withRequestProperties(req, properties) : req;
       const res = new ResponseControls();
+      res.defaultStatus = match.route.value.status;
       const result = await match.route.value.handler(repos, state.req, res);
       return toResponse(result, res, match.route.value.status);
     } catch (error) {

@@ -337,3 +337,33 @@ Every option, tag, command and hook of `health` is on [its reference page](/refe
 | `health.onStatusChange` | `hook` | — | not overridable | Runs when the overall readiness of this worker changes, with the old and new status and the checks; with events enabled the change is also the event health.status.changed. |
 | `health.prober` | `HealthProber` | — | not overridable | Replaces how the checks are run and combined: its run method gets the registered checks and returns the ready response. |
 | `health.enabled` | `boolean` | `true` | `QS_HEALTH_ENABLED` | Turns the feature off when false. |
+
+### `idempotency`
+
+Idempotency keys: a request repeated with the same Idempotency-Key gets the first response again without running twice.
+
+Every option, tag, command and hook of `idempotency` is on [its reference page](/reference/features/idempotency/).
+
+| Key | Type | Default | Environment variable | Description |
+| --- | --- | --- | --- | --- |
+| `idempotency.header` | `string` | `"Idempotency-Key"` | `QS_IDEMPOTENCY_HEADER` | The request header that carries the key. |
+| `idempotency.methods` | `("POST" \| "PUT" \| "PATCH" \| "DELETE")[]` | `["POST"]` | `QS_IDEMPOTENCY_METHODS` | The methods whose routes honor keys; @idempotent turns a route on for any method. |
+| `idempotency.required` | `boolean` | `false` | `QS_IDEMPOTENCY_REQUIRED` | Rejects requests without the header with 400 on the routes that honor keys. |
+| `idempotency.ttl` | `duration` | `"24h"` | `QS_IDEMPOTENCY_TTL` | How long a stored response is replayed for its key. |
+| `idempotency.maxResponseSize` | `size` | `"1MB"` | `QS_IDEMPOTENCY_MAX_RESPONSE_SIZE` | The largest response body stored for replays; larger ones release the key. |
+| `idempotency.enabled` | `boolean` | `true` | `QS_IDEMPOTENCY_ENABLED` | Turns the feature off when false. |
+
+#### `@idempotent`
+
+`@idempotent` honors keys on an endpoint whatever its method, or on an entity's create route; `required` and `ttl` override the options there, and `@idempotent off` ignores keys.
+
+**Applies to:** entities, endpoints
+
+**Options:** `required`, `ttl`
+
+**Syntax:** `@idempotent [required=…] [ttl=…]` or `@idempotent off`
+
+```ts
+/** @idempotent required=true ttl=7d */
+export type Order = { total: number };
+```

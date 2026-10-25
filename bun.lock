@@ -56,6 +56,13 @@
         "@quickservice/core": "workspace:*",
       },
     },
+    "examples/minimal/idempotency": {
+      "name": "minimal-idempotency",
+      "dependencies": {
+        "@quickservice/cli": "workspace:*",
+        "@quickservice/core": "workspace:*",
+      },
+    },
     "examples/minimal/queues": {
       "name": "minimal-queues",
       "dependencies": {
@@ -735,6 +742,8 @@
     "minimal-events": ["minimal-events@workspace:examples/minimal/events"],
 
     "minimal-health": ["minimal-health@workspace:examples/minimal/health"],
+
+    "minimal-idempotency": ["minimal-idempotency@workspace:examples/minimal/idempotency"],
 
     "minimal-queues": ["minimal-queues@workspace:examples/minimal/queues"],
 

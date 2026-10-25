@@ -435,7 +435,7 @@ content-length: 5009
 (the PDF bytes)
 ```
 
-The `files` item of the security native keeps a browser from running an uploaded file as a page of the service: every file response carries `X-Content-Type-Options: nosniff` and a sandboxing `Content-Security-Policy`, and types a browser could run (HTML, SVG, XML, JavaScript and CSS, listed in `security.files.attachmentTypes`) are sent with `Content-Disposition: attachment`. `security: { files: false }` sends the plain headers above. Files in `direct` mode are served by the storage or CDN, which needs the same headers set there.
+The `files` item of the security native keeps a browser from running an uploaded file as a page of the service: every file response carries `X-Content-Type-Options: nosniff` and a sandboxing `Content-Security-Policy`, and types a browser could run (HTML, SVG, XML, JavaScript and CSS, listed in `security.files.attachmentTypes`) are sent with `Content-Disposition: attachment`. `security: { files: false }` sends the plain headers above. Files in `direct` mode are served by the storage or CDN, which needs the same headers set there (see [Security](/guides/security/)).
 
 ### `signed`
 
@@ -547,5 +547,6 @@ curl localhost:3000/media/01a146d1-c194-70f5-8e7b-b9c8fc884a3b
 - [Tags](/reference/tags/): `@maxSize`, `@accept`, `@access`, `@storage`, `@maxTotalSize` and `@keepFile`.
 - [Configuration](/reference/config/): the `storage` and `files.*` keys.
 - [Errors](/reference/errors/): every status and message.
+- [Security](/guides/security/): the headers of served files, and what files in `direct` mode need from the storage or CDN.
 
 Next: [Migrations](/guides/migrations/).

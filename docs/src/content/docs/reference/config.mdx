@@ -72,6 +72,15 @@ Every option, tag, command and hook of `security` is on [its reference page](/re
 | `security.proxy.trust` | `cidr[]` | `[]` | `QS_SECURITY_PROXY_TRUST` | The proxies whose forwarding headers are read: addresses, CIDR blocks or loopback, private and linklocal. |
 | `security.proxy.header` | `string` | `"x-forwarded-for"` | `QS_SECURITY_PROXY_HEADER` | The header trusted proxies put the client address in: x-forwarded-for, forwarded (RFC 7239) or another comma-separated list. |
 | `security.headers.enabled` | `boolean` | `true` | `QS_SECURITY_HEADERS_ENABLED` | Sends the standard security headers on every response. Turns it off when false. |
+| `security.headers.contentTypeOptions` | `boolean` | `true` | `QS_SECURITY_HEADERS_CONTENT_TYPE_OPTIONS` | Sends X-Content-Type-Options: nosniff. |
+| `security.headers.referrerPolicy` | `string` | `"no-referrer"` | `QS_SECURITY_HEADERS_REFERRER_POLICY` | The Referrer-Policy header; an empty string leaves it out. |
+| `security.headers.frameOptions` | `"DENY" \| "SAMEORIGIN"` | `"DENY"` | `QS_SECURITY_HEADERS_FRAME_OPTIONS` | The X-Frame-Options header. |
+| `security.headers.csp` | `string` | `"default-src 'none'; frame-ancestors 'none'"` | `QS_SECURITY_HEADERS_CSP` | The Content-Security-Policy of API responses; an empty string leaves it out. |
+| `security.headers.docsCsp` | `string` | `"default-src 'none'; script-src https://cdn.jsdelivr.net; style-src 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.scalar.com; font-src https://cdn.jsdelivr.net https://fonts.scalar.com; img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"` | `QS_SECURITY_HEADERS_DOCS_CSP` | The Content-Security-Policy of GET /docs, which lets the API docs page load. |
+| `security.headers.hsts.enabled` | `boolean` | `true` | `QS_SECURITY_HEADERS_HSTS_ENABLED` | Sends Strict-Transport-Security in production only. Turns it off when false. |
+| `security.headers.hsts.maxAge` | `duration` | `"365d"` | `QS_SECURITY_HEADERS_HSTS_MAX_AGE` | How long browsers keep to HTTPS, sent in seconds. |
+| `security.headers.hsts.includeSubDomains` | `boolean` | `true` | `QS_SECURITY_HEADERS_HSTS_INCLUDE_SUB_DOMAINS` | Adds includeSubDomains to Strict-Transport-Security. |
+| `security.headers.hsts.preload` | `boolean` | `false` | `QS_SECURITY_HEADERS_HSTS_PRELOAD` | Adds preload to Strict-Transport-Security, a commitment that is hard to undo. |
 | `security.files.enabled` | `boolean` | `true` | `QS_SECURITY_FILES_ENABLED` | Sends headers on served files that keep a browser from running them as pages of the service. Turns it off when false. |
 | `security.cors.enabled` | `boolean` | `true` | `QS_SECURITY_CORS_ENABLED` | Answers cross-origin requests and preflights of the allowed origins. Turns it off when false. |
 | `security.limits.enabled` | `boolean` | `true` | `QS_SECURITY_LIMITS_ENABLED` | Refuses oversized URLs, headers and bodies before reading them. Turns it off when false. |
@@ -81,6 +90,21 @@ Every option, tag, command and hook of `security` is on [its reference page](/re
 | `security.ip.enabled` | `boolean` | `true` | `QS_SECURITY_IP_ENABLED` | Accepts or refuses requests by client address. Turns it off when false. |
 | `security.masking.enabled` | `boolean` | `true` | `QS_SECURITY_MASKING_ENABLED` | Keeps secret values and sensitive fields out of logs and error responses. Turns it off when false. |
 | `security.enabled` | `boolean` | `true` | `QS_SECURITY_ENABLED` | Turns the feature off when false. |
+
+#### `@securityHeaders`
+
+Changes the security headers of one route or of an entity's routes; `@securityHeaders off` sends none of them there.
+
+**Applies to:** endpoints, entities
+
+**Options:** `headers.csp`, `headers.frameOptions`, `headers.referrerPolicy`
+
+**Syntax:** `@securityHeaders [csp=…] [frameOptions=…] [referrerPolicy=…]` or `@securityHeaders off`
+
+```ts
+/** @securityHeaders csp="default-src 'self'" */
+export default handler;
+```
 
 ### `events`
 

@@ -1,6 +1,7 @@
-import { cidr, defineFeature, list, object, safeLog, string, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext } from "../public.ts";
+import { boolean, cidr, defineFeature, duration, list, object, oneOf, safeLog, string, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext } from "../public.ts";
 import type { SecurityApi } from "./api.ts";
 import { Exemptions } from "./exempt.ts";
+import { DEFAULT_CSP, DEFAULT_DOCS_CSP, headersStep } from "./headers.ts";
 import { SECURITY_ITEMS, securityMiddlewares, type SecurityStep } from "./pipeline.ts";
 import { proxyResolver } from "./proxy.ts";
 import { buildRouteIndex, type RouteIndex } from "./routes.ts";
@@ -10,7 +11,18 @@ const options = object({
     trust: list(cidr()).default([]).describe("The proxies whose forwarding headers are read: addresses, CIDR blocks or loopback, private and linklocal."),
     header: string().default("x-forwarded-for").describe("The header trusted proxies put the client address in: x-forwarded-for, forwarded (RFC 7239) or another comma-separated list."),
   }).describe("Resolves the client address in req.ip through the proxies the project trusts."),
-  headers: toggle({}).describe("Sends the standard security headers on every response."),
+  headers: toggle({
+    contentTypeOptions: boolean().default(true).describe("Sends X-Content-Type-Options: nosniff."),
+    referrerPolicy: string().default("no-referrer").describe("The Referrer-Policy header; an empty string leaves it out."),
+    frameOptions: oneOf(["DENY", "SAMEORIGIN"]).default("DENY").describe("The X-Frame-Options header."),
+    csp: string().default(DEFAULT_CSP).describe("The Content-Security-Policy of API responses; an empty string leaves it out."),
+    docsCsp: string().default(DEFAULT_DOCS_CSP).describe("The Content-Security-Policy of GET /docs, which lets the API docs page load."),
+    hsts: toggle({
+      maxAge: duration().default("365d").describe("How long browsers keep to HTTPS, sent in seconds."),
+      includeSubDomains: boolean().default(true).describe("Adds includeSubDomains to Strict-Transport-Security."),
+      preload: boolean().default(false).describe("Adds preload to Strict-Transport-Security, a commitment that is hard to undo."),
+    }).describe("Sends Strict-Transport-Security in production only."),
+  }).describe("Sends the standard security headers on every response."),
   files: toggle({}).describe("Sends headers on served files that keep a browser from running them as pages of the service."),
   cors: toggle({}).describe("Answers cross-origin requests and preflights of the allowed origins."),
   limits: toggle({}).describe("Refuses oversized URLs, headers and bodies before reading them."),
@@ -25,8 +37,11 @@ const options = object({
 const exemptionsOf = new WeakMap<object, Exemptions>();
 
 /** The steps of the enabled items, in no particular order; the pipeline orders them. */
-function itemSteps(_ctx: FeatureSetupContext<SecurityOptions>): SecurityStep[] {
-  return [];
+function itemSteps(ctx: FeatureSetupContext<SecurityOptions>): SecurityStep[] {
+  const { options } = ctx;
+  const steps: SecurityStep[] = [];
+  if (options.headers.enabled) steps.push(headersStep(options.headers, ctx.config.production));
+  return steps;
 }
 
 type SecurityOptions = FeatureOptions<typeof options>;
@@ -40,6 +55,15 @@ const securityFeature = defineFeature({
   docs: { summary: "Safe defaults for every service: security headers, CORS, request limits, timeouts, load shedding, rate limits, IP lists and log masking, each a switchable item." },
   enabledByDefault: true,
   options,
+  tags: {
+    securityHeaders: {
+      on: ["endpoint", "entity"],
+      scope: "headers",
+      options: ["csp", "frameOptions", "referrerPolicy"],
+      description: "Changes the security headers of one route or of an entity's routes; `@securityHeaders off` sends none of them there.",
+      example: "/** @securityHeaders csp=\"default-src 'self'\" */\nexport default handler;",
+    },
+  },
   setup(ctx) {
     const exemptions = new Exemptions();
     exemptionsOf.set(ctx.app, exemptions);

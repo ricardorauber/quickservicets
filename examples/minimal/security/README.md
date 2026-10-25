@@ -1,6 +1,6 @@
 # security
 
-The smallest project that shows the `security` native, which every service has without asking: its protections are separate items (`proxy`, `headers`, `files`, `cors`, `limits`, `timeouts`, `loadShedding`, `rateLimit`, `ip` and `masking`), each on by default, run in a fixed order before routing. A project feature exempts the load balancer's probe from the items that could refuse it.
+The smallest project that shows the `security` native, which every service has without asking: every response carries the standard security headers, and its protections are separate items (`proxy`, `headers`, `files`, `cors`, `limits`, `timeouts`, `loadShedding`, `rateLimit`, `ip` and `masking`), each on by default, run in a fixed order before routing. A project feature exempts the load balancer's probe from the items that could refuse it.
 
 ```bash
 bun run test
@@ -34,7 +34,12 @@ export default defineConfig({ database: memoryAdapter(), security: { proxy: { tr
 
 ## Level 2: tags
 
-Not applicable: the items bring their tags with them; this version of the native has none yet.
+`@securityHeaders` changes the security headers of one endpoint or of an entity's routes, and `@securityHeaders off` sends none there:
+
+```ts
+/** @securityHeaders csp="default-src 'self'" */
+export default handler;
+```
 
 ## Level 3: per request
 

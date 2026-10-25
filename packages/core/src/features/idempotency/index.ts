@@ -1,5 +1,10 @@
 import {
   boolean,
+  hook,
+  provider,
+  resolveOption,
+  runAfterHooks,
+  runBeforeHooks,
   defineFeature,
   duration,
   HttpError,
@@ -17,16 +22,27 @@ import {
   type ServiceRequest,
   type ServiceResponse,
 } from "../public.ts";
-import { databaseStore, idempotencyKeyEntity, type DatabaseIdempotencyStore, type StoredResponse } from "./store.ts";
+import type { IdempotencyApi, IdempotencyConflict, IdempotencyStep, IdempotencyStore } from "./api.ts";
+import { databaseStore, idempotencyKeyEntity, type StoredResponse } from "./store.ts";
 
 const options = object({
   header: string().default("Idempotency-Key").describe("The request header that carries the key."),
   methods: list(oneOf(["POST", "PUT", "PATCH", "DELETE"]))
     .default(["POST"])
     .describe("The methods whose routes honor keys; @idempotent turns a route on for any method."),
-  required: boolean().default(false).describe("Rejects requests without the header with 400 on the routes that honor keys."),
-  ttl: duration().default("24h").describe("How long a stored response is replayed for its key."),
+  required: boolean().default(false).perRequest().describe("Rejects requests without the header with 400 on the routes that honor keys; a function of the request decides per request."),
+  ttl: duration().default("24h").perRequest().describe("How long a stored response is replayed for its key; a function of the request decides per request."),
   maxResponseSize: size().default("1MB").describe("The largest response body stored for replays; larger ones release the key."),
+  scope: string()
+    .optional()
+    .perRequest()
+    .describe("Replaces the user part of a key's scope: a function of the request, its user and tenant returning a text, like the tenant id with the user id."),
+  beforeReplay: hook<IdempotencyStep | false, undefined>().describe("Runs before a stored response is replayed with the request and the record; returning false deletes the record and runs the request again."),
+  afterStore: hook<IdempotencyStep, undefined>().describe("Runs after a response was stored for a key, with the request and the record."),
+  onConflict: hook<IdempotencyConflict, undefined>().describe("Runs when a key is refused, with the request and the kind: reused for another request, inUse for one in progress."),
+  store: provider<IdempotencyStore>("IdempotencyStore", ["begin", "complete", "release", "cleanup"])
+    .optional()
+    .describe("Replaces where keys are kept; without the IdempotencyKey entity in the build."),
 });
 
 /** How often every process deletes the expired keys. */
@@ -86,7 +102,8 @@ const idempotencyFeature = defineFeature({
   key: "idempotency",
   docs: { summary: "Idempotency keys: a request repeated with the same Idempotency-Key gets the first response again without running twice." },
   options,
-  entities: () => [idempotencyKeyEntity()],
+  // A project store keeps the keys elsewhere, so the build adds no entity for them.
+  entities: ({ options }) => (options.store ? [] : [idempotencyKeyEntity()]),
   tags: {
     idempotent: {
       on: ["entity", "endpoint"],
@@ -96,13 +113,15 @@ const idempotencyFeature = defineFeature({
     },
   },
   setup(ctx) {
+    const configured = ctx.options.store as IdempotencyStore | undefined;
     const model = ctx.models.find((candidate) => candidate.key === "IdempotencyKey" && candidate.system);
-    if (!model) throw new Error("The idempotency native needs the IdempotencyKey entity; run quickservice build after enabling it");
-    const store: DatabaseIdempotencyStore = databaseStore(ctx.config.database, model, ctx.logger);
+    if (!configured && !model) throw new Error("The idempotency native needs the IdempotencyKey entity; run quickservice build after enabling it");
+    const store: IdempotencyStore = configured ?? databaseStore(ctx.config.database, model!, ctx.logger);
+    const { beforeReplay, afterStore, onConflict } = ctx.options;
     const maxBytes = parseSize(ctx.options.maxResponseSize) ?? 1_048_576;
     const header = ctx.options.header;
     // Whether a route honors keys, decided once per method and route pattern.
-    const decisions = new Map<string, { on: boolean; required: boolean; ttlMs: number }>();
+    const decisions = new Map<string, { on: boolean; required: boolean | ((ctx: never) => unknown); ttl: string | ((ctx: never) => unknown) }>();
     const decide = (req: ServiceRequest) => {
       const routeKey = `${req.method} ${req.route}`;
       let decision = decisions.get(routeKey);
@@ -112,7 +131,7 @@ const idempotencyFeature = defineFeature({
         const onEndpoint = tagsOf({ method: req.method, path: req.route })?.idempotent !== undefined;
         const tagged = target.on === true && (onEndpoint || req.method === "POST");
         const on = target.on === false ? false : tagged || (ctx.options.methods as string[]).includes(req.method);
-        decision = { on, required: target.required, ttlMs: parseDuration(target.ttl) ?? 86_400_000 };
+        decision = { on, required: target.required, ttl: target.ttl };
         decisions.set(routeKey, decision);
       }
       return decision;
@@ -126,16 +145,31 @@ const idempotencyFeature = defineFeature({
         if (!decision.on) return next();
         const key = req.headers.get(header);
         if (key === null) {
-          if (decision.required) throw new HttpError(400, `${header} header is required`);
+          if (await resolveOption(decision.required as boolean, { req })) throw new HttpError(400, `${header} header is required`);
           return next();
         }
         if (!KEY.test(key)) throw new HttpError(400, `Invalid ${header} header`);
-        const scope = scopeOf(key, req, userOf(req));
-        const begun = await store.begin({ scope, fingerprint: await fingerprintOf(req), ttlMs: decision.ttlMs });
-        if (begun.kind === "reused") throw new HttpError(422, `${header} was used with a different request`, { code: "IDEMPOTENCY_KEY_REUSED" });
-        if (begun.kind === "inUse") throw new HttpError(409, `A request with this ${header} is in progress`, { code: "IDEMPOTENCY_KEY_IN_USE", headers: { "retry-after": "1" } });
+        const ttlMs = parseDuration(await resolveOption(decision.ttl as string, { req })) ?? 86_400_000;
+        const user = ctx.options.scope !== undefined ? String(await resolveOption(ctx.options.scope, { req })) : userOf(req);
+        const scope = scopeOf(key, req, user);
+        const fingerprint = await fingerprintOf(req);
+        let begun = await store.begin({ scope, fingerprint, ttlMs });
+        if (begun.kind === "replay" && beforeReplay.length > 0 && (await runBeforeHooks(beforeReplay, { req, record: begun.record } as IdempotencyStep | false, undefined)) === false) {
+          // The hook refused the replay: the request runs again under a new record.
+          await store.release(begun.record);
+          begun = await store.begin({ scope, fingerprint, ttlMs });
+        }
+        if (begun.kind === "reused" || begun.kind === "inUse") {
+          if (onConflict.length > 0) await runAfterHooks(onConflict, { req, kind: begun.kind }, undefined);
+          if (begun.kind === "reused") throw new HttpError(422, `${header} was used with a different request`, { code: "IDEMPOTENCY_KEY_REUSED" });
+          throw new HttpError(409, `A request with this ${header} is in progress`, { code: "IDEMPOTENCY_KEY_IN_USE", headers: { "retry-after": "1" } });
+        }
         if (begun.kind === "replay") return replayed(begun.record.response!);
         const record = begun.record;
+        const keep = async (stored: StoredResponse) => {
+          await store.complete(record, stored, ttlMs);
+          if (afterStore.length > 0) await runAfterHooks(afterStore, { req, record: { ...record, status: "done", response: stored } }, undefined);
+        };
         let response: Response;
         try {
           const result = await next();
@@ -143,12 +177,12 @@ const idempotencyFeature = defineFeature({
         } catch (error) {
           // A 4xx error is the answer to this request: stored and replayed. Anything else lets a retry run again.
           const stored = error instanceof HttpError && error.status < 500 ? await storable(errorResponse(error), maxBytes) : undefined;
-          if (stored) await store.complete(record, stored, decision.ttlMs);
+          if (stored) await keep(stored);
           else await store.release(record);
           throw error;
         }
         const stored = await storable(response, maxBytes);
-        if (stored) await store.complete(record, stored, decision.ttlMs);
+        if (stored) await keep(stored);
         else await store.release(record);
         return response;
       },
@@ -163,6 +197,7 @@ const idempotencyFeature = defineFeature({
     });
     ctx.app.onStop(() => clearInterval(cleanup));
   },
+  api: (ctx): IdempotencyApi => ({ addHook: ctx.addHook as IdempotencyApi["addHook"] }),
 });
 
 /** The JSON body of an `HttpError`, as the client receives it. */
@@ -176,3 +211,4 @@ export default idempotencyFeature;
 export { idempotencyFeature };
 export { databaseStore as idempotencyDatabaseStore, idempotencyKeyEntity } from "./store.ts";
 export type { BeginResult, IdempotencyRecord, StoredResponse } from "./store.ts";
+export type { IdempotencyApi, IdempotencyConflict, IdempotencyStep, IdempotencyStore } from "./api.ts";

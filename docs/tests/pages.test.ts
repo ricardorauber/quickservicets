@@ -45,6 +45,7 @@ const PAGES = [
   "guides/security.md",
   "guides/queues.md",
   "guides/health.md",
+  "guides/idempotency.md",
   "reference/index.md",
   "reference/tags.mdx",
   "reference/config.mdx",
@@ -61,6 +62,7 @@ const PAGES = [
   "recipes/testing.md",
   "recipes/scheduled-cleanup.md",
   "recipes/send-email-in-the-background.md",
+  "recipes/safe-checkout.md",
 ];
 
 test("every page of the site exists, in English only", () => {

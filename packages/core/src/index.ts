@@ -228,7 +228,7 @@ export type { DeclaredVariable, EnvVars } from "./env-vars.ts";
 // The natives the core ships, registered when the core loads; they come last, after every export they use.
 import eventsNative, { type EventsApi } from "./features/events/index.ts";
 import securityNative, { type SecurityApi } from "./features/security/index.ts";
-import idempotencyNative from "./features/idempotency/index.ts";
+import idempotencyNative, { type IdempotencyApi } from "./features/idempotency/index.ts";
 import healthNative, { type HealthApi, type HealthStatusChangedEvent } from "./features/health/index.ts";
 import queuesNative, { type QueueClient, type QueueMessageEvent, type QueuesApi } from "./features/queues/index.ts";
 import { registerNative as registerShippedNative, type FeatureConfig as NativeConfig } from "./features.ts";
@@ -297,7 +297,7 @@ export type {
 } from "./features/health/index.ts";
 
 export { idempotencyFeature, idempotencyKeyEntity } from "./features/idempotency/index.ts";
-export type { BeginResult, IdempotencyRecord, StoredResponse } from "./features/idempotency/index.ts";
+export type { BeginResult, IdempotencyApi, IdempotencyConflict, IdempotencyRecord, IdempotencyStep, IdempotencyStore, StoredResponse } from "./features/idempotency/index.ts";
 
 declare module "./event-types.ts" {
   interface EventMap {
@@ -336,6 +336,7 @@ declare module "./features.ts" {
     events: EventsApi;
     queues: QueuesApi;
     health: HealthApi;
+    idempotency: IdempotencyApi;
     security: SecurityApi;
   }
 }

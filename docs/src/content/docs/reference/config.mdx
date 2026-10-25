@@ -348,9 +348,14 @@ Every option, tag, command and hook of `idempotency` is on [its reference page](
 | --- | --- | --- | --- | --- |
 | `idempotency.header` | `string` | `"Idempotency-Key"` | `QS_IDEMPOTENCY_HEADER` | The request header that carries the key. |
 | `idempotency.methods` | `("POST" \| "PUT" \| "PATCH" \| "DELETE")[]` | `["POST"]` | `QS_IDEMPOTENCY_METHODS` | The methods whose routes honor keys; @idempotent turns a route on for any method. |
-| `idempotency.required` | `boolean` | `false` | `QS_IDEMPOTENCY_REQUIRED` | Rejects requests without the header with 400 on the routes that honor keys. |
-| `idempotency.ttl` | `duration` | `"24h"` | `QS_IDEMPOTENCY_TTL` | How long a stored response is replayed for its key. |
+| `idempotency.required` | `boolean` | `false` | `QS_IDEMPOTENCY_REQUIRED` | Rejects requests without the header with 400 on the routes that honor keys; a function of the request decides per request. |
+| `idempotency.ttl` | `duration` | `"24h"` | `QS_IDEMPOTENCY_TTL` | How long a stored response is replayed for its key; a function of the request decides per request. |
 | `idempotency.maxResponseSize` | `size` | `"1MB"` | `QS_IDEMPOTENCY_MAX_RESPONSE_SIZE` | The largest response body stored for replays; larger ones release the key. |
+| `idempotency.scope` | `string` | — | `QS_IDEMPOTENCY_SCOPE` | Replaces the user part of a key's scope: a function of the request, its user and tenant returning a text, like the tenant id with the user id. |
+| `idempotency.beforeReplay` | `hook` | — | not overridable | Runs before a stored response is replayed with the request and the record; returning false deletes the record and runs the request again. |
+| `idempotency.afterStore` | `hook` | — | not overridable | Runs after a response was stored for a key, with the request and the record. |
+| `idempotency.onConflict` | `hook` | — | not overridable | Runs when a key is refused, with the request and the kind: reused for another request, inUse for one in progress. |
+| `idempotency.store` | `IdempotencyStore` | — | not overridable | Replaces where keys are kept; without the IdempotencyKey entity in the build. |
 | `idempotency.enabled` | `boolean` | `true` | `QS_IDEMPOTENCY_ENABLED` | Turns the feature off when false. |
 
 #### `@idempotent`

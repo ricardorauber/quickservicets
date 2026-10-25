@@ -242,5 +242,6 @@ An error thrown by the logger never changes the response.
 - [Security](/guides/security/): the `security` key, on by default: security headers, CORS, request limits, timeouts, load shedding, rate limits, IP lists and log masking.
 - [Queues](/guides/queues/): the `queues` key, for background work in the project's database with retries, dead letters, dedupe and `@publish`.
 - [Health checks](/guides/health/): the `health` key, for liveness and readiness routes and draining on shutdown.
+- [Idempotency keys](/guides/idempotency/): the `idempotency` key, for safe retries of `POST` requests.
 
 Next: [Jobs](/guides/jobs/).

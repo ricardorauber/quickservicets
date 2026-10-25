@@ -41,6 +41,8 @@ export interface ServerSettings {
   idleTimeout?: number;
   /** Masks what the service logs, stores in job runs and shows in development error responses. */
   mask?: LogMasker;
+  /** Computes entity tags for `res.etag`; without it `res.etag` throws. */
+  entityTags?: EntityTags;
 }
 
 export interface ServerOptions extends ServerSettings {
@@ -66,11 +68,34 @@ export interface Server {
   listen(port?: number): ReturnType<typeof Bun.serve>;
 }
 
+/** Computes entity tags for `res.etag` and matches them against a request's `If-None-Match`; the `etag` native gives it. */
+export interface EntityTags {
+  /** The strong tag of a record. */
+  tag(record: object): string;
+  /** Whether an `If-None-Match` value lists the tag (weak comparison, `*` included). */
+  noneMatch(header: string | null, tag: string): boolean;
+}
+
 class ResponseControls implements ServiceResponse {
   statusCode: number | undefined;
   readonly headers = new Headers();
   /** The status of a success response when the handler sets none: the route's `@status`. */
   defaultStatus: number | undefined;
+  /** Set when `res.etag` matched the request's `If-None-Match`: the response is a 304 without a body. */
+  notModified = false;
+
+  constructor(
+    private readonly request?: Request,
+    private readonly tags?: EntityTags,
+  ) {}
+
+  etag(value: object | string): ServiceResponse {
+    if (!this.tags) throw new Error("etag is not enabled; add etag: {} to quickservice.config.ts");
+    const tag = typeof value === "string" ? (/^(W\/)?".*"$/.test(value) ? value : `"${value}"`) : this.tags.tag(value);
+    this.headers.set("etag", tag);
+    if (this.request && this.tags.noneMatch(this.request.headers.get("if-none-match"), tag)) this.notModified = true;
+    return this;
+  }
 
   status(code: number): ServiceResponse {
     this.statusCode = code;
@@ -158,6 +183,7 @@ function createRequest(raw: Request, url: URL, params: Record<string, string>, i
 /** The response for a handler's result; `status` replaces the default 200 (or 204 for `undefined`) when `res.status` was not called. */
 export function toResponse(result: unknown, res: ResponseControls, status?: number): Response {
   if (result instanceof Response) return result;
+  if (res.notModified) return new Response(null, { status: 304, headers: res.headers });
   if (result === undefined) {
     return new Response(null, { status: res.statusCode ?? status ?? 204, headers: res.headers });
   }
@@ -182,7 +208,7 @@ function withRequestProperties(req: ServiceRequest, properties: ReadonlyMap<stri
   return req;
 }
 
-export function createServer({ routes, repos, config: serverConfig, jobs = noRequestJobs, middleware, requestProperties, clientIp, maxRequestBodySize, idleTimeout, mask }: ServerOptions): Server {
+export function createServer({ routes, repos, config: serverConfig, jobs = noRequestJobs, middleware, requestProperties, clientIp, maxRequestBodySize, idleTimeout, mask, entityTags }: ServerOptions): Server {
   // Development error responses show the stack with known secret values masked.
   const config = mask ? { ...serverConfig, redact: (text: string) => mask.text(text) } : serverConfig;
   const handlerStage = middleware?.handler ?? [];
@@ -239,7 +265,7 @@ export function createServer({ routes, repos, config: serverConfig, jobs = noReq
       if (match.route.value.log === false) state.quiet = true;
       const req = createRequest(request, url, match.params, requestId, jobs, match.route.value.path, clientIp);
       state.req = properties ? withRequestProperties(req, properties) : req;
-      const res = new ResponseControls();
+      const res = new ResponseControls(request, entityTags);
       res.defaultStatus = match.route.value.status;
       const result = await match.route.value.handler(repos, state.req, res);
       return toResponse(result, res, match.route.value.status);

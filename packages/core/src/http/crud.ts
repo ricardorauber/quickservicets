@@ -1,4 +1,5 @@
 import { HttpError } from "../errors.ts";
+import { rememberStoredRecord } from "./stored-records.ts";
 import { entityRoutePath, vectorFields, type CrudOperation, type EntityModel } from "../model.ts";
 import { parseListQuery } from "../query.ts";
 import { repositoryFor, type RepositoryRegistry } from "../repository.ts";
@@ -10,6 +11,7 @@ import { isMultipart, parseEntityUpload, withUploadedFiles, type UploadMode } fr
 import { fileResponse, resolveFileAccess, verifyFileSignature, type FileAccessSettings } from "../files/access.ts";
 import type { Endpoint, Route } from "./server.ts";
 import type { ServiceRequest } from "../hooks.ts";
+import type { StoredRecord } from "../adapter.ts";
 
 export interface CrudRoute extends Route {
   entity: EntityModel;
@@ -69,6 +71,11 @@ export function createCrudRoutes(models: EntityModel[], repos: RepositoryRegistr
       const collection = entityRoutePath(model);
       const item = `${collection}/[id]`;
       const id = (params: Record<string, string>) => params.id!;
+      /** Keeps a written record for the features that read it (entity tags), and returns it. */
+      const remembered = <T>(req: ServiceRequest, record: T): T => {
+        rememberStoredRecord(req, model, record as StoredRecord);
+        return record;
+      };
       // Regular entities take JSON, or multipart with file parts for their references to file entities.
       const writeBody = async <T>(req: ServiceRequest, mode: UploadMode, write: (data: unknown) => Promise<T>): Promise<T> => {
         if (!isMultipart(req)) return write(await req.json());
@@ -99,6 +106,7 @@ export function createCrudRoutes(models: EntityModel[], repos: RepositoryRegistr
             const omit = unselectedVectors(vectors, selection);
             const record = await repo.findById(id(req.params), omit.length > 0 ? { populate, omit } : { populate });
             if (!record) throw new HttpError(404, `${model.entityName} not found`);
+            rememberStoredRecord(req, model, record as StoredRecord);
             return selectFields(withoutFields(record, omit), model.exposure.read, selection);
           },
         ],
@@ -117,19 +125,20 @@ export function createCrudRoutes(models: EntityModel[], repos: RepositoryRegistr
               created = await writeBody(req, "create", (data) => repo.create(data));
             }
             res.status(201);
+            rememberStoredRecord(req, model, created as StoredRecord);
             return created;
           },
         ],
-        ["PATCH", item, "update", async (_, req) => writeBody(req, "patch", (data) => repo.update(id(req.params), data))],
+        ["PATCH", item, "update", async (_, req) => remembered(req, await writeBody(req, "patch", (data) => repo.update(id(req.params), data)))],
         [
           "PUT",
           item,
           "replace",
           async (_, req) => {
-            if (!model.file) return writeBody(req, "replace", (data) => repo.replace(id(req.params), data));
+            if (!model.file) return remembered(req, await writeBody(req, "replace", (data) => repo.replace(id(req.params), data)));
             const uploads = options.uploads!;
             const { file, data } = await parseUpload(req, model, uploads);
-            return withStoredFile(model, id(req.params), file, uploads, (managed) => repo.replaceWith(id(req.params), managed, data));
+            return remembered(req, await withStoredFile(model, id(req.params), file, uploads, (managed) => repo.replaceWith(id(req.params), managed, data)));
           },
         ],
         [

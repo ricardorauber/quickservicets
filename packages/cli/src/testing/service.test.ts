@@ -96,7 +96,10 @@ describe("minimal example workspaces", () => {
     const root = JSON.parse(readFileSync(join(repository, "package.json"), "utf8")) as { workspaces: string[] };
     expect(root.workspaces).toContain("examples/minimal/*");
     const minimal = join(repository, "examples/minimal");
-    const folders = readdirSync(minimal, { withFileTypes: true }).filter((entry) => entry.isDirectory() && entry.name !== "node_modules");
+    // In name order, so the folder whose tests run below does not depend on the file system's listing order.
+    const folders = readdirSync(minimal, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && entry.name !== "node_modules")
+      .sort((a, b) => a.name.localeCompare(b.name));
     for (const folder of folders) {
       const pkg = JSON.parse(readFileSync(join(minimal, folder.name, "package.json"), "utf8")) as { dependencies: Record<string, string> };
       expect(pkg.dependencies).toMatchObject({ "@quickservice/core": "workspace:*", "@quickservice/cli": "workspace:*" });

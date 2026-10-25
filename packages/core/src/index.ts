@@ -37,7 +37,7 @@ export type {
 export { createServer, peerAddress, toResponse } from "./http/server.ts";
 export { bodyPolicyOf, bodyTooLarge, bodyTooSlow, readBodyBytes, readBodyChunks, readBodyText, setBodyPolicy } from "./http/body.ts";
 export type { BodyPolicy } from "./http/body.ts";
-export type { Endpoint, FetchOptions, HandlerResult, Route, Server, ServerOptions, ServerSettings } from "./http/server.ts";
+export type { EntityTags, Endpoint, FetchOptions, HandlerResult, Route, Server, ServerOptions, ServerSettings } from "./http/server.ts";
 export { Router, patternOf, splitPath } from "./http/router.ts";
 export type { RouteMatch, RoutePattern } from "./http/router.ts";
 export { executedHooks, operationForRoute, resolveRouteHooks, withHooks } from "./http/pipeline.ts";
@@ -48,6 +48,8 @@ export type { QueryItem, QueryItemLimits, QueryValueType } from "./http/query-it
 export { DOCS_PATH, docsPage, docsRoutes, OPENAPI_PATH, SCALAR_URL, SCALAR_VERSION } from "./http/docs.ts";
 export type { RouteHookSource } from "./http/pipeline.ts";
 export { createCrudRoutes, mergeRoutes, populatePaths } from "./http/crud.ts";
+export { rememberStoredRecord, storedRecordOf, trackStoredRecords } from "./http/stored-records.ts";
+export type { StoredRecordOf } from "./http/stored-records.ts";
 export type { CrudOptions } from "./http/crud.ts";
 export type { CrudRoute } from "./http/crud.ts";
 export { createApp } from "./app.ts";
@@ -228,6 +230,7 @@ export type { DeclaredVariable, EnvVars } from "./env-vars.ts";
 // The natives the core ships, registered when the core loads; they come last, after every export they use.
 import eventsNative, { type EventsApi } from "./features/events/index.ts";
 import securityNative, { type SecurityApi } from "./features/security/index.ts";
+import etagNative from "./features/etag/index.ts";
 import idempotencyNative, { type IdempotencyApi } from "./features/idempotency/index.ts";
 import healthNative, { type HealthApi, type HealthStatusChangedEvent } from "./features/health/index.ts";
 import queuesNative, { type QueueClient, type QueueMessageEvent, type QueuesApi } from "./features/queues/index.ts";
@@ -237,6 +240,7 @@ registerShippedNative(eventsNative);
 registerShippedNative(queuesNative);
 registerShippedNative(healthNative);
 registerShippedNative(idempotencyNative);
+registerShippedNative(etagNative);
 export { addOutboxPatterns, events, eventsFeature, listen, memoryEventBus, readOutbox, tailOutbox } from "./features/events/index.ts";
 export type { ConsumerOptions, DeliveryContext, DeliveryStatus, OutboxRecord } from "./features/events/index.ts";
 export type { EventBus, EventListener, Events, EventsApi, ListenerContext, ListenerFile, ListenerPhase, ListenOptions, MemoryEventBus } from "./features/events/index.ts";
@@ -299,6 +303,8 @@ export type {
 export { idempotencyFeature, idempotencyKeyEntity } from "./features/idempotency/index.ts";
 export type { BeginResult, IdempotencyApi, IdempotencyConflict, IdempotencyRecord, IdempotencyStep, IdempotencyStore, StoredResponse } from "./features/idempotency/index.ts";
 
+export { etagFeature, etagOf } from "./features/etag/index.ts";
+
 declare module "./event-types.ts" {
   interface EventMap {
     /** A queue message completed; emitted by the `queues` native while `events` is enabled. */
@@ -331,6 +337,8 @@ declare module "./features.ts" {
     health?: NativeConfig<typeof healthNative>;
     /** Idempotency keys for safe retries; see the `idempotency` reference page. */
     idempotency?: NativeConfig<typeof idempotencyNative>;
+    /** Entity tags and conditional requests; see the `etag` reference page. */
+    etag?: NativeConfig<typeof etagNative>;
   }
   interface FeatureApis {
     events: EventsApi;

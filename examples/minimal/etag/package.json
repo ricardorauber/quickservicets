@@ -1,0 +1,13 @@
+{
+  "name": "minimal-etag",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "quickservice build",
+    "test": "bun test tests"
+  },
+  "dependencies": {
+    "@quickservice/core": "workspace:*",
+    "@quickservice/cli": "workspace:*"
+  }
+}

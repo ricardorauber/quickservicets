@@ -372,3 +372,13 @@ Every option, tag, command and hook of `idempotency` is on [its reference page](
 /** @idempotent required=true ttl=7d */
 export type Order = { total: number };
 ```
+
+### `etag`
+
+Entity tags on record reads and writes, with 304 answers to conditional reads.
+
+Every option, tag, command and hook of `etag` is on [its reference page](/reference/features/etag/).
+
+| Key | Type | Default | Environment variable | Description |
+| --- | --- | --- | --- | --- |
+| `etag.enabled` | `boolean` | `true` | `QS_ETAG_ENABLED` | Turns the feature off when false. |

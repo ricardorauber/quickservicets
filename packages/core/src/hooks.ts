@@ -65,6 +65,11 @@ export const REQUEST_PROPERTIES = ["id", "method", "path", "params", "query", "h
 export interface ServiceResponse {
   status(code: number): ServiceResponse;
   header(name: string, value: string): ServiceResponse;
+  /**
+   * Sets the `ETag` header to a record's entity tag, or to a text (quoted when unquoted), and makes the response a
+   * 304 without a body when the request's `If-None-Match` matches it. Needs the `etag` native.
+   */
+  etag(value: object | string): ServiceResponse;
 }
 
 export type HookPhase = "pre" | "post";

@@ -83,7 +83,13 @@ Every option, tag, command and hook of `security` is on [its reference page](/re
 | `security.headers.hsts.preload` | `boolean` | `false` | `QS_SECURITY_HEADERS_HSTS_PRELOAD` | Adds preload to Strict-Transport-Security, a commitment that is hard to undo. |
 | `security.files.enabled` | `boolean` | `true` | `QS_SECURITY_FILES_ENABLED` | Sends headers on served files (proxy and signed modes) that keep a browser from running them as pages of the service. Turns it off when false. |
 | `security.files.attachmentTypes` | `string[]` | `["text/html","application/xhtml+xml","image/svg+xml","text/xml","application/xml","application/javascript","text/javascript","text/css"]` | `QS_SECURITY_FILES_ATTACHMENT_TYPES` | The stored types served with content-disposition: attachment, wildcards allowed; other files stay inline. |
-| `security.cors.enabled` | `boolean` | `true` | `QS_SECURITY_CORS_ENABLED` | Answers cross-origin requests and preflights of the allowed origins. Turns it off when false. |
+| `security.cors.enabled` | `boolean` | `true` | `QS_SECURITY_CORS_ENABLED` | Answers cross-origin requests and preflights of the allowed origins; closed until origins are listed. Turns it off when false. |
+| `security.cors.origins` | `string[]` | `[]` | `QS_SECURITY_CORS_ORIGINS` | The origins allowed to call the API from a browser: exact origins, "*", subdomain patterns like https://*.example.com, or "null"; none by default. |
+| `security.cors.methods` | `string[]` | `["GET","HEAD","POST","PUT","PATCH","DELETE"]` | `QS_SECURITY_CORS_METHODS` | The methods a preflight may ask for. |
+| `security.cors.headers` | `string[]` | `["content-type","authorization","idempotency-key","if-match","if-none-match","x-request-id"]` | `QS_SECURITY_CORS_HEADERS` | The request headers a preflight may ask for, compared case-insensitively. |
+| `security.cors.exposeHeaders` | `string[]` | `["x-request-id","etag","location","retry-after","ratelimit-limit","ratelimit-remaining","ratelimit-reset"]` | `QS_SECURITY_CORS_EXPOSE_HEADERS` | The response headers a browser lets the calling page read. |
+| `security.cors.credentials` | `boolean` | `false` | `QS_SECURITY_CORS_CREDENTIALS` | Allows cookies and authorization with cross-origin requests; not with origins "*". |
+| `security.cors.maxAge` | `duration` | `"10m"` | `QS_SECURITY_CORS_MAX_AGE` | How long a browser caches a preflight answer. |
 | `security.limits.enabled` | `boolean` | `true` | `QS_SECURITY_LIMITS_ENABLED` | Refuses oversized URLs, headers and bodies before reading them. Turns it off when false. |
 | `security.timeouts.enabled` | `boolean` | `true` | `QS_SECURITY_TIMEOUTS_ENABLED` | Closes idle connections and requests whose body arrives too slowly. Turns it off when false. |
 | `security.loadShedding.enabled` | `boolean` | `true` | `QS_SECURITY_LOAD_SHEDDING_ENABLED` | Refuses new requests with 503 while a worker has too many in flight. Turns it off when false. |
@@ -91,6 +97,21 @@ Every option, tag, command and hook of `security` is on [its reference page](/re
 | `security.ip.enabled` | `boolean` | `true` | `QS_SECURITY_IP_ENABLED` | Accepts or refuses requests by client address. Turns it off when false. |
 | `security.masking.enabled` | `boolean` | `true` | `QS_SECURITY_MASKING_ENABLED` | Keeps secret values and sensitive fields out of logs and error responses. Turns it off when false. |
 | `security.enabled` | `boolean` | `true` | `QS_SECURITY_ENABLED` | Turns the feature off when false. |
+
+#### `@cors`
+
+Replaces the CORS options for the preflights and requests of one route or of an entity's routes; `@cors off` turns CORS handling off there.
+
+**Applies to:** endpoints, entities
+
+**Options:** `cors.origins`, `cors.credentials`, `cors.methods`, `cors.headers`
+
+**Syntax:** `@cors [origins=…] [credentials=…] [methods=…] [headers=…]` or `@cors off`
+
+```ts
+/** @cors origins=https://partner.example credentials=true */
+export default handler;
+```
 
 #### `@securityHeaders`
 

@@ -40,7 +40,7 @@ test("every method and nested params in order", () => {
 test("other file names are rejected listing the allowed names", () => {
   const message = failure(["endpoints/users/fetch.ts"]);
   expect(message).toContain("endpoints/users/fetch.ts");
-  expect(message).toContain("get, post, put, patch, delete");
+  expect(message).toContain("get, post, put, patch, delete, options");
 });
 
 test("non-TypeScript files are ignored", () => {

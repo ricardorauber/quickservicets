@@ -6,8 +6,9 @@ import { createLinkedProject } from "../testing/project.ts";
 import { serveBuilt } from "../testing/serve.ts";
 import { build } from "./build.ts";
 
+// The test native's tags share names with the security native's, which is off here.
 const config = `import { defineConfig, memoryAdapter } from "@quickservice/core";
-export default defineConfig({ database: memoryAdapter(), guard: {} });
+export default defineConfig({ database: memoryAdapter(), security: false, guard: {} });
 `;
 const project = (files: Record<string, string>) => createLinkedProject({ "quickservice.config.ts": config, ...files });
 const failure = async (work: () => Promise<unknown>): Promise<Error> => {

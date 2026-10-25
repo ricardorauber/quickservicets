@@ -2,7 +2,7 @@ import { readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { BuildError } from "../errors.ts";
 
-export const ENDPOINT_METHODS = ["get", "post", "put", "patch", "delete"] as const;
+export const ENDPOINT_METHODS = ["get", "post", "put", "patch", "delete", "options"] as const;
 export type EndpointMethod = Uppercase<(typeof ENDPOINT_METHODS)[number]>;
 
 export interface EndpointRoute {

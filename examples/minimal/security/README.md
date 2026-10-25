@@ -26,6 +26,12 @@ export default defineConfig({ database: memoryAdapter(), security: { cors: false
 QS_SECURITY_CORS_ENABLED=false bun .generated/server.ts
 ```
 
+Open CORS to the origins of the project's browser apps; it is closed by default:
+
+```ts
+export default defineConfig({ database: memoryAdapter(), security: { cors: { origins: ["http://localhost:5173"] } } });
+```
+
 Behind a load balancer, trust it so `req.ip` is the client's address from `x-forwarded-for` instead of the balancer's:
 
 ```ts
@@ -38,6 +44,13 @@ export default defineConfig({ database: memoryAdapter(), security: { proxy: { tr
 
 ```ts
 /** @securityHeaders csp="default-src 'self'" */
+export default handler;
+```
+
+`@cors` gives one route its own CORS options, like a partner origin with credentials:
+
+```ts
+/** @cors origins=https://partner.example credentials=true */
 export default handler;
 ```
 

@@ -44,7 +44,7 @@ One entity per file, named like its type: `entities/User.ts` exports `User`. Eac
 
 ## `endpoints/`
 
-Your own routes, one file per route. The folders are the path and the file name is the method (`get.ts`, `post.ts`, `put.ts`, `patch.ts` or `delete.ts`). A folder in brackets, like `[id]`, is a path parameter.
+Your own routes, one file per route. The folders are the path and the file name is the method (`get.ts`, `post.ts`, `put.ts`, `patch.ts`, `delete.ts` or `options.ts`). A folder in brackets, like `[id]`, is a path parameter.
 
 ```ts check title="endpoints/health/get.ts"
 import type { Endpoint } from "@quickservice/core";

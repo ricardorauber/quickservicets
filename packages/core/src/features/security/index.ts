@@ -1,5 +1,6 @@
 import { boolean, cidr, defineFeature, duration, list, object, oneOf, safeLog, string, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext } from "../public.ts";
 import type { SecurityApi } from "./api.ts";
+import { corsProblems, corsStep, ownOptionsRoutes, routeCorsOptions } from "./cors.ts";
 import { Exemptions } from "./exempt.ts";
 import { DEFAULT_ATTACHMENT_TYPES, fileHeaders } from "./files.ts";
 import { DEFAULT_CSP, DEFAULT_DOCS_CSP, headersStep } from "./headers.ts";
@@ -29,7 +30,18 @@ const options = object({
       .default(DEFAULT_ATTACHMENT_TYPES)
       .describe("The stored types served with content-disposition: attachment, wildcards allowed; other files stay inline."),
   }).describe("Sends headers on served files (proxy and signed modes) that keep a browser from running them as pages of the service."),
-  cors: toggle({}).describe("Answers cross-origin requests and preflights of the allowed origins."),
+  cors: toggle({
+    origins: list(string()).default([]).describe('The origins allowed to call the API from a browser: exact origins, "*", subdomain patterns like https://*.example.com, or "null"; none by default.'),
+    methods: list(string()).default(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]).describe("The methods a preflight may ask for."),
+    headers: list(string())
+      .default(["content-type", "authorization", "idempotency-key", "if-match", "if-none-match", "x-request-id"])
+      .describe("The request headers a preflight may ask for, compared case-insensitively."),
+    exposeHeaders: list(string())
+      .default(["x-request-id", "etag", "location", "retry-after", "ratelimit-limit", "ratelimit-remaining", "ratelimit-reset"])
+      .describe("The response headers a browser lets the calling page read."),
+    credentials: boolean().default(false).describe("Allows cookies and authorization with cross-origin requests; not with origins \"*\"."),
+    maxAge: duration().default("10m").describe("How long a browser caches a preflight answer."),
+  }).describe("Answers cross-origin requests and preflights of the allowed origins; closed until origins are listed."),
   limits: toggle({}).describe("Refuses oversized URLs, headers and bodies before reading them."),
   timeouts: toggle({}).describe("Closes idle connections and requests whose body arrives too slowly."),
   loadShedding: toggle({}).describe("Refuses new requests with 503 while a worker has too many in flight."),
@@ -42,10 +54,11 @@ const options = object({
 const exemptionsOf = new WeakMap<object, Exemptions>();
 
 /** The steps of the enabled items, in no particular order; the pipeline orders them. */
-function itemSteps(ctx: FeatureSetupContext<SecurityOptions>): SecurityStep[] {
+function itemSteps(ctx: FeatureSetupContext<SecurityOptions>, index: () => RouteIndex | undefined): SecurityStep[] {
   const { options } = ctx;
   const steps: SecurityStep[] = [];
   if (options.headers.enabled) steps.push(headersStep(options.headers, ctx.config.production));
+  if (options.cors.enabled) steps.push(corsStep(options.cors, ownOptionsRoutes(taggedRoutes()), index));
   return steps;
 }
 
@@ -60,7 +73,15 @@ const securityFeature = defineFeature({
   docs: { summary: "Safe defaults for every service: security headers, CORS, request limits, timeouts, load shedding, rate limits, IP lists and log masking, each a switchable item." },
   enabledByDefault: true,
   options,
+  validate: (resolved) => (resolved.cors.enabled ? corsProblems(resolved.cors, "security.cors") : []),
   tags: {
+    cors: {
+      on: ["endpoint", "entity"],
+      scope: "cors",
+      options: ["origins", "credentials", "methods", "headers"],
+      description: "Replaces the CORS options for the preflights and requests of one route or of an entity's routes; `@cors off` turns CORS handling off there.",
+      example: "/** @cors origins=https://partner.example credentials=true */\nexport default handler;",
+    },
     securityHeaders: {
       on: ["endpoint", "entity"],
       scope: "headers",
@@ -73,7 +94,11 @@ const securityFeature = defineFeature({
     const exemptions = new Exemptions();
     exemptionsOf.set(ctx.app, exemptions);
     const enabled = SECURITY_ITEMS.filter((item) => ctx.options[item].enabled);
-    const steps = itemSteps(ctx);
+    // Routes are indexed only when one carries a security tag, so other requests do no lookup.
+    const index: RouteIndex | undefined = buildRouteIndex(taggedRoutes(), Object.keys(securityFeature.tags ?? {}));
+    const problems = (index?.routes ?? []).flatMap((route) => (route.tags.cors?.on ? corsProblems(routeCorsOptions(ctx.options.cors, route), `@cors of ${route.method} ${route.path}`) : []));
+    if (problems.length > 0) throw new Error(problems.join("\n"));
+    const steps = itemSteps(ctx, () => index);
     if (ctx.options.files.enabled) ctx.app.configureServer({ fileHeaders: fileHeaders(ctx.options.files.attachmentTypes) });
     const proxy = ctx.options.proxy;
     // Without trusted proxies, req.ip is the peer address; production still checks for forwarded headers to warn once.
@@ -82,8 +107,6 @@ const securityFeature = defineFeature({
         safeLog(ctx.logger, "warn", { timestamp: new Date().toISOString(), message: "security.proxy.untrusted", peer, header: proxy.header, hint: "set security.proxy.trust if the service runs behind a proxy" });
       ctx.app.configureServer({ clientIp: proxyResolver(proxy, ctx.config.production ? untrusted : undefined) });
     }
-    // Routes are indexed only when one carries a security tag, so other requests do no lookup.
-    const index: RouteIndex | undefined = buildRouteIndex(taggedRoutes(), Object.keys(securityFeature.tags ?? {}));
     if (steps.length > 0) {
       const middlewares = securityMiddlewares(steps, exemptions, () => index);
       ctx.app.use(middlewares.request);

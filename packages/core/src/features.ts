@@ -71,6 +71,11 @@ export interface FeatureInput<S extends AnyOptionSchema> {
   /** Environment variables the feature needs, read and checked at startup with the project's (see `env`). */
   env?: Readonly<Record<string, AnyOptionSchema>>;
   /**
+   * Checks the resolved options beyond what their schema says, like two options that cannot be used together; each
+   * returned line is a configuration problem `resolveConfig` reports with the others.
+   */
+  validate?: Bivariant<(options: FeatureOptions<S>) => readonly string[]>;
+  /**
    * Entities the feature adds to the project's model: a folder of entity files relative to the feature's folder
    * (`"./entities"`), a list of `entityModel(...)` objects, or a function of the project's models and the feature's
    * options returning models.
@@ -216,6 +221,8 @@ export interface FeatureDefinition<S extends AnyOptionSchema = AnyOptionSchema> 
   readonly enables: readonly string[];
   /** The environment variables the feature declares. */
   readonly env?: Readonly<Record<string, AnyOptionSchema>>;
+  /** Checks the resolved options beyond their schema. */
+  readonly validate?: Bivariant<(options: FeatureOptions<S>) => readonly string[]>;
   /** The entities the feature contributes. */
   readonly entities?: FeatureEntities<FeatureOptions<S>>;
   /** The feature's folder of endpoint files, relative to its folder. */
@@ -334,6 +341,7 @@ export function defineFeature<S extends AnyOptionSchema = ObjectOptionSchema<{}>
     after: keyList("after", input.after),
     enables: keyList("enables", input.enables),
     ...(input.env ? { env: Object.freeze({ ...input.env }) } : {}),
+    ...(input.validate !== undefined ? { validate: functionField(input.validate, "validate", invalid) } : {}),
     ...(input.entities !== undefined ? { entities: entitiesField(input.entities, invalid) } : {}),
     ...folderFields(input, invalid),
     ...(input.tags !== undefined ? { tags: tagsField(key, input.tags, schema, invalid) } : {}),
@@ -648,7 +656,11 @@ export function resolveFeatures(config: Record<string, unknown>, definitions: re
   const resolveOne = (definition: FeatureDefinition, input: unknown) => {
     try {
       const options = resolveOptions(definition.schema, input, definition.key) as Record<string, unknown> & { enabled: boolean };
-      if (options.enabled === false) off.add(definition.key);
+      const invalidOptions = options.enabled === false ? [] : (definition.validate?.(options as never) ?? []);
+      if (invalidOptions.length > 0) {
+        problems.push(...invalidOptions);
+        off.add(definition.key);
+      } else if (options.enabled === false) off.add(definition.key);
       else enabled.set(definition.key, options);
     } catch (error) {
       if (!(error instanceof ConfigError)) throw error;

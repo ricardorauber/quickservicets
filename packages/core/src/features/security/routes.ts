@@ -17,6 +17,8 @@ export const routeIndexStats = { builds: 0 };
 /** Finds the tagged route of a request by method and path, before the core's routing. */
 export interface RouteIndex {
   find(method: string, path: string): SecurityRoute | undefined;
+  /** The routes carrying a security tag. */
+  readonly routes: readonly SecurityRoute[];
 }
 
 /**
@@ -38,6 +40,7 @@ export function buildRouteIndex(routes: readonly TaggedRoute[], tagNames: readon
   routeIndexStats.builds++;
   const router = new Router(entries);
   return {
+    routes: entries.flatMap((entry) => (entry.value ? [entry.value] : [])),
     find(method, path) {
       let match: ReturnType<typeof router.match>;
       try {

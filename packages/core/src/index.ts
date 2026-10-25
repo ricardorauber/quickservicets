@@ -222,16 +222,20 @@ export type { Rate } from "./rates.ts";
 export { matchesCidr } from "./cidr.ts";
 export { declaredVariables, env, readVariables, variableType } from "./env-vars.ts";
 export type { DeclaredVariable, EnvVars } from "./env-vars.ts";
-// Natives register themselves when imported; they come last, after every export they use.
-import type { eventsFeature } from "./features/events/index.ts";
-import type { FeatureConfig as NativeConfig } from "./features.ts";
-export { addOutboxPatterns, events, eventsFeature, listen, readOutbox, tailOutbox } from "./features/events/index.ts";
+// The natives the core ships, registered when the core loads; they come last, after every export they use.
+import eventsNative, { type EventsApi } from "./features/events/index.ts";
+import { registerNative as registerShippedNative, type FeatureConfig as NativeConfig } from "./features.ts";
+registerShippedNative(eventsNative);
+export { addOutboxPatterns, events, eventsFeature, listen, memoryEventBus, readOutbox, tailOutbox } from "./features/events/index.ts";
 export type { ConsumerOptions, DeliveryContext, DeliveryStatus, OutboxRecord } from "./features/events/index.ts";
-export type { EventListener, Events, ListenerContext, ListenerFile, ListenerPhase, ListenOptions } from "./features/events/index.ts";
+export type { EventBus, EventListener, Events, EventsApi, ListenerContext, ListenerFile, ListenerPhase, ListenOptions, MemoryEventBus } from "./features/events/index.ts";
 
 declare module "./features.ts" {
   interface NativeFeatures {
     /** Write events for every entity, delivered to listeners; see the `events` reference page. */
-    events?: NativeConfig<typeof eventsFeature>;
+    events?: NativeConfig<typeof eventsNative>;
+  }
+  interface FeatureApis {
+    events: EventsApi;
   }
 }

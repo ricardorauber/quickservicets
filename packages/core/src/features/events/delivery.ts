@@ -1,5 +1,6 @@
 import { parseDuration, safeLog, type AnyEvent, type Condition, type DatabaseAdapter, type EntityModel, type FieldModel, type Logger, type StoredRecord } from "../public.ts";
 import { compilePattern, type CompiledPattern } from "./patterns.ts";
+import { sharedState } from "./state.ts";
 
 /** The states of a delivery row. */
 export const DELIVERY_STATUSES = ["pending", "delivering", "delivered", "failed"] as const;
@@ -43,7 +44,7 @@ export interface DeliverySettings {
 }
 
 const CONSUMER_NAME = /^[a-z][a-z0-9-]*(\/[a-z0-9-]+)*$/;
-const consumers = new Map<string, Consumer>();
+const consumers = sharedState("consumers", () => new Map<string, Consumer>());
 
 /** Registers a durable consumer; the caller checked that the outbox runs. */
 export function registerConsumer(name: string, options: ConsumerOptions): string[] {

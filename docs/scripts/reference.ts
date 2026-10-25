@@ -144,7 +144,7 @@ function nativeSections(): string[] {
     "| --- | --- | --- | --- | --- |",
     ...describeOptions(native.schema, native.key).map(
       (option) =>
-        `| ${code(option.path)} | ${code(option.type)} | ${option.default === undefined ? "—" : code(JSON.stringify(option.default))} | ${option.type === "hook" ? "not overridable" : code(envNameFor(option.path))} | ${option.description ?? ""} |`,
+        `| ${code(option.path)} | ${code(option.type)} | ${option.default === undefined ? "—" : code(JSON.stringify(option.default))} | ${option.overridable === false ? "not overridable" : code(envNameFor(option.path))} | ${option.description ?? ""} |`,
     ),
     "",
     ...nativeTagLines(native),
@@ -359,13 +359,17 @@ function documentedOptions(native: FeatureDefinition) {
  * The members of a native's feature API: the interface its folder names for its key in a `FeatureApis` augmentation
  * (`interface FeatureApis { history: HistoryApi }`), read from the native's source files.
  */
-export function featureApiMembers(key: string, dir: string = join(NATIVE_FEATURES_DIR, key)): ApiMember[] {
+export function featureApiMembers(key: string, dir: string = join(NATIVE_FEATURES_DIR, key), extra: readonly string[] = [join(NATIVE_FEATURES_DIR, "../index.ts")]): ApiMember[] {
   if (!existsSync(dir)) return [];
-  const sources = readdirSync(dir, { recursive: true, withFileTypes: true })
-    .filter((entry) => entry.isFile() && /\.ts$/.test(entry.name) && !/\.test\.ts$/.test(entry.name))
-    .map((entry) => join(entry.parentPath, entry.name))
-    .sort()
-    .map((file) => ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.ESNext, true));
+  // The core's index types the natives' APIs in its own FeatureApis augmentation.
+  const files = [
+    ...readdirSync(dir, { recursive: true, withFileTypes: true })
+      .filter((entry) => entry.isFile() && /\.ts$/.test(entry.name) && !/\.test\.ts$/.test(entry.name))
+      .map((entry) => join(entry.parentPath, entry.name))
+      .sort(),
+    ...extra.filter((file) => existsSync(file)),
+  ];
+  const sources = files.map((file) => ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.ESNext, true));
   const interfaces: ts.InterfaceDeclaration[] = [];
   const collect = (node: ts.Node) => {
     if (ts.isInterfaceDeclaration(node)) interfaces.push(node);
@@ -427,7 +431,7 @@ export function featurePage(native: FeatureDefinition): string {
     "| --- | --- | --- | --- | --- | --- |",
     ...options.map(
       (option) =>
-        `| ${code(option.path)} | ${code(option.type)} | ${option.default === undefined ? "—" : code(JSON.stringify(option.default))} | ${option.type === "hook" ? "not overridable" : code(envNameFor(option.path))} | ${option.perRequest ? "yes" : "no"} | ${option.description ?? ""} |`,
+        `| ${code(option.path)} | ${code(option.type)} | ${option.default === undefined ? "—" : code(JSON.stringify(option.default))} | ${option.overridable === false ? "not overridable" : code(envNameFor(option.path))} | ${option.perRequest ? "yes" : "no"} | ${option.description ?? ""} |`,
     ),
     "",
     ...(tags.length > 0

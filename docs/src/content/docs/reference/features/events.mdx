@@ -31,7 +31,27 @@ It is not enabled by default: turn it on with `events: {}` or `QS_EVENTS_ENABLED
 | `events.outbox.delivery.retries` | `integer` | `10` | `QS_EVENTS_OUTBOX_DELIVERY_RETRIES` | no | Failed attempts before a delivery becomes failed. |
 | `events.outbox.delivery.retryDelay` | `duration` | `"10s"` | `QS_EVENTS_OUTBOX_DELIVERY_RETRY_DELAY` | no | The first retry delay, doubled each attempt. |
 | `events.outbox.delivery.maxRetryDelay` | `duration` | `"1h"` | `QS_EVENTS_OUTBOX_DELIVERY_MAX_RETRY_DELAY` | no | The longest retry delay. |
+| `events.beforeEmit` | `hook` | — | not overridable | no | Runs before an event reaches any listener or the outbox; returns a changed event or null to drop it, and a throw fails the write. |
+| `events.afterEmit` | `hook` | — | not overridable | no | Runs after an event was stored and handed to after-commit dispatch. |
+| `events.bus` | `EventBus` | — | not overridable | no | Replaces the in-process after-commit dispatch; in-transaction listeners and the outbox stay. |
 | `events.enabled` | `boolean` | `true` | `QS_EVENTS_ENABLED` | no | Turns the feature off when false. |
+
+## Tags
+
+### `@events`
+
+`@events off` stops every event of the entity, so its writes keep their plain statements; `@events outbox=false` keeps its events out of the outbox.
+
+**Applies to:** entities
+
+**Syntax:** `@events [outbox=…]` or `@events off`
+
+**Options:** `events.outbox`
+
+```ts
+/** @events off */
+export type Session = { token: string };
+```
 
 ## Commands
 
@@ -59,3 +79,56 @@ quickservice events retry <delivery id> | quickservice events retry --consumer <
 
 - `--consumer` (`string`): The consumer whose failed deliveries are reset.
 - `--failed` (`boolean`, default `false`): Resets the consumer's failed deliveries.
+
+## Hooks
+
+Hooks are functions (or lists of functions) written in the config; `before` hooks may change the value or cancel the step by throwing, `after` and `on` hooks observe.
+
+| Hook | Kind | Description |
+| --- | --- | --- |
+| `events.beforeEmit` | before | Runs before an event reaches any listener or the outbox; returns a changed event or null to drop it, and a throw fails the write. |
+| `events.afterEmit` | after | Runs after an event was stored and handed to after-commit dispatch. |
+
+## Feature API
+
+Other features reach it with `ctx.feature("events")` in their setup, listing `events` in `requires` or `after`.
+
+### `addHook`
+
+```ts
+addHook(name: "beforeEmit", fn: FeatureHook<AnyEvent | null, { operation: OperationInfo | undefined }>): void;
+```
+
+Appends a `beforeEmit` hook after the config's; it may change an event or return null to drop it.
+
+### `addHook`
+
+```ts
+addHook(name: "afterEmit", fn: FeatureHook<AnyEvent, undefined>): void;
+```
+
+Appends an `afterEmit` hook after the config's; it observes each event once stored and handed to dispatch.
+
+### `on`
+
+```ts
+on: Events["on"];
+```
+
+Registers a listener for a pattern; see `events.on`.
+
+### `emit`
+
+```ts
+emit: Events["emit"];
+```
+
+Publishes a custom event; see `events.emit`.
+
+### `deliver`
+
+```ts
+deliver: Events["deliver"];
+```
+
+Registers a durable consumer of the outbox; see `events.deliver`.

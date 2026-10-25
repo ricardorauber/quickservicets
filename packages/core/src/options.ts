@@ -691,6 +691,8 @@ export interface OptionDescription {
   secret: boolean;
   optional: boolean;
   perRequest: boolean;
+  /** False for hooks and providers, which hold code no environment variable can set. */
+  overridable?: false;
 }
 
 /** The readable type of a schema, as the docs show it. */
@@ -734,6 +736,7 @@ export function describeOptions(schema: AnyOptionSchema, path: string): OptionDe
       secret,
       optional: settings.optional,
       perRequest: settings.perRequest,
+      ...(schema.kind === "hook" || schema.kind === "provider" ? { overridable: false as const } : {}),
     },
   ];
 }

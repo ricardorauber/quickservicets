@@ -34,13 +34,24 @@ QS_EVENTS_OUTBOX_RETENTION=1d bun .generated/server.ts
 
 ## Level 2: tags
 
-Not applicable: the native has no tag yet; every entity that is not a system entity emits its write events.
+`@events off` stops every event of an entity, so its writes keep their plain statements, and `@events outbox=false` keeps its events in process but out of the outbox:
+
+```ts
+/** @events off */
+export type Session = { token: string };
+```
 
 ## Level 3: per request
 
 Not applicable: which events exist does not depend on the request; listeners read the request, its user and tenant through `currentOperation()`, and each event carries `actor` and `requestId`.
 
 ## Level 4: hooks and events
+
+A `beforeEmit` hook may change or drop an event before any listener or the outbox sees it:
+
+```ts
+events: { beforeEmit: (event) => (event?.type === "user.updated" && event.changed.join() === "lastSeenAt" ? null : undefined) }
+```
 
 An `inTransaction` listener runs inside the write's transaction, and a throw rolls the write back:
 
@@ -65,7 +76,11 @@ export default listen("user.written", () => undefined);
 
 ## Level 6: replace the implementation
 
-Not applicable: the native has no provider option yet; a project feature with the key `events` replaces it entirely.
+A custom `bus` replaces the in-process after-commit dispatch, while in-transaction listeners and the outbox stay in the native:
+
+```ts
+events: { bus: { publish: (event) => broker.send(event), subscribe: (pattern, listener) => broker.on(pattern, listener) } }
+```
 
 ## Level 7: eject
 

@@ -254,7 +254,7 @@ describe("descriptions", () => {
       { path: "history.store.apiKey", type: "string", description: "Key of the store.", secret: true, optional: false, perRequest: false },
       { path: "history.store.modes", type: '("a" | "b")[]', secret: false, optional: true, perRequest: false },
       { path: "history.plan", type: "string", default: "free", secret: false, optional: false, perRequest: true },
-      { path: "history.backend", type: "Store", secret: false, optional: true, perRequest: false },
+      { path: "history.backend", type: "Store", secret: false, optional: true, perRequest: false, overridable: false },
     ]);
     expect(describeOptions(object({ mode: oneOf(["fast", "safe"]) }), "x")[0]!.type).toBe('"fast" | "safe"');
     expect(describeOptions(list(string()), "tags")).toEqual([{ path: "tags", type: "string[]", secret: false, optional: false, perRequest: false }]);

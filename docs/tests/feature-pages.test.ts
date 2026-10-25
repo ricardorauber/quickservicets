@@ -118,6 +118,15 @@ describe("freshness", () => {
   });
 });
 
+describe("the events native", () => {
+  test("its page lists the option variables, the @events tag, the hooks, the feature API and the commands", () => {
+    const page = referencePages()["reference/features/events.mdx"]!;
+    for (const text of ["`QS_EVENTS_OUTBOX_RETENTION`", "### `@events`", "| `events.beforeEmit` | before |", "## Feature API", "### `deliver`", "### `events outbox`", "### `events retry`"]) {
+      expect(page).toContain(text);
+    }
+  });
+});
+
 describe("documentation rules", () => {
   test("a native needs a summary, and an undocumented option fails the generation naming the native", () => {
     expect(() => registerNative(defineFeature({ key: "audit" }))).toThrow("Native audit needs docs.summary for its reference page");

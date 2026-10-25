@@ -97,7 +97,8 @@ function childOf(value: unknown, key: string): unknown {
 export function optionLeaves(schema: AnyOptionSchema, path: string, value?: unknown): OptionLeaf[] {
   const leaves: OptionLeaf[] = [];
   const visit = (node: AnyOptionSchema, nodePath: string, name: string, current: unknown) => {
-    if ((node.kind as string) === "hook") return;
+    // Hooks and providers hold code, which no environment variable can express.
+    if (node.kind === "hook" || node.kind === "provider") return;
     if (node.kind !== "object") leaves.push({ path: nodePath, schema: node, name });
     if (node.kind === "object" || node.kind === "toggle") {
       for (const [key, child] of Object.entries(node.settings.shape!)) visit(child, `${nodePath}.${key}`, `${name}_${segmentName(key)}`, childOf(current, key));

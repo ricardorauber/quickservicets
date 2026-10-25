@@ -1,6 +1,7 @@
 import { parseDuration, runInTransaction, type AnyEvent, type DatabaseAdapter, type EntityModel, type FieldModel, type StoredRecord } from "../public.ts";
 import { compilePattern, type CompiledPattern } from "./patterns.ts";
 import { deliveryRows } from "./delivery.ts";
+import { sharedState } from "./state.ts";
 
 /** One stored event of the outbox, as `readOutbox` returns it. */
 export interface OutboxRecord {
@@ -50,13 +51,13 @@ interface OutboxState {
   stored: Map<string, boolean>;
 }
 
-let state: OutboxState | undefined;
+const shared = sharedState("outbox", () => ({ state: undefined as OutboxState | undefined, added: [] as string[] }));
 /** Patterns other natives added, kept until the native stops. */
-const added: string[] = [];
+const added = shared.added;
 
 /** Starts the outbox for a running service with the patterns of `outbox.events`. */
 export function startOutbox(adapter: DatabaseAdapter, model: EntityModel, patterns: readonly string[], deliveryModel?: EntityModel): void {
-  state = {
+  shared.state = {
     adapter,
     model,
     ...(deliveryModel ? { deliveryModel } : {}),
@@ -67,12 +68,13 @@ export function startOutbox(adapter: DatabaseAdapter, model: EntityModel, patter
 
 /** Stops the outbox: nothing is stored until it starts again. */
 export function stopOutbox(): void {
-  state = undefined;
+  shared.state = undefined;
   added.length = 0;
 }
 
 /** The effective patterns: `outbox.events`, then those other natives added. */
 export function outboxPatterns(): string[] {
+  const state = shared.state;
   return state ? state.patterns.map((pattern) => pattern.text) : [...added];
 }
 
@@ -85,6 +87,7 @@ export function addOutboxPatterns(patterns: readonly string[]): void {
     const compiled = compilePattern(text);
     if (added.includes(text)) continue;
     added.push(text);
+    const state = shared.state;
     if (state && !state.patterns.some((pattern) => pattern.text === text)) {
       state.patterns.push({ text, compiled });
       state.stored.clear();
@@ -94,6 +97,7 @@ export function addOutboxPatterns(patterns: readonly string[]): void {
 
 /** Whether the outbox stores events of `type`. */
 export function storesType(type: string): boolean {
+  const state = shared.state;
   if (!state) return false;
   let stored = state.stored.get(type);
   if (stored === undefined) {
@@ -104,10 +108,11 @@ export function storesType(type: string): boolean {
 }
 
 /** Whether the outbox is running. */
-export const outboxRunning = () => state !== undefined;
+export const outboxRunning = () => shared.state !== undefined;
 
 /** The adapter and model of the running outbox; throws when it is off. */
 export function outboxStore(): { adapter: DatabaseAdapter; model: EntityModel; deliveryModel?: EntityModel } {
+  const state = shared.state;
   if (!state) throw new Error("The outbox is not enabled; set events: { outbox: true } in quickservice.config.ts");
   return { adapter: state.adapter, model: state.model, ...(state.deliveryModel ? { deliveryModel: state.deliveryModel } : {}) };
 }

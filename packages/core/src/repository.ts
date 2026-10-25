@@ -243,9 +243,21 @@ export function createRepository(
     assertPopulatePaths(model, models, paths, maxDepth);
     return populateRecords(model, records, paths, models, adapter, compute);
   };
-  const touch: Touch = async (target, record, changes) => {
-    await adapter.updateById(target, record.id, { ...changes, updatedAt: nextTimestamp(record.updatedAt) });
-  };
+  /**
+   * Updates a record that relation sync changes. Observers of its entity get a `touch` change, queued in `pending`
+   * when given (so the write's own change is reported first), reported at once otherwise.
+   */
+  const touchInto =
+    (pending?: (() => Promise<void>)[]): Touch =>
+    async (target, record, changes, changed) => {
+      const after = await adapter.updateById(target, record.id, { ...changes, updatedAt: nextTimestamp(record.updatedAt) });
+      const observed = observersOf(target);
+      if (!observed || !after) return;
+      const names = Object.keys(changes);
+      const report = () => reportChange(observed, { entity: target, operation: "updated", id: record.id, before: record, after, changed: names.length > 0 ? names : (changed ?? ["updatedAt"]), cause: "touch" });
+      if (pending) pending.push(report);
+      else await report();
+    };
   const hiddenPaths = alwaysHiddenPaths(model.fields);
 
   const present = (record: StoredRecord, options: ReadOptions = {}): EntityRecord => {
@@ -339,6 +351,8 @@ export function createRepository(
     return inTransaction(async () => {
       const before = observed?.needsBefore ? await lockedRecord(id) : undefined;
       const current = before ? await derived(before) : await existing(id);
+      const touched: (() => Promise<void>)[] = [];
+      const touch = touchInto(observed ? touched : undefined);
       await releaseOneToOne(model, id, changes, adapter, touch);
       const updated = await mapUniqueViolation(() =>
         adapter.updateById(model, id, { ...withoutDerived(model, changes), updatedAt: nextTimestamp(current.updatedAt) }),
@@ -348,6 +362,7 @@ export function createRepository(
       await removeReplaced(current, changes, queue);
       if (observed) {
         await reportChange(observed, { entity: model, operation: "updated", id, before: before ?? null, after: updated, ...(before ? {} : { changed: changedKeys(changes) }), cause: "write" });
+        for (const report of touched) await report();
       }
       return written(updated, options);
     });
@@ -365,10 +380,15 @@ export function createRepository(
       const record: StoredRecord = { ...value, ...managed, id, createdAt: at, updatedAt: at };
       const observed = observersOf(model);
       return (observed?.inTransaction ? <T>(fn: () => Promise<T>) => runInTransaction(adapter, fn) : atomically)(async () => {
+        const touched: (() => Promise<void>)[] = [];
+        const touch = touchInto(observed ? touched : undefined);
         await releaseOneToOne(model, undefined, value, adapter, touch);
         const inserted = await mapUniqueViolation(() => adapter.insert(model, withoutDerived(model, record) as StoredRecord));
         if (hasDerived) await mapUniqueViolation(() => writeDerived(model, record.id, value, models, adapter, touch));
-        if (observed) await reportChange(observed, { entity: model, operation: "created", id: inserted.id, before: null, after: inserted, cause: "write" });
+        if (observed) {
+          await reportChange(observed, { entity: model, operation: "created", id: inserted.id, before: null, after: inserted, cause: "write" });
+          for (const report of touched) await report();
+        }
         return written(inserted, options);
       });
   };

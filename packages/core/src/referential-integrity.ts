@@ -1,5 +1,6 @@
 import { findAll, type DatabaseAdapter, type ReferencePull, type StoredRecord } from "./adapter.ts";
 import { runInTransaction } from "./transactions.ts";
+import { observersOf, reportChange, type WriteCause } from "./write-observers.ts";
 import { HttpError, type FieldErrorDetail } from "./errors.ts";
 import type { EntityModel, FieldModel } from "./model.ts";
 import { itemCount } from "./validation.ts";
@@ -82,6 +83,18 @@ interface PlannedRecord {
 interface PlannedDeletion extends PlannedRecord {
   /** Reference arrays the adapter removes the id from as part of the delete (see `DatabaseAdapter.deleteAndPull`). */
   pulls: ReferencePull[];
+  /** The stored record, when planning already read it. */
+  record?: StoredRecord;
+}
+
+interface PlannedUpdate {
+  model: EntityModel;
+  record: StoredRecord;
+  changes: Record<string, unknown>;
+  /** Why the record changes: `setNull`, `pull`, or `touch` for a lost N-N link. */
+  cause: Exclude<WriteCause, "write" | "cascade">;
+  /** The field reported as changed when `changes` is empty: the N-N side that lost a link. */
+  touched?: string;
 }
 
 interface DeletePlan {
@@ -90,7 +103,7 @@ interface DeletePlan {
    * Records that keep existing but lose the reference: set to null, pulled from a reference array, or unlinked from
    * an N-N relation (no change besides `updatedAt`).
    */
-  updates: { model: EntityModel; record: StoredRecord; changes: Record<string, unknown> }[];
+  updates: PlannedUpdate[];
 }
 
 const recordKey = (model: EntityModel, id: string) => `${model.key}\u0000${id}`;
@@ -149,9 +162,12 @@ export function cascadedEntities(model: EntityModel, models: EntityModel[]): Ent
   return [...found];
 }
 
-/** Reference arrays an adapter can pull ids from in place: junction-stored ones with `@onDelete pull`. */
-const pullsInPlace = (adapter: DatabaseAdapter, field: RefField | RefArrayField) =>
-  adapter.deleteAndPull !== undefined && field.type === "refArray" && field.onDelete === "pull";
+/**
+ * Reference arrays an adapter can pull ids from in place: junction-stored ones with `@onDelete pull`, unless write
+ * observers watch their entity, which then needs each changed record.
+ */
+const pullsInPlace = (adapter: DatabaseAdapter, field: RefField | RefArrayField, owner: EntityModel) =>
+  adapter.deleteAndPull !== undefined && field.type === "refArray" && field.onDelete === "pull" && observersOf(owner) === null;
 
 /**
  * Collects every record a delete affects, following `cascade` recursively, and fails with 409 before anything
@@ -175,17 +191,19 @@ export async function planDelete(
   };
 
   const restrictions: { name: string; key: string }[] = [];
-  /** Records on the other side of N-N relations whose links the delete removes. */
-  const unlinked: PlannedRecord[] = [];
-  const collect = async (current: EntityModel, currentId: string): Promise<void> => {
+  /** Records on the other side of N-N relations whose links the delete removes, with their field of the relation. */
+  const unlinked: (PlannedRecord & { field: string })[] = [];
+  const collect = async (current: EntityModel, currentId: string, found?: StoredRecord): Promise<void> => {
     const key = recordKey(current, currentId);
     if (scheduled.has(key)) return;
     scheduled.add(key);
-    deletions.push({ model: current, id: currentId, pulls: [] });
+    if (found) known.set(key, found);
+    const stored = known.get(key);
+    deletions.push({ model: current, id: currentId, pulls: [], ...(stored ? { record: stored } : {}) });
     for (const reference of referencesTo(current, models)) {
       if (reference.field.onDelete !== "cascade") continue;
-      for (const found of await findReferencing(adapter, reference, currentId)) {
-        await collect(reference.model, found.id);
+      for (const referencing of await findReferencing(adapter, reference, currentId)) {
+        await collect(reference.model, referencing.id, referencing);
       }
     }
     // N-N links: the rule of the field pointing to the deleted record decides; links always go away.
@@ -194,7 +212,7 @@ export async function planDelete(
       for (const row of rows) {
         deletions.push({ model: link, id: row.id, pulls: [] });
         const ownerId = row[otherSide] as string;
-        unlinked.push({ model: owner, id: ownerId });
+        unlinked.push({ model: owner, id: ownerId, field: pointing.name });
         if (pointing.onDelete === "restrict") restrictions.push({ name: owner.name, key: recordKey(owner, ownerId) });
         if (pointing.onDelete === "cascade") await collect(owner, ownerId);
       }
@@ -215,7 +233,7 @@ export async function planDelete(
   const deletedIds = new Set(deletions.map((deletion) => recordKey(deletion.model, deletion.id)));
   for (const deletion of deletions) {
     for (const reference of referencesTo(deletion.model, models)) {
-      if (pullsInPlace(adapter, reference.field)) {
+      if (pullsInPlace(adapter, reference.field, reference.model)) {
         deletion.pulls.push({ owner: reference.model, field: reference.field.name });
         // The owners' lists are only needed to check a minimum before anything changes.
         if (reference.field.minLength === undefined) continue;
@@ -226,7 +244,7 @@ export async function planDelete(
         if (reference.field.onDelete === "restrict") {
           throw new HttpError(409, `Cannot delete: referenced by ${reference.model.name}`);
         }
-        const update = updates.get(key) ?? { model: reference.model, record: found, changes: {} };
+        const update: PlannedUpdate = updates.get(key) ?? { model: reference.model, record: found, changes: {}, cause: reference.field.onDelete === "setNull" ? "setNull" : "pull" };
         if (reference.field.onDelete === "setNull") update.changes[reference.field.name] = null;
         if (reference.field.onDelete === "pull") {
           const current = (update.changes[reference.field.name] ?? found[reference.field.name] ?? []) as string[];
@@ -237,11 +255,11 @@ export async function planDelete(
     }
   }
   // Records that lost an N-N link only get a new `updatedAt`.
-  for (const { model: owner, id: ownerId } of unlinked) {
+  for (const { model: owner, id: ownerId, field } of unlinked) {
     const key = recordKey(owner, ownerId);
     if (scheduled.has(key) || updates.has(key)) continue;
     const found = await read(owner, ownerId);
-    if (found) updates.set(key, { model: owner, record: found, changes: {} });
+    if (found) updates.set(key, { model: owner, record: found, changes: {}, cause: "touch", touched: field });
   }
   for (const { model: owner, changes } of updates.values()) {
     for (const field of owner.fields) {
@@ -254,7 +272,7 @@ export async function planDelete(
   }
   // Lists checked above are pulled by the deletes themselves, which also refresh their owners' `updatedAt`.
   const remaining = [...updates.values()].flatMap((update) => {
-    const pulled = update.model.fields.filter((field) => field.name in update.changes && isReference(field) && pullsInPlace(adapter, field));
+    const pulled = update.model.fields.filter((field) => field.name in update.changes && isReference(field) && pullsInPlace(adapter, field, update.model));
     if (pulled.length === 0) return [update];
     const changes = Object.fromEntries(Object.entries(update.changes).filter(([name]) => !pulled.some((field) => field.name === name)));
     return Object.keys(changes).length > 0 ? [{ ...update, changes }] : [];
@@ -262,19 +280,33 @@ export async function planDelete(
   return { deletions, updates: remaining };
 }
 
+/**
+ * Runs a delete plan: the updates first, then the deletions, deepest first. Write observers of the changed records'
+ * entities get each indirect change right after it happens (the planned record's own delete, the first deletion, is
+ * reported by the repository): `cascade` deletes, and `setNull`, `pull` and `touch` updates.
+ */
 export async function executeDeletePlan(
   plan: DeletePlan,
   adapter: DatabaseAdapter,
   nextTimestamp: (previous?: Date) => Date,
 ): Promise<void> {
   const run = async () => {
-    for (const { model, record, changes } of plan.updates) {
-      await adapter.updateById(model, record.id, { ...changes, updatedAt: nextTimestamp(record.updatedAt) });
+    for (const { model, record, changes, cause, touched } of plan.updates) {
+      const after = await adapter.updateById(model, record.id, { ...changes, updatedAt: nextTimestamp(record.updatedAt) });
+      const observed = observersOf(model);
+      if (!observed || !after) continue;
+      const names = Object.keys(changes);
+      await reportChange(observed, { entity: model, operation: "updated", id: record.id, before: record, after, changed: names.length > 0 ? names : [touched ?? "updatedAt"], cause });
     }
     // Dependents were collected after the records they reference, so deleting in reverse keeps foreign keys valid.
-    for (const { model, id, pulls } of [...plan.deletions].reverse()) {
+    const main = plan.deletions[0];
+    for (const deletion of [...plan.deletions].reverse()) {
+      const { model, id, pulls } = deletion;
+      const observed = deletion === main || model.link ? null : observersOf(model);
+      const before = observed ? (deletion.record ?? (await adapter.findById(model, id))) : null;
       if (pulls.length > 0) await adapter.deleteAndPull!(model, id, pulls, nextTimestamp());
       else await adapter.deleteById(model, id);
+      if (observed && before) await reportChange(observed, { entity: model, operation: "deleted", id, before, after: null, cause: "cascade" });
     }
   };
   // A single write is atomic on its own.

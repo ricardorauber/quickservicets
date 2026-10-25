@@ -1,8 +1,12 @@
 import type { StoredRecord } from "./adapter.ts";
 import type { EntityModel } from "./model.ts";
 
-/** Why a record changed: `write` for the repository call that named it. */
-export type WriteCause = "write";
+/**
+ * Why a record changed: `write` for the repository call that named it; `cascade` for a record deleted with it,
+ * `setNull` and `pull` for references to a deleted record cleared or removed, and `touch` for a record whose relation
+ * side or `updatedAt` changed through relation sync.
+ */
+export type WriteCause = "write" | "cascade" | "setNull" | "pull" | "touch";
 
 /** One record a repository write created, updated or deleted. */
 export interface WriteChange {

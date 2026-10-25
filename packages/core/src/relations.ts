@@ -65,7 +65,11 @@ export async function deriveRelations(
   return result;
 }
 
-export type Touch = (model: EntityModel, record: StoredRecord, changes: Record<string, unknown>) => Promise<void>;
+/**
+ * Updates a record relation sync changes (with a new `updatedAt`); `changed` names the relation field reported as
+ * changed when `changes` is empty, like the N-N side that gained or lost a link.
+ */
+export type Touch = (model: EntityModel, record: StoredRecord, changes: Record<string, unknown>, changed?: string[]) => Promise<void>;
 
 /** Applies writes to derived sides of `owner` (already validated and resolved to full lists or ids). */
 export async function writeDerived(
@@ -154,7 +158,7 @@ async function writeLinks(
   }
   for (const id of changedTargets) {
     const record = await adapter.findById(target, id);
-    if (record) await touch(target, record, {});
+    if (record) await touch(target, record, {}, [field.relation.inverseField]);
   }
 }
 

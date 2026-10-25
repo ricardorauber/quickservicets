@@ -68,7 +68,7 @@ export type {
 } from "./openapi.ts";
 export type { RunningService, StartServiceOptions } from "./service.ts";
 export { createFeatureLifecycle, featureLogger, LifecycleError, logLifecycleFailure, withTimeout } from "./lifecycle.ts";
-export type { FeatureApp, FeatureLifecycle, FeatureLifecycleOptions, FeatureSetupContext, RuntimeRoute, RuntimeRouteOptions, StartContext, WorkerInfo } from "./lifecycle.ts";
+export type { FeatureApp, FeatureLifecycle, FeatureLifecycleOptions, FeatureSetupContext, LifecyclePhase, RuntimeRoute, RuntimeRouteOptions, StartContext, WorkerInfo } from "./lifecycle.ts";
 export type { App, AppEndpoint, AppOptions, CrudRouteEntry, FeatureFolderRegistry } from "./app.ts";
 export { jsonLogger, safeLog } from "./logger.ts";
 export { entityModel, field } from "./entity-model.ts";

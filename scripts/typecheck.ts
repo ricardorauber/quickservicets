@@ -13,10 +13,13 @@ const tsc = Bun.resolveSync("typescript/bin/tsc", root);
 
 /** The directory of every project to check, relative to the repository root. */
 export function projects(): string[] {
-  const examples = readdirSync(join(root, "examples"), { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && existsSync(join(root, "examples", entry.name, "package.json")))
-    .map((entry) => `examples/${entry.name}`)
-    .sort();
+  const workspaces = (folder: string) =>
+    existsSync(join(root, folder))
+      ? readdirSync(join(root, folder), { withFileTypes: true })
+          .filter((entry) => entry.isDirectory() && existsSync(join(root, folder, entry.name, "package.json")))
+          .map((entry) => `${folder}/${entry.name}`)
+      : [];
+  const examples = [...workspaces("examples"), ...workspaces("examples/minimal")].sort();
   return ["packages/core", "packages/cli", "docs/scripts", "docs/tests", "benchmarks/quickservice", ...examples];
 }
 

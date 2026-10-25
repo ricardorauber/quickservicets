@@ -5,6 +5,10 @@
   "bin": {
     "quickservice": "src/index.ts"
   },
+  "exports": {
+    ".": "./src/lib.ts",
+    "./testing": "./src/testing/index.ts"
+  },
   "dependencies": {
     "@quickservice/core": "workspace:*",
     "typescript": "5.9.2",

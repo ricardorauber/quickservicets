@@ -1,0 +1,12 @@
+{
+  "name": "minimal-demo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test tests"
+  },
+  "dependencies": {
+    "@quickservice/core": "workspace:*",
+    "@quickservice/cli": "workspace:*"
+  }
+}

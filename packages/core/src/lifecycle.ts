@@ -84,7 +84,7 @@ export interface FeatureSetupContext<O = Record<string, unknown>> {
 export class LifecycleError extends Error {
   constructor(
     readonly feature: string,
-    readonly phase: "setup" | "onStart" | "onShutdown" | "onStop",
+    readonly phase: LifecyclePhase,
     readonly cause: unknown,
   ) {
     super(`${feature} failed in ${phase}: ${cause instanceof Error ? cause.message : String(cause)}`);
@@ -129,7 +129,12 @@ export interface FeatureLifecycleOptions {
   generatedDir?: string;
   /** Called with each feature's setup context before its setup runs, so extensions can add to it. */
   extendContext?: (context: FeatureSetupContext, feature: ResolvedFeature) => void;
+  /** Wraps every call of a feature's lifecycle code, with the feature's key and the phase; test harnesses use it. */
+  around?: <T>(feature: string, phase: LifecyclePhase, run: () => Promise<T>) => Promise<T>;
 }
+
+/** The lifecycle code a feature runs. */
+export type LifecyclePhase = "setup" | "onStart" | "onShutdown" | "onStop";
 
 /** The features' setup, start and stop steps of one process. */
 export interface FeatureLifecycle {
@@ -155,7 +160,7 @@ interface Registered {
 }
 
 /** Runs the enabled features' setups and the callbacks they register, with the `lifecycle` time limits. */
-export function createFeatureLifecycle({ features, config, models, featureFolders = {}, worker, generatedDir = join(process.cwd(), ".generated"), extendContext }: FeatureLifecycleOptions): FeatureLifecycle {
+export function createFeatureLifecycle({ features, config, models, featureFolders = {}, worker, generatedDir = join(process.cwd(), ".generated"), extendContext, around = (_feature, _phase, run) => run() }: FeatureLifecycleOptions): FeatureLifecycle {
   const logger = config.logger ?? jsonLogger;
   const startTimeout = parseDuration(config.lifecycle.startTimeout) ?? 30_000;
   const stopTimeout = parseDuration(config.lifecycle.stopTimeout) ?? 10_000;
@@ -170,7 +175,7 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
     for (const entry of [...entries].reverse()) {
       for (const callback of [...entry[phase]].reverse()) {
         try {
-          await withTimeout(callback, stopTimeout, `${entry.feature.key} ${phase}`);
+          await around(entry.feature.key, phase, () => withTimeout(callback, stopTimeout, `${entry.feature.key} ${phase}`));
         } catch (error) {
           logFailure(new LifecycleError(entry.feature.key, phase, error));
         }
@@ -214,7 +219,7 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
         extendContext?.(context, feature);
         const setup = feature.definition.setup;
         try {
-          if (setup) await withTimeout(() => setup(context as never), startTimeout, `${feature.key} setup`);
+          if (setup) await around(feature.key, "setup", () => withTimeout(() => setup(context as never), startTimeout, `${feature.key} setup`));
         } catch (error) {
           throw new LifecycleError(feature.key, "setup", error);
         } finally {
@@ -226,7 +231,7 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
       for (const entry of registered) {
         for (const callback of entry.onStart) {
           try {
-            await withTimeout(() => callback(context), startTimeout, `${entry.feature.key} onStart`);
+            await around(entry.feature.key, "onStart", () => withTimeout(() => callback(context), startTimeout, `${entry.feature.key} onStart`));
           } catch (error) {
             throw new LifecycleError(entry.feature.key, "onStart", error);
           }

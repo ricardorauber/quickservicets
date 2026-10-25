@@ -44,7 +44,7 @@ export function loadSheddingStep(options: LoadSheddingOptions, logger: Logger): 
           timer = setTimeout(flush, 1000);
           (timer as { unref?: () => void }).unref?.();
         }
-        throw new HttpError(503, "Server is busy", { headers: { "retry-after": retryAfter } });
+        throw state.refuse("loadShedding", new HttpError(503, "Server is busy", { headers: { "retry-after": retryAfter } }));
       }
       inFlight++;
       state.counted = true;

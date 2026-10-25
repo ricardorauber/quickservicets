@@ -1,5 +1,6 @@
 import { bodyTooLarge, fileTargetOf, HttpError, parseSize, setBodyPolicy, type EntityModel } from "../public.ts";
 import type { SecurityState, SecurityStep } from "./pipeline.ts";
+import type { SecurityRoute } from "./routes.ts";
 
 /** The `limits` item's options. */
 export interface LimitsOptions {
@@ -65,8 +66,8 @@ export function limitsStep(options: LimitsOptions): SecurityStep {
     name: "limits",
     before(state: SecurityState) {
       const { request } = state.ctx;
-      if (pathAndQueryLength(request.url) > maxUrl) throw new HttpError(414, "URL is too long");
-      if (!headersWithinLimits(request.headers, maxHeaders, options.headerCount)) throw new HttpError(431, "Request headers are too large");
+      if (pathAndQueryLength(request.url) > maxUrl) throw state.refuse("limits", new HttpError(414, "URL is too long"));
+      if (!headersWithinLimits(request.headers, maxHeaders, options.headerCount)) throw state.refuse("limits", new HttpError(431, "Request headers are too large"));
     },
   };
 }
@@ -79,18 +80,30 @@ export interface BodySettings {
   read?: number;
   /** Milliseconds a multipart body has to arrive in. */
   upload?: number;
+  /** Whether routes carry `@limits` tags, so the step looks up the request's route. */
+  byRoute?: boolean;
+}
+
+/** The body limit a route's `@limits` tag gives it, in bytes: its own `body`, none with `@limits off`, or undefined without the tag. */
+export function routeBodyLimit(route: SecurityRoute | undefined): number | null | undefined {
+  const tag = route?.tags.limits;
+  if (!tag) return undefined;
+  if (!tag.on) return null;
+  const body = (tag.options as { body?: string | number }).body;
+  return body === undefined ? undefined : parseSize(body);
 }
 
 /**
- * The body policy step: refuses a non-multipart body declaring more than the limit before reading it, and gives every
- * body its policy, which the body readers honor.
+ * The body policy step: refuses a non-multipart body declaring more than the limit (the route's `@limits body`, or the
+ * global one) before reading it, and gives every body its policy, which the body readers honor.
  */
 export function bodyStep(settings: BodySettings): SecurityStep {
-  const { maxBytes } = settings;
-  const json = { ...(maxBytes !== undefined ? { maxBytes } : {}), ...(settings.read !== undefined ? { readTimeout: settings.read } : {}) };
+  const read = settings.read !== undefined ? { readTimeout: settings.read } : {};
   const multipart = settings.upload !== undefined ? { readTimeout: settings.upload } : undefined;
+  const policyFor = (maxBytes: number | undefined) => ({ ...(maxBytes !== undefined ? { maxBytes } : {}), ...read });
+  const global = policyFor(settings.maxBytes);
   // A declared length within the limit is enforced by the runtime, so only a deadline needs a policy then.
-  const declared = settings.read !== undefined ? { readTimeout: settings.read } : undefined;
+  const declared = settings.read !== undefined ? read : undefined;
   return {
     name: "body",
     before(state: SecurityState) {
@@ -100,12 +113,14 @@ export function bodyStep(settings: BodySettings): SecurityStep {
         if (multipart) setBodyPolicy(request, multipart);
         return;
       }
+      const own = settings.byRoute ? routeBodyLimit(state.route) : undefined;
+      const maxBytes = own === undefined ? settings.maxBytes : (own ?? undefined);
       const length = request.headers.get("content-length");
       if (length === null) {
-        setBodyPolicy(request, json);
+        setBodyPolicy(request, own === undefined ? global : policyFor(maxBytes));
         return;
       }
-      if (maxBytes !== undefined && Number(length) > maxBytes) throw bodyTooLarge(maxBytes);
+      if (maxBytes !== undefined && Number(length) > maxBytes) throw state.refuse("limits", bodyTooLarge(maxBytes));
       if (declared) setBodyPolicy(request, declared);
     },
   };

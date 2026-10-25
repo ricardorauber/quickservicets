@@ -1,13 +1,13 @@
-import { secretVariableValues, boolean, cidr, defineFeature, duration, integer, list, object, oneOf, parseDuration, parseSize, peerAddress, rate, safeLog, size, string, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext } from "../public.ts";
-import type { SecurityApi } from "./api.ts";
+import { anyOf, hook, normalizeAddress, provider, runAfterHooks, secretVariableValues, boolean, cidr, defineFeature, duration, integer, list, object, oneOf, parseDuration, parseSize, peerAddress, rate, safeLog, size, string, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext } from "../public.ts";
+import type { ClientIpResolver, RateLimitRefusal, SecurityApi, SecurityRefusal } from "./api.ts";
 import { corsProblems, corsStep, ownOptionsRoutes, routeCorsOptions } from "./cors.ts";
 import { Exemptions } from "./exempt.ts";
 import { DEFAULT_MASKED_KEYS, masker, secretOptionValues, sensitiveFieldNames } from "./masking.ts";
 import { ipStep } from "./ip.ts";
 import { DEFAULT_ATTACHMENT_TYPES, fileHeaders } from "./files.ts";
 import { DEFAULT_CSP, DEFAULT_DOCS_CSP, headersStep } from "./headers.ts";
-import { bodyStep, FORM_OVERHEAD, largestUpload, limitsStep } from "./limits.ts";
-import { SECURITY_ITEMS, securityMiddlewares, type SecurityStep } from "./pipeline.ts";
+import { bodyStep, FORM_OVERHEAD, largestUpload, limitsStep, routeBodyLimit } from "./limits.ts";
+import { SECURITY_ITEMS, securityMiddlewares, type RefusalListener, type SecurityStep } from "./pipeline.ts";
 import { proxyResolver } from "./proxy.ts";
 import { KEY_PARTS, rateLimitStep, routePatterns } from "./rate-limit.ts";
 import { loadSheddingStep } from "./shedding.ts";
@@ -19,6 +19,9 @@ const options = object({
   proxy: toggle({
     trust: list(cidr()).default([]).describe("The proxies whose forwarding headers are read: addresses, CIDR blocks or loopback, private and linklocal."),
     header: string().default("x-forwarded-for").describe("The header trusted proxies put the client address in: x-forwarded-for, forwarded (RFC 7239) or another comma-separated list."),
+    resolver: provider<ClientIpResolver>("ClientIpResolver", ["resolve"])
+      .optional()
+      .describe("Replaces the trusted walk: its resolve method gets the request and its peer address and returns the client address, which is then normalized."),
   }).describe("Resolves the client address in req.ip through the proxies the project trusts."),
   headers: toggle({
     contentTypeOptions: boolean().default(true).describe("Sends X-Content-Type-Options: nosniff."),
@@ -38,7 +41,7 @@ const options = object({
       .describe("The stored types served with content-disposition: attachment, wildcards allowed; other files stay inline."),
   }).describe("Sends headers on served files (proxy and signed modes) that keep a browser from running them as pages of the service."),
   cors: toggle({
-    origins: list(string()).default([]).describe('The origins allowed to call the API from a browser: exact origins, "*", subdomain patterns like https://*.example.com, or "null"; none by default.'),
+    origins: list(string()).perRequest().default([]).describe('The origins allowed to call the API from a browser: exact origins, "*", subdomain patterns like https://*.example.com, or "null"; none by default.'),
     methods: list(string()).default(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]).describe("The methods a preflight may ask for."),
     headers: list(string())
       .default(["content-type", "authorization", "idempotency-key", "if-match", "if-none-match", "x-request-id"])
@@ -48,12 +51,14 @@ const options = object({
       .describe("The response headers a browser lets the calling page read."),
     credentials: boolean().default(false).describe("Allows cookies and authorization with cross-origin requests; not with origins \"*\"."),
     maxAge: duration().default("10m").describe("How long a browser caches a preflight answer."),
+    onRejected: hook<SecurityRefusal, undefined>().describe("Runs after a preflight is refused, with the request, address, route and reason."),
   }).describe("Answers cross-origin requests and preflights of the allowed origins; closed until origins are listed."),
   limits: toggle({
     body: size().default("1MB").describe("The largest request body, except multipart uploads, which the file settings limit."),
     headers: size().default("16KB").describe("The largest total length of the request's header names and values."),
     headerCount: integer().min(1).default(100).describe("The most headers a request may have."),
     url: size().default("8KB").describe("The longest path and query string."),
+    onRejected: hook<SecurityRefusal, undefined>().describe("Runs after a request is refused for its URL, headers or declared body size."),
   }).describe("Refuses oversized URLs (414), headers (431) and bodies (413) before reading them."),
   timeouts: toggle({
     idle: duration().default("30s").describe("How long a connection may stay idle before it is closed, at most 255s (the Bun limit); 0s turns it off."),
@@ -63,6 +68,7 @@ const options = object({
   loadShedding: toggle({
     maxInFlight: integer().min(1).default(1000).describe("The most requests one worker serves at once; more are refused with 503."),
     retryAfter: duration().default("1s").describe("The Retry-After of a refusal, sent in whole seconds."),
+    onShed: hook<SecurityRefusal, undefined>().describe("Runs after a request is refused because the worker is busy."),
   }).describe("Refuses new requests with 503 while a worker has too many in flight, so it stays responsive under overload."),
   rateLimit: toggle({
     limit: rate()
@@ -70,17 +76,19 @@ const options = object({
       .default("1000/min")
       .describe("The requests each bucket may make per window, like 1000/min or 10/s; a function of the request context (req, user and tenant) computes it per request."),
     by: list(oneOf(KEY_PARTS)).default(["ip"]).describe("What a bucket is per: the client address (ip), the route, the user or the tenant, combined."),
-    store: oneOf(["memory", "database"])
+    store: anyOf(oneOf(["memory", "database"]), provider<RateLimitStore>("RateLimitStore", ["hit", "reset"]))
       .default("memory")
-      .describe('Where the counters live: "memory" keeps them per worker; "database" shares them across workers and replicas through the project\'s database.'),
+      .describe('Where the counters live: "memory" keeps them per worker; "database" shares them across workers and replicas through the project\'s database; a RateLimitStore replaces both.'),
     syncInterval: duration().default("1s").describe('How often the "database" store sends its pending counts and reads the shared totals back.'),
     memory: object({
       maxKeys: integer().min(1).default(100_000).describe("The most buckets the memory store keeps; the least recently used one is evicted."),
     }),
+    onLimited: hook<RateLimitRefusal, undefined>().describe("Runs after a request is refused with 429, with the bucket's key and limit."),
   }).describe("Limits how many requests each client address makes in a time window, answering 429 with RateLimit headers."),
   ip: toggle({
     allow: list(cidr()).default([]).describe("When not empty, only these addresses are served: addresses, CIDR blocks or loopback, private and linklocal."),
     deny: list(cidr()).default([]).describe("Addresses refused with 403; a deny match wins over an allow match."),
+    onBlocked: hook<SecurityRefusal, undefined>().describe("Runs after a request is refused for its address."),
   }).describe("Accepts or refuses requests by client address (req.ip), for the whole service or with tags for single routes."),
   masking: toggle({
     keys: list(string())
@@ -96,8 +104,23 @@ function idleProblems(idle: string): string[] {
   return parseDuration(idle)! > MAX_IDLE_SECONDS * 1000 ? [`Invalid security.timeouts.idle: expected at most ${MAX_IDLE_SECONDS}s (the Bun limit), got ${idle}`] : [];
 }
 
-/** The exemptions of each running setup, shared by the setup and the feature API built from the same context. */
-const exemptionsOf = new WeakMap<object, Exemptions>();
+/** The rate limit store of a running setup, and who set it: the config's provider, or a feature. */
+interface StoreSlot {
+  current: RateLimitStore;
+  owner?: string;
+  /** False once the app started: the store can no longer be replaced. */
+  open: boolean;
+}
+
+/** What each running setup shares with the feature API built from the same context. */
+interface SetupState {
+  exemptions: Exemptions;
+  store: StoreSlot;
+}
+
+const setupStates = new WeakMap<object, SetupState>();
+
+const isStore = (value: unknown): value is RateLimitStore => typeof value === "object" && value !== null && typeof (value as RateLimitStore).hit === "function" && typeof (value as RateLimitStore).reset === "function";
 
 /** How often one worker deletes the expired counters of the database store. */
 export const COUNTER_CLEANUP_INTERVAL = 60_000;
@@ -131,15 +154,18 @@ function databaseStore(ctx: FeatureSetupContext<SecurityOptions>): RateLimitStor
 }
 
 /** The steps of the enabled items, in no particular order; the pipeline orders them. */
-function itemSteps(ctx: FeatureSetupContext<SecurityOptions>, index: () => RouteIndex | undefined, ipOf: (request: Request) => string): SecurityStep[] {
+function itemSteps(ctx: FeatureSetupContext<SecurityOptions>, index: () => RouteIndex | undefined, ipOf: (request: Request) => string, slot: StoreSlot): SecurityStep[] {
   const { options } = ctx;
   const steps: SecurityStep[] = [];
   if (options.rateLimit.enabled) {
     const { rateLimit } = options;
-    const store = rateLimit.store === "database" ? databaseStore(ctx) : memoryRateLimitStore({ maxKeys: rateLimit.memory.maxKeys });
+    if (isStore(rateLimit.store)) slot.current = rateLimit.store;
+    else if (rateLimit.store === "database") slot.current = databaseStore(ctx);
     if (rateLimit.store === "memory" && Math.max(ctx.worker.count, ctx.config.server.workers) > 1) {
       safeLog(ctx.logger, "warn", { timestamp: new Date().toISOString(), message: 'security.rateLimit uses per-worker memory counters; set security.rateLimit.store to "database" to share them' });
     }
+    // A feature may still replace the store during setup, so hits go through the slot.
+    const store: RateLimitStore = { hit: (key, hit) => slot.current.hit(key, hit), reset: (key) => slot.current.reset(key) };
     steps.push(rateLimitStep(rateLimit, { store, ipOf, tagged: index()?.routes ?? [], ...(rateLimit.by.includes("route") ? { routes: routePatterns(taggedRoutes()) } : {}) }));
   }
   if (options.headers.enabled) steps.push(headersStep(options.headers, ctx.config.production));
@@ -152,13 +178,13 @@ function itemSteps(ctx: FeatureSetupContext<SecurityOptions>, index: () => Route
     const step = ipStep(options.ip, ipOf, index()?.routes ?? []);
     if (step) steps.push(step);
   }
-  if (options.cors.enabled) steps.push(corsStep(options.cors, ownOptionsRoutes(taggedRoutes()), index));
+  if (options.cors.enabled) steps.push(corsStep(options.cors, ownOptionsRoutes(taggedRoutes()), index, ipOf));
   if (options.limits.enabled) steps.push(limitsStep(options.limits));
   if (options.limits.enabled || options.timeouts.enabled) {
     const timeouts = options.timeouts.enabled ? options.timeouts : undefined;
     steps.push(
       bodyStep({
-        ...(options.limits.enabled ? { maxBytes: parseSize(options.limits.body)! } : {}),
+        ...(options.limits.enabled ? { maxBytes: parseSize(options.limits.body)!, byRoute: (index()?.routes ?? []).some((route) => route.tags.limits) } : {}),
         ...(timeouts ? { read: parseDuration(timeouts.read)!, upload: parseDuration(timeouts.upload)! } : {}),
       }),
     );
@@ -167,6 +193,30 @@ function itemSteps(ctx: FeatureSetupContext<SecurityOptions>, index: () => Route
 }
 
 type SecurityOptions = FeatureOptions<typeof options>;
+
+/** The hook option of each item whose refusals run hooks. */
+const REFUSAL_HOOKS = { rateLimit: "onLimited", ip: "onBlocked", cors: "onRejected", loadShedding: "onShed", limits: "onRejected" } as const;
+
+/**
+ * Runs the item's after-hooks once a refusal is decided, with the request, its address and route, the item and the
+ * reason; a failing hook is logged and never changes the response. Undefined when no hook is set.
+ */
+function refusalHooks(ctx: FeatureSetupContext<SecurityOptions>, ipOf: (request: Request) => string): RefusalListener | undefined {
+  const lists = Object.fromEntries(
+    Object.entries(REFUSAL_HOOKS).map(([item, name]) => [item, (ctx.options[item as keyof typeof REFUSAL_HOOKS] as unknown as Record<string, ((value: never, ctx: undefined) => unknown)[]>)[name] ?? []]),
+  );
+  if (Object.values(lists).every((list) => list.length === 0)) return undefined;
+  let patterns: ReturnType<typeof routePatterns> | undefined;
+  return (state, refusal) => {
+    const list = lists[refusal.item]!;
+    if (list.length === 0) return;
+    const { request, url } = state.ctx;
+    patterns ??= routePatterns(taggedRoutes());
+    const route = patterns.of(request.method, url.pathname);
+    const value = { request, ip: ipOf(request), route: route === "-" ? undefined : route, item: refusal.item, reason: refusal.reason, ...refusal.details };
+    void runAfterHooks(list as never, value as never, undefined);
+  };
+}
 
 /**
  * The `security` native: safe defaults for every service, as separate items that can each be adjusted or switched
@@ -181,6 +231,13 @@ const securityFeature = defineFeature({
   entities: ({ options }) => (options.rateLimit.enabled && options.rateLimit.store === "database" ? [rateLimitCounterEntity()] : []),
   validate: (resolved) => [...(resolved.cors.enabled ? corsProblems(resolved.cors, "security.cors") : []), ...(resolved.timeouts.enabled ? idleProblems(resolved.timeouts.idle) : [])],
   tags: {
+    limits: {
+      on: ["endpoint", "entity"],
+      scope: "limits",
+      options: ["body"],
+      description: "Raises or lowers the body limit of one route, or of each route of an entity, like an import endpoint that takes large JSON bodies.",
+      example: "/** @limits body=20MB */\nexport default handler;",
+    },
     sensitive: {
       on: ["field"],
       description: "Marks a field whose value never appears in log entries or job run records, shown there as [sensitive]; API responses keep it (use @hidden to leave it out).",
@@ -227,7 +284,8 @@ const securityFeature = defineFeature({
   },
   setup(ctx) {
     const exemptions = new Exemptions();
-    exemptionsOf.set(ctx.app, exemptions);
+    const slot: StoreSlot = { current: memoryRateLimitStore({ maxKeys: ctx.options.rateLimit.memory.maxKeys }), open: true, ...(isStore(ctx.options.rateLimit.store) ? { owner: "the config" } : {}) };
+    setupStates.set(ctx.app, { exemptions, store: slot });
     const enabled = SECURITY_ITEMS.filter((item) => ctx.options[item].enabled);
     // Routes are indexed only when one carries a security tag, so other requests do no lookup.
     const index: RouteIndex | undefined = buildRouteIndex(taggedRoutes(), Object.keys(securityFeature.tags ?? {}));
@@ -236,10 +294,17 @@ const securityFeature = defineFeature({
     const proxy = ctx.options.proxy;
     // Without trusted proxies, req.ip is the peer address; production still checks for forwarded headers to warn once.
     let ipOf: (request: Request) => string = peerAddress;
-    if (proxy.enabled && (proxy.trust.length > 0 || ctx.config.production)) {
+    if (proxy.enabled && (proxy.resolver !== undefined || proxy.trust.length > 0 || ctx.config.production)) {
       const untrusted = (peer: string) =>
         safeLog(ctx.logger, "warn", { timestamp: new Date().toISOString(), message: "security.proxy.untrusted", peer, header: proxy.header, hint: "set security.proxy.trust if the service runs behind a proxy" });
-      const resolve = proxyResolver(proxy, ctx.config.production ? untrusted : undefined);
+      const custom = proxy.resolver;
+      // A resolver of the project replaces the trusted walk; its answer is normalized like the walk's.
+      const resolve = custom
+        ? (request: Request, peer: string) => {
+            const address = custom.resolve({ request, peer });
+            return (typeof address === "string" ? normalizeAddress(address) : undefined) ?? peer;
+          }
+        : proxyResolver(proxy, ctx.config.production ? untrusted : undefined);
       // Items before routing and req.ip read the same address, computed once per request.
       const resolved = new WeakMap<Request, string>();
       const clientIp = (request: Request, peer: string) => {
@@ -250,11 +315,12 @@ const securityFeature = defineFeature({
       ctx.app.configureServer({ clientIp });
       ipOf = (request) => clientIp(request, peerAddress(request));
     }
-    const steps = itemSteps(ctx, () => index, ipOf);
+    const steps = itemSteps(ctx, () => index, ipOf, slot);
     if (ctx.options.limits.enabled) {
-      // The socket refuses bodies no route could accept: larger than the body limit and than any upload the model allows.
+      // The socket refuses bodies no route could accept: larger than every body limit and than any upload the model allows.
       const upload = largestUpload(ctx.models, ctx.config.files.maxSize);
-      ctx.app.configureServer({ maxRequestBodySize: Math.max(parseSize(ctx.options.limits.body)!, upload > 0 ? upload + FORM_OVERHEAD : 0) });
+      const tagged = (index?.routes ?? []).map((route) => routeBodyLimit(route) ?? 0);
+      ctx.app.configureServer({ maxRequestBodySize: Math.max(parseSize(ctx.options.limits.body)!, ...tagged, upload > 0 ? upload + FORM_OVERHEAD : 0) });
     }
     if (ctx.options.masking.enabled) {
       const secrets = [
@@ -267,23 +333,36 @@ const securityFeature = defineFeature({
     if (ctx.options.timeouts.enabled) ctx.app.configureServer({ idleTimeout: Math.ceil(parseDuration(ctx.options.timeouts.idle)! / 1000) });
     if (ctx.options.files.enabled) ctx.app.configureServer({ fileHeaders: fileHeaders(ctx.options.files.attachmentTypes) });
     if (steps.length > 0) {
-      const middlewares = securityMiddlewares(steps, exemptions, () => index);
+      const middlewares = securityMiddlewares(steps, exemptions, () => index, refusalHooks(ctx, ipOf));
       ctx.app.use(middlewares.request);
       if (middlewares.handler) ctx.app.use(middlewares.handler);
     }
     // Features that run after this one add their exemptions in their own setup; the list is final once the app starts.
-    ctx.app.onStart(() => exemptions.close());
+    ctx.app.onStart(() => {
+      exemptions.close();
+      slot.open = false;
+    });
     safeLog(ctx.logger, "info", { timestamp: new Date().toISOString(), message: "security.enabled", items: enabled });
   },
   api: (ctx): SecurityApi => {
-    const exemptions = exemptionsOf.get(ctx.app)!;
-    return { exempt: (pattern, items) => exemptions.add(pattern, items) };
+    const { exemptions, store } = setupStates.get(ctx.app)!;
+    return {
+      exempt: (pattern, items) => exemptions.add(pattern, items),
+      rateLimitStore(replacement) {
+        const caller = ctx.currentFeature() ?? "a feature";
+        if (!store.open) throw new Error("security rateLimitStore() is only available during setup");
+        if (!isStore(replacement)) throw new Error("security rateLimitStore() expects a RateLimitStore with the methods hit, reset");
+        if (store.owner !== undefined) throw new Error(`security.rateLimit.store is set by both ${store.owner} and ${caller}`);
+        store.owner = caller;
+        store.current = replacement;
+      },
+    };
   },
 });
 
 export default securityFeature;
 export { securityFeature };
-export type { SecurityApi } from "./api.ts";
+export type { ClientIpResolver, RateLimitRefusal, SecurityApi, SecurityRefusal } from "./api.ts";
 export type { ExemptibleItem } from "./exempt.ts";
 export { memoryRateLimitStore, slidingWindowHit } from "./store.ts";
 export { maskEntry, maskText, maskUrl } from "./masking.ts";

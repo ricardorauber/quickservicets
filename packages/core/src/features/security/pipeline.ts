@@ -1,4 +1,4 @@
-import type { HandlerMiddleware, RequestMiddleware, RequestStageContext, ServiceRequest } from "../public.ts";
+import type { HandlerMiddleware, HttpError, RequestMiddleware, RequestStageContext, ServiceRequest } from "../public.ts";
 import type { Exemptions } from "./exempt.ts";
 import type { RouteIndex, SecurityRoute } from "./routes.ts";
 import type { RateLimitResult } from "./store.ts";
@@ -20,6 +20,19 @@ export type StepName = (typeof STEP_ORDER)[number];
 
 /** The order the steps add their response headers in, on the way out. */
 const RESPONSE_ORDER: readonly StepName[] = ["headers", "cors", "rateLimit", "loadShedding", "limits", "ip", "body"];
+
+/** The items whose refusals have a hook. */
+export type RefusingItem = "rateLimit" | "ip" | "cors" | "loadShedding" | "limits";
+
+/** A refusal a step decided: the item, the error's message, and what the item adds (the key and limit of a rate limit). */
+export interface Refusal {
+  item: RefusingItem;
+  reason: string;
+  details?: Record<string, unknown>;
+}
+
+/** Called with each refusal once it is decided, with the request's state. */
+export type RefusalListener = (state: SecurityState, refusal: Refusal) => void;
 
 /** What one request carries through the security steps. */
 export class SecurityState {
@@ -47,6 +60,14 @@ export class SecurityState {
   counted = false;
   /** The rate limit decision whose headers the response carries: the bucket with the fewest requests left. */
   rateLimit: RateLimitResult | undefined;
+  /** The refusal a step decided, for the item's hook. */
+  refusal: Refusal | undefined;
+
+  /** Records the refusal of an item and returns its error, for the step to throw. */
+  refuse(item: RefusingItem, error: HttpError, details?: Record<string, unknown>): HttpError {
+    this.refusal = { item, reason: error.message, ...(details ? { details } : {}) };
+    return error;
+  }
 }
 
 /** One step of the security middlewares, implemented by an item. */
@@ -76,7 +97,7 @@ const position = (order: readonly StepName[], step: SecurityStep) => order.index
  * `STEP_ORDER` and adds their response headers on the way out; the `handler` middleware (order 1000, inside the
  * middlewares with the default order) runs the steps that need `req.user` or `req.tenant`.
  */
-export function securityMiddlewares(steps: readonly SecurityStep[], exemptions: Exemptions, index: () => RouteIndex | undefined): SecurityMiddlewares {
+export function securityMiddlewares(steps: readonly SecurityStep[], exemptions: Exemptions, index: () => RouteIndex | undefined, onRefusal?: RefusalListener): SecurityMiddlewares {
   const sorted = [...steps].sort((a, b) => position(STEP_ORDER, a) - position(STEP_ORDER, b));
   const before = sorted.filter((step) => step.before).map((step) => step.before!.bind(step));
   const after = [...steps].sort((a, b) => position(RESPONSE_ORDER, a) - position(RESPONSE_ORDER, b)).filter((step) => step.after).map((step) => step.after!.bind(step));
@@ -102,6 +123,7 @@ export function securityMiddlewares(steps: readonly SecurityStep[], exemptions: 
           response = await next();
         }
       } catch (error) {
+        if (state.refusal && onRefusal) onRefusal(state, state.refusal);
         response = await ctx.errorResponse(error);
       } finally {
         for (const finish of done) finish(state);
@@ -116,7 +138,14 @@ export function securityMiddlewares(steps: readonly SecurityStep[], exemptions: 
     order: 1000,
     async run(req, _res, next) {
       const state = states.get(req.raw);
-      if (state) for (const check of handlers) await check(req, state);
+      if (state) {
+        try {
+          for (const check of handlers) await check(req, state);
+        } catch (error) {
+          if (state.refusal && onRefusal) onRefusal(state, state.refusal);
+          throw error;
+        }
+      }
       return next();
     },
   };

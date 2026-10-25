@@ -54,8 +54,8 @@ export function ipStep(lists: IpLists, ipOf: (request: Request) => string, tagge
       const checksGlobal = global !== undefined && !(state.exempt & EXEMPT.ip);
       if (!checksGlobal && !own) return;
       const ip = ipOf(state.ctx.request);
-      if (checksGlobal && !global(ip)) throw refused();
-      if (own && !own(ip)) throw refused();
+      if (checksGlobal && !global(ip)) throw state.refuse("ip", refused());
+      if (own && !own(ip)) throw state.refuse("ip", refused());
     },
   };
 }

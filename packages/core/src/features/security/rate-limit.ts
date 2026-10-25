@@ -157,15 +157,16 @@ export function rateLimitStep(options: RateLimitOptions, context: RateLimitConte
     }
     return key;
   };
-  const record = (state: SecurityState, result: RateLimitResult) => {
+  const record = (state: SecurityState, result: RateLimitResult, key: string, limit: string) => {
     if (!state.rateLimit || result.remaining < state.rateLimit.remaining || !result.allowed) state.rateLimit = result;
-    if (!result.allowed) throw rateLimited(result);
+    if (!result.allowed) throw state.refuse("rateLimit", rateLimited(result), { key, limit });
   };
   const hit = (bucket: Bucket, state: SecurityState, limit: string, req?: ServiceRequest) => {
     const { count, windowMs } = rateOf(limit);
-    const result = store.hit(keyOf(bucket, state, req), { limit: count, windowMs, now: now() });
-    if (result instanceof Promise) return result.then((settled) => record(state, settled));
-    record(state, result);
+    const key = keyOf(bucket, state, req);
+    const result = store.hit(key, { limit: count, windowMs, now: now() });
+    if (result instanceof Promise) return result.then((settled) => record(state, settled, key, limit));
+    record(state, result, key, limit);
   };
   /** Whether rate limits apply to the request at all: not exempted, and not on a route tagged `@rateLimit off`. */
   const applies = (state: SecurityState) => !(state.exempt & EXEMPT.rateLimit) && state.route?.tags.rateLimit?.on !== false;

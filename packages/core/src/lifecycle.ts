@@ -98,6 +98,11 @@ export interface FeatureSetupContext<O = Record<string, unknown>> {
   addHook(name: string, fn: (value: never, ctx: never) => unknown): void;
   /** The bus of the `events` native; using it while the native is disabled throws. */
   events: Events;
+  /**
+   * The key of the feature whose setup is running now, undefined outside setups; a feature API uses it to name the
+   * feature calling it.
+   */
+  currentFeature(): string | undefined;
 }
 
 /** A lifecycle step that failed: the feature, the phase and the error. */
@@ -204,6 +209,7 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
   const started: Registered[] = [];
   const apis = new Map<string, object>();
   const enabledKeys = new Set(features.map((feature) => feature.key));
+  let settingUp: string | undefined;
 
   const logFailure = (error: LifecycleError) => logLifecycleFailure(logger, error);
 
@@ -278,6 +284,7 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
             return api;
           }) as FeatureSetupContext["feature"],
           events,
+          currentFeature: () => settingUp,
           addHook: (name, fn) => {
             const list = (feature.options as Record<string, unknown>)[name];
             if (feature.definition.schema.settings.shape?.[name]?.kind !== "hook" || !Array.isArray(list)) throw new Error(`Unknown hook ${name} of ${feature.key}`);
@@ -287,6 +294,7 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
         };
         extendContext?.(context, feature);
         const { setup, api } = feature.definition;
+        settingUp = feature.key;
         try {
           if (setup) await around(feature.key, "setup", () => withTimeout(() => setup(context as never), startTimeout, `${feature.key} setup`));
           if (api) apis.set(feature.key, await around(feature.key, "setup", () => withTimeout(() => api(context as never), startTimeout, `${feature.key} api`)));
@@ -294,6 +302,7 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
           throw new LifecycleError(feature.key, "setup", error);
         } finally {
           open = false;
+          settingUp = undefined;
         }
       }
     },

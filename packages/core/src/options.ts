@@ -24,7 +24,8 @@ export type OptionKind =
   | "record"
   | "rate"
   | "cidr"
-  | "hook";
+  | "hook"
+  | "anyOf";
 
 /**
  * What a per-request option function receives: the request, undefined outside one (jobs, queues, setup code), and the
@@ -61,6 +62,8 @@ export interface OptionSettings {
   /** `provider` interface name and required methods. */
   readonly name?: string;
   readonly methods?: readonly string[];
+  /** `anyOf` alternatives, tried in order. */
+  readonly members?: readonly AnyOptionSchema[];
 }
 
 // Type-level markers set by the modifiers; they never exist at runtime.
@@ -307,6 +310,15 @@ export function provider<T extends object>(name: string, methods: readonly (keyo
 }
 
 /**
+ * A value any of `members` accepts, tried in order, like `anyOf(oneOf(["memory", "database"]), provider(...))`; an
+ * environment variable can set the members that are not providers.
+ */
+export function anyOf<const A extends readonly AnyOptionSchema[]>(...members: A): OptionSchema<A[number] extends infer M ? (M extends { readonly __value: infer V } ? V : never) : never> {
+  if (members.length < 2) throw new Error("anyOf() needs at least two alternatives");
+  return node("anyOf", { members: Object.freeze([...members]) }) as never;
+}
+
+/**
  * A switchable section: accepts `true` (every default of `shape`), `false` (the same, off) or an object of `shape`, and
  * always resolves to an object with `enabled` (default true) and the keys of `shape`. `.default(false)` makes the
  * section off unless given.
@@ -388,6 +400,8 @@ export function expectationOf(schema: AnyOptionSchema): string {
       return CIDR_EXPECTATION;
     case "hook":
       return "a function or a list of functions";
+    case "anyOf":
+      return settings.members!.map((member) => expectationOf(member)).join(", or ");
   }
 }
 
@@ -531,6 +545,14 @@ function validate(schema: AnyOptionSchema, value: unknown, path: string, problem
       return rateOf(value) ? value : invalid();
     case "cidr":
       return isCidr(value) ? value : invalid();
+    case "anyOf": {
+      for (const member of settings.members!) {
+        const attempt: string[] = [];
+        const resolved = validate(member, value, path, attempt);
+        if (attempt.length === 0) return resolved;
+      }
+      return invalid();
+    }
     case "provider":
       return (typeof value === "object" || typeof value === "function") &&
         value !== null &&
@@ -613,6 +635,17 @@ function convertString(schema: AnyOptionSchema, raw: string): unknown {
     case "oneOf": {
       const match = schema.settings.values!.find((value) => String(value) === raw);
       return match === undefined ? raw : match;
+    }
+    case "anyOf": {
+      // The first alternative a variable can express that reads the text as one of its values.
+      for (const member of schema.settings.members!) {
+        if (member.kind === "provider" || member.kind === "hook") continue;
+        const converted = convertString(member, raw);
+        const problems: string[] = [];
+        validate(member, converted, "value", problems);
+        if (problems.length === 0) return converted;
+      }
+      return raw;
     }
     default:
       return raw;
@@ -709,6 +742,8 @@ export function optionTypeOf(schema: AnyOptionSchema): string {
     }
     case "provider":
       return settings.name!;
+    case "anyOf":
+      return settings.members!.map((member) => optionTypeOf(member)).join(" | ");
     case "record":
       return `record of ${optionTypeOf(settings.item!)}`;
     default:

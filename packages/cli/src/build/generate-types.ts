@@ -177,6 +177,8 @@ export function optionValueType(schema: AnyOptionSchema): string {
         .join("; ")} }`;
     case "provider":
       return "unknown";
+    case "anyOf":
+      return settings.members!.map((member) => optionValueType(member)).join(" | ");
     case "size":
       return "string | number";
     default:

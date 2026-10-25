@@ -136,6 +136,7 @@ export { createJobRunCleanup, RUN_CLEANUP_BATCH, RUN_CLEANUP_INTERVAL } from "./
 export type { JobRunCleanup, JobRunCleanupOptions } from "./jobs/retention.ts";
 export type { JobName, JobNames, OnDemandRequest, RequestJobs, RunJobOptions } from "./jobs/triggers.ts";
 export {
+  anyOf,
   boolean,
   describeOptions,
   duration,
@@ -234,7 +235,7 @@ export { addOutboxPatterns, events, eventsFeature, listen, memoryEventBus, readO
 export type { ConsumerOptions, DeliveryContext, DeliveryStatus, OutboxRecord } from "./features/events/index.ts";
 export type { EventBus, EventListener, Events, EventsApi, ListenerContext, ListenerFile, ListenerPhase, ListenOptions, MemoryEventBus } from "./features/events/index.ts";
 export { maskEntry, maskText, maskUrl, memoryRateLimitStore, securityFeature, slidingWindowHit } from "./features/security/index.ts";
-export type { ExemptibleItem, MaskingRules, MemoryRateLimitStore, RateLimitHit, RateLimitResult, RateLimitStore, SecurityApi, WindowCounts } from "./features/security/index.ts";
+export type { ClientIpResolver, ExemptibleItem, MaskingRules, MemoryRateLimitStore, RateLimitRefusal, SecurityRefusal, RateLimitHit, RateLimitResult, RateLimitStore, SecurityApi, WindowCounts } from "./features/security/index.ts";
 
 declare module "./features.ts" {
   interface NativeFeatures {

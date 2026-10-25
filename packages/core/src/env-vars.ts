@@ -1,4 +1,5 @@
 import { ConfigError } from "./config-error.ts";
+import { maskSecrets } from "./secrets.ts";
 import { expectationOf, optionTypeOf, parseOptionString, type AnyOptionSchema, type OptionSettings } from "./options.ts";
 
 /**
@@ -100,11 +101,16 @@ export function readVariables(variables: readonly DeclaredVariable[], source: Re
   return values;
 }
 
-let current: Readonly<Record<string, unknown>> | undefined;
+let resolved = false;
+/** Holds the variables as own properties, so inspecting `env` shows them, with secrets masked. */
+const store: Record<string, unknown> = {};
 
-/** Stores the variables of the configuration just resolved, read through `env`. */
-export function setEnvValues(values: Record<string, unknown>): void {
-  current = Object.freeze({ ...values });
+/** Stores the variables of the configuration just resolved, read through `env`; `secrets` are masked when printed. */
+export function setEnvValues(values: Record<string, unknown>, secrets: readonly string[] = []): void {
+  for (const name of Reflect.ownKeys(store)) delete store[name as string];
+  for (const [name, value] of Object.entries(values)) Object.defineProperty(store, name, { value, enumerable: true, configurable: true, writable: false });
+  maskSecrets(store, secrets.filter((name) => values[name] !== undefined));
+  resolved = true;
 }
 
 const readOnly = () => {
@@ -113,18 +119,16 @@ const readOnly = () => {
 
 /**
  * The declared environment variables, parsed and typed, once a configuration has been resolved in this process.
- * Reading it before (for example at the top level of `quickservice.config.ts`) throws.
+ * Reading it before (for example at the top level of `quickservice.config.ts`) throws. Secrets read as their values
+ * but print and serialize as `[secret]`.
  */
-export const env: Readonly<EnvVars> = new Proxy({} as Readonly<EnvVars>, {
-  get(_, name) {
-    if (typeof name === "symbol") return undefined;
-    if (!current) throw new Error(`env.${name} was read before the configuration was resolved; use process.env inside quickservice.config.ts`);
-    return current[name];
+export const env: Readonly<EnvVars> = new Proxy(store as Readonly<EnvVars>, {
+  get(target, name) {
+    if (!resolved && typeof name === "string" && name !== "toJSON") {
+      throw new Error(`env.${name} was read before the configuration was resolved; use process.env inside quickservice.config.ts`);
+    }
+    return Reflect.get(target, name);
   },
-  has: (_, name) => current !== undefined && typeof name === "string" && Object.hasOwn(current, name),
-  ownKeys: () => (current ? Reflect.ownKeys(current) : []),
-  getOwnPropertyDescriptor: (_, name) =>
-    current && typeof name === "string" && Object.hasOwn(current, name) ? { value: current[name], enumerable: true, configurable: true, writable: false } : undefined,
   set: readOnly,
   defineProperty: readOnly,
   deleteProperty: readOnly,
@@ -132,5 +136,6 @@ export const env: Readonly<EnvVars> = new Proxy({} as Readonly<EnvVars>, {
 
 /** Forgets the stored variables; for tests of reads before resolution. */
 export function clearEnvValues(): void {
-  current = undefined;
+  setEnvValues({});
+  resolved = false;
 }

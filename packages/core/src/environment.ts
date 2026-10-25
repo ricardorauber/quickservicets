@@ -150,12 +150,9 @@ export function applyEnvironment(
 ): EnvironmentResult {
   let config: Record<string, unknown> = input;
   const problems: string[] = [];
-  const known = new Set<string>([...INTERNAL_VARIABLES, ...declared]);
 
   for (const override of CONFIG_OVERRIDES) {
     const name = envNameFor(override.path);
-    known.add(name);
-    if (override.alias?.name.startsWith("QS_")) known.add(override.alias.name);
     if (override.custom) continue;
     let label = `${name} (${override.path})`;
     let raw = env[name];
@@ -170,7 +167,6 @@ export function applyEnvironment(
 
   for (const definition of definitions) {
     const variables = featureVariables(definition.key, definition.schema);
-    for (const name of variables.keys()) known.add(name);
     const enabledName = envNameFor(`${definition.key}.enabled`);
     const options: [string[], unknown][] = [];
     let enabled: boolean | undefined;
@@ -199,6 +195,12 @@ export function applyEnvironment(
 
   if (problems.length > 0) throw new ConfigError(problems.join("\n"));
 
+  return { config, warnings: unknownVariableWarnings(env, definitions, declared) };
+}
+
+/** `Unknown environment variable …` warnings for the set `QS_*` variables that match no config key, with the closest name. */
+export function unknownVariableWarnings(env: Record<string, string | undefined>, definitions: readonly FeatureDefinition[], declared: readonly string[] = []): string[] {
+  const known = new Set<string>([...INTERNAL_VARIABLES, ...declared, ...overrideVariables(definitions).keys()]);
   const warnings: string[] = [];
   const names = [...known];
   for (const name of Object.keys(env).sort()) {
@@ -211,7 +213,7 @@ export function applyEnvironment(
     }
     warnings.push(`Unknown environment variable ${name}${best ? ` (did you mean ${best.name}?)` : ""}`);
   }
-  return { config, warnings };
+  return warnings;
 }
 
 /** The option variables of every core key and their aliases, for the docs. */
@@ -228,4 +230,18 @@ export function configVariable(path: string): { name: string; alias?: string } |
 export function logConfigWarnings(config: { warnings: readonly string[]; logger?: Logger }, env: Record<string, string | undefined> = process.env): void {
   if (workerIndex(env) !== undefined) return;
   for (const warning of config.warnings) safeLog(config.logger ?? jsonLogger, "warn", { timestamp: new Date().toISOString(), message: "config.warning", warning });
+}
+
+/** Every `QS_*` variable that sets a config key, with the key: the core's, their `QS_*` aliases and every feature option. */
+export function overrideVariables(definitions: readonly FeatureDefinition[]): Map<string, { path: string; secret: boolean }> {
+  const variables = new Map<string, { path: string; secret: boolean }>();
+  for (const override of CONFIG_OVERRIDES) {
+    const entry = { path: override.path, secret: override.schema.kind === "secret" };
+    variables.set(envNameFor(override.path), entry);
+    if (override.alias?.name.startsWith("QS_")) variables.set(override.alias.name, entry);
+  }
+  for (const definition of definitions) {
+    for (const [name, leaf] of featureVariables(definition.key, definition.schema)) variables.set(name, { path: leaf.path, secret: leaf.schema.kind === "secret" });
+  }
+  return variables;
 }

@@ -32,6 +32,7 @@ import { envVarsLines, generateTypesFile } from "./generate-types.ts";
 import { extractQueryItems } from "../endpoints/query-items.ts";
 import { describeEndpoints } from "../openapi/endpoint-docs.ts";
 import { generateOpenApi } from "../openapi/generate-openapi.ts";
+import { writeEnvExample } from "../env/env-example.ts";
 import { assertFeatureImports, featureTypeLines, generateFeaturesFile, overrideLine } from "./project-features.ts";
 
 export const GENERATED_DIR = ".generated";
@@ -284,6 +285,7 @@ export async function build(projectRoot: string): Promise<BuildSummary> {
   assertFeatureImports(projectRoot);
   const config = await loadConfig(projectRoot);
   const featureKeys = registeredProjectFeatures().map((feature) => feature.key);
+  const variables = declaredVariables(config.env, config.features.map((feature) => ({ key: feature.key, env: feature.definition.env })));
   const overrides = replacedNatives().map(overrideLine);
   const models = parseEntities(projectRoot);
   const hooks = await scanHooks(projectRoot);
@@ -338,7 +340,7 @@ export async function build(projectRoot: string): Promise<BuildSummary> {
 
   const files: Record<string, string> = {
     "models.ts": `${HEADER}\nimport type { EntityModel } from "@quickservice/core";\n\nexport const models: EntityModel[] = ${JSON.stringify(models, null, 2)};\n`,
-    "types.ts": [generateTypesFile(models, envVarsLines(declaredVariables(config.env, config.features.map((feature) => ({ key: feature.key, env: feature.definition.env }))))), ...featureTypeLines(featureKeys)].join("\n"),
+    "types.ts": [generateTypesFile(models, envVarsLines(variables)), ...featureTypeLines(featureKeys)].join("\n"),
     "features.ts": generateFeaturesFile(HEADER, featureKeys),
     "routes.ts": generateRoutesFile(models, resolved, hooks),
     "jobs.ts": generateJobsFile(jobs),
@@ -350,7 +352,8 @@ export async function build(projectRoot: string): Promise<BuildSummary> {
   // Earlier versions wrote through a staging folder.
   rmSync(join(projectRoot, `${GENERATED_DIR}.staging`), { recursive: true, force: true });
 
-  const warnings: string[] = [...config.warnings, ...joinTableWarnings(models, config.database.kind), ...vectorIndexWarnings(models, config.database.kind)];
+  const envExampleWarning = writeEnvExample(projectRoot, variables);
+  const warnings: string[] = [...config.warnings, ...(envExampleWarning ? [envExampleWarning] : []), ...joinTableWarnings(models, config.database.kind), ...vectorIndexWarnings(models, config.database.kind)];
   const tsconfigWarning = generatedIncludeWarning(projectRoot);
   if (tsconfigWarning) warnings.push(tsconfigWarning);
   warnings.push(...endpointDocs.warnings);

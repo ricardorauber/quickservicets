@@ -46,5 +46,11 @@ export const COMMANDS: CommandDoc[] = [
     usage: "quickservice job runs <name> [--limit n]",
     description: "Lists the latest runs of a job (20 by default) with their attempt, trigger, status, start and duration.",
   },
+  {
+    name: "env check",
+    usage: "quickservice env check",
+    description:
+      "Checks the environment the service would start with (the process and its `.env` files): one line per declared variable with `ok`, `default`, `missing` or `invalid`, and its value unless it is a secret, then the `QS_*` overrides that are set and warnings for unknown ones. Exits with 1 when a variable is missing or invalid.",
+  },
   { name: "--version", usage: "quickservice --version", description: "Prints the CLI version." },
 ];

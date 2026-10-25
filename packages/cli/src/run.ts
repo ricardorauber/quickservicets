@@ -37,6 +37,10 @@ export async function run(args: string[], output: Output = consoleOutput, cwd = 
       for (const warning of summary.warnings) output.error(`Warning: ${warning}`);
       return 0;
     }
+    if (command === "env" && args[1] === "check") {
+      const { envCheck } = await import("./env/env-check.ts");
+      return print(await envCheck(cwd));
+    }
     if (command === "init") {
       const { initProject } = await import("./init/init.ts");
       const dbIndex = args.indexOf("--db");

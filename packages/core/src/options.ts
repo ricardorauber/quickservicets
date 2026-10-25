@@ -277,7 +277,7 @@ export function expectationOf(schema: AnyOptionSchema): string {
     case "size":
       return "a size in bytes or like 10MB";
     case "url":
-      return settings.protocols ? `a URL with protocol ${settings.protocols.join(", ")}` : "an http or https URL";
+      return settings.protocols ? `an absolute URL with protocol ${settings.protocols.join(", ")}` : "an absolute http or https URL";
     case "oneOf":
       return `one of ${settings.values!.map((value) => JSON.stringify(value)).join(", ")}`;
     case "list":

@@ -1,0 +1,137 @@
+import {
+  activeFeatureDefinitions,
+  applyEnvironment,
+  CONFIG_FILE,
+  ConfigError,
+  declaredVariables,
+  expectationOf,
+  loadProjectFeatures,
+  overrideVariables,
+  parseOptionString,
+  resolveFeatures,
+  SECRET_MASK,
+  unknownVariableWarnings,
+  type AnyOptionSchema,
+  type DeclaredVariable,
+  type ServiceConfig,
+} from "@quickservice/core";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
+/** Parses the text of a `.env` file: `NAME=value` lines, optionally `export`ed and quoted, with `#` comments. */
+export function parseEnvFile(text: string): Record<string, string> {
+  const values: Record<string, string> = {};
+  for (const line of text.split(/\r?\n/)) {
+    const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_.]*)\s*=\s*(.*)?\s*$/.exec(line);
+    if (!match) continue;
+    let value = (match[2] ?? "").trim();
+    const quote = value[0];
+    if ((quote === '"' || quote === "'" || quote === "`") && value.endsWith(quote) && value.length >= 2) {
+      value = value.slice(1, -1);
+      if (quote === '"') value = value.replace(/\\n/g, "\n");
+    } else {
+      value = value.replace(/\s+#.*$/, "");
+    }
+    values[match[1]!] = value;
+  }
+  return values;
+}
+
+/**
+ * The environment a service started in `projectRoot` sees: the `.env` files Bun loads (`.env`, then `.env.<NODE_ENV>`,
+ * then `.env.local` except in tests), with the variables already set in the process winning over them.
+ */
+export function projectEnvironment(projectRoot: string, processEnv: Record<string, string | undefined> = process.env): Record<string, string | undefined> {
+  const mode = processEnv.NODE_ENV || "development";
+  const files = [".env", `.env.${mode}`, ...(mode === "test" ? [] : [".env.local"])];
+  const fromFiles: Record<string, string> = {};
+  for (const name of files) {
+    const file = join(projectRoot, name);
+    if (existsSync(file)) Object.assign(fromFiles, parseEnvFile(readFileSync(file, "utf8")));
+  }
+  return { ...fromFiles, ...processEnv };
+}
+
+export interface EnvCheckResult {
+  code: number;
+  lines: string[];
+  errors: string[];
+}
+
+function defaultText(value: unknown): string {
+  if (Array.isArray(value) && value.every((item) => typeof item !== "object" || item === null)) return value.join(",");
+  return typeof value === "object" && value !== null ? JSON.stringify(value) : String(value);
+}
+
+/** One status line of a declared variable: `ok`, `default`, `missing` or `invalid: <reason>`, with its value unless secret. */
+function statusLine({ name, schema }: DeclaredVariable, raw: string | undefined): { line: string; ok: boolean } {
+  const secret = schema.kind === "secret";
+  const shown = (text: string) => (secret ? SECRET_MASK : text);
+  if (raw === undefined || raw === "") {
+    if (schema.settings.hasDefault) return { line: `${name} default ${shown(defaultText(schema.settings.default))}`, ok: true };
+    if (schema.settings.optional) return { line: `${name} ok (not set)`, ok: true };
+    return { line: `${name} missing`, ok: false };
+  }
+  try {
+    parseOptionString(schema, raw, name);
+    return { line: `${name} ok ${shown(raw)}`, ok: true };
+  } catch (error) {
+    if (!(error instanceof ConfigError)) throw error;
+    const expectation = /^Invalid [^:]+: expected (.*), got /.exec(error.message.split("\n")[0]!)?.[1] ?? expectationOf(schema);
+    return { line: `${name} invalid: expected ${expectation} (got ${secret ? SECRET_MASK : JSON.stringify(raw)})`, ok: false };
+  }
+}
+
+/**
+ * `quickservice env check`: the status of every declared variable, the `QS_*` overrides that are set and the unknown
+ * ones, read from the environment the service would start with. Exits 1 when a variable is missing or invalid.
+ */
+export async function envCheck(projectRoot: string, processEnv: Record<string, string | undefined> = process.env): Promise<EnvCheckResult> {
+  const environment = projectEnvironment(projectRoot, processEnv);
+  const lines: string[] = [];
+  const errors: string[] = [];
+  let ok = true;
+  const configFile = join(projectRoot, CONFIG_FILE);
+  if (!existsSync(configFile)) return { code: 1, lines, errors: [`Config file not found: ${configFile}`] };
+  await loadProjectFeatures(projectRoot);
+  const config = ((await import(configFile)) as { default: ServiceConfig }).default as unknown as Record<string, unknown>;
+  const definitions = activeFeatureDefinitions();
+
+  let applied = config;
+  try {
+    applied = applyEnvironment(config, environment, definitions).config;
+  } catch (error) {
+    if (!(error instanceof ConfigError)) throw error;
+    errors.push(...error.message.split("\n"));
+    ok = false;
+  }
+  let features: { key: string; env?: Readonly<Record<string, AnyOptionSchema>> }[] = [];
+  try {
+    features = resolveFeatures(applied).features.map((feature) => ({ key: feature.key, env: feature.definition.env }));
+  } catch (error) {
+    if (!(error instanceof ConfigError)) throw error;
+    errors.push(...error.message.split("\n"));
+    ok = false;
+  }
+  try {
+    for (const variable of declaredVariables(config.env as Record<string, AnyOptionSchema> | undefined, features)) {
+      const status = statusLine(variable, environment[variable.name]);
+      lines.push(status.line);
+      ok &&= status.ok;
+    }
+  } catch (error) {
+    if (!(error instanceof ConfigError)) throw error;
+    errors.push(...error.message.split("\n"));
+    ok = false;
+  }
+
+  const overrides = overrideVariables(definitions);
+  for (const name of Object.keys(environment).sort()) {
+    const override = overrides.get(name);
+    const raw = environment[name];
+    if (!override || raw === undefined || raw === "") continue;
+    lines.push(`${name} sets ${override.path} = ${override.secret ? SECRET_MASK : raw}`);
+  }
+  for (const warning of unknownVariableWarnings(environment, definitions)) errors.push(`Warning: ${warning}`);
+  return { code: ok ? 0 : 1, lines, errors };
+}

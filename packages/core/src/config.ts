@@ -10,7 +10,8 @@ import { availableCpus, SERVER_WORKERS_ENV, WORKERS_ENV } from "./workers.ts";
 import type { StorageAdapter } from "./storage/storage.ts";
 import { ConfigError } from "./config-error.ts";
 import { applyEnvironment } from "./environment.ts";
-import { declaredVariables, readVariables, setEnvValues } from "./env-vars.ts";
+import { declaredVariables, readVariables, setEnvValues, type DeclaredVariable } from "./env-vars.ts";
+import { maskSecrets } from "./secrets.ts";
 import type { AnyOptionSchema } from "./options.ts";
 import { activeFeatureDefinitions, loadProjectFeatures, resolveFeatures, type NativeFeatures, type ResolvedFeature } from "./features.ts";
 
@@ -325,13 +326,14 @@ export function resolveConfig(
     jobs: resolveJobs(config),
   };
   // Published last, so `env` only ever holds the variables of a configuration that resolved.
-  publishEnv(envValues);
+  publishEnv(envValues, variables);
+  if (resolved.files.signingSecret) maskSecrets(resolved.files as unknown as Record<string, unknown>, ["signingSecret"]);
   return resolved;
 }
 
 /** Stores the values of the declared variables of a resolved configuration, so `env` reads them. */
-function publishEnv(values: Record<string, unknown>): void {
-  setEnvValues(values);
+function publishEnv(values: Record<string, unknown>, variables: readonly DeclaredVariable[]): void {
+  setEnvValues(values, variables.filter((variable) => variable.schema.kind === "secret").map((variable) => variable.name));
 }
 
 export async function loadConfig(projectRoot: string, env: Record<string, string | undefined> = process.env): Promise<ResolvedConfig> {

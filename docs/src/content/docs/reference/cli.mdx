@@ -95,6 +95,14 @@ Lists the latest runs of a job (20 by default) with their attempt, trigger, stat
 quickservice job runs <name> [--limit n]
 ```
 
+## `env check`
+
+Checks the environment the service would start with (the process and its `.env` files): one line per declared variable with `ok`, `default`, `missing` or `invalid`, and its value unless it is a secret, then the `QS_*` overrides that are set and warnings for unknown ones. Exits with 1 when a variable is missing or invalid.
+
+```bash
+quickservice env check
+```
+
 ## `--version`
 
 Prints the CLI version.

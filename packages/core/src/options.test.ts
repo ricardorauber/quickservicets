@@ -75,9 +75,9 @@ describe("builders and modifiers", () => {
     expect(problems(boolean(), "yes")).toEqual(['Invalid x: expected true or false, got "yes"']);
     expect(problems(duration(), "soon")[0]).toStartWith('Invalid x: expected a duration like 30s, 10m or 30d');
     expect(problems(size(), "big")).toEqual(['Invalid x: expected a size in bytes or like 10MB, got "big"']);
-    expect(problems(url(), "ftp://x")).toEqual(['Invalid x: expected an http or https URL, got "ftp://x"']);
+    expect(problems(url(), "ftp://x")).toEqual(['Invalid x: expected an absolute http or https URL, got "ftp://x"']);
     expect(problems(url(), "not a url")).toHaveLength(1);
-    expect(problems(url().protocols(["redis"]), "https://x")).toEqual(['Invalid x: expected a URL with protocol redis, got "https://x"']);
+    expect(problems(url().protocols(["redis"]), "https://x")).toEqual(['Invalid x: expected an absolute URL with protocol redis, got "https://x"']);
     expect(problems(oneOf(["a", "b"]), "c")).toEqual(['Invalid x: expected one of "a", "b", got "c"']);
     expect(problems(list(integer()), ["1", 2])).toEqual(['Invalid x[0]: expected an integer, got "1"']);
     expect(problems(list(string()), "a")).toEqual(['Invalid x: expected a list, got "a"']);
@@ -104,7 +104,7 @@ describe("builders and modifiers", () => {
     expect(failure(() => integer().min(1).default(0)).message).toBe("Invalid default: expected an integer of at least 1, got 0");
     expect(failure(() => integer().default(0).min(1)).message).toBe("Invalid default: expected an integer of at least 1, got 0");
     expect(failure(() => duration().default("later")).message).toStartWith("Invalid default: expected a duration");
-    expect(failure(() => url().default("https://x").protocols(["redis"])).message).toContain("expected a URL with protocol redis");
+    expect(failure(() => url().default("https://x").protocols(["redis"])).message).toContain("expected an absolute URL with protocol redis");
     expect(failure(() => (secret() as unknown as { default(value: string): unknown }).default("x")).message).toBe("secret() options cannot have a default");
     expect(failure(() => oneOf([])).message).toBe("oneOf() needs at least one value");
   });

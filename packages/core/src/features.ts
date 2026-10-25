@@ -1,7 +1,8 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { ConfigError } from "./config-error.ts";
-import { featureVariables } from "./environment.ts";
+import { featureVariables, optionLeaves } from "./environment.ts";
+import { maskSecrets } from "./secrets.ts";
 import { jsonLogger, safeLog, type Logger } from "./logger.ts";
 import { boolean, object, resolveOptions, type AnyOptionSchema, type ObjectOptionSchema, type Options, type OptionsInput } from "./options.ts";
 
@@ -320,8 +321,13 @@ export function resolveFeatures(config: Record<string, unknown>, definitions: re
 
   const ordered = orderFeatures(definitions.filter((definition) => enabled.has(definition.key)));
   for (const definition of definitions) {
-    if (enabled.has(definition.key)) resolvedOptions.set(definition, enabled.get(definition.key)!);
-    else resolvedOptions.delete(definition);
+    if (!enabled.has(definition.key)) {
+      resolvedOptions.delete(definition);
+      continue;
+    }
+    const options = enabled.get(definition.key)!;
+    maskSecrets(options, secretPaths(definition.schema));
+    resolvedOptions.set(definition, options);
   }
   for (const key of replacedNatives()) resolvedOptions.delete(natives.get(key)!);
   return {
@@ -410,4 +416,11 @@ export async function loadProjectFeatures(projectRoot: string): Promise<FeatureD
   }
   registerProjectFeatures(modules);
   return registeredProjectFeatures();
+}
+
+/** The paths of a schema's secret options, relative to it. */
+function secretPaths(schema: AnyOptionSchema): string[] {
+  return optionLeaves(schema, "")
+    .filter((leaf) => leaf.schema.kind === "secret")
+    .map((leaf) => leaf.path.slice(1));
 }

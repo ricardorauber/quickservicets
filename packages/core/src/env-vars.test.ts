@@ -76,7 +76,7 @@ describe("reading", () => {
       "  STRIPE_KEY is required (secret)",
       '  REPORT_HOUR: expected an integer of at most 23, got "25"',
     ]);
-    expect(failure(() => resolve({ ...values, DATABASE_URL: "https://x" })).message).toContain('DATABASE_URL: expected a URL with protocol postgres, got "https://x"');
+    expect(failure(() => resolve({ ...values, DATABASE_URL: "https://x" })).message).toContain('DATABASE_URL: expected an absolute URL with protocol postgres, got "https://x"');
   });
 
   test("secret values never appear in the error", () => {

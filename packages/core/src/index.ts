@@ -42,6 +42,7 @@ export type { EntityTags, Endpoint, FetchOptions, HandlerResult, Route, Server, 
 export { Router, patternOf, splitPath } from "./http/router.ts";
 export type { RouteMatch, RoutePattern } from "./http/router.ts";
 export { executedHooks, operationForRoute, resolveRouteHooks, withHooks } from "./http/pipeline.ts";
+export { matchesConditions } from "./matching.ts";
 export { defineSse, isSseDefinition, setSseRunner, sseEndpoint } from "./http/sse.ts";
 export type { SseDefinition, SseHandler, SseRunner, SseSendOptions, SseStream } from "./http/sse.ts";
 export { AggregateExpression, aggregatesOf, conditionsOf, createQuery, QueryCondition, SortKey } from "./fluent-query.ts";

@@ -17,6 +17,8 @@ realtime: {}
 
 It is not enabled by default: turn it on with `realtime: {}` or `QS_REALTIME_ENABLED=true`, and off with `realtime: false` or `QS_REALTIME_ENABLED=false`.
 
+**Runs after:** `events`
+
 ## Options
 
 | Key | Type | Default | Environment variable | Per request | Description |
@@ -24,4 +26,22 @@ It is not enabled by default: turn it on with `realtime: {}` or `QS_REALTIME_ENA
 | `realtime.sse.enabled` | `boolean` | `true` | `QS_REALTIME_SSE_ENABLED` | no | Serves the sse.ts endpoints as Server-Sent Events streams. Turns it off when false. |
 | `realtime.sse.heartbeat` | `duration` | `"15s"` | `QS_REALTIME_SSE_HEARTBEAT` | no | How often an open stream writes a ping comment, so proxies and clients keep it open. |
 | `realtime.sse.maxStreams` | `integer` | `1000` | `QS_REALTIME_SSE_MAX_STREAMS` | no | The most streams one worker keeps open; more are refused with 503 and Retry-After: 5. |
+| `realtime.sse.changes` | `"tagged" \| "all"` | `"tagged"` | `QS_REALTIME_SSE_CHANGES` | no | Which entities get a change stream route: tagged for entities tagged @changes, all for every entity with list routes without @changes off. |
 | `realtime.enabled` | `boolean` | `true` | `QS_REALTIME_ENABLED` | no | Turns the feature off when false. |
+
+## Tags
+
+### `@changes`
+
+`@changes` gives the entity a change stream at `GET /<collection>/changes`, and `@changes off` removes it when `sse.changes` is `all`.
+
+**Applies to:** entities
+
+**Syntax:** `@changes` or `@changes off`
+
+**Options:** none
+
+```ts
+/** @changes */
+export type Task = { title: string; status: string };
+```

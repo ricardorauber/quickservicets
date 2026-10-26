@@ -28,7 +28,12 @@ QS_REALTIME_SSE_HEARTBEAT=30s bun .generated/server.ts
 
 ## Level 2: tags
 
-Not applicable: the native declares no tag yet.
+`@changes` gives an entity a change stream at `GET /<collection>/changes`, filtered like its list route (it needs `events: {}`):
+
+```ts
+/** @changes */
+export type Task = { title: string; status: "open" | "done" };
+```
 
 ## Level 3: per request
 

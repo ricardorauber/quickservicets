@@ -234,6 +234,7 @@ export type { DeclaredVariable, EnvVars } from "./env-vars.ts";
 import eventsNative, { type EventsApi } from "./features/events/index.ts";
 import securityNative, { type SecurityApi } from "./features/security/index.ts";
 import etagNative from "./features/etag/index.ts";
+import historyNative from "./features/history/index.ts";
 import idempotencyNative, { type IdempotencyApi } from "./features/idempotency/index.ts";
 import healthNative, { type HealthApi, type HealthStatusChangedEvent } from "./features/health/index.ts";
 import queuesNative, { type QueueClient, type QueueMessageEvent, type QueuesApi } from "./features/queues/index.ts";
@@ -244,6 +245,7 @@ registerShippedNative(queuesNative);
 registerShippedNative(healthNative);
 registerShippedNative(idempotencyNative);
 registerShippedNative(etagNative);
+registerShippedNative(historyNative);
 export { addOutboxPatterns, events, eventsFeature, listen, memoryEventBus, readOutbox, tailOutbox } from "./features/events/index.ts";
 export type { ConsumerOptions, DeliveryContext, DeliveryStatus, OutboxRecord } from "./features/events/index.ts";
 export type { EventBus, EventListener, Events, EventsApi, ListenerContext, ListenerFile, ListenerPhase, ListenOptions, MemoryEventBus } from "./features/events/index.ts";
@@ -309,6 +311,9 @@ export type { BeginResult, IdempotencyApi, IdempotencyConflict, IdempotencyRecor
 export { etagFeature } from "./features/etag/index.ts";
 export type { EntityTagger, NotModified, PreconditionFailure } from "./features/etag/index.ts";
 
+export { historyFeature } from "./features/history/index.ts";
+export type { HistoryCoverage, HistoryOperation, HistoryVersion } from "./features/history/index.ts";
+
 declare module "./event-types.ts" {
   interface EventMap {
     /** A queue message completed; emitted by the `queues` native while `events` is enabled. */
@@ -343,6 +348,8 @@ declare module "./features.ts" {
     idempotency?: NativeConfig<typeof idempotencyNative>;
     /** Entity tags and conditional requests; see the `etag` reference page. */
     etag?: NativeConfig<typeof etagNative>;
+    /** Versions of the records of chosen entities; see the `history` reference page. */
+    history?: NativeConfig<typeof historyNative>;
   }
   interface FeatureApis {
     events: EventsApi;

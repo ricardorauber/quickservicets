@@ -80,11 +80,12 @@ const BARE = /^(?:"((?:[^"\\]|\\.)*)"|([^\s"=]+))(?:\s+|$)/;
 const unquote = (quoted: string) => quoted.replace(/\\(.)/g, "$1");
 
 /**
- * Parses `@name`, `@name off`, `@name <shorthand value>` or `@name key=value key2="a quoted value"` written on a
+ * Parses `@name`, `@name on`, `@name off`, `@name <shorthand value>` or `@name key=value key2="a quoted value"` written on a
  * target, or throws the reason. Keys are relative to the tag's scope and parsed with the scoped object's schema.
  */
 function parseTagText(entry: FeatureTagEntry, text: string): ParsedTag {
-  if (text === "") return { on: true, options: {} };
+  // `@name on` says explicitly what a bare `@name` says, like a field kept by `@history on`.
+  if (text === "" || text === "on") return { on: true, options: {} };
   if (text === "off") return { on: false, options: {} };
   const allowed = entry.tag.options ?? [];
   const shape = scopedOptionSchema(entry.feature.definition.schema, entry.tag.scope)!.settings.shape!;

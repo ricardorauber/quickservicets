@@ -401,3 +401,33 @@ Every option, tag, command and hook of `etag` is on [its reference page](/refere
 /** @etag required=true */
 export type Invoice = { total: number };
 ```
+
+### `history`
+
+Every version of the records of chosen entities, kept in a history table written in the same transaction as the change.
+
+Every option, tag, command and hook of `history` is on [its reference page](/reference/features/history/).
+
+| Key | Type | Default | Environment variable | Description |
+| --- | --- | --- | --- | --- |
+| `history.entities` | `"tagged" \| "all"` | `"tagged"` | `QS_HISTORY_ENTITIES` | Which entities keep history: tagged keeps it for entities tagged @history, all for every regular entity without @history off. |
+| `history.enabled` | `boolean` | `true` | `QS_HISTORY_ENABLED` | Turns the feature off when false. |
+
+#### `@history`
+
+`@history` on an entity keeps its versions and `@history off` excludes it; on a field, `@history off` leaves it out of versions and `@history on` keeps a `@hidden` or `@sensitive` field in them.
+
+**Applies to:** entities, fields
+
+**Options:** none (a flag: `@history` or `@history off`)
+
+**Syntax:** `@history` or `@history off`
+
+```ts
+/** @history */
+export type Contract = {
+  title: string;
+  /** @history off */
+  draftNotes: string;
+};
+```

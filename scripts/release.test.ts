@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { PUBLIC_PACKAGES, pinWorkspaceVersions, publishAll, tarballProblems, type Manifest, type PackedPackage, type Runner } from "./release.ts";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, join } from "node:path";
+import { PUBLIC_PACKAGES, pinWorkspaceVersions, publishAll, SAMPLE_FILES, tarballProblems, tryInstall, type Manifest, type PackedPackage, type Runner } from "./release.ts";
 
 const root = join(import.meta.dir, "..");
 const manifestOf = (dir: string) => JSON.parse(readFileSync(join(root, dir, "package.json"), "utf8")) as Manifest & Record<string, any>;
@@ -117,5 +117,45 @@ describe("publishing", () => {
     const npm = stubNpm("quickservicets-cli");
     expect(await publishAll(packed, { run: npm.run })).toEqual({ published: ["@quickservicets/core"], failed: "@quickservicets/cli", output: "E403 forbidden" });
     expect(npm.calls).toHaveLength(2);
+  });
+});
+
+describe("the project created from the tarballs", () => {
+  const packed = ["@quickservicets/core", "@quickservicets/cli", "quickservicets"].map(
+    (name) => ({ dir: "", tarball: `/tmp/${name.replace("@", "").replace("/", "-")}-0.1.0.tgz`, manifest: { name, version: "0.1.0" }, entries: [] }) satisfies PackedPackage,
+  );
+  /** Plays init by writing the new project's manifest; fails the command whose label is given. */
+  const stub = (failing?: string) => {
+    const calls: { command: string; folder: string; sampleFiles: boolean; dependencies?: Record<string, string> }[] = [];
+    const run: Runner = async (command, options = {}) => {
+      const cwd = options.cwd!;
+      if (command[1] === "init") {
+        mkdirSync(join(cwd, "demo"), { recursive: true });
+        writeFileSync(join(cwd, "demo/package.json"), JSON.stringify({ name: "demo", dependencies: { "@quickservicets/core": "^0.1.0", "@quickservicets/cli": "^0.1.0" } }));
+      }
+      const manifest = existsSync(join(cwd, "package.json")) ? JSON.parse(readFileSync(join(cwd, "package.json"), "utf8")) : {};
+      const label = [basename(command[0]!), ...command.slice(1)].join(" ");
+      calls.push({ command: label, folder: basename(cwd), sampleFiles: Object.keys(SAMPLE_FILES).every((file) => existsSync(join(cwd, file))), dependencies: manifest.dependencies });
+      return label === failing ? { code: 2, output: "jobs/report.ts(4,9): error TS2304: Cannot find name 'Bun'." } : { code: 0, output: "" };
+    };
+    return { calls, run };
+  };
+
+  test("is installed from the tarballs, gets an entity, an endpoint, a pre-hook and a job, and is type-checked", async () => {
+    expect(Object.keys(SAMPLE_FILES)).toEqual(expect.arrayContaining(["entities/Note.ts", "endpoints/notes/latest/get.ts", "hooks/authorized.ts", "jobs/report.ts"]));
+    const { calls, run } = stub();
+    expect(await tryInstall(packed, run)).toEqual([]);
+    expect(calls.map((call) => call.command)).toEqual(["bun install", "quickservicets init demo --db memory", "bun install", "bun run build", "bun run typecheck"]);
+    const [, , install, build, typecheck] = calls;
+    expect(install!.folder).toBe("demo");
+    expect(install!.dependencies).toEqual({ "@quickservicets/core": `file:${packed[0]!.tarball}`, "@quickservicets/cli": `file:${packed[1]!.tarball}` });
+    expect([build!.folder, build!.sampleFiles, typecheck!.folder]).toEqual(["demo", true, "demo"]);
+  });
+
+  test("a type error fails the check with the compiler output", async () => {
+    const problems = await tryInstall(packed, stub("bun run typecheck").run);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toStartWith("bun run typecheck failed in ");
+    expect(problems[0]).toContain("Cannot find name 'Bun'");
   });
 });

@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { BuildError } from "../errors.ts";
 import { version } from "../version.ts";
+import { TOOLCHAIN } from "./toolchain.ts";
 
 export const DATABASES = ["postgres", "mongodb", "sqlite", "memory"] as const;
 export type DatabaseChoice = (typeof DATABASES)[number];
@@ -109,9 +110,21 @@ const TSCONFIG = `${JSON.stringify(
       noEmit: true,
       skipLibCheck: true,
       allowImportingTsExtensions: true,
+      types: ["bun"],
     },
     // TypeScript skips folders starting with a dot unless a pattern names their files.
-    include: ["quickservicets.config.ts", "entities", "endpoints", "hooks", "features", ".generated/**/*.ts"],
+    include: [
+      "quickservicets.config.ts",
+      "entities",
+      "endpoints",
+      "hooks",
+      "jobs",
+      "features",
+      "migrations",
+      "lib",
+      "tests",
+      ".generated/**/*.ts",
+    ],
   },
   null,
   2,
@@ -128,11 +141,13 @@ function packageJson(name: string, dependency: string): string {
         build: "quickservicets build",
         migrate: "quickservicets migrate",
         start: "bun .generated/server.ts",
+        typecheck: "tsc --noEmit",
       },
       dependencies: {
         "@quickservicets/core": dependency,
         "@quickservicets/cli": dependency,
       },
+      devDependencies: { ...TOOLCHAIN },
     },
     null,
     2,

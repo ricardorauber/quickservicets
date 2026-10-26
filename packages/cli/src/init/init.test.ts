@@ -25,14 +25,25 @@ describe("files for each database", () => {
     const pkg = JSON.parse(read(root, "package.json"));
     expect(pkg.name).toBe("my-api");
     expect(Object.keys(pkg.dependencies)).toEqual(["@quickservicets/core", "@quickservicets/cli"]);
-    expect(Object.keys(pkg.scripts)).toEqual(["dev", "build", "migrate", "start"]);
+    expect(Object.keys(pkg.scripts)).toEqual(["dev", "build", "migrate", "start", "typecheck"]);
   });
 });
 
-test("the tsconfig includes features, and the new project builds", async () => {
+test("the package.json adds Bun types and TypeScript at the repository's versions and a typecheck script", async () => {
+  const rootManifest = JSON.parse(readFileSync(join(import.meta.dir, "../../../../package.json"), "utf8"));
+  const root = emptyDir();
+  await initProject(root, { db: "postgres" });
+  const pkg = JSON.parse(read(root, "package.json"));
+  expect(pkg.devDependencies).toEqual({ "@types/bun": rootManifest.devDependencies["@types/bun"], typescript: rootManifest.devDependencies.typescript });
+  expect(pkg.scripts.typecheck).toBe("tsc --noEmit");
+});
+
+test("the tsconfig uses the Bun types and includes every convention folder, and the new project builds", async () => {
   const root = emptyDir();
   expect(await run(["init", root, "--db", "memory"], { log: () => {}, error: () => {} }, dirname(root))).toBe(0);
-  expect(JSON.parse(read(root, "tsconfig.json")).include).toEqual(["quickservicets.config.ts", "entities", "endpoints", "hooks", "features", ".generated/**/*.ts"]);
+  const tsconfig = JSON.parse(read(root, "tsconfig.json"));
+  expect(tsconfig.compilerOptions.types).toEqual(["bun"]);
+  expect(tsconfig.include).toEqual(["quickservicets.config.ts", "entities", "endpoints", "hooks", "jobs", "features", "migrations", "lib", "tests", ".generated/**/*.ts"]);
   mkdirSync(join(root, "node_modules/@quickservicets"), { recursive: true });
   symlinkSync(join(import.meta.dir, "../../../core"), join(root, "node_modules/@quickservicets/core"), "dir");
   writeFileSync(join(root, "entities/Post.ts"), "export type Post = { title: string };\n");

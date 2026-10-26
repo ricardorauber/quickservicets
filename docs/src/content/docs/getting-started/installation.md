@@ -30,7 +30,7 @@ Next steps:
   3. Start the dev server: bun run dev
 ```
 
-The new `package.json` depends on `@quickservicets/core` and `@quickservicets/cli` at the version of the CLI that created it, like `"^0.1.0"`, and `bun install` installs them from npm.
+The new `package.json` depends on `@quickservicets/core` and `@quickservicets/cli` at the version of the CLI that created it, like `"^0.1.0"`, and `bun install` installs them from npm. It also adds `@types/bun` and `typescript` as dev dependencies and a `typecheck` script, so `bun run typecheck` checks the project with `tsc --noEmit` right after the install.
 
 The target folder must be empty or not exist yet; otherwise `init` stops with `Directory is not empty`.
 
@@ -104,7 +104,7 @@ Then create the project under `examples/`, from the repository root, where `bunx
 bunx quickservicets init examples/my-api --db memory
 ```
 
-Inside the repository, `init` notices the workspace. It writes `"workspace:*"` for `@quickservicets/core` and `@quickservicets/cli` in the new `package.json` and runs `bun install` at the repository root, so the workspace packages are linked right away and there is no install step in its next steps.
+Inside the repository, `init` notices the workspace. It writes `"workspace:*"` for `@quickservicets/core` and `@quickservicets/cli` in the new `package.json` (the dev dependencies, scripts and `tsconfig.json` are the same as outside) and runs `bun install` at the repository root, so the workspace packages are linked right away and there is no install step in its next steps.
 
 ## Next
 

@@ -4,14 +4,16 @@
  * `bun run release:check` packs each public package with `bun pm pack` into a temporary folder, checks every tarball
  * (no test file, no `.env` file, no path outside the package, no `workspace:` dependency; `LICENSE`, `README.md` and
  * the `bin` targets present), installs the three tarballs into an empty temporary folder and runs
- * `quickservicets init demo --db memory` and `bun run build` there.
+ * `quickservicets init demo --db memory` there. It then installs the new project with the framework from the tarballs,
+ * adds an entity, an endpoint, a pre-hook and a job, and runs `bun run build` and `bun run typecheck` in it, so any
+ * type error in a project created from npm fails the check.
  *
  * `bun run release` runs the same check, then publishes the checked tarballs in dependency order with
  * `npm publish <tarball> --access public` (plus `--otp $NPM_OTP` when it is set), stopping at the first failure.
  */
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join, posix } from "node:path";
+import { basename, dirname, join, posix } from "node:path";
 
 const root = join(import.meta.dir, "..");
 
@@ -175,18 +177,89 @@ export interface CheckResult {
   problems: string[];
 }
 
-/** Installs the tarballs into an empty folder, then runs `quickservicets init demo --db memory` and `bun run build`. */
-async function tryInstall(packed: readonly PackedPackage[], run: Runner): Promise<string[]> {
+/**
+ * Files added to the project `release:check` creates: an entity, a custom endpoint, a pre-hook with a helper in `lib/`
+ * and a job, using `process.env` and `Bun` the way project code does, so the type check covers every convention folder.
+ */
+export const SAMPLE_FILES: Readonly<Record<string, string>> = {
+  "entities/Note.ts": `/** @authorized */
+export type Note = { title: string; body: string };
+`,
+  "lib/auth.ts": `export function isAuthorized(header: string | null): boolean {
+  const token = process.env.API_TOKEN ?? Bun.env.API_TOKEN ?? "";
+  return token !== "" && header === \`Bearer \${token}\`;
+}
+`,
+  "hooks/authorized.ts": `import { definePreHook, HttpError } from "@quickservicets/core";
+import { isAuthorized } from "../lib/auth.ts";
+
+export default definePreHook(async (_repos, req) => {
+  if (!isAuthorized(req.headers.get("authorization"))) throw new HttpError(401, "Unauthorized");
+});
+`,
+  "endpoints/notes/latest/get.ts": `import type { Endpoint } from "@quickservicets/core";
+
+/**
+ * @summary The title of a note
+ * @authorized
+ */
+const handler: Endpoint<unknown, { title: string | null }> = async (repos) => {
+  const notes = await repos.notes.where((note) => note.title.ne("")).toArray();
+  return { title: notes[0]?.title ?? null };
+};
+
+export default handler;
+`,
+  "jobs/report.ts": `import { job } from "@quickservicets/core";
+
+export default job("@daily", async () => {
+  await Bun.write(process.env.REPORT_PATH ?? "report.txt", \`Report at \${new Date().toISOString()}\\n\`);
+});
+`,
+};
+
+/** Points the framework dependencies of a project manifest at the tarballs, so its own install uses them. */
+function useTarballs(manifestFile: string, files: Record<string, string>): void {
+  const manifest = JSON.parse(readFileSync(manifestFile, "utf8")) as Manifest;
+  for (const name of Object.keys(manifest.dependencies ?? {})) if (files[name]) manifest.dependencies![name] = files[name];
+  writeFileSync(manifestFile, `${JSON.stringify({ ...manifest, overrides: files }, null, 2)}\n`);
+}
+
+/**
+ * Installs the tarballs into an empty folder and runs `quickservicets init demo --db memory` there. Then installs the
+ * new project on its own (with the framework from the tarballs), adds the sample files and runs `bun run build` and
+ * `bun run typecheck` in it.
+ */
+export async function tryInstall(packed: readonly PackedPackage[], run: Runner): Promise<string[]> {
   const folder = mkdtempSync(join(tmpdir(), "quickservicets-release-"));
+  const project = join(folder, "demo");
   try {
     const files = Object.fromEntries(packed.map((entry) => [entry.manifest.name, `file:${entry.tarball}`]));
     writeFileSync(join(folder, "package.json"), `${JSON.stringify({ name: "release-check", private: true, dependencies: files, overrides: files }, null, 2)}\n`);
-    const steps: [string, string[], string][] = [
+    const steps: [string, string[], string, (() => void)?][] = [
       ["bun install", ["bun", "install"], folder],
       ["quickservicets init demo --db memory", [join(folder, "node_modules/.bin/quickservicets"), "init", "demo", "--db", "memory"], folder],
-      ["bun run build", ["bun", "run", "build"], join(folder, "demo")],
+      [
+        "bun install",
+        ["bun", "install"],
+        project,
+        () => useTarballs(join(project, "package.json"), files),
+      ],
+      [
+        "bun run build",
+        ["bun", "run", "build"],
+        project,
+        () => {
+          for (const [path, content] of Object.entries(SAMPLE_FILES)) {
+            mkdirSync(dirname(join(project, path)), { recursive: true });
+            writeFileSync(join(project, path), content);
+          }
+        },
+      ],
+      ["bun run typecheck", ["bun", "run", "typecheck"], project],
     ];
-    for (const [label, command, cwd] of steps) {
+    for (const [label, command, cwd, prepare] of steps) {
+      prepare?.();
       const result = await run(command, { cwd });
       if (result.code !== 0) return [`${label} failed in ${cwd}:\n${result.output}`];
     }
@@ -196,7 +269,7 @@ async function tryInstall(packed: readonly PackedPackage[], run: Runner): Promis
   }
 }
 
-/** `bun run release:check`: packs, checks every tarball, then installs them and builds a new project. */
+/** `bun run release:check`: packs, checks every tarball, then installs them, builds a new project and type-checks it. */
 export async function releaseCheck(destination: string, options: { packages?: readonly string[]; run?: Runner } = {}): Promise<CheckResult> {
   const run = options.run ?? spawnRunner;
   const packed = await packAll(destination, options.packages, run);

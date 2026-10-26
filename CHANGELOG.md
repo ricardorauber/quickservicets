@@ -8,6 +8,7 @@ All notable changes to the published packages (`quickservicets`, `@quickservicet
 
 - Agent guide topics for coding agents in `@quickservicets/cli` (`agent-docs/`): overview, quickstart, entities, endpoints and hooks, config and environment, features, testing, deploy and troubleshooting, each a short page of steps, copyable commands and a "Do not" list.
 - The repository has an `AGENTS.md` generated from those topics, and a `CLAUDE.md` that imports it.
+- A Claude Code plugin in the repository with the `quickservicets` skill: `/plugin marketplace add ricardorauber/quickservicets`, then `/plugin install quickservicets@quickservicets`. The new [Coding agents](https://github.com/ricardorauber/quickservicets/blob/main/docs/src/content/docs/guides/coding-agents.md) guide explains it, `AGENTS.md` and `llms.txt`.
 - The docs site serves `llms.txt`, `llms-full.txt` and `llms-small.txt` (llmstxt.org) and a Markdown copy of every page at its path plus `.md`, linked from the footer.
 
 ### Fixed

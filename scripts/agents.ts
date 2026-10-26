@@ -1,7 +1,7 @@
 /**
- * `bun run agents:generate`: writes the files built from the agent guide topics in `packages/cli/agent-docs/`, starting
- * with the repository's `AGENTS.md`. Also holds the check that every command, config key, `QS_*` variable and tag the
- * topics mention exists.
+ * `bun run agents:generate`: writes the files built from the agent guide topics in `packages/cli/agent-docs/`: the
+ * repository's `AGENTS.md`, the Claude Code skill in `skills/quickservicets/` and the plugin and marketplace
+ * manifests. Also holds the check that every command, config key, `QS_*` variable and tag the topics mention exists.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -10,6 +10,7 @@ import { RESERVED_COMMANDS } from "../packages/cli/src/registry.ts";
 import { documentedEntityTags } from "../packages/cli/src/entities/entity-tags.ts";
 import { documentedFieldTags } from "../packages/cli/src/entities/field-tags.ts";
 import { documentedEndpointTags } from "../packages/cli/src/hooks/endpoint-tags.ts";
+import { SKILL_DESCRIPTION, SKILL_NAME, skillMarkdown } from "../packages/cli/src/agents/skill.ts";
 import { readTopics, type AgentTopic } from "../packages/cli/src/agents/topics.ts";
 import { overrideVariables } from "../packages/core/src/environment.ts";
 import { registeredNatives } from "../packages/core/src/features.ts";
@@ -93,9 +94,49 @@ export function agentsMarkdown(topics: readonly AgentTopic[], root: string = ROO
   ].join("\n");
 }
 
+/** The folder of the Claude Code skill in the repository, which is also the plugin's root. */
+export const SKILL_DIR = `skills/${SKILL_NAME}`;
+
+const json = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`;
+
+/** The Claude Code plugin manifest, `.claude-plugin/plugin.json`, at the version of the packages. */
+export function pluginManifest(version: string): Record<string, unknown> {
+  return {
+    name: SKILL_NAME,
+    version,
+    description: "The quickservicets skill: Claude Code builds and changes QuickService.ts backends with the right commands and rules.",
+    author: { name: "Ricardo Rauber Pereira" },
+    homepage: "https://github.com/ricardorauber/quickservicets#readme",
+    repository: "https://github.com/ricardorauber/quickservicets",
+    license: "MIT",
+    keywords: ["quickservicets", "bun", "typescript", "backend", "rest", "api"],
+    skills: [`./${SKILL_DIR}`],
+  };
+}
+
+/** The marketplace file, `.claude-plugin/marketplace.json`, listing the plugin with the repository as its source. */
+export function marketplaceManifest(version: string): Record<string, unknown> {
+  return {
+    name: SKILL_NAME,
+    owner: { name: "Ricardo Rauber Pereira" },
+    metadata: { description: "QuickService.ts plugins for Claude Code." },
+    plugins: [{ name: SKILL_NAME, source: "./", description: SKILL_DESCRIPTION.split(". ")[0] + ".", version }],
+  };
+}
+
+/** The version the packages share, read from the unscoped package. */
+const packagesVersion = (root: string) => (JSON.parse(readFileSync(join(root, "packages/quickservicets/package.json"), "utf8")) as { version: string }).version;
+
 /** Every file this script writes, keyed by its path in the repository. */
 export function generatedFiles(root: string = ROOT, topics: readonly AgentTopic[] = readTopics(join(root, "packages/cli/agent-docs"))): Record<string, string> {
-  return { "AGENTS.md": agentsMarkdown(topics, root) };
+  const version = packagesVersion(root);
+  return {
+    "AGENTS.md": agentsMarkdown(topics, root),
+    [`${SKILL_DIR}/SKILL.md`]: skillMarkdown(topics),
+    ...Object.fromEntries(topics.map((topic) => [`${SKILL_DIR}/topics/${topic.name}.md`, topic.markdown])),
+    ".claude-plugin/plugin.json": json(pluginManifest(version)),
+    ".claude-plugin/marketplace.json": json(marketplaceManifest(version)),
+  };
 }
 
 /** The generated files that are missing or differ from the files under `root`. */

@@ -1,14 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readTopics } from "../packages/cli/src/agents/topics.ts";
-import { agentsMarkdown, GENERATE_COMMAND, generatedFiles, repositoryLink, ROOT, staleFiles, unknownMentions, writeGenerated } from "./agents.ts";
+import { skillProblems } from "../packages/cli/src/agents/skill.ts";
+import { agentsMarkdown, GENERATE_COMMAND, generatedFiles, repositoryLink, ROOT, SKILL_DIR, staleFiles, unknownMentions, writeGenerated } from "./agents.ts";
 
 /** A temporary repository root with a copy of the agent topics. */
 function tempRoot(): string {
   const root = mkdtempSync(join(tmpdir(), "quickservicets-agents-"));
   cpSync(join(ROOT, "packages/cli/agent-docs"), join(root, "packages/cli/agent-docs"), { recursive: true });
+  mkdirSync(join(root, "packages/quickservicets"), { recursive: true });
+  cpSync(join(ROOT, "packages/quickservicets/package.json"), join(root, "packages/quickservicets/package.json"));
   return root;
 }
 
@@ -46,10 +49,11 @@ describe("AGENTS.md", () => {
   test("the generator writes the files, and a second run changes nothing", () => {
     const root = tempRoot();
     try {
-      expect(writeGenerated(root)).toEqual(["Wrote AGENTS.md"]);
-      const first = readFileSync(join(root, "AGENTS.md"), "utf8");
-      expect(writeGenerated(root)).toEqual(["Unchanged AGENTS.md"]);
-      expect(readFileSync(join(root, "AGENTS.md"), "utf8")).toBe(first);
+      const paths = Object.keys(generatedFiles(root));
+      expect(writeGenerated(root)).toEqual(paths.map((path) => `Wrote ${path}`));
+      const first = paths.map((path) => readFileSync(join(root, path), "utf8"));
+      expect(writeGenerated(root)).toEqual(paths.map((path) => `Unchanged ${path}`));
+      expect(paths.map((path) => readFileSync(join(root, path), "utf8"))).toEqual(first);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -112,5 +116,34 @@ describe("staleness of the topics' mentions", () => {
       "sample.md:11: unknown tag @uniq",
       "sample.md:11: unknown tag @nope",
     ]);
+  });
+});
+
+describe("Claude Code skill and plugin", () => {
+  const files = generatedFiles();
+  const topics = readTopics();
+
+  test("the generator writes SKILL.md with its frontmatter, and a copy of every topic next to it", () => {
+    const skill = files[`${SKILL_DIR}/SKILL.md`]!;
+    expect(skill).toStartWith("---\nname: quickservicets\ndescription: ");
+    expect(skillProblems(skill)).toEqual([]);
+    expect(Object.keys(files).filter((path) => path.startsWith(`${SKILL_DIR}/topics/`))).toEqual(topics.map((topic) => `${SKILL_DIR}/topics/${topic.name}.md`));
+    for (const topic of topics) expect(readFileSync(join(ROOT, SKILL_DIR, "topics", `${topic.name}.md`), "utf8")).toBe(topic.markdown);
+  });
+
+  test("the plugin and marketplace manifests parse, carry the package version and reference the skill", () => {
+    const version = JSON.parse(readFileSync(join(ROOT, "packages/quickservicets/package.json"), "utf8")).version;
+    const plugin = JSON.parse(readFileSync(join(ROOT, ".claude-plugin/plugin.json"), "utf8"));
+    expect(plugin).toMatchObject({ name: "quickservicets", version, skills: ["./skills/quickservicets"] });
+    for (const path of plugin.skills) expect(existsSync(join(ROOT, path, "SKILL.md"))).toBe(true);
+    const marketplace = JSON.parse(readFileSync(join(ROOT, ".claude-plugin/marketplace.json"), "utf8"));
+    expect(marketplace.name).toBe("quickservicets");
+    expect(marketplace.owner.name).toBeTruthy();
+    expect(marketplace.plugins).toEqual([expect.objectContaining({ name: "quickservicets", source: "./", version })]);
+    expect(existsSync(join(ROOT, marketplace.plugins[0].source, ".claude-plugin/plugin.json"))).toBe(true);
+  });
+
+  test("the skill, its topics and the manifests are fresh", () => {
+    expect(staleFiles(files)).toEqual([]);
   });
 });

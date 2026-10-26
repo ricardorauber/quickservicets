@@ -1,0 +1,22 @@
+{
+  "name": "quickservicets",
+  "version": "0.2.0",
+  "description": "The quickservicets skill: Claude Code builds and changes QuickService.ts backends with the right commands and rules.",
+  "author": {
+    "name": "Ricardo Rauber Pereira"
+  },
+  "homepage": "https://github.com/ricardorauber/quickservicets#readme",
+  "repository": "https://github.com/ricardorauber/quickservicets",
+  "license": "MIT",
+  "keywords": [
+    "quickservicets",
+    "bun",
+    "typescript",
+    "backend",
+    "rest",
+    "api"
+  ],
+  "skills": [
+    "./skills/quickservicets"
+  ]
+}

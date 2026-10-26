@@ -1,0 +1,17 @@
+{
+  "name": "quickservicets",
+  "owner": {
+    "name": "Ricardo Rauber Pereira"
+  },
+  "metadata": {
+    "description": "QuickService.ts plugins for Claude Code."
+  },
+  "plugins": [
+    {
+      "name": "quickservicets",
+      "source": "./",
+      "description": "Builds and changes backends with QuickService.ts, the Bun framework that turns TypeScript entity types into REST services with CRUD routes, validation, migrations and OpenAPI docs.",
+      "version": "0.2.0"
+    }
+  ]
+}

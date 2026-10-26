@@ -28,6 +28,8 @@ export interface EndpointDoc {
   query?: QueryItem[];
   /** Success status from `@status`. */
   status?: number;
+  /** `sse` for an `sse.ts` endpoint, which answers a `text/event-stream`. */
+  kind?: "sse";
 }
 
 export interface EndpointDocInput {
@@ -281,6 +283,7 @@ export function describeEndpoints(
       ...(metadata.projection ? { projection: metadata.projection } : {}),
       ...(query ? { query } : {}),
       ...(metadata.status !== undefined ? { status: metadata.status } : {}),
+      ...(route.kind ? { kind: route.kind } : {}),
       hooks,
     };
   });

@@ -126,6 +126,17 @@ function withHeader(response: Response, name: string, value: string): Response {
   }
 }
 
+/** Responses whose request log entry waits for their body to end, with the fields it adds. */
+const deferredLogs = new WeakMap<Response, Promise<Record<string, unknown>>>();
+
+/**
+ * Writes the request log entry of a streaming response when `finished` resolves, with its fields added and the
+ * duration up to then, instead of when the response starts.
+ */
+export function deferRequestLog(response: Response, finished: Promise<Record<string, unknown>>): void {
+  deferredLogs.set(response, finished);
+}
+
 /** Where the peer address of each request comes from: the address itself, or the Bun server that accepted it. */
 const peers = new WeakMap<Request, string | { requestIP(request: Request): { address: string } | null }>();
 
@@ -291,18 +302,24 @@ export function createServer({ routes, repos, config: serverConfig, jobs = noReq
     const startedAt = performance.now();
     const requestId = requestIdOf(request);
     const state: State = { route: null };
-    const response = withHeader(await pipeline(request, requestId, state), "x-request-id", requestId);
+    const answered = await pipeline(request, requestId, state);
+    const deferred = deferredLogs.get(answered);
+    const response = withHeader(answered, "x-request-id", requestId);
     if (state.quiet && response.status < 500) return response;
-    safeLog(logger, response.status >= 500 ? "error" : "info", {
-      [REQUEST_LOG]: true,
-      timestamp: new Date().toISOString(),
-      requestId,
-      method: request.method,
-      route: state.route,
-      status: response.status,
-      durationMs: Math.round((performance.now() - startedAt) * 1000) / 1000,
-      hooks: state.req ? executedHooks(state.req) : [],
-    });
+    const write = (extra: Record<string, unknown>) =>
+      safeLog(logger, response.status >= 500 ? "error" : "info", {
+        [REQUEST_LOG]: true,
+        timestamp: new Date().toISOString(),
+        requestId,
+        method: request.method,
+        route: state.route,
+        status: response.status,
+        durationMs: Math.round((performance.now() - startedAt) * 1000) / 1000,
+        hooks: state.req ? executedHooks(state.req) : [],
+        ...extra,
+      });
+    if (deferred) void deferred.then(write, () => write({}));
+    else write({});
     return response;
   };
 

@@ -18,7 +18,12 @@ export interface EndpointRoute {
   source?: string;
   /** The key of the feature whose folder holds the file. */
   feature?: string;
+  /** `sse` for an `sse.ts` file: a `GET` route streaming Server-Sent Events. */
+  kind?: "sse";
 }
+
+/** The file name of a Server-Sent Events endpoint, served as `GET`. */
+export const SSE_FILE = "sse.ts";
 
 const PARAM_NAME = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 const STATIC_SEGMENT = /^[a-z0-9.-]+$/;
@@ -75,9 +80,13 @@ export function scanEndpointFolder(root: string, nameOf: (file: string) => strin
         continue;
       }
       if (!entry.endsWith(".ts")) continue;
-      const method = entry.slice(0, -3);
-      if (!(ENDPOINT_METHODS as readonly string[]).includes(method)) {
-        throw new BuildError(`${relativePath}: endpoint files must be named ${ENDPOINT_METHODS.join(", ")} (with .ts)`);
+      const sse = entry === SSE_FILE;
+      const method = sse ? "get" : entry.slice(0, -3);
+      if (!sse && !(ENDPOINT_METHODS as readonly string[]).includes(method)) {
+        throw new BuildError(`${relativePath}: endpoint files must be named ${ENDPOINT_METHODS.join(", ")} or sse (with .ts)`);
+      }
+      if (sse && entries.includes("get.ts")) {
+        throw new BuildError(`${nameOf(join(dir, "get.ts"))} and ${relativePath}: a folder has one GET route; keep one of them`);
       }
       const path = `/${segments.map((segment) => segment.static ?? `[${segment.param}]`).join("/")}`;
       const pattern = `/${segments.map((segment) => segment.static ?? ":").join("/")}`;
@@ -88,6 +97,7 @@ export function scanEndpointFolder(root: string, nameOf: (file: string) => strin
         params: segments.flatMap((segment) => (segment.param === undefined ? [] : [segment.param])),
         file: relativePath,
         source: full,
+        ...(sse ? { kind: "sse" as const } : {}),
       });
     }
   };

@@ -5,6 +5,7 @@ import type { HookCall, HookDefinition, Repositories } from "./hooks.ts";
 import { createCrudRoutes, mergeRoutes, type CrudRoute } from "./http/crud.ts";
 import { withHooks } from "./http/pipeline.ts";
 import { docsRoutes } from "./http/docs.ts";
+import { isSseDefinition, sseEndpoint, type SseDefinition } from "./http/sse.ts";
 import { withQueryItems, type QueryItem } from "./http/query-items.ts";
 import { createServer, type Endpoint, type Route, type Server, type ServerSettings } from "./http/server.ts";
 import { parseDuration, type JobDefinition } from "./jobs/job.ts";
@@ -49,7 +50,9 @@ export interface AppEndpoint {
   feature?: string;
   /** Feature tags written on the endpoint. */
   tags?: ParsedTags;
-  handler: Endpoint;
+  /** `sse` for an `sse.ts` endpoint, whose default export is `defineSse(...)`. */
+  kind?: "sse";
+  handler: Endpoint | SseDefinition;
 }
 
 async function populateResult(result: unknown, populate: (records: never[]) => Promise<unknown[]>): Promise<unknown> {
@@ -215,19 +218,26 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
   }));
   const withPopulate = (endpoint: AppEndpoint): Endpoint => {
     const populate = endpoint.populate;
-    const handler = withQueryItems(endpoint.handler, endpoint.query);
+    const handler = withQueryItems(endpoint.handler as Endpoint, endpoint.query);
     const model = populate && models.find((candidate) => candidate.key === populate.entity);
     if (!populate || !model || populate.paths.length === 0) return handler;
     const repository = repositoryFor(repos, model);
     return async (repos, req, res) =>
       populateResult(await handler(repos, req, res), (records) => repository.populate(records, populate.paths)) as never;
   };
-  const custom: Route[] = endpoints.map((endpoint) => ({
-    method: endpoint.method,
-    path: endpoint.path,
-    handler: withHooks(withProjection(withPopulate(endpoint), endpoint.projection), endpoint.hooks, hooks),
-    ...(endpoint.status !== undefined ? { status: endpoint.status } : {}),
-  }));
+  const custom: Route[] = endpoints.map((endpoint) => {
+    if (endpoint.kind === "sse") {
+      if (!isSseDefinition(endpoint.handler)) throw new Error(`GET ${endpoint.path}: sse.ts must default-export defineSse(...)`);
+      // Pre-hooks run before the stream opens; post-hooks never see a streaming response.
+      return { method: endpoint.method, path: endpoint.path, handler: withHooks(sseEndpoint(endpoint.handler), endpoint.hooks, hooks) };
+    }
+    return {
+      method: endpoint.method,
+      path: endpoint.path,
+      handler: withHooks(withProjection(withPopulate(endpoint), endpoint.projection), endpoint.hooks, hooks),
+      ...(endpoint.status !== undefined ? { status: endpoint.status } : {}),
+    };
+  });
   const docs = openApi && config.docs?.enabled ? docsRoutes(openApi) : [];
   const routes = mergeRoutes(generated, custom);
   const runtime: Route[] = runtimeRoutesOf(runtimeRoutes, routes, logger).map((route) => ({

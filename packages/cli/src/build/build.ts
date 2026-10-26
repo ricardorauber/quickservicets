@@ -141,6 +141,24 @@ function overriddenRoute(route: EndpointRoute, models: EntityModel[]) {
   return undefined;
 }
 
+/** Fails unless an `sse.ts` file's default export is a call of `defineSse`. */
+function assertSseExport(source: string, file: string): void {
+  const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+  const defined = sourceFile.statements.some((statement) => {
+    if (!ts.isExportAssignment(statement) || statement.isExportEquals) return false;
+    let expression = statement.expression;
+    while (ts.isAsExpression(expression) || ts.isSatisfiesExpression(expression) || ts.isParenthesizedExpression(expression)) expression = expression.expression;
+    return ts.isCallExpression(expression) && ts.isIdentifier(expression.expression) && expression.expression.text === "defineSse";
+  });
+  if (!defined) throw new BuildError(`${file}: must default-export defineSse(...)`);
+}
+
+/** Whether the resolved config serves Server-Sent Events: the `realtime` native with its `sse` item on. */
+function sseEnabled(config: ResolvedConfig): boolean {
+  const realtime = config.features.find((feature) => feature.key === "realtime");
+  return (realtime?.options.sse as { enabled?: boolean } | undefined)?.enabled === true;
+}
+
 function resolveEndpoint(endpoint: ScannedEndpoint, models: EntityModel[], maxDepth: number): ResolvedEndpoint {
   const { route, metadata } = endpoint;
   const override = overriddenRoute(route, models);
@@ -212,13 +230,13 @@ function generateRoutesFile(
 ): string {
   const hookNames = [...hooks.keys()].sort();
   const imports = [
-    'import type { AppEndpoint, CrudRouteEntry, Endpoint, HookDefinition } from "@quickservice/core";',
+    'import type { AppEndpoint, CrudRouteEntry, Endpoint, HookDefinition, SseDefinition } from "@quickservice/core";',
     ...endpoints.map((endpoint, index) => `import endpoint${index} from ${JSON.stringify(importPath(endpoint.route.file))};`),
     ...hookNames.map((name) => `import hook_${name} from ${JSON.stringify(importPath(hooks.get(name)!.file))};`),
   ];
   const endpointEntries = endpoints.map(
     (endpoint, index) =>
-      `  { method: ${JSON.stringify(endpoint.route.method)}, path: ${JSON.stringify(endpoint.route.path)}, hooks: ${JSON.stringify(endpoint.hooks)}, ${endpoint.projection ? `projection: ${JSON.stringify(endpoint.projection)}, ` : ""}${endpoint.populate ? `populate: ${JSON.stringify(endpoint.populate)}, ` : ""}${endpoint.query ? `query: ${JSON.stringify(endpoint.query)}, ` : ""}${endpoint.status !== undefined ? `status: ${endpoint.status}, ` : ""}${endpoint.route.feature ? `feature: ${JSON.stringify(endpoint.route.feature)}, ` : ""}${endpoint.tags ? `tags: ${JSON.stringify(endpoint.tags)}, ` : ""}handler: endpoint${index} as Endpoint },`,
+      `  { method: ${JSON.stringify(endpoint.route.method)}, path: ${JSON.stringify(endpoint.route.path)}, hooks: ${JSON.stringify(endpoint.hooks)}, ${endpoint.projection ? `projection: ${JSON.stringify(endpoint.projection)}, ` : ""}${endpoint.populate ? `populate: ${JSON.stringify(endpoint.populate)}, ` : ""}${endpoint.query ? `query: ${JSON.stringify(endpoint.query)}, ` : ""}${endpoint.status !== undefined ? `status: ${endpoint.status}, ` : ""}${endpoint.route.feature ? `feature: ${JSON.stringify(endpoint.route.feature)}, ` : ""}${endpoint.route.kind ? `kind: ${JSON.stringify(endpoint.route.kind)}, ` : ""}${endpoint.tags ? `tags: ${JSON.stringify(endpoint.tags)}, ` : ""}handler: endpoint${index} as ${endpoint.route.kind === "sse" ? "SseDefinition" : "Endpoint"} },`,
   );
   return [
     HEADER,
@@ -336,10 +354,14 @@ async function buildProject(projectRoot: string, config: ResolvedConfig, options
   const queueNames = new Set(queueTypes(folderFiles).map((entry) => entry.name));
   const publishWarnings = [...publishProblems(publishing, queueNames), ...overrideWarnings(config.features, queueNames, publishing)];
   assertNoHookConflicts(activeFeatureTags(), hooks);
-  const endpoints: ScannedEndpoint[] = scanned.endpoints.map((route) => ({
-    route,
-    ...parseEndpointTags(readFileSync(route.source ?? join(projectRoot, route.file), "utf8"), route.file),
-  }));
+  const endpoints: ScannedEndpoint[] = scanned.endpoints.map((route) => {
+    const source = readFileSync(route.source ?? join(projectRoot, route.file), "utf8");
+    if (route.kind === "sse") {
+      if (!sseEnabled(config)) throw new BuildError(`${route.file} needs realtime: {} in quickservice.config.ts`);
+      assertSseExport(source, route.file);
+    }
+    return { route, ...parseEndpointTags(source, route.file) };
+  });
   validateHookReferences(
     models,
     endpoints.map((endpoint) => ({ file: endpoint.route.file, hooks: endpoint.hooks })),

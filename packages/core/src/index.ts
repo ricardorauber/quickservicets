@@ -35,13 +35,15 @@ export type {
   ServiceRequest,
   ServiceResponse,
 } from "./hooks.ts";
-export { createServer, peerAddress, toResponse } from "./http/server.ts";
+export { createServer, deferRequestLog, peerAddress, toResponse } from "./http/server.ts";
 export { bodyPolicyOf, bodyTooLarge, bodyTooSlow, readBodyBytes, readBodyChunks, readBodyText, setBodyPolicy } from "./http/body.ts";
 export type { BodyPolicy } from "./http/body.ts";
 export type { EntityTags, Endpoint, FetchOptions, HandlerResult, Route, Server, ServerOptions, ServerSettings } from "./http/server.ts";
 export { Router, patternOf, splitPath } from "./http/router.ts";
 export type { RouteMatch, RoutePattern } from "./http/router.ts";
 export { executedHooks, operationForRoute, resolveRouteHooks, withHooks } from "./http/pipeline.ts";
+export { defineSse, isSseDefinition, setSseRunner, sseEndpoint } from "./http/sse.ts";
+export type { SseDefinition, SseHandler, SseRunner, SseSendOptions, SseStream } from "./http/sse.ts";
 export { AggregateExpression, aggregatesOf, conditionsOf, createQuery, QueryCondition, SortKey } from "./fluent-query.ts";
 export type { AggregateExpressions, AggregateFields, AggregateResult, PageOptions, Query, QueryBackend, QueryFields, QueryLambda, SortFields, SortLambda } from "./fluent-query.ts";
 export { parseQueryItems, withQueryItems } from "./http/query-items.ts";
@@ -235,6 +237,7 @@ import eventsNative, { type EventsApi } from "./features/events/index.ts";
 import securityNative, { type SecurityApi } from "./features/security/index.ts";
 import etagNative from "./features/etag/index.ts";
 import historyNative, { type HistoryApi } from "./features/history/index.ts";
+import realtimeNative from "./features/realtime/index.ts";
 import idempotencyNative, { type IdempotencyApi } from "./features/idempotency/index.ts";
 import healthNative, { type HealthApi, type HealthStatusChangedEvent } from "./features/health/index.ts";
 import queuesNative, { type QueueClient, type QueueMessageEvent, type QueuesApi } from "./features/queues/index.ts";
@@ -246,6 +249,7 @@ registerShippedNative(healthNative);
 registerShippedNative(idempotencyNative);
 registerShippedNative(etagNative);
 registerShippedNative(historyNative);
+registerShippedNative(realtimeNative);
 export { addOutboxPatterns, events, eventsFeature, listen, memoryEventBus, readOutbox, tailOutbox } from "./features/events/index.ts";
 export type { ConsumerOptions, DeliveryContext, DeliveryStatus, OutboxRecord } from "./features/events/index.ts";
 export type { EventBus, EventListener, Events, EventsApi, ListenerContext, ListenerFile, ListenerPhase, ListenOptions, MemoryEventBus } from "./features/events/index.ts";
@@ -312,6 +316,7 @@ export { etagFeature } from "./features/etag/index.ts";
 export type { EntityTagger, NotModified, PreconditionFailure } from "./features/etag/index.ts";
 
 export { historyFeature } from "./features/history/index.ts";
+export { realtimeFeature } from "./features/realtime/index.ts";
 export type {
   DatabaseHistoryStore,
   HistoryApi,
@@ -344,6 +349,8 @@ declare module "./hooks.ts" {
   interface RequestExtensions {
     /** Adds messages to the project's queues, carrying the request's id; present while the `queues` native is enabled. */
     queue: QueueClient;
+    /** The `Last-Event-ID` header, or the `lastEventId` query parameter without it; present while the `realtime` native is enabled. */
+    lastEventId: string | undefined;
   }
 }
 
@@ -363,6 +370,8 @@ declare module "./features.ts" {
     etag?: NativeConfig<typeof etagNative>;
     /** Versions of the records of chosen entities; see the `history` reference page. */
     history?: NativeConfig<typeof historyNative>;
+    /** Server-Sent Events endpoints; see the `realtime` reference page. */
+    realtime?: NativeConfig<typeof realtimeNative>;
   }
   interface FeatureApis {
     events: EventsApi;

@@ -84,6 +84,13 @@
         "@quickservice/core": "workspace:*",
       },
     },
+    "examples/minimal/realtime": {
+      "name": "minimal-realtime",
+      "dependencies": {
+        "@quickservice/cli": "workspace:*",
+        "@quickservice/core": "workspace:*",
+      },
+    },
     "examples/minimal/security": {
       "name": "minimal-security",
       "dependencies": {
@@ -764,6 +771,8 @@
     "minimal-idempotency": ["minimal-idempotency@workspace:examples/minimal/idempotency"],
 
     "minimal-queues": ["minimal-queues@workspace:examples/minimal/queues"],
+
+    "minimal-realtime": ["minimal-realtime@workspace:examples/minimal/realtime"],
 
     "minimal-security": ["minimal-security@workspace:examples/minimal/security"],
 

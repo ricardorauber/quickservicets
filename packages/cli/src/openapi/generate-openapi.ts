@@ -674,9 +674,11 @@ function customOperation(doc: EndpointDoc, schemas: Record<string, JsonSchema>):
   const method = doc.method.toLowerCase();
   const status = doc.status ?? (method === "delete" && !doc.result ? 204 : 200);
   const success =
-    status === 204
-      ? { "204": { description: "Success" } }
-      : { [String(status)]: { description: "Success", content: json(doc.result ?? { type: "object" }) } };
+    doc.kind === "sse"
+      ? { "200": { description: "A stream of Server-Sent Events", content: { "text/event-stream": { schema: { type: "string" } } } } }
+      : status === 204
+        ? { "204": { description: "Success" } }
+        : { [String(status)]: { description: "Success", content: json(doc.result ?? { type: "object" }) } };
   return {
     ...endpointIdentity(doc),
     ...(doc.params.length > 0 || doc.query ? { parameters: [...pathParameters(doc.params), ...queryParameters(doc.query ?? [], schemas)] } : {}),

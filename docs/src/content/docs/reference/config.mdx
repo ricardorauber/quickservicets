@@ -435,3 +435,16 @@ export type Contract = {
   draftNotes: string;
 };
 ```
+
+### `realtime`
+
+Server-Sent Events endpoints from sse.ts files, with heartbeats, disconnect handling and a stream limit per worker.
+
+Every option, tag, command and hook of `realtime` is on [its reference page](/reference/features/realtime/).
+
+| Key | Type | Default | Environment variable | Description |
+| --- | --- | --- | --- | --- |
+| `realtime.sse.enabled` | `boolean` | `true` | `QS_REALTIME_SSE_ENABLED` | Serves the sse.ts endpoints as Server-Sent Events streams. Turns it off when false. |
+| `realtime.sse.heartbeat` | `duration` | `"15s"` | `QS_REALTIME_SSE_HEARTBEAT` | How often an open stream writes a ping comment, so proxies and clients keep it open. |
+| `realtime.sse.maxStreams` | `integer` | `1000` | `QS_REALTIME_SSE_MAX_STREAMS` | The most streams one worker keeps open; more are refused with 503 and Retry-After: 5. |
+| `realtime.enabled` | `boolean` | `true` | `QS_REALTIME_ENABLED` | Turns the feature off when false. |

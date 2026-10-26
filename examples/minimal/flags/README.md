@@ -37,19 +37,46 @@ export default () => ({ ordered: true });
 
 ## Level 3: per request
 
-Not applicable: no option is resolved per request yet.
+A rule can be a function of the request, its user and tenant, returning a boolean synchronously:
+
+```ts
+flags: { rules: { "pro-reports": ({ tenant }) => (tenant as { plan?: string } | undefined)?.plan === "pro" } }
+```
 
 ## Level 4: hooks and events
 
-Not applicable: the native declares no hook yet.
+`onEvaluate` observes each new evaluation, for example to log exposures for an experiment:
+
+```ts
+flags: { onEvaluate: ({ name, on, reason, user }) => console.info("flag", name, on, reason, user) }
+```
 
 ## Level 5: override files
 
-Not applicable: the native contributes no entities, routes or jobs yet.
+With `source: "database"`, a project `entities/FeatureFlag.ts` replaces the table, keeping its fields and adding others; `quickservice flags set` changes rows:
+
+```ts
+/** @internal */
+export type FeatureFlag = {
+  /** @unique */
+  name: string;
+  /** @default true */
+  enabled: boolean;
+  users?: string[];
+  tenants?: string[];
+  percentage?: number;
+  description?: string;
+  owner?: string;
+};
+```
 
 ## Level 6: replace the implementation
 
-Not applicable: flags are evaluated from the config's rules only so far.
+`provider` replaces the evaluation, like a client of a flag service:
+
+```ts
+flags: { provider: { isOn: (name) => name === "beta", all: () => ({ beta: true }) } }
+```
 
 ## Level 7: eject
 

@@ -332,7 +332,7 @@ export type { ChangeDelivery, ChangeSend, ChangeSource, RealtimeApi } from "./fe
 export { consoleReporter, errorsFeature, setSamplingRandom } from "./features/errors/index.ts";
 export type { ErrorsApi } from "./features/errors/index.ts";
 export { bucketOf, evaluateRule, flagsFeature } from "./features/flags/index.ts";
-export type { FlagContext, FlagReason, FlagResult, FlagRule, FlagsApi, FlagSubject, RequestFlagEvaluator } from "./features/flags/index.ts";
+export type { FlagContext, FlagEvaluation, FlagProvider, FlagProviderContext, FlagReason, FlagResult, FlagRule, FlagRuleFunction, FlagsApi, FlagSubject, RequestFlagEvaluator } from "./features/flags/index.ts";
 export type {
   DatabaseHistoryStore,
   HistoryApi,

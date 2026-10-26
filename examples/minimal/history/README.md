@@ -1,10 +1,12 @@
 # history
 
-The smallest project that shows the `history` native: a `Document` entity whose every create, update and delete stores a version in `document_history`, in the same transaction as the write, without its `@sensitive` note, and a `Draft` entity that keeps no history.
+The smallest project that shows the `history` native: a `Document` entity whose every create, update and delete stores a version in `document_history`, in the same transaction as the write, without its `@sensitive` note, readable at `GET /documents/[id]/history`; and a `Draft` entity that keeps no history.
 
 ```bash
 bun run test
 ```
+
+The entity history guide (`docs/src/content/docs/guides/history.md`, on the site at `/guides/history/`) explains every piece.
 
 ## Level 0: enable
 
@@ -21,13 +23,7 @@ export type Document = { title: string; body: string };
 
 ## Level 1: options and environment
 
-`entities: "all"` keeps the history of every regular entity, and every option has a `QS_*` variable:
-
-```ts
-history: { entities: "all" }
-```
-
-`retention` deletes older versions every day (the current version of a live record is always kept):
+`retention` deletes older versions every day (the current version of a live record is always kept), `entities: "all"` covers every regular entity, and every option has a `QS_*` variable:
 
 ```ts
 history: { retention: "365d" }
@@ -39,10 +35,10 @@ QS_HISTORY_RETENTION=365d bun .generated/server.ts
 
 ## Level 2: tags
 
-`@history off` excludes an entity (useful with `entities: "all"`); on a field, `@history off` leaves it out of versions and `@history on` keeps a `@hidden` or `@sensitive` field in them:
+`@history retention=7d` gives one entity its own retention and `@history off` excludes one; on a field, `@history off` leaves it out of versions and `@history on` keeps a `@hidden` or `@sensitive` field in them:
 
 ```ts
-/** @history */
+/** @history retention=7d */
 export type Document = {
   title: string;
   /** @history off */
@@ -80,10 +76,25 @@ export default async (repos: Repositories, req: ServiceRequest) => repos.documen
 
 ## Level 6: replace the implementation
 
-`store` replaces the history tables with any object that writes, lists, reads and prunes versions; the build then adds no history tables:
+`store` replaces the history tables with any object that writes, lists, reads and prunes versions, like this one in memory; the build then adds no history tables:
 
 ```ts
-history: { store: { write, list, get, prune } }
+const versions: (NewVersion & { entity: string; version: number })[] = [];
+const memoryStore: HistoryStore = {
+  write: (version, { entity }) => {
+    const stored = { ...version, entity, version: versions.filter((v) => v.entity === entity && v.entityId === version.entityId).length + 1 };
+    versions.push(stored);
+    return stored;
+  },
+  list: async (entity, id, { limit, offset }) => {
+    const found = versions.filter((v) => v.entity === entity && v.entityId === id).reverse();
+    return { data: found.slice(offset, offset + limit), total: found.length };
+  },
+  get: async (entity, id, number) => versions.find((v) => v.entity === entity && v.entityId === id && v.version === number) ?? null,
+  prune: async () => 0,
+};
+
+history: { store: memoryStore }
 ```
 
 ## Level 7: eject

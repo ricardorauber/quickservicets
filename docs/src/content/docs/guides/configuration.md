@@ -244,5 +244,6 @@ An error thrown by the logger never changes the response.
 - [Health checks](/guides/health/): the `health` key, for liveness and readiness routes and draining on shutdown.
 - [Idempotency keys](/guides/idempotency/): the `idempotency` key, for safe retries of `POST` requests.
 - [Optimistic concurrency](/guides/optimistic-concurrency/): the `etag` key, for entity tags, 304 answers and `If-Match`.
+- [Entity history](/guides/history/): the `history` key, for every version of chosen records, its routes and its retention.
 
 Next: [Jobs](/guides/jobs/).

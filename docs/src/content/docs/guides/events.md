@@ -213,5 +213,6 @@ The feature API, `ctx.feature("events")`, offers `addHook`, `on`, `emit` and `de
 - [`events` reference](/reference/features/events/): every option with its variable, the `@events` tag, the hooks, the feature API and the commands.
 - [Hooks](/guides/hooks/): code around one route, where events are code around every write.
 - [Project features](/guides/project-features/): setup, `requires` and feature APIs.
+- [Entity history](/guides/history/): every version of chosen records, written by an in-transaction listener.
 
 Next: [Recipes](/recipes/).

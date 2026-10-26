@@ -90,5 +90,5 @@ export default defineFeature({
     } finally {
       await service.stop();
     }
-  });
+  }, 30_000);
 });

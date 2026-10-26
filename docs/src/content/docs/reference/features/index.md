@@ -16,3 +16,4 @@ description: Every native feature of QuickService, with its reference page.
 | [`history`](/reference/features/history/) | Every version of the records of chosen entities, kept in a history table written in the same transaction as the change. | no |
 | [`realtime`](/reference/features/realtime/) | Server-Sent Events endpoints from sse.ts files, with heartbeats, disconnect handling and a stream limit per worker. | no |
 | [`errors`](/reference/features/errors/) | One interface that receives every unexpected error with its request, user and tenant, so a reporting service plugs in with one line. | no |
+| [`flags`](/reference/features/flags/) | Feature flags turned on per user, per tenant or for a percentage of users, read synchronously in any endpoint or hook. | no |

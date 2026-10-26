@@ -244,6 +244,7 @@ import etagNative from "./features/etag/index.ts";
 import historyNative, { type HistoryApi } from "./features/history/index.ts";
 import realtimeNative, { type RealtimeApi } from "./features/realtime/index.ts";
 import errorsNative, { type ErrorsApi } from "./features/errors/index.ts";
+import flagsNative, { type FlagsApi } from "./features/flags/index.ts";
 import idempotencyNative, { type IdempotencyApi } from "./features/idempotency/index.ts";
 import healthNative, { type HealthApi, type HealthStatusChangedEvent } from "./features/health/index.ts";
 import queuesNative, { type QueueClient, type QueueMessageEvent, type QueuesApi } from "./features/queues/index.ts";
@@ -257,6 +258,7 @@ registerShippedNative(etagNative);
 registerShippedNative(historyNative);
 registerShippedNative(realtimeNative);
 registerShippedNative(errorsNative);
+registerShippedNative(flagsNative);
 export { addOutboxPatterns, events, eventsFeature, listen, memoryEventBus, readOutbox, tailOutbox } from "./features/events/index.ts";
 export type { ConsumerOptions, DeliveryContext, DeliveryStatus, OutboxRecord } from "./features/events/index.ts";
 export type { EventBus, EventListener, Events, EventsApi, ListenerContext, ListenerFile, ListenerPhase, ListenOptions, MemoryEventBus } from "./features/events/index.ts";
@@ -327,6 +329,8 @@ export { realtimeFeature } from "./features/realtime/index.ts";
 export type { ChangeDelivery, ChangeSend, ChangeSource, RealtimeApi } from "./features/realtime/index.ts";
 export { consoleReporter, errorsFeature, setSamplingRandom } from "./features/errors/index.ts";
 export type { ErrorsApi } from "./features/errors/index.ts";
+export { bucketOf, evaluateRule, flagsFeature } from "./features/flags/index.ts";
+export type { FlagContext, FlagReason, FlagResult, FlagRule, FlagsApi, FlagSubject, RequestFlagEvaluator } from "./features/flags/index.ts";
 export type {
   DatabaseHistoryStore,
   HistoryApi,
@@ -384,6 +388,8 @@ declare module "./features.ts" {
     realtime?: NativeConfig<typeof realtimeNative>;
     /** Error reports to a reporting service; see the `errors` reference page. */
     errors?: NativeConfig<typeof errorsNative>;
+    /** Feature flags per user, tenant or percentage; see the `flags` reference page. */
+    flags?: NativeConfig<typeof flagsNative>;
   }
   interface FeatureApis {
     events: EventsApi;
@@ -394,5 +400,6 @@ declare module "./features.ts" {
     history: HistoryApi;
     realtime: RealtimeApi;
     errors: ErrorsApi;
+    flags: FlagsApi;
   }
 }

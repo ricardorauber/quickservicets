@@ -64,6 +64,8 @@ export interface OptionSettings {
   readonly methods?: readonly string[];
   /** `anyOf` alternatives, tried in order. */
   readonly members?: readonly AnyOptionSchema[];
+  /** `record` entry names, with what a name that does not match must be. */
+  readonly keys?: { pattern: RegExp; message: string };
 }
 
 // Type-level markers set by the modifiers; they never exist at runtime.
@@ -150,6 +152,11 @@ export interface HookOptionSchema<V, C> extends BaseOptionSchema<FeatureHook<V, 
 export interface RecordOptionSchema<I extends AnyOptionSchema> extends BoundedOptionSchema<Record<string, InputValue<I>>> {
   /** The value schema, for type inference only. */
   readonly __record: I;
+  /**
+   * Restricts the entry names to `pattern`; a name that does not match fails as `Invalid <path>.<name>: <message>`.
+   * Names still match the general `^[A-Za-z][A-Za-z0-9_-]*$` otherwise.
+   */
+  keys(pattern: RegExp, message: string): this;
 }
 
 type Simplify<T> = { [K in keyof T]: T[K] } & {};
@@ -249,6 +256,10 @@ class OptionNode {
 
   max(n: number): OptionNode {
     return this.with({ max: n });
+  }
+
+  keys(pattern: RegExp, message: string): OptionNode {
+    return this.with({ keys: Object.freeze({ pattern, message }) });
   }
 
   protocols(protocols: readonly string[]): OptionNode {
@@ -533,6 +544,10 @@ function validate(schema: AnyOptionSchema, value: unknown, path: string, problem
       if (!bounded(keys.length)) return undefined;
       const entries: Record<string, unknown> = {};
       for (const key of keys) {
+        if (settings.keys && !settings.keys.pattern.test(key)) {
+          problems.push(`Invalid ${join(path, key)}: ${settings.keys.message}`);
+          continue;
+        }
         if (!RECORD_KEY.test(key)) {
           problems.push(`Invalid ${path}: the entry name ${JSON.stringify(key)} must match ${RECORD_KEY.source}`);
           continue;

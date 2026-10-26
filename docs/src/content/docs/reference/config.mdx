@@ -502,3 +502,20 @@ Every option, tag, command and hook of `errors` is on [its reference page](/refe
 /** @report sampleRate=0.1 */
 export default () => ({ ok: true });
 ```
+
+### `flags`
+
+Feature flags turned on per user, per tenant or for a percentage of users, read synchronously in any endpoint or hook.
+
+Every option, tag, command and hook of `flags` is on [its reference page](/reference/features/flags/).
+
+| Key | Type | Default | Environment variable | Description |
+| --- | --- | --- | --- | --- |
+| `flags.source` | `"config" \| "database"` | `"config"` | `QS_FLAGS_SOURCE` | Where the flags live: the rules of the config, or the FeatureFlag table with the config rules as defaults. |
+| `flags.rules.<name>.enabled` | `record of boolean` | `true` | `QS_FLAGS_RULES_<NAME>_ENABLED` | One flag: true or false for everyone, or who it is on for. Turns it off when false. |
+| `flags.rules.<name>.users` | `record of string[]` | — | `QS_FLAGS_RULES_<NAME>_USERS` | The user ids the flag is on for. |
+| `flags.rules.<name>.tenants` | `record of string[]` | — | `QS_FLAGS_RULES_<NAME>_TENANTS` | The tenant ids the flag is on for. |
+| `flags.rules.<name>.percentage` | `record of integer` | — | `QS_FLAGS_RULES_<NAME>_PERCENTAGE` | The share of users (or tenants without a user) the flag is on for, stable across processes. |
+| `flags.rules.<name>.description` | `record of string` | — | `QS_FLAGS_RULES_<NAME>_DESCRIPTION` | What the flag turns on, for people reading the config. |
+| `flags.refresh` | `duration` | `"30s"` | `QS_FLAGS_REFRESH` | How often each worker reloads the flags of the database source. |
+| `flags.enabled` | `boolean` | `true` | `QS_FLAGS_ENABLED` | Turns the feature off when false. |

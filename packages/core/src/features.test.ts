@@ -84,7 +84,7 @@ describe("enabling natives", () => {
     for (const config of [{ audit: false }, {}]) {
       const resolved = resolve(config);
       expect(resolved.features).toEqual([]);
-      expect(resolved.disabledFeatures).toEqual(["security", "events", "queues", "health", "idempotency", "etag", "history", "realtime", "errors", "audit"]);
+      expect(resolved.disabledFeatures).toEqual(["security", "events", "queues", "health", "idempotency", "etag", "history", "realtime", "errors", "flags", "audit"]);
     }
   });
 
@@ -93,7 +93,7 @@ describe("enabling natives", () => {
     expect(resolve({}).features.map((feature) => feature.key)).toEqual(["stamps"]);
     expect(resolve({ stamps: false }).features).toEqual([]);
     expect(resolve({ stamps: { enabled: false } }).features).toEqual([]);
-    expect(resolve({ stamps: { enabled: false } }).disabledFeatures).toEqual(["security", "events", "queues", "health", "idempotency", "etag", "history", "realtime", "errors", "stamps"]);
+    expect(resolve({ stamps: { enabled: false } }).disabledFeatures).toEqual(["security", "events", "queues", "health", "idempotency", "etag", "history", "realtime", "errors", "flags", "stamps"]);
   });
 
   test("the implicit enabled option turns a configured native off", () => {
@@ -119,7 +119,7 @@ describe("option resolution", () => {
     ]);
     expect(resolved.features[0]!.definition).toBe(audit);
     // The registered natives that are off, like events, are listed too.
-    expect(resolved.disabledFeatures).toEqual(["security", "events", "queues", "health", "idempotency", "etag", "history", "realtime", "errors"]);
+    expect(resolved.disabledFeatures).toEqual(["security", "events", "queues", "health", "idempotency", "etag", "history", "realtime", "errors", "flags"]);
   });
 
   test("invalid options name the key's path, for every feature at once", () => {
@@ -135,7 +135,7 @@ describe("option resolution", () => {
   test("a configuration without features resolves as before", () => {
     const resolved = resolve({});
     expect(resolved.features).toEqual([]);
-    expect(resolved.disabledFeatures).toEqual(["security", "events", "queues", "health", "idempotency", "etag", "history", "realtime", "errors"]);
+    expect(resolved.disabledFeatures).toEqual(["security", "events", "queues", "health", "idempotency", "etag", "history", "realtime", "errors", "flags"]);
   });
 });
 

@@ -63,6 +63,13 @@
         "@quickservice/core": "workspace:*",
       },
     },
+    "examples/minimal/flags": {
+      "name": "minimal-flags",
+      "dependencies": {
+        "@quickservice/cli": "workspace:*",
+        "@quickservice/core": "workspace:*",
+      },
+    },
     "examples/minimal/health": {
       "name": "minimal-health",
       "dependencies": {
@@ -772,6 +779,8 @@
     "minimal-etag": ["minimal-etag@workspace:examples/minimal/etag"],
 
     "minimal-events": ["minimal-events@workspace:examples/minimal/events"],
+
+    "minimal-flags": ["minimal-flags@workspace:examples/minimal/flags"],
 
     "minimal-health": ["minimal-health@workspace:examples/minimal/health"],
 

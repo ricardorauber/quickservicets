@@ -1,4 +1,6 @@
 import { parseDuration, safeLog, type Condition, type DatabaseAdapter, type EntityModel, type Logger, type StoredRecord } from "../public.ts";
+import type { HistoryRetentionFunction, HistoryStore } from "./api.ts";
+import type { DatabaseHistoryStore } from "./store.ts";
 
 /** The most versions one pruning batch reads and deletes. */
 export const PRUNE_BATCH = 1000;
@@ -64,23 +66,65 @@ export async function pruneVersions(adapter: DatabaseAdapter, model: EntityModel
   }
 }
 
-/** One entity whose history may be pruned, with its history model and its retention. */
+/** One entity whose history may be pruned, with its retention. */
 export interface PruneTarget {
   entity: EntityModel;
-  model: EntityModel;
-  /** The retention, like `365d`; undefined keeps its versions forever. */
-  retention: string | undefined;
+  /** The retention, like `365d`, or a function of the tenant; undefined keeps its versions forever. */
+  retention: string | HistoryRetentionFunction | undefined;
 }
 
 /** What `pruneHistory` takes. */
 export interface PruneRun {
-  adapter: DatabaseAdapter;
+  store: HistoryStore;
+  /** The history tables, when they are the store: they prune per tenant, in batches, and count dry runs. */
+  database?: { adapter: DatabaseAdapter; store: DatabaseHistoryStore };
   targets: readonly PruneTarget[];
   logger?: Logger;
   signal?: AbortSignal;
   dryRun?: boolean;
   /** The current time in milliseconds (default `Date.now()`). */
   now?: number;
+}
+
+/** A retention in milliseconds, failing naming `history.retention` when it is not a duration. */
+function retentionMs(value: unknown): number {
+  const ms = parseDuration(value);
+  if (ms === undefined) throw new Error(`Invalid history.retention: expected a duration like 30s, 10m, 2h or 30d, got ${JSON.stringify(value)}`);
+  return ms;
+}
+
+/** The retention of a function for one tenant, checked like the option. */
+async function retentionFor(fn: HistoryRetentionFunction, entity: string, tenant: string | undefined): Promise<string | undefined> {
+  // Called directly, as `undefined` (keep forever) is a valid answer the option's own check would refuse.
+  const value = await fn({ entity, tenant, req: undefined, user: undefined } as never);
+  if (value === undefined) return undefined;
+  retentionMs(value);
+  return value as string;
+}
+
+/** Prunes one entity: by tenant when its retention is a function and the store is the database. */
+async function pruneEntity(run: PruneRun, target: PruneTarget, now: number): Promise<number> {
+  const name = target.entity.entityName;
+  const retention = target.retention!;
+  const database = run.database;
+  const pruneBefore = async (ms: number, where: Condition[] = []) => {
+    const before = new Date(now - ms);
+    if (!database) return run.dryRun ? 0 : run.store.prune(name, before, true);
+    return pruneVersions(database.adapter, database.store.model(name), { before, where, ...(run.signal ? { signal: run.signal } : {}), ...(run.dryRun ? { dryRun: true } : {}) });
+  };
+  if (typeof retention !== "function") return pruneBefore(retentionMs(retention));
+  if (!database) {
+    const value = await retentionFor(retention, name, undefined);
+    return value === undefined ? 0 : pruneBefore(retentionMs(value));
+  }
+  let deleted = 0;
+  for (const tenant of await database.store.tenants(name)) {
+    if (run.signal?.aborted) break;
+    const value = await retentionFor(retention, name, tenant);
+    if (value === undefined) continue;
+    deleted += await pruneBefore(retentionMs(value), [tenant === undefined ? { field: "tenant", op: "isNull", value: true } : { field: "tenant", op: "eq", value: tenant }]);
+  }
+  return deleted;
 }
 
 /** Prunes every target that has a retention, logging `history.pruned` per entity; resolves the counts by entity name. */
@@ -90,14 +134,8 @@ export async function pruneHistory(run: PruneRun): Promise<Record<string, number
   for (const target of run.targets) {
     if (target.retention === undefined) continue;
     if (run.signal?.aborted) break;
-    const retentionMs = parseDuration(target.retention);
-    if (retentionMs === undefined) throw new Error(`Invalid history.retention: ${target.retention} is not a duration`);
     const started = performance.now();
-    const deleted = await pruneVersions(run.adapter, target.model, {
-      before: new Date(now - retentionMs),
-      ...(run.signal ? { signal: run.signal } : {}),
-      ...(run.dryRun ? { dryRun: true } : {}),
-    });
+    const deleted = await pruneEntity(run, target, now);
     result[target.entity.entityName] = deleted;
     if (run.logger && !run.dryRun) {
       safeLog(run.logger, "info", {

@@ -411,21 +411,24 @@ Every option, tag, command and hook of `history` is on [its reference page](/ref
 | Key | Type | Default | Environment variable | Description |
 | --- | --- | --- | --- | --- |
 | `history.entities` | `"tagged" \| "all"` | `"tagged"` | `QS_HISTORY_ENTITIES` | Which entities keep history: tagged keeps it for entities tagged @history, all for every regular entity without @history off. |
-| `history.retention` | `duration` | — | `QS_HISTORY_RETENTION` | How long versions are kept, like 365d; the current version of a live record is always kept. Without it, versions are kept forever. |
+| `history.retention` | `duration` | — | `QS_HISTORY_RETENTION` | How long versions are kept, like 365d; the current version of a live record is always kept, and without it versions are kept forever. A function of the entity and tenant decides per tenant when pruning. |
+| `history.beforeVersion` | `hook` | — | not overridable | Runs inside the write's transaction before each version is written, with the entity, the version and the event; it may return a changed step or null to skip the version, and a throw fails the write. |
+| `history.afterVersion` | `hook` | — | not overridable | Runs after the write committed, with the entity, the stored version and the event; failures are logged. |
+| `history.store` | `HistoryStore` | — | not overridable | Replaces the history tables: it writes, lists, reads and prunes versions, and the build adds no history entities. |
 | `history.enabled` | `boolean` | `true` | `QS_HISTORY_ENABLED` | Turns the feature off when false. |
 
 #### `@history`
 
-`@history` on an entity keeps its versions and `@history off` excludes it; on a field, `@history off` leaves it out of versions and `@history on` keeps a `@hidden` or `@sensitive` field in them.
+`@history` on an entity keeps its versions, `@history retention=7d` sets how long, and `@history off` excludes it; on a field, `@history off` leaves it out of versions and `@history on` keeps a `@hidden` or `@sensitive` field in them.
 
 **Applies to:** entities, fields
 
-**Options:** none (a flag: `@history` or `@history off`)
+**Options:** `retention`
 
-**Syntax:** `@history` or `@history off`
+**Syntax:** `@history [retention=…]` or `@history off`
 
 ```ts
-/** @history */
+/** @history retention=90d */
 export type Contract = {
   title: string;
   /** @history off */

@@ -1,17 +1,32 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { boolean, defineCommand, object, string, type CommandContext, type EntityModel } from "../public.ts";
+import { boolean, defineCommand, object, string, type CommandContext, type DatabaseAdapter, type EntityModel } from "../public.ts";
+import type { HistoryRetentionFunction, HistoryStore } from "./api.ts";
 import { coveredEntities, historyModelKey, type HistoryCoverage } from "./model.ts";
-import { pruneHistory, type PruneTarget } from "./prune.ts";
+import { pruneHistory, pruneVersions, type PruneRun, type PruneTarget } from "./prune.ts";
+import { databaseHistoryStore } from "./store.ts";
 
-type HistoryOptions = { entities: HistoryCoverage; retention?: string };
+type HistoryOptions = { entities: HistoryCoverage; retention?: string | HistoryRetentionFunction; store?: HistoryStore };
 
-/** The covered entities of the built project, each with its history model and retention. */
+/** The covered entities of the built project, each with its retention: its `@history retention=` tag, else the option. */
 export function pruneTargets(models: readonly EntityModel[], options: HistoryOptions): PruneTarget[] {
-  return coveredEntities(models, options.entities).flatMap((entity) => {
-    const model = models.find((candidate) => candidate.key === historyModelKey(entity) && candidate.system);
-    return model ? [{ entity, model, retention: options.retention }] : [];
-  });
+  return coveredEntities(models, options.entities).map((entity) => ({
+    entity,
+    retention: (entity.tags?.history?.options.retention as string | undefined) ?? options.retention,
+  }));
+}
+
+/** The store versions are pruned from: the configured one, or the history tables of the models. */
+export function pruneStores(adapter: DatabaseAdapter, models: readonly EntityModel[], options: HistoryOptions): Pick<PruneRun, "store" | "database"> {
+  if (options.store) return { store: options.store };
+  const tables = new Map(
+    coveredEntities(models, options.entities).flatMap((entity) => {
+      const model = models.find((candidate) => candidate.key === historyModelKey(entity) && candidate.system);
+      return model ? [[entity.entityName, model] as const] : [];
+    }),
+  );
+  const store = databaseHistoryStore(adapter, tables, (model, before, keepLatest) => pruneVersions(adapter, model, { before, keepLatest }));
+  return { store, database: { adapter, store } };
 }
 
 const prune = defineCommand({
@@ -39,7 +54,12 @@ const prune = defineCommand({
       ctx.output.log("No retention configured; nothing to prune");
       return 0;
     }
-    const counts = await pruneHistory({ adapter: ctx.config.database, targets, ...(ctx.config.logger ? { logger: ctx.config.logger } : {}), dryRun: ctx.flags.dryRun });
+    const counts = await pruneHistory({
+      ...pruneStores(ctx.config.database, models, options),
+      targets,
+      ...(ctx.config.logger ? { logger: ctx.config.logger } : {}),
+      dryRun: ctx.flags.dryRun,
+    });
     for (const [entity, count] of Object.entries(counts)) {
       ctx.output.log(`${entity}: ${count} versions ${ctx.flags.dryRun ? "would be deleted" : "deleted"}`);
     }

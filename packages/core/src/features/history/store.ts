@@ -94,3 +94,39 @@ export async function getVersion(adapter: DatabaseAdapter, model: EntityModel, e
   ]);
   return row ? versionOfRow(row) : null;
 }
+
+/** The history tables as a store, with what pruning by tenant needs besides the store methods. */
+export interface DatabaseHistoryStore {
+  write(version: NewVersion, ctx: { entity: string }): Promise<HistoryVersion>;
+  list(entity: string, id: string, query: VersionQuery): Promise<VersionPage>;
+  get(entity: string, id: string, version: number): Promise<HistoryVersion | null>;
+  prune(entity: string, before: Date, keepLatest: boolean): Promise<number>;
+  /** The history model of an entity name. */
+  model(entity: string): EntityModel;
+  /** The distinct tenant ids of an entity's versions, undefined standing for versions without a tenant. */
+  tenants(entity: string): Promise<(string | undefined)[]>;
+}
+
+/** The `<entity>_history` tables of the project's database, by entity name. */
+export function databaseHistoryStore(adapter: DatabaseAdapter, models: ReadonlyMap<string, EntityModel>, prune: (model: EntityModel, before: Date, keepLatest: boolean) => Promise<number>): DatabaseHistoryStore {
+  const model = (entity: string) => {
+    const found = models.get(entity);
+    if (!found) throw new Error(`${entity} keeps no history`);
+    return found;
+  };
+  return {
+    model,
+    write: (version, ctx) => writeVersion(adapter, model(ctx.entity), version),
+    list: (entity, id, query) => listVersions(adapter, model(entity), id, query),
+    get: (entity, id, version) => getVersion(adapter, model(entity), id, version),
+    prune: (entity, before, keepLatest) => prune(model(entity), before, keepLatest),
+    async tenants(entity) {
+      const found = new Set<string | undefined>();
+      for (let offset = 0; ; offset += 1000) {
+        const { data } = await adapter.findMany(model(entity), { where: [], sort: [{ field: "id", direction: "asc" }], limit: 1000, offset, withTotal: false });
+        for (const row of data) found.add(typeof row.tenant === "string" ? row.tenant : undefined);
+        if (data.length < 1000) return [...found];
+      }
+    },
+  };
+}

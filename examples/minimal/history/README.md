@@ -52,11 +52,22 @@ export type Document = {
 
 ## Level 3: per request
 
-Not applicable: no option is resolved per request yet.
+`retention` can be a function, called when pruning once per entity and tenant; `undefined` keeps that tenant's versions forever:
+
+```ts
+history: { retention: ({ tenant }) => (tenant === "enterprise" ? "1825d" : "90d") }
+```
 
 ## Level 4: hooks and events
 
-Not applicable: the native declares no hook yet.
+`beforeVersion` runs inside the write's transaction and may change or skip a version; `afterVersion` observes it after the commit:
+
+```ts
+history: {
+  beforeVersion: (step) => step && { ...step, version: { ...step.version, record: { ...step.version.record, body: "[masked]" } } },
+  afterVersion: ({ entity, version }) => console.debug("version", entity, version.entityId),
+}
+```
 
 ## Level 5: override files
 
@@ -69,7 +80,11 @@ export default async (repos: Repositories, req: ServiceRequest) => repos.documen
 
 ## Level 6: replace the implementation
 
-Not applicable: versions are stored in the history tables only so far.
+`store` replaces the history tables with any object that writes, lists, reads and prunes versions; the build then adds no history tables:
+
+```ts
+history: { store: { write, list, get, prune } }
+```
 
 ## Level 7: eject
 

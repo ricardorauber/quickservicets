@@ -83,11 +83,11 @@ const unquote = (quoted: string) => quoted.replace(/\\(.)/g, "$1");
  * Parses `@name`, `@name on`, `@name off`, `@name <shorthand value>` or `@name key=value key2="a quoted value"` written on a
  * target, or throws the reason. Keys are relative to the tag's scope and parsed with the scoped object's schema.
  */
-function parseTagText(entry: FeatureTagEntry, text: string): ParsedTag {
+function parseTagText(entry: FeatureTagEntry, text: string, target: FeatureTagTarget): ParsedTag {
   // `@name on` says explicitly what a bare `@name` says, like a field kept by `@history on`.
   if (text === "" || text === "on") return { on: true, options: {} };
   if (text === "off") return { on: false, options: {} };
-  const allowed = entry.tag.options ?? [];
+  const allowed = (target === "field" ? entry.tag.fieldOptions : undefined) ?? entry.tag.options ?? [];
   const shape = scopedOptionSchema(entry.feature.definition.schema, entry.tag.scope)!.settings.shape!;
   const options: Record<string, unknown> = {};
   const parse = (key: string, raw: string) => {
@@ -100,7 +100,7 @@ function parseTagText(entry: FeatureTagEntry, text: string): ParsedTag {
     }
   };
   let rest = text;
-  const bare = entry.tag.shorthand !== undefined ? BARE.exec(rest) : null;
+  const bare = entry.tag.shorthand !== undefined && allowed.includes(entry.tag.shorthand) ? BARE.exec(rest) : null;
   if (bare) {
     rest = rest.slice(bare[0].length);
     parse(entry.tag.shorthand!, bare[1] !== undefined ? unquote(bare[1]) : bare[2]!);
@@ -131,7 +131,7 @@ export function applyFeatureTag(tags: ParsedTags | undefined, tag: DocTag, targe
   const result = { ...tags };
   if (Object.hasOwn(result, tag.name)) throw fail("is written more than once");
   try {
-    result[tag.name] = parseTagText(entry, tag.text);
+    result[tag.name] = parseTagText(entry, tag.text, target);
   } catch (error) {
     throw fail((error as Error).message);
   }

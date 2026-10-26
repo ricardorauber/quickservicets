@@ -171,6 +171,11 @@ export interface FeatureTag {
    */
   options?: readonly string[];
   /**
+   * The option keys the tag may set when written on a field, when they differ from `options` (default: `options`);
+   * an empty list makes the tag a flag on fields.
+   */
+  fieldOptions?: readonly string[];
+  /**
    * The option a bare first value sets: with `shorthand: "limit"`, `@rateLimit 10/min by=user` equals
    * `@rateLimit limit=10/min by=user`. Must be one of `options`.
    */
@@ -507,7 +512,16 @@ function tagsField(key: string, tags: Readonly<Record<string, FeatureTag>>, sche
       }
     }
     if (tag.shorthand !== undefined && !(tag.options ?? []).includes(tag.shorthand)) throw invalidTag(`shorthand ${tag.shorthand} is not one of its options`);
-    checked[name] = Object.freeze({ ...tag, on: Object.freeze([...tag.on]), ...(tag.options ? { options: Object.freeze([...tag.options]) } : {}) });
+    if (tag.fieldOptions !== undefined) {
+      if (!Array.isArray(tag.fieldOptions)) throw invalidTag("fieldOptions must be a list of its options");
+      for (const option of tag.fieldOptions) if (!(tag.options ?? []).includes(option)) throw invalidTag(`field option ${option} is not one of its options`);
+    }
+    checked[name] = Object.freeze({
+      ...tag,
+      on: Object.freeze([...tag.on]),
+      ...(tag.options ? { options: Object.freeze([...tag.options]) } : {}),
+      ...(tag.fieldOptions ? { fieldOptions: Object.freeze([...tag.fieldOptions]) } : {}),
+    });
   }
   return Object.freeze(checked);
 }

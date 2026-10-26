@@ -234,7 +234,7 @@ export type { DeclaredVariable, EnvVars } from "./env-vars.ts";
 import eventsNative, { type EventsApi } from "./features/events/index.ts";
 import securityNative, { type SecurityApi } from "./features/security/index.ts";
 import etagNative from "./features/etag/index.ts";
-import historyNative from "./features/history/index.ts";
+import historyNative, { type HistoryApi } from "./features/history/index.ts";
 import idempotencyNative, { type IdempotencyApi } from "./features/idempotency/index.ts";
 import healthNative, { type HealthApi, type HealthStatusChangedEvent } from "./features/health/index.ts";
 import queuesNative, { type QueueClient, type QueueMessageEvent, type QueuesApi } from "./features/queues/index.ts";
@@ -312,7 +312,20 @@ export { etagFeature } from "./features/etag/index.ts";
 export type { EntityTagger, NotModified, PreconditionFailure } from "./features/etag/index.ts";
 
 export { historyFeature } from "./features/history/index.ts";
-export type { HistoryCoverage, HistoryOperation, HistoryVersion } from "./features/history/index.ts";
+export type {
+  DatabaseHistoryStore,
+  HistoryApi,
+  HistoryCoverage,
+  HistoryOperation,
+  HistoryRetentionFunction,
+  HistoryStore,
+  HistoryVersion,
+  HistoryVersionStep,
+  HistoryWrittenVersion,
+  NewVersion,
+  VersionPage,
+  VersionQuery,
+} from "./features/history/index.ts";
 
 declare module "./event-types.ts" {
   interface EventMap {
@@ -357,5 +370,6 @@ declare module "./features.ts" {
     health: HealthApi;
     idempotency: IdempotencyApi;
     security: SecurityApi;
+    history: HistoryApi;
   }
 }

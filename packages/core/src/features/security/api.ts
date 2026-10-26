@@ -1,3 +1,4 @@
+import type { LogMasker } from "../public.ts";
 import type { ExemptibleItem } from "./exempt.ts";
 import type { RateLimitStore } from "./store.ts";
 
@@ -13,6 +14,11 @@ export interface SecurityApi {
    * when the config already sets a store, fails startup naming both owners.
    */
   rateLimitStore(store: RateLimitStore): void;
+  /**
+   * The masking of `security.masking` (secret values, `@sensitive` fields and secret-looking keys), for features that
+   * send values out of the service, like error reports; undefined while masking is off.
+   */
+  masker(): LogMasker | undefined;
 }
 
 /** Computes the client address of a request, replacing the trusted walk of `security.proxy` (`proxy.resolver`). */

@@ -470,3 +470,16 @@ Every option, tag, command and hook of `realtime` is on [its reference page](/re
 /** @changes events=created,deleted */
 export type Task = { title: string; status: string };
 ```
+
+### `errors`
+
+One interface that receives every unexpected error with its request, user and tenant, so a reporting service plugs in with one line.
+
+Every option, tag, command and hook of `errors` is on [its reference page](/reference/features/errors/).
+
+| Key | Type | Default | Environment variable | Description |
+| --- | --- | --- | --- | --- |
+| `errors.reporter` | `ErrorReporter \| ErrorReporter[]` | — | `QS_ERRORS_REPORTER` | Receives every report: one reporter or a list, each an object with report(report) and an optional flush(timeoutMs); without it, consoleReporter() writes error.report log entries. |
+| `errors.release` | `string` | — | `QS_ERRORS_RELEASE` | The release of the service added to every report, like a version or a commit. |
+| `errors.tags.<name>` | `record of string` | — | `QS_ERRORS_TAGS_<NAME>` | The value of the tag. |
+| `errors.enabled` | `boolean` | `true` | `QS_ERRORS_ENABLED` | Turns the feature off when false. |

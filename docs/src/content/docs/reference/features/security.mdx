@@ -216,3 +216,12 @@ rateLimitStore(store: RateLimitStore): void;
 
 Replaces the rate limit store, like a Redis store of a plugin. Only available during setup; setting it twice, or
 when the config already sets a store, fails startup naming both owners.
+
+### `masker`
+
+```ts
+masker(): LogMasker | undefined;
+```
+
+The masking of `security.masking` (secret values, `@sensitive` fields and secret-looking keys), for features that
+send values out of the service, like error reports; undefined while masking is off.

@@ -15,3 +15,4 @@ description: Every native feature of QuickService, with its reference page.
 | [`etag`](/reference/features/etag/) | Entity tags on record reads and writes, with 304 answers to conditional reads and 412 answers to stale conditional writes. | no |
 | [`history`](/reference/features/history/) | Every version of the records of chosen entities, kept in a history table written in the same transaction as the change. | no |
 | [`realtime`](/reference/features/realtime/) | Server-Sent Events endpoints from sse.ts files, with heartbeats, disconnect handling and a stream limit per worker. | no |
+| [`errors`](/reference/features/errors/) | One interface that receives every unexpected error with its request, user and tenant, so a reporting service plugs in with one line. | no |

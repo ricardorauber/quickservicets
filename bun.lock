@@ -42,6 +42,13 @@
         "@quickservice/core": "workspace:*",
       },
     },
+    "examples/minimal/errors": {
+      "name": "minimal-errors",
+      "dependencies": {
+        "@quickservice/cli": "workspace:*",
+        "@quickservice/core": "workspace:*",
+      },
+    },
     "examples/minimal/etag": {
       "name": "minimal-etag",
       "dependencies": {
@@ -759,6 +766,8 @@
     "micromark-util-symbol": ["micromark-util-symbol@2.0.1", "", {}, "sha512-vs5t8Apaud9N28kgCrRUdEed4UJ+wWNvicHLPxCa9ENlYuAY31M0ETy5y1vA33YoNPDFTghEbnh6efaE8h4x0Q=="],
 
     "micromark-util-types": ["micromark-util-types@2.0.3", "", {}, "sha512-oxB2Ik03hI0gv+VNn9tnh1t1YEe9MDPptViAEgfdf3YQHsn0pzGTgCdlSCJXcwhqm8phaEuM7zeEu3QQzVBrPg=="],
+
+    "minimal-errors": ["minimal-errors@workspace:examples/minimal/errors"],
 
     "minimal-etag": ["minimal-etag@workspace:examples/minimal/etag"],
 

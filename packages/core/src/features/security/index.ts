@@ -1,4 +1,4 @@
-import { anyOf, hook, normalizeAddress, provider, runAfterHooks, secretVariableValues, boolean, cidr, defineFeature, duration, integer, list, object, oneOf, parseDuration, parseSize, peerAddress, rate, safeLog, size, string, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext } from "../public.ts";
+import { anyOf, hook, normalizeAddress, provider, runAfterHooks, secretVariableValues, boolean, cidr, defineFeature, duration, integer, list, object, oneOf, parseDuration, parseSize, peerAddress, rate, safeLog, size, string, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext, type LogMasker } from "../public.ts";
 import type { ClientIpResolver, RateLimitRefusal, SecurityApi, SecurityRefusal } from "./api.ts";
 import { corsProblems, corsStep, ownOptionsRoutes, routeCorsOptions } from "./cors.ts";
 import { Exemptions } from "./exempt.ts";
@@ -116,6 +116,8 @@ interface StoreSlot {
 interface SetupState {
   exemptions: Exemptions;
   store: StoreSlot;
+  /** The masking of log entries, while `masking` is on. */
+  mask?: LogMasker;
 }
 
 const setupStates = new WeakMap<object, SetupState>();
@@ -328,7 +330,9 @@ const securityFeature = defineFeature({
         ...ctx.config.features.flatMap((feature) => secretOptionValues(feature.definition.schema, feature.options)),
         ...(ctx.config.files?.signingSecret ? [ctx.config.files.signingSecret] : []),
       ];
-      ctx.app.configureServer({ mask: masker({ keys: ctx.options.masking.keys, sensitive: sensitiveFieldNames(ctx.models), secrets }) });
+      const mask = masker({ keys: ctx.options.masking.keys, sensitive: sensitiveFieldNames(ctx.models), secrets });
+      setupStates.get(ctx.app)!.mask = mask;
+      ctx.app.configureServer({ mask });
     }
     if (ctx.options.timeouts.enabled) ctx.app.configureServer({ idleTimeout: Math.ceil(parseDuration(ctx.options.timeouts.idle)! / 1000) });
     if (ctx.options.files.enabled) ctx.app.configureServer({ fileHeaders: fileHeaders(ctx.options.files.attachmentTypes) });
@@ -346,7 +350,9 @@ const securityFeature = defineFeature({
   },
   api: (ctx): SecurityApi => {
     const { exemptions, store } = setupStates.get(ctx.app)!;
+    const state = setupStates.get(ctx.app)!;
     return {
+      masker: () => state.mask,
       exempt: (pattern, items) => exemptions.add(pattern, items),
       rateLimitStore(replacement) {
         const caller = ctx.currentFeature() ?? "a feature";

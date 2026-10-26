@@ -39,6 +39,12 @@ The skill is a `SKILL.md` of under 200 lines with:
 
 Without the plugin, Claude Code still reads `CLAUDE.md`, which in the repository imports `AGENTS.md`.
 
+## In your projects
+
+Every project `quickservicets init` creates is ready for coding agents: it gets an `AGENTS.md` written for that project (its name, database, commands, folders and rules), a `CLAUDE.md` with `@AGENTS.md`, and the skill with its topics in `.claude/skills/quickservicets/`, so Claude Code loads the skill in the project without the plugin. `quickservicets init --no-agents` leaves them out.
+
+The files keep a generated part above `<!-- quickservicets:end -->`; write your own instructions below it. After upgrading QuickService.ts, `bun run quickservicets agents update` refreshes the generated part of each file, keeps what you wrote below the marker, prints the files that changed, and skips a file without the marker. See [Installation and init](/getting-started/installation/#files-for-coding-agents).
+
 ## Other agents
 
 - **`AGENTS.md`**: Codex, Cursor and the other agents that follow the `AGENTS.md` convention read the file at the root of the repository. It explains what QuickService.ts is, when to use it and the quickstart, links to the other topics, and describes how to work on the repository itself.

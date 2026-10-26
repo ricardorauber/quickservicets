@@ -19,13 +19,17 @@ const print = (output: CommandOutput, result: { code: number; lines: string[]; e
 export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
   defineCommand({
     name: "init",
-    usage: "quickservicets init [directory] [--db postgres|mongodb|sqlite|memory]",
-    description: "Creates a project; inside the QuickService.ts monorepo it also links the workspace packages and installs them.",
+    usage: "quickservicets init [directory] [--db postgres|mongodb|sqlite|memory] [--no-agents]",
+    description:
+      "Creates a project, with `AGENTS.md`, `CLAUDE.md` and the Claude Code skill in `.claude/skills/quickservicets/` for coding agents; inside the QuickService.ts monorepo it also links the workspace packages and installs them.",
     args: [{ name: "directory" }],
-    flags: object({ db: string().optional().describe("The database: postgres, mongodb, sqlite or memory (asked when left out).") }),
+    flags: object({
+      db: string().optional().describe("The database: postgres, mongodb, sqlite or memory (asked when left out)."),
+      agents: boolean().default(true).describe("Writes the agent files; `--no-agents` leaves them out."),
+    }),
     async run({ args, flags, cwd, output }) {
       const { initProject } = await import("./init/init.ts");
-      const steps = await initProject(args.directory ? resolve(cwd, args.directory) : cwd, { db: flags.db });
+      const steps = await initProject(args.directory ? resolve(cwd, args.directory) : cwd, { db: flags.db, agents: flags.agents });
       for (const line of steps) output.log(line);
       return 0;
     },
@@ -201,6 +205,20 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
     async run({ cwd, output }) {
       const { envCheck } = await import("./env/env-check.ts");
       return print(output, await envCheck(cwd));
+    },
+  }),
+  defineCommand({
+    name: "agents update",
+    usage: "quickservicets agents update",
+    description:
+      "Refreshes the agent files `init` wrote (`AGENTS.md`, `CLAUDE.md` and `.claude/skills/quickservicets/`) for the installed QuickService.ts version, rewriting only the part above `<!-- quickservicets:end -->` and keeping what you wrote below it; files without the marker are skipped.",
+    async run({ cwd, output }) {
+      const { updateProjectAgentFiles } = await import("./agents/project.ts");
+      const { changed, skipped } = updateProjectAgentFiles(cwd);
+      for (const file of changed) output.log(`Updated ${file}`);
+      for (const file of skipped) output.error(`${file} has no quickservicets marker; skipped`);
+      if (changed.length === 0 && skipped.length === 0) output.log("The agent files are up to date");
+      return 0;
     },
   }),
 ];

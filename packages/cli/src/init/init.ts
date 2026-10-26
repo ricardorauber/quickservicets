@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { writeProjectAgentFiles } from "../agents/project.ts";
 import { BuildError } from "../errors.ts";
 import { version } from "../version.ts";
 import { TOOLCHAIN } from "./toolchain.ts";
@@ -14,6 +15,8 @@ export type Install = (workspaceRoot: string) => Promise<boolean>;
 
 export interface InitOptions {
   db?: string;
+  /** Writes `AGENTS.md`, `CLAUDE.md` and the Claude Code skill for coding agents (default true). */
+  agents?: boolean;
   prompt?: Prompt;
   install?: Install;
 }
@@ -202,6 +205,7 @@ export async function initProject(directory: string, options: InitOptions = {}):
     mkdirSync(join(root, path, ".."), { recursive: true });
     writeFileSync(join(root, path), content);
   }
+  if (options.agents !== false) writeProjectAgentFiles(root);
   if (!workspace) return NEXT_STEPS;
   const installed = await (options.install ?? bunInstall)(workspace);
   if (!installed) return [`Could not install dependencies; run "bun install" in ${workspace}`, ...NEXT_STEPS];

@@ -9,10 +9,10 @@ Run the commands with `bun run quickservicets <command>` inside a project. `quic
 
 ## `init`
 
-Creates a project; inside the QuickService.ts monorepo it also links the workspace packages and installs them.
+Creates a project, with `AGENTS.md`, `CLAUDE.md` and the Claude Code skill in `.claude/skills/quickservicets/` for coding agents; inside the QuickService.ts monorepo it also links the workspace packages and installs them.
 
 ```bash
-quickservicets init [directory] [--db postgres|mongodb|sqlite|memory]
+quickservicets init [directory] [--db postgres|mongodb|sqlite|memory] [--no-agents]
 ```
 
 ## `dev`
@@ -109,6 +109,14 @@ Checks the environment the service would start with (the process and its `.env` 
 
 ```bash
 quickservicets env check
+```
+
+## `agents update`
+
+Refreshes the agent files `init` wrote (`AGENTS.md`, `CLAUDE.md` and `.claude/skills/quickservicets/`) for the installed QuickService.ts version, rewriting only the part above `<!-- quickservicets:end -->` and keeping what you wrote below it; files without the marker are skipped.
+
+```bash
+quickservicets agents update
 ```
 
 ## `--version`

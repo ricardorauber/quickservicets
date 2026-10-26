@@ -1,4 +1,4 @@
-import { operationContextEnabled, safeLog, systemClock, withOperation, type JobClock, type JobLogFields, type JobLogger, type Logger, type Repositories } from "../public.ts";
+import { contextFlags, operationContextEnabled, safeLog, systemClock, withOperation, type JobClock, type JobLogFields, type JobLogger, type Logger, type Repositories } from "../public.ts";
 import type { QueueBrokerContext, QueueReceivedMessage } from "./broker.ts";
 import { queueClient } from "./client.ts";
 import type { QueueContext, QueueDefinition } from "./queue.ts";
@@ -25,14 +25,16 @@ export function consumerHandler(options: ConsumerHandlerOptions): QueueBrokerCon
       const definition = options.definitions.get(message.queue);
       if (!definition) throw new Error(`No consumer is declared for the queue ${message.queue}`);
       const payload = options.beforeProcess ? await options.beforeProcess(message, message.payload) : message.payload;
-      const context: QueueContext = {
+      const context = {
         payload,
         repos: options.repos(),
         message: { id: message.id, queue: message.queue, attempt: message.attempt, enqueuedAt: new Date(message.enqueuedAt), ...(message.dedupeKey ? { dedupeKey: message.dedupeKey } : {}) },
         signal,
         log,
         queue: queueClient(),
-      };
+        // `ctx.flags` exists while the `flags` native runs; its type comes from the generated flag types.
+        ...(contextFlags() ? { flags: contextFlags() } : {}),
+      } as QueueContext;
       const run = () => definition.handler(context);
       const operation = { queue: { name: message.queue, messageId: message.id }, ...(message.requestId ? { requestId: message.requestId } : {}) };
       const result = await (operationContextEnabled() ? withOperation(operation, run) : run());

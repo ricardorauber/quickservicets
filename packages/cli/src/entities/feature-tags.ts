@@ -135,6 +135,9 @@ export function applyFeatureTag(tags: ParsedTags | undefined, tag: DocTag, targe
   } catch (error) {
     throw fail((error as Error).message);
   }
+  const parsed = result[tag.name]!;
+  const problem = parsed.on && entry.tag.check ? entry.tag.check(parsed.options, entry.feature.options) : undefined;
+  if (problem) throw fail(problem);
   return result;
 }
 

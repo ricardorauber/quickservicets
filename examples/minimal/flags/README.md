@@ -28,7 +28,12 @@ QS_FLAGS_ENABLED=false bun .generated/server.ts
 
 ## Level 2: tags
 
-Not applicable: the native declares no tag yet.
+`@flag checkout-v2` hides an endpoint, or every route of an entity, behind a flag: callers it is off for get 404:
+
+```ts
+/** @flag checkout-v2 */
+export default () => ({ ordered: true });
+```
 
 ## Level 3: per request
 

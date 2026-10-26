@@ -189,6 +189,11 @@ export interface FeatureTag {
   description: string;
   /** A short sample of the tag in use, for the reference. */
   example: string;
+  /**
+   * Checks a tag that is on against the feature's resolved options, like a name the options must define; returns the
+   * reason it is invalid, which fails the build as `<file>: invalid @<name>: <reason>`.
+   */
+  check?: (tagOptions: Readonly<Record<string, unknown>>, featureOptions: Readonly<Record<string, unknown>>) => string | undefined;
 }
 
 /** The resolved options of a feature for one target, with whether the target turns the feature on or off by its tag. */

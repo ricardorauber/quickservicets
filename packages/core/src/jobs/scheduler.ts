@@ -1,6 +1,7 @@
 import { UniqueViolationError, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
 import { withJobOperation } from "../operation-context.ts";
 import { jobRunsObserved, notifyJobRun } from "./observers.ts";
+import { contextFlags } from "../context-flags.ts";
 import { queueClient } from "../features/queues/client.ts";
 import type { ResolvedConfig } from "../config.ts";
 import { parseSize } from "../files/limits.ts";
@@ -292,14 +293,17 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
       safeLog(logger, level, { timestamp: timestamp(), message: String(message), ...fields, job: run.job, runId: run.id });
     };
     const log: JobLogger = { info: write("info"), warn: write("warn"), error: write("error") };
-    const context: JobContext = {
+    const flags = contextFlags();
+    const context = {
       repos,
       files,
       signal: controller.signal,
       log,
       run: { id: run.id, job: run.job, scheduledAt: run.scheduledAt, attempt: run.attempt, trigger: run.trigger },
       queue: queueClient(),
-    };
+      // `ctx.flags` exists while the `flags` native runs; its type comes from the generated flag types.
+      ...(flags ? { flags } : {}),
+    } as JobContext;
     const done = (async (): Promise<JobRun> => {
       logEvent("job.started", run);
       // The first outcome wins: once the run timed out or was interrupted, the closure settling later changes nothing.

@@ -141,6 +141,26 @@ function overriddenRoute(route: EndpointRoute, models: EntityModel[]) {
   return undefined;
 }
 
+/**
+ * The generated routes and endpoints with the feature tags that apply to each: a generated route its entity's, an
+ * endpoint its own over those of the entity whose route it replaces.
+ */
+function taggedBuildRoutes(models: EntityModel[], endpoints: readonly ResolvedEndpoint[]): { method: string; path: string; entity?: string; tags?: ParsedTags }[] {
+  const byKey = new Map(models.map((model) => [model.key, model]));
+  const routes = new Map<string, { method: string; path: string; entity?: string; tags?: ParsedTags }>();
+  for (const route of crudTable(models)) {
+    const tags = byKey.get(route.entity)?.tags;
+    routes.set(`${route.method} ${route.path}`, { method: route.method, path: route.path, entity: route.entity, ...(tags ? { tags } : {}) });
+  }
+  for (const endpoint of endpoints) {
+    const key = `${endpoint.route.method} ${endpoint.route.path}`;
+    const entity = endpoint.override?.entity;
+    const tags = { ...(entity ? byKey.get(entity)?.tags : {}), ...endpoint.tags };
+    routes.set(key, { method: endpoint.route.method, path: endpoint.route.path, ...(entity ? { entity } : {}), ...(Object.keys(tags).length > 0 ? { tags } : {}) });
+  }
+  return [...routes.values()];
+}
+
 /** Fails unless an `sse.ts` file's default export is a call of `defineSse`. */
 function assertSseExport(source: string, file: string): void {
   const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
@@ -407,7 +427,7 @@ async function buildProject(projectRoot: string, config: ResolvedConfig, options
   });
   let openApi: OpenApiDoc;
   try {
-    openApi = extendOpenApi(generatedOpenApi as unknown as OpenApiDoc, { features: config.features, config, models });
+    openApi = extendOpenApi(generatedOpenApi as unknown as OpenApiDoc, { features: config.features, config, models, routes: taggedBuildRoutes(models, resolved) });
   } catch (error) {
     throw new BuildError((error as Error).message);
   }

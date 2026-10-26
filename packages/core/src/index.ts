@@ -46,6 +46,8 @@ export { matchesConditions } from "./matching.ts";
 export { reportError, reportFailure, reportStartupFailure, setErrorReportSink, setFailureSinks } from "./error-reports.ts";
 export type { ErrorReport, ErrorReporter, ErrorReportKind, ErrorReportRequest, FailureDetails, ReportErrorExtra } from "./error-reports.ts";
 export { observeJobRuns } from "./jobs/observers.ts";
+export { contextFlags, setContextFlags } from "./context-flags.ts";
+export type { ContextFlagEvaluator, FlagTarget } from "./context-flags.ts";
 export type { ObservedJobRun } from "./jobs/observers.ts";
 export { defineSse, isSseDefinition, setSseRunner, sseEndpoint } from "./http/sse.ts";
 export type { SseDefinition, SseHandler, SseRunner, SseSendOptions, SseStream } from "./http/sse.ts";

@@ -28,7 +28,25 @@ It is not enabled by default: turn it on with `flags: {}` or `QS_FLAGS_ENABLED=t
 | `flags.rules.<name>.percentage` | `record of integer` | — | `QS_FLAGS_RULES_<NAME>_PERCENTAGE` | no | The share of users (or tenants without a user) the flag is on for, stable across processes. |
 | `flags.rules.<name>.description` | `record of string` | — | `QS_FLAGS_RULES_<NAME>_DESCRIPTION` | no | What the flag turns on, for people reading the config. |
 | `flags.refresh` | `duration` | `"30s"` | `QS_FLAGS_REFRESH` | no | How often each worker reloads the flags of the database source. |
+| `flags.gate` | `string` | — | `QS_FLAGS_GATE` | no | A flag every route needs: while it is off for a caller, every route answers 404; set per endpoint or entity with @flag. |
 | `flags.enabled` | `boolean` | `true` | `QS_FLAGS_ENABLED` | no | Turns the feature off when false. |
+
+## Tags
+
+### `@flag`
+
+`@flag checkout-v2` hides an endpoint, or every route of an entity, behind a flag: while it is off for the caller they answer 404; `@flag off` removes the global gate.
+
+**Applies to:** entities, endpoints
+
+**Syntax:** `@flag <gate>` or `@flag off`
+
+**Options:** `flags.gate`
+
+```ts
+/** @flag checkout-v2 */
+export default () => ({ ok: true });
+```
 
 ## Feature API
 

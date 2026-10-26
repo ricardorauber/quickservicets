@@ -1,6 +1,6 @@
 import type { ResolvedConfig } from "./config.ts";
 import type { ResolvedFeature } from "./features.ts";
-import type { EntityModel } from "./model.ts";
+import type { EntityModel, ParsedTags } from "./model.ts";
 
 /** The generated OpenAPI 3.1 document, as feature and project functions receive it. */
 export interface OpenApiDoc {
@@ -16,6 +16,11 @@ export interface FeatureOpenApiContext<O = Record<string, unknown>> {
   models: readonly EntityModel[];
   options: O;
   config: ResolvedConfig;
+  /**
+   * The generated routes and endpoints, each with the feature tags that apply to it: a generated route its entity's,
+   * an endpoint its own over those of the entity whose route it replaces. Paths use `[param]` segments.
+   */
+  routes: readonly { method: string; path: string; entity?: string; tags?: ParsedTags }[];
 }
 
 /** What the project's `docs.openapi` function receives besides the document. */
@@ -180,11 +185,14 @@ function applyOne<C>(doc: OpenApiDoc, fn: OpenApiFunction<C>, context: C, owner:
  * Runs each enabled feature's `openapi` function in feature order, then the project's `docs.openapi`, each on the
  * document the previous one returned; fails with `<key>: openapi: <reason>` or `docs.openapi: <reason>`.
  */
-export function extendOpenApi(doc: OpenApiDoc, { features, config, models }: { features: readonly ResolvedFeature[]; config: ResolvedConfig; models: readonly EntityModel[] }): OpenApiDoc {
+export function extendOpenApi(
+  doc: OpenApiDoc,
+  { features, config, models, routes = [] }: { features: readonly ResolvedFeature[]; config: ResolvedConfig; models: readonly EntityModel[]; routes?: FeatureOpenApiContext["routes"] },
+): OpenApiDoc {
   let current = doc;
   for (const feature of features) {
     const fn = feature.definition.openapi;
-    if (fn) current = applyOne(current, fn as OpenApiFunction<FeatureOpenApiContext>, { models, options: feature.options, config }, `${feature.key}: openapi`);
+    if (fn) current = applyOne(current, fn as OpenApiFunction<FeatureOpenApiContext>, { models, options: feature.options, config, routes }, `${feature.key}: openapi`);
   }
   const project = config.docs.openapi;
   if (project) current = applyOne(current, project, { models, config }, "docs.openapi");

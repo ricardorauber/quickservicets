@@ -411,6 +411,7 @@ Every option, tag, command and hook of `history` is on [its reference page](/ref
 | Key | Type | Default | Environment variable | Description |
 | --- | --- | --- | --- | --- |
 | `history.entities` | `"tagged" \| "all"` | `"tagged"` | `QS_HISTORY_ENTITIES` | Which entities keep history: tagged keeps it for entities tagged @history, all for every regular entity without @history off. |
+| `history.retention` | `duration` | — | `QS_HISTORY_RETENTION` | How long versions are kept, like 365d; the current version of a live record is always kept. Without it, versions are kept forever. |
 | `history.enabled` | `boolean` | `true` | `QS_HISTORY_ENABLED` | Turns the feature off when false. |
 
 #### `@history`

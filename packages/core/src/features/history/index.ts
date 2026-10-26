@@ -1,12 +1,17 @@
-import { defineFeature, HttpError, object, oneOf, resolveRouteHooks, type Repositories, type ServiceRequest, type WriteEvent } from "../public.ts";
+import { defineFeature, duration, HttpError, object, oneOf, resolveRouteHooks, type Repositories, type ServiceRequest, type WriteEvent } from "../public.ts";
 import { coveredEntities, excludedFields, historyModelKey, historyModels, snapshotOf, type HistoryOperation } from "./model.ts";
 import { documentHistory, hiddenPathsOf, historyPaths, listAnswer, parseVersionNumber, parseVersionQuery, versionResponse } from "./routes.ts";
 import { getVersion, listVersions, writeVersion, type NewVersion } from "./store.ts";
+import { historyCommands, pruneTargets } from "./commands.ts";
+import { setRunningPrune } from "./prune.ts";
 
 const options = object({
   entities: oneOf(["tagged", "all"])
     .default("tagged")
     .describe("Which entities keep history: tagged keeps it for entities tagged @history, all for every regular entity without @history off."),
+  retention: duration()
+    .optional()
+    .describe("How long versions are kept, like 365d; the current version of a live record is always kept. Without it, versions are kept forever."),
 });
 
 const OPERATIONS: Record<WriteEvent["operation"], HistoryOperation> = { created: "create", updated: "update", deleted: "delete" };
@@ -48,6 +53,9 @@ const historyFeature = defineFeature({
   options,
   // One read-only system entity per covered entity; nothing when the native is off.
   entities: ({ models, options }) => historyModels(models, options.entities),
+  // The daily history/prune job.
+  jobs: "./jobs",
+  commands: historyCommands,
   tags: {
     history: {
       on: ["entity", "field"],
@@ -103,8 +111,10 @@ const historyFeature = defineFeature({
         ),
       );
     }
+    setRunningPrune({ adapter, targets: pruneTargets(ctx.models, ctx.options), logger: ctx.logger });
     ctx.app.onStop(() => {
       for (const unsubscribe of unsubscribes.splice(0)) unsubscribe();
+      setRunningPrune(undefined);
     });
   },
   openapi(doc, { models, options }) {
@@ -119,5 +129,7 @@ export default historyFeature;
 export { historyFeature };
 export { coveredEntities, excludedFields, historyModel, historyModelKey, historyModels, isCovered, snapshotOf } from "./model.ts";
 export { getVersion, listVersions, writeVersion } from "./store.ts";
+export { PRUNE_BATCH, pruneHistory, pruneVersions } from "./prune.ts";
+export type { PruneOptions, PruneRun, PruneTarget } from "./prune.ts";
 export type { HistoryCoverage, HistoryOperation, HistoryVersion } from "./model.ts";
 export type { NewVersion, VersionPage, VersionQuery } from "./store.ts";

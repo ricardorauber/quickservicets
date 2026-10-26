@@ -192,3 +192,18 @@ quickservice queue retry <message id> | quickservice queue retry --queue <name> 
 
 - `--queue` (`string`): The queue whose dead messages are requeued.
 - `--dead` (`boolean`, default `false`): Requeues the queue's dead messages.
+
+### `history`
+
+#### `history prune`
+
+Deletes the versions older than their entity's retention, keeping the current version of every live record, and prints the count per entity.
+
+```bash
+quickservice history prune [--entity <Name>] [--dry-run]
+```
+
+**Flags:**
+
+- `--entity` (`string`): Prunes only this entity.
+- `--dry-run` (`boolean`, default `false`): Prints what would be deleted without deleting it.

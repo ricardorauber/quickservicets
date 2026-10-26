@@ -396,7 +396,30 @@ export function featureApiMembers(key: string, dir: string = join(NATIVE_FEATURE
   }));
 }
 
-/** The reference page of one native: how to turn it on and off, its options, tags, commands, hooks and API. */
+/** The jobs a native ships in its jobs folder, named `<key>/<path>`, with their schedules and doc comments. */
+export function featureJobs(native: FeatureDefinition): { name: string; schedule: string; description: string }[] {
+  if (!native.jobs) return [];
+  const dir = join(NATIVE_FEATURES_DIR, native.key, native.jobs);
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts"))
+    .map((entry) => join(entry.parentPath, entry.name))
+    .sort()
+    .map((file) => {
+      const name = `${native.key}/${file.slice(dir.length + 1, -3).split("\\").join("/")}`;
+      const schedule = (require(file) as { default?: { schedule?: string | { every: string } | { at: string } } }).default?.schedule;
+      const text = typeof schedule === "string" ? schedule : schedule && "every" in schedule ? `every ${schedule.every}` : schedule ? `at ${schedule.at}` : "";
+      const comment = /\/\*\*([\s\S]*?)\*\/\s*export default/.exec(readFileSync(file, "utf8"))?.[1] ?? "";
+      const description = comment
+        .split("\n")
+        .map((line) => line.replace(/^\s*\* ?/, "").trim())
+        .filter((line) => line !== "")
+        .join(" ");
+      return { name, schedule: text, description };
+    });
+}
+
+/** The reference page of one native: how to turn it on and off, its options, tags, commands, jobs, hooks and API. */
 export function featurePage(native: FeatureDefinition): string {
   const options = documentedOptions(native);
   const key = native.key;
@@ -404,6 +427,7 @@ export function featurePage(native: FeatureDefinition): string {
   const hooks = options.filter((option) => option.type === "hook");
   const tags = Object.entries(native.tags ?? {});
   const commands = native.commands ?? [];
+  const jobs = featureJobs(native);
   const api = native.api ? featureApiMembers(key) : [];
   const keys = (list: readonly string[]) => list.map((entry) => code(entry)).join(", ");
   return [
@@ -460,6 +484,18 @@ export function featurePage(native: FeatureDefinition): string {
       : []),
     ...(commands.length > 0
       ? ["## Commands", "", ...commands.flatMap((command) => [`### \`${command.name}\``, "", command.description, "", "```bash", command.usage, "```", "", ...commandDetails(command)])]
+      : []),
+    ...(jobs.length > 0
+      ? [
+          "## Jobs",
+          "",
+          "Jobs run while the feature is enabled; a project file `jobs/<name>.ts` replaces one.",
+          "",
+          "| Job | Schedule | Description |",
+          "| --- | --- | --- |",
+          ...jobs.map((job) => `| ${code(job.name)} | ${code(job.schedule)} | ${job.description} |`),
+          "",
+        ]
       : []),
     ...(hooks.length > 0
       ? [

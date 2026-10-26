@@ -24,6 +24,7 @@ It is not enabled by default: turn it on with `history: {}` or `QS_HISTORY_ENABL
 | Key | Type | Default | Environment variable | Per request | Description |
 | --- | --- | --- | --- | --- | --- |
 | `history.entities` | `"tagged" \| "all"` | `"tagged"` | `QS_HISTORY_ENTITIES` | no | Which entities keep history: tagged keeps it for entities tagged @history, all for every regular entity without @history off. |
+| `history.retention` | `duration` | — | `QS_HISTORY_RETENTION` | no | How long versions are kept, like 365d; the current version of a live record is always kept. Without it, versions are kept forever. |
 | `history.enabled` | `boolean` | `true` | `QS_HISTORY_ENABLED` | no | Turns the feature off when false. |
 
 ## Tags
@@ -46,3 +47,26 @@ export type Contract = {
   draftNotes: string;
 };
 ```
+
+## Commands
+
+### `history prune`
+
+Deletes the versions older than their entity's retention, keeping the current version of every live record, and prints the count per entity.
+
+```bash
+quickservice history prune [--entity <Name>] [--dry-run]
+```
+
+**Flags:**
+
+- `--entity` (`string`): Prunes only this entity.
+- `--dry-run` (`boolean`, default `false`): Prints what would be deleted without deleting it.
+
+## Jobs
+
+Jobs run while the feature is enabled; a project file `jobs/<name>.ts` replaces one.
+
+| Job | Schedule | Description |
+| --- | --- | --- |
+| `history/prune` | `@daily` | Deletes, every day, the versions older than the retention of their entity; one run across instances. |

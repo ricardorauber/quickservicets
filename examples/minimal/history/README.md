@@ -27,8 +27,14 @@ export type Document = { title: string; body: string };
 history: { entities: "all" }
 ```
 
+`retention` deletes older versions every day (the current version of a live record is always kept):
+
+```ts
+history: { retention: "365d" }
+```
+
 ```bash
-QS_HISTORY_ENTITIES=all bun .generated/server.ts
+QS_HISTORY_RETENTION=365d bun .generated/server.ts
 ```
 
 ## Level 2: tags
@@ -54,7 +60,12 @@ Not applicable: the native declares no hook yet.
 
 ## Level 5: override files
 
-Not applicable: the native contributes no routes or jobs yet.
+The native serves `GET /documents/[id]/history` and runs the daily `history/prune` job; a project file at the same path replaces either one:
+
+```ts
+// endpoints/documents/[id]/history/get.ts
+export default async (repos: Repositories, req: ServiceRequest) => repos.documentHistory.where((version) => version.entityId.eq(req.params.id!)).all();
+```
 
 ## Level 6: replace the implementation
 

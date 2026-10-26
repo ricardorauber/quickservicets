@@ -2,6 +2,17 @@
 
 All notable changes to the published packages (`quickservicets`, `@quickservicets/core` and `@quickservicets/cli`) are listed here. The packages share one version.
 
+## Unreleased
+
+### Added
+
+- Agent guide topics for coding agents in `@quickservicets/cli` (`agent-docs/`): overview, quickstart, entities, endpoints and hooks, config and environment, features, testing, deploy and troubleshooting, each a short page of steps, copyable commands and a "Do not" list.
+- The repository has an `AGENTS.md` generated from those topics, and a `CLAUDE.md` that imports it.
+
+### Fixed
+
+- `startTestService` from `@quickservicets/cli/testing` works in projects that install the packages from npm; it linked paths that only exist in the repository.
+
 ## 0.2.0 - 2026-10-26
 
 ### Breaking changes

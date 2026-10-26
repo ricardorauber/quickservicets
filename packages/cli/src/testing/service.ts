@@ -41,7 +41,9 @@ export interface TestService {
   stop(): Promise<void>;
 }
 
-const WORKSPACE = join(import.meta.dir, "../../../..");
+/** The folders of the framework packages this CLI runs with, in the repository or in a project's `node_modules`. */
+const CLI_PACKAGE = join(import.meta.dir, "../..");
+const CORE_PACKAGE = dirname(dirname(Bun.resolveSync("@quickservicets/core", import.meta.dir)));
 
 type TimerOwner = { feature: string; phase: LifecyclePhase };
 
@@ -96,8 +98,8 @@ function writeProject(files: Record<string, string>): string {
     writeFileSync(join(root, path), content);
   }
   mkdirSync(join(root, "node_modules/@quickservicets"), { recursive: true });
-  symlinkSync(join(WORKSPACE, "packages/core"), join(root, "node_modules/@quickservicets/core"), "dir");
-  symlinkSync(join(WORKSPACE, "packages/cli"), join(root, "node_modules/@quickservicets/cli"), "dir");
+  symlinkSync(CORE_PACKAGE, join(root, "node_modules/@quickservicets/core"), "dir");
+  symlinkSync(CLI_PACKAGE, join(root, "node_modules/@quickservicets/cli"), "dir");
   return root;
 }
 

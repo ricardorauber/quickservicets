@@ -16,6 +16,7 @@
     "docs:dev": "bun run --cwd docs dev",
     "docs:build": "bun run --cwd docs build",
     "docs:reference": "bun docs/scripts/write-reference.ts",
+    "agents:generate": "bun scripts/agents.ts",
     "release:check": "bun scripts/release.ts check",
     "release": "bun scripts/release.ts publish"
   },

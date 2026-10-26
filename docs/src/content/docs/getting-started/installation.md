@@ -9,39 +9,35 @@ The `init` command creates an empty project, ready for your first entity. This p
 
 ## What you need
 
-- [Bun](https://bun.sh), which runs the framework, the CLI and your project.
-- A clone of the QuickService.ts repository, with its dependencies installed:
-
-```bash
-bun install
-```
-
-:::note
-The packages are not on npm yet, so your project lives inside the repository, under `examples/`. Run every command on this page from the repository root, where `bunx quickservicets` runs the repository's own CLI.
-:::
+- [Bun](https://bun.sh) 1.4.2 or later, which runs the framework, the CLI and your project.
 
 ## Create a project
 
+In any folder:
+
 ```bash
-bunx quickservicets init examples/my-api --db memory
+bunx quickservicets init my-api --db memory
+cd my-api
+bun install
 ```
 
-It prints the next steps:
+`bunx` downloads the `quickservicets` command from npm and runs it. It prints the next steps:
 
 ```text
 Next steps:
-  1. Create an entity, e.g. entities/User.ts: export type User = { email: string }
-  2. Start the dev server: bun run dev
+  1. Install dependencies: bun install
+  2. Create an entity, e.g. entities/User.ts: export type User = { email: string }
+  3. Start the dev server: bun run dev
 ```
 
-Inside the repository, `init` notices the workspace. It writes `"workspace:*"` for `@quickservicets/core` and `@quickservicets/cli` in the new `package.json`, and runs `bun install` at the repository root, so the packages are linked right away.
+The new `package.json` depends on `@quickservicets/core` and `@quickservicets/cli` at the version of the CLI that created it, like `"^0.1.0"`, and `bun install` installs them from npm.
 
 The target folder must be empty or not exist yet; otherwise `init` stops with `Directory is not empty`.
 
 ## What init creates
 
 ```text
-examples/my-api/
+my-api/
 ├── .env                       # database settings (empty for memory)
 ├── .gitignore                 # .env, dependencies and generated files
 ├── entities/                  # your entity types
@@ -93,6 +89,22 @@ Inside the project, the CLI is available as `bun run quickservicets <command>`. 
 | `bun run start` | `bun .generated/server.ts`: starts the last build |
 
 Every command and flag is in the [CLI reference](/reference/cli/), and every config key in the [configuration reference](/reference/config/).
+
+## Working from a clone
+
+To work on QuickService.ts itself, or to try a change before it is published, create projects inside a clone of the [repository](https://github.com/ricardorauber/quickservicets). Install its dependencies once, from the repository root:
+
+```bash
+bun install
+```
+
+Then create the project under `examples/`, from the repository root, where `bunx quickservicets` runs the repository's own CLI:
+
+```bash
+bunx quickservicets init examples/my-api --db memory
+```
+
+Inside the repository, `init` notices the workspace. It writes `"workspace:*"` for `@quickservicets/core` and `@quickservicets/cli` in the new `package.json` and runs `bun install` at the repository root, so the workspace packages are linked right away and there is no install step in its next steps.
 
 ## Next
 

@@ -9,7 +9,7 @@ An entity is a TypeScript type in `entities/`. This page adds a `User` to the `m
 
 ## Write the entity
 
-Create `examples/my-api/entities/User.ts`:
+Create `my-api/entities/User.ts`:
 
 ```ts check title="entities/User.ts"
 export type User = {
@@ -37,7 +37,7 @@ Every tag is listed in the [JSDoc tags reference](/reference/tags/).
 ## Start the server
 
 ```bash
-cd examples/my-api
+cd my-api
 bun run dev
 ```
 

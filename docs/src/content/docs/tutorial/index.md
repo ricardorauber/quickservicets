@@ -40,25 +40,25 @@ Three pairs of fields describe the same relation from both sides, and QuickServi
 
 ## Before you start
 
-- A recent version of [Bun](https://bun.sh).
-- A clone of the QuickService.ts repository. The packages are not on npm yet, so your project lives inside the repository, under `examples/`.
+- [Bun](https://bun.sh) 1.4.2 or later.
 - The [Getting started](/getting-started/) page, if you have not read it yet.
 - Docker, or any PostgreSQL server, for the last page of this part.
 
 ## Create the project
 
-From the root of the repository, create a project that keeps its data in memory. It needs no database server, which makes it quick to experiment with; you move it to PostgreSQL at the end of this part.
+In any folder, create a project that keeps its data in memory. It needs no database server, which makes it quick to experiment with; you move it to PostgreSQL at the end of this part.
 
 ```bash
-bunx quickservicets init examples/my-identity --db memory
-cd examples/my-identity
+bunx quickservicets init my-identity --db memory
+cd my-identity
+bun install
 bun run dev
 ```
 
-Inside the repository, `init` links the workspace packages and installs them for you. The dev server listens on `http://localhost:3000` and restarts whenever an entity changes. The [CLI reference](/reference/cli/) lists every command.
+`bunx` runs the `quickservicets` command from npm, and `bun install` installs the packages the new project depends on. The dev server listens on `http://localhost:3000` and restarts whenever an entity changes. The [CLI reference](/reference/cli/) lists every command.
 
 :::note
-`examples/identity` already holds the finished project, so pick another folder name, like `examples/my-identity`.
+The finished project is `examples/identity` in the [repository](https://github.com/ricardorauber/quickservicets), if you want to compare your code with it.
 :::
 
 ## What's next

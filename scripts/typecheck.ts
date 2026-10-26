@@ -20,7 +20,7 @@ export function projects(): string[] {
           .map((entry) => `${folder}/${entry.name}`)
       : [];
   const examples = [...workspaces("examples"), ...workspaces("examples/minimal")].sort();
-  return ["packages/core", "packages/cli", "docs/scripts", "docs/tests", "benchmarks/quickservicets", ...examples];
+  return ["packages/core", "packages/cli", "packages/quickservicets", "docs/scripts", "docs/tests", "benchmarks/quickservicets", ...examples];
 }
 
 async function run(command: string[], cwd: string): Promise<{ ok: boolean; output: string }> {

@@ -1,10 +1,14 @@
 # QuickService.ts
 
+[![quickservicets on npm](https://img.shields.io/npm/v/quickservicets?label=quickservicets)](https://www.npmjs.com/package/quickservicets)
+[![@quickservicets/core on npm](https://img.shields.io/npm/v/@quickservicets/core?label=%40quickservicets%2Fcore)](https://www.npmjs.com/package/@quickservicets/core)
+[![@quickservicets/cli on npm](https://img.shields.io/npm/v/@quickservicets/cli?label=%40quickservicets%2Fcli)](https://www.npmjs.com/package/@quickservicets/cli)
+
 Build backend services from TypeScript entity types. Write an entity as a `type` with JSDoc tags in `/entities`, and QuickService.ts generates its CRUD routes, validation, filters, relations, file uploads, migrations and OpenAPI docs, on Bun with an in-memory, SQLite, PostgreSQL or MongoDB database.
 
 The source lives at [github.com/ricardorauber/quickservicets](https://github.com/ricardorauber/quickservicets).
 
-This monorepo holds `@quickservicets/core` (runtime), `@quickservicets/cli` (the `quickservicets` command) and examples in `examples/`.
+This monorepo holds `@quickservicets/core` (runtime), `@quickservicets/cli` (the `quickservicets` command), `quickservicets` (which runs that command with `bunx quickservicets`) and examples in `examples/`.
 
 ## Documentation
 
@@ -17,7 +21,16 @@ bun run docs:build   # builds the static site into docs/dist
 
 ## Getting started
 
-To build a first project, follow the [Getting started](docs/src/content/docs/getting-started/index.md) section of the docs (served at http://localhost:4321/getting-started/ by `bun run docs:dev`). It covers installing, creating a project with `init`, writing a first entity and calling its API.
+Create a project in any folder with [Bun](https://bun.sh) 1.4.2 or later:
+
+```bash
+bunx quickservicets init my-api --db sqlite
+cd my-api
+bun install
+bun run dev
+```
+
+To build a first project step by step, follow the [Getting started](docs/src/content/docs/getting-started/index.md) section of the docs (served at http://localhost:4321/getting-started/ by `bun run docs:dev`). It covers installing, creating a project with `init`, writing a first entity and calling its API.
 
 ## Features
 

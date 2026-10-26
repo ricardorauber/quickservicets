@@ -51,6 +51,13 @@ curl -X POST localhost:3000/users -d '{"email":"ana@x.co"}'
 
 ## Install
 
+In any folder, with [Bun](https://bun.sh) installed:
+
 ```bash
-bunx quickservicets init examples/my-app --db sqlite
+bunx quickservicets init my-app --db sqlite
+cd my-app
+bun install
+bun run dev
 ```
+
+The [Getting started](/getting-started/) section walks through it.

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import ts from "typescript";
 import { build, GENERATED_INCLUDE_WARNING } from "../build/build.ts";
 import { createLinkedProject, createProject, MEMORY_CONFIG } from "../testing/project.ts";
+import { version } from "../version.ts";
 import { initProject, NEXT_STEPS, quickservicetsWorkspace } from "./init.ts";
 
 const pkg = (name: string) => JSON.stringify({ name, version: "0.1.0" });
@@ -65,7 +66,7 @@ describe("dependencies and install", () => {
     let installed = false;
     const root = join(createProject({}), "app");
     const steps = await initProject(root, { db: "memory", install: async () => (installed = true) });
-    expect(dependencies(root)["@quickservicets/core"]).toMatch(/^\^\d+\.\d+\.\d+$/);
+    expect(dependencies(root)).toEqual({ "@quickservicets/core": `^${version}`, "@quickservicets/cli": `^${version}` });
     expect(installed).toBe(false);
     expect(steps).toEqual(NEXT_STEPS);
   });

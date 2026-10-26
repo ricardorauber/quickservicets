@@ -46,10 +46,6 @@ While you work, `quickservicets dev` does steps 3 and 4 for you, and rebuilds an
 
 Every tag is listed in [JSDoc tags](/reference/tags/), and every command in [CLI](/reference/cli/).
 
-:::note
-The packages are not published to npm yet. For now, projects live inside the QuickService.ts repository, under `examples/`, and use the workspace packages. The next page shows how.
-:::
-
 ## Next
 
 [Installation and `init`](/getting-started/installation/): create your first project.

@@ -1,0 +1,43 @@
+{
+  "name": "quickservicets",
+  "version": "0.1.0",
+  "description": "Run the QuickService.ts CLI with bunx quickservicets: create, build, run and migrate REST APIs on Bun from TypeScript entity types.",
+  "keywords": [
+    "quickservicets",
+    "bun",
+    "typescript",
+    "cli",
+    "rest",
+    "api",
+    "backend",
+    "framework"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ricardorauber/quickservicets.git",
+    "directory": "packages/quickservicets"
+  },
+  "homepage": "https://github.com/ricardorauber/quickservicets#readme",
+  "bugs": {
+    "url": "https://github.com/ricardorauber/quickservicets/issues"
+  },
+  "type": "module",
+  "bin": {
+    "quickservicets": "bin/quickservicets.ts"
+  },
+  "dependencies": {
+    "@quickservicets/cli": "workspace:*"
+  },
+  "engines": {
+    "bun": ">=1.4.2"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "bin",
+    "README.md",
+    "LICENSE"
+  ]
+}

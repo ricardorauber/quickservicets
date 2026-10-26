@@ -37,7 +37,7 @@ A user's permissions in an organization are those of the profiles of their activ
 
 ## Run it
 
-You need [Bun](https://bun.sh) and Docker. The QuickService.ts packages are not on npm yet, so the example runs inside a clone of the repository. Install once, from the repository root:
+You need [Bun](https://bun.sh) and Docker. The example is part of the repository and uses its workspace packages, so it runs inside a clone of the repository. Install once, from the repository root:
 
 ```bash
 bun install

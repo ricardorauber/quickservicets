@@ -1,6 +1,19 @@
 {
   "name": "@quickservicets/cli",
   "version": "0.1.0",
+  "description": "The quickservicets command: create, build, run and migrate QuickService.ts projects.",
+  "keywords": [
+    "quickservicets",
+    "bun",
+    "typescript",
+    "cli",
+    "rest",
+    "api",
+    "backend",
+    "migrations",
+    "openapi"
+  ],
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ricardorauber/quickservicets.git",
@@ -16,7 +29,8 @@
   },
   "exports": {
     ".": "./src/lib.ts",
-    "./testing": "./src/testing/index.ts"
+    "./testing": "./src/testing/index.ts",
+    "./bin": "./src/index.ts"
   },
   "dependencies": {
     "@quickservicets/core": "workspace:*",
@@ -27,5 +41,22 @@
   "devDependencies": {
     "@scalar/openapi-parser": "0.29.9",
     "mongodb": "7.7.0"
-  }
+  },
+  "engines": {
+    "bun": ">=1.4.2"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "!src/**/*.test.ts",
+    "!src/**/test-support.ts",
+    "!src/**/*-test-support.ts",
+    "!src/**/__snapshots__",
+    "!src/**/fixtures",
+    "!src/**/.generated",
+    "README.md",
+    "LICENSE"
+  ]
 }

@@ -90,3 +90,34 @@ export function snippetErrors(snippets: Snippet[], workDir: string): string[] {
 }
 
 export const relativeTo = (root: string, path: string) => relative(root, path);
+
+/** The heading of the installation page's section that keeps every instruction that needs a clone of the repository. */
+export const CLONE_SECTION = "Working from a clone";
+
+const REPOSITORY_ONLY: [RegExp, string][] = [
+  [/packages\/cli\/src\/index\.ts/, "packages/cli/src/index.ts"],
+  [/not on npm/i, "not on npm"],
+  [/\binit\s+(\.\/)?examples\//, "a project created under examples/"],
+];
+
+/**
+ * The repository-only instructions a page mentions outside its "Working from a clone" section (which runs up to the
+ * next heading of the same or a higher level), as `<line>: <what>`.
+ */
+export function repositoryOnlyMentions(markdown: string): string[] {
+  const problems: string[] = [];
+  let cloneLevel: number | undefined;
+  let fenced = false;
+  markdown.split("\n").forEach((line, index) => {
+    if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
+    const heading = fenced ? undefined : /^(#{1,6})\s+(.*)$/.exec(line);
+    if (heading) {
+      const level = heading[1]!.length;
+      if (cloneLevel !== undefined && level <= cloneLevel) cloneLevel = undefined;
+      if (heading[2]!.trim() === CLONE_SECTION) cloneLevel = level;
+    }
+    if (cloneLevel !== undefined) return;
+    for (const [pattern, what] of REPOSITORY_ONLY) if (pattern.test(line)) problems.push(`${index + 1}: ${what}`);
+  });
+  return problems;
+}

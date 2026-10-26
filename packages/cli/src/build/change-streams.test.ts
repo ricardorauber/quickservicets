@@ -131,20 +131,21 @@ describe("change streams", () => {
     }
   });
 
-  test("no stream open, no listener; all covers every listed entity but @changes off; a covered entity without events fails startup", async () => {
+  test("no listener with the outbox; all covers every listed entity but @changes off; a covered entity without events fails startup", async () => {
     const registered: string[] = [];
     const original = events.on;
     events.on = ((pattern: string, listener: never, options?: never) => {
       registered.push(pattern);
       return original(pattern, listener, options);
     }) as typeof events.on;
-    const service = await startTestService({ files: FILES });
+    // With the outbox, the streams read the log and register no listener; the log is polled only while one is open.
+    const service = await startTestService({ files: { ...FILES, "quickservice.config.ts": config("events: { outbox: true }, realtime: { sse: { pollInterval: \"1s\" } }") } });
     try {
       await create(service, { title: "a", status: "open" });
-      expect(registered).toEqual([]);
       const stream = follow(await service.fetch("/tasks/changes"));
-      await Bun.sleep(5);
-      expect(registered).toEqual(["task.written"]);
+      await create(service, { title: "b", status: "open" });
+      expect((await stream.waitFor(1)).map((message) => message.data.record.title)).toEqual(["b"]);
+      expect(registered).toEqual([]);
       await stream.close();
     } finally {
       events.on = original;

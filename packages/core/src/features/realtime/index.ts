@@ -1,4 +1,5 @@
 import {
+  addOutboxPatterns,
   defineFeature,
   defineSse,
   deferRequestLog,
@@ -16,9 +17,13 @@ import {
   type ServiceRequest,
   type ServiceResponse,
   type SseRunner,
+  type FeatureSetupContext,
+  type EntityModel,
   type WriteEvent,
 } from "../public.ts";
-import { changeEntities, changeHub, changeMessage, changesPath, documentChanges, parseChangeQuery, type ChangeCoverage } from "./changes.ts";
+import { changeEntities, changesPath, documentChanges, parseChangeQuery, type ChangeCoverage } from "./changes.ts";
+import { followChanges } from "./follow.ts";
+import { outboxSource, ringBufferSource, type ChangeSource } from "./source.ts";
 import { openStream, type HeartbeatTimer, type OpenStream } from "./stream.ts";
 
 const options = object({
@@ -28,6 +33,8 @@ const options = object({
     changes: oneOf(["tagged", "all"])
       .default("tagged")
       .describe("Which entities get a change stream route: tagged for entities tagged @changes, all for every entity with list routes without @changes off."),
+    pollInterval: duration().default("1s").describe("How often a worker with open change streams reads the outbox log, when events.outbox is on."),
+    buffer: integer().min(1).default(1000).describe("How many change events each worker keeps for reconnecting clients, when events.outbox is off."),
   }).describe("Serves the sse.ts endpoints as Server-Sent Events streams."),
 });
 
@@ -74,6 +81,35 @@ export function streamRunner(settings: { heartbeatMs: number; maxStreams: number
   };
 }
 
+const lowerFirst = (name: string) => `${name.charAt(0).toLowerCase()}${name.slice(1)}`;
+
+/**
+ * Where the change streams of a worker get their events: the outbox log, shared by every worker and replica, when
+ * `events.outbox` is on; otherwise a ring buffer of this worker's own committed writes.
+ */
+function changeSource(ctx: FeatureSetupContext<{ sse: { pollInterval: string; buffer: number } }>, covered: readonly EntityModel[]): ChangeSource {
+  const patterns = covered.map((entity) => `${lowerFirst(entity.entityName)}.written`);
+  const outbox = ctx.config.features.find((feature) => feature.key === "events")?.options.outbox as { enabled?: boolean; retention?: string } | undefined;
+  if (outbox?.enabled) {
+    addOutboxPatterns(patterns);
+    return outboxSource({
+      pollMs: parseDuration(ctx.options.sse.pollInterval) ?? 1000,
+      retentionMs: parseDuration(outbox.retention) ?? 7 * 86_400_000,
+      onPollFailed: (error) =>
+        safeLog(ctx.logger, "error", { timestamp: new Date().toISOString(), message: "realtime.poll.failed", error: { message: (error as Error)?.message ?? String(error) } }),
+    });
+  }
+  if ((ctx.config.server.workers ?? 1) > 1) {
+    safeLog(ctx.logger, "warn", {
+      timestamp: new Date().toISOString(),
+      message: "realtime change streams see only the writes of their own worker; enable events: { outbox: true } to share them",
+    });
+  }
+  const ring = ringBufferSource(ctx.options.sse.buffer);
+  for (const pattern of patterns) ctx.events.on(pattern, (event) => ring.push(event as WriteEvent));
+  return ring;
+}
+
 /**
  * The `realtime` native: `sse.ts` endpoints stream Server-Sent Events to clients, with heartbeats, a stream limit per
  * worker and the endpoint's pre-hooks. Off unless `realtime: {}` (or `QS_REALTIME_ENABLED=true`) is set.
@@ -114,7 +150,7 @@ const realtimeFeature = defineFeature({
     const covered = changeEntities(ctx.models, sse.changes as ChangeCoverage);
     if (covered.length > 0) {
       if (!ctx.config.features.some((feature) => feature.key === "events")) throw new Error("realtime change streams require events; add events: {} to quickservice.config.ts");
-      const hub = changeHub((pattern, listener) => ctx.events.on(pattern, listener as never));
+      const source = changeSource(ctx, covered);
       const files = { storage: ctx.config.storage, files: ctx.config.files, ...(ctx.config.server.publicUrl ? { publicUrl: ctx.config.server.publicUrl } : {}) };
       for (const entity of covered) {
         // The stream runs the hooks of the entity's list route, so whoever may not list records may not follow them.
@@ -124,17 +160,7 @@ const realtimeFeature = defineFeature({
           changesPath(entity),
           (repos: Repositories, req: ServiceRequest, res: ServiceResponse) => {
             const query = parseChangeQuery(entity, req.query, ctx.models);
-            const follow = defineSse((stream) => {
-              // Messages go out in commit order, one after the other.
-              let queue = Promise.resolve();
-              const unsubscribe = hub.subscribe(entity, (event: WriteEvent) => {
-                queue = queue.then(async () => {
-                  const message = await changeMessage(event, entity, query, files);
-                  if (message) stream.send(message.data, { event: message.event, id: message.id });
-                });
-              });
-              stream.signal.addEventListener("abort", unsubscribe, { once: true });
-            });
+            const follow = defineSse((stream) => followChanges(stream, { entity, query, source, ...(req.lastEventId !== undefined ? { lastEventId: req.lastEventId } : {}), files }));
             return runner.run(follow, repos, req, res);
           },
           { hooks },
@@ -156,6 +182,10 @@ const realtimeFeature = defineFeature({
 export default realtimeFeature;
 export { realtimeFeature };
 export { encodeComment, encodeMessage, openStream } from "./stream.ts";
-export { CHANGE_EVENTS, changeEntities, changeHub, changeMessage, changesPath, hasChangeStream, parseChangeQuery } from "./changes.ts";
-export type { ChangeCoverage, ChangeEvent, ChangeHub, ChangeMessage, ChangeQuery } from "./changes.ts";
+export { CHANGE_EVENTS, changeEntities, changeMessage, changesPath, hasChangeStream, parseChangeQuery } from "./changes.ts";
+export type { ChangeCoverage, ChangeEvent, ChangeMessage, ChangeQuery } from "./changes.ts";
+export { followChanges, MAX_REPLAY, RETRY_MS } from "./follow.ts";
+export type { ResetReason } from "./follow.ts";
+export { eventIdFloor, isEventId, outboxSource, POLL_OVERLAP_MS, ringBufferSource, timeOfEventId } from "./source.ts";
+export type { ChangeSource } from "./source.ts";
 export type { HeartbeatTimer, OpenStream } from "./stream.ts";

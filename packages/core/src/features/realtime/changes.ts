@@ -55,6 +55,8 @@ export function parseChangeQuery(entity: EntityModel, params: URLSearchParams, m
   let events: ChangeEvent[] = [...allowed];
   for (const [key, value] of params) {
     if (PAGING.includes(key)) details.push({ field: key, message: "Unknown parameter" });
+    // The last event id of a reconnecting client without the header, read as `req.lastEventId`.
+    else if (key === "lastEventId") continue;
     else if (key === "events") {
       const names = value.split(",").map((name) => name.trim()).filter((name) => name !== "");
       const invalid = names.filter((name) => !(allowed as readonly string[]).includes(name));
@@ -136,43 +138,3 @@ export function documentChanges(doc: OpenApiDoc, entities: readonly EntityModel[
   return doc;
 }
 
-/** Delivers the write events of each entity to its open change streams. */
-export interface ChangeHub {
-  /** Calls `fn` with each committed write event of the entity until the returned function is called. */
-  subscribe(entity: EntityModel, fn: (event: WriteEvent) => void): () => void;
-  /** The entities with at least one subscriber, by name. */
-  active(): string[];
-}
-
-const lowerFirst = (name: string) => `${name.charAt(0).toLowerCase()}${name.slice(1)}`;
-
-/**
- * A hub listening to an entity's events (after commit) only while a stream of that entity is open, so writes of
- * entities without open streams cost nothing.
- */
-export function changeHub(listen: (pattern: string, listener: (event: WriteEvent) => void) => () => void): ChangeHub {
-  const subscribers = new Map<string, { fns: Set<(event: WriteEvent) => void>; stop: () => void }>();
-  return {
-    subscribe(entity, fn) {
-      let entry = subscribers.get(entity.entityName);
-      if (!entry) {
-        const fns = new Set<(event: WriteEvent) => void>();
-        const stop = listen(`${lowerFirst(entity.entityName)}.written`, (event) => {
-          for (const subscriber of [...fns]) subscriber(event);
-        });
-        entry = { fns, stop };
-        subscribers.set(entity.entityName, entry);
-      }
-      const current = entry;
-      current.fns.add(fn);
-      return () => {
-        current.fns.delete(fn);
-        if (current.fns.size === 0 && subscribers.get(entity.entityName) === current) {
-          subscribers.delete(entity.entityName);
-          current.stop();
-        }
-      };
-    },
-    active: () => [...subscribers.keys()],
-  };
-}

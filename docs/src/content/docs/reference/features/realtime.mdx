@@ -27,6 +27,8 @@ It is not enabled by default: turn it on with `realtime: {}` or `QS_REALTIME_ENA
 | `realtime.sse.heartbeat` | `duration` | `"15s"` | `QS_REALTIME_SSE_HEARTBEAT` | no | How often an open stream writes a ping comment, so proxies and clients keep it open. |
 | `realtime.sse.maxStreams` | `integer` | `1000` | `QS_REALTIME_SSE_MAX_STREAMS` | no | The most streams one worker keeps open; more are refused with 503 and Retry-After: 5. |
 | `realtime.sse.changes` | `"tagged" \| "all"` | `"tagged"` | `QS_REALTIME_SSE_CHANGES` | no | Which entities get a change stream route: tagged for entities tagged @changes, all for every entity with list routes without @changes off. |
+| `realtime.sse.pollInterval` | `duration` | `"1s"` | `QS_REALTIME_SSE_POLL_INTERVAL` | no | How often a worker with open change streams reads the outbox log, when events.outbox is on. |
+| `realtime.sse.buffer` | `integer` | `1000` | `QS_REALTIME_SSE_BUFFER` | no | How many change events each worker keeps for reconnecting clients, when events.outbox is off. |
 | `realtime.enabled` | `boolean` | `true` | `QS_REALTIME_ENABLED` | no | Turns the feature off when false. |
 
 ## Tags

@@ -3,7 +3,8 @@ import "./index.ts";
 import type { StoredRecord } from "./adapter.ts";
 import { memoryAdapter } from "./adapters/memory.ts";
 import { entityModel, field } from "./entity-model.ts";
-import { changeEntities, changeHub, changeMessage, parseChangeQuery } from "./features/realtime/changes.ts";
+import { changeEntities, changeMessage, parseChangeQuery } from "./features/realtime/changes.ts";
+import { outboxSource } from "./features/realtime/source.ts";
 import { matchesConditions } from "./matching.ts";
 import type { EntityModel } from "./model.ts";
 import type { Condition } from "./query.ts";
@@ -121,19 +122,22 @@ describe("the shared matcher", () => {
 });
 
 describe("subscriptions", () => {
-  test("an entity is listened to only while a stream of it is open", () => {
-    const listening: string[] = [];
-    const hub = changeHub((pattern) => {
-      listening.push(pattern);
-      return () => void listening.splice(listening.indexOf(pattern), 1);
-    });
-    expect(listening).toEqual([]);
-    const first = hub.subscribe(task, () => undefined);
-    const second = hub.subscribe(task, () => undefined);
-    expect(listening).toEqual(["task.written"]);
+  test("the outbox source polls only while a stream of it is open", async () => {
+    const reads: unknown[] = [];
+    const source = outboxSource({ pollMs: 5, retentionMs: 60_000, onPollFailed: () => undefined, read: async (options) => (reads.push(options), []) });
+    await Bun.sleep(20);
+    expect([source.polling(), reads]).toEqual([false, []]);
+    const first = source.subscribe(["Task"], () => undefined);
+    const second = source.subscribe(["Task"], () => undefined);
+    await Bun.sleep(30);
+    expect(source.polling()).toBe(true);
+    expect(reads.length).toBeGreaterThan(0);
     first();
-    expect(hub.active()).toEqual(["Task"]);
+    expect(source.polling()).toBe(true);
     second();
-    expect([listening, hub.active()]).toEqual([[], []]);
+    expect(source.polling()).toBe(false);
+    const count = reads.length;
+    await Bun.sleep(30);
+    expect(reads.length).toBe(count);
   });
 });

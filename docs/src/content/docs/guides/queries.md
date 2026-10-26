@@ -1,6 +1,6 @@
 ---
 title: Fluent repository queries
-description: Query repositories from endpoints and hooks with typed where, include, ordering, OR, aggregates, related and findByIds.
+description: Query repositories from endpoints and hooks with typed where, include, ordering, OR, NOT, any, all, none, aggregates, related and findByIds.
 sidebar:
   order: 32
 ---
@@ -157,9 +157,9 @@ repos.users.where((u) => u.role.contains("adm")); // Property 'contains' does no
 
 Objects, arrays of plain values and computed file URLs cannot be filtered.
 
-## Combining conditions: `and`, `or` and chained `where`
+## Combining conditions: `and`, `or`, `not` and chained `where`
 
-Inside a lambda, `.and(...)` and `.or(...)` combine conditions. They nest the way you call them: `a.and(b.or(c))` is `a AND (b OR c)`, and `a.or(b).and(c)` is `(a OR b) AND c`. Each further `.where(...)` adds conditions with AND.
+Inside a lambda, `.and(...)` and `.or(...)` combine conditions, and `.not()` negates the condition it is called on. They nest the way you call them: `a.and(b.or(c))` is `a AND (b OR c)`, `a.or(b).and(c)` is `(a OR b) AND c`, and `a.and(b.or(c).not())` is `a AND NOT (b OR c)`. Each further `.where(...)` adds conditions with AND.
 
 ```ts check
 import type { Repositories } from "@quickservicets/core";
@@ -174,10 +174,28 @@ export async function combined(repos: Repositories) {
 
   // AND with a nested OR: active, and either 30 or older or an admin.
   await repos.users.where((u) => u.active.eq(true).and(u.age.gte(30).or(u.role.eq("admin")))).toArray(); // ["Dee", "Cid", "Ana"]
+
+  // NOT of a compound condition: everyone except active admins.
+  await repos.users.where((u) => u.role.eq("admin").and(u.active.eq(true)).not()).toArray(); // ["Cid", "Bob"]
+
+  // NOT nested inside OR: members, or anyone not 30 or older.
+  await repos.users.where((u) => u.role.eq("member").or(u.age.gte(30).not())).toArray(); // ["Dee", "Cid", "Bob"]
 }
 ```
 
-OR works on every database adapter, including conditions on derived relation sides.
+OR and NOT work on every database adapter, including conditions on reference arrays and derived relation sides, `related` queries and the conditions of aggregate counts.
+
+### `.not()` and missing values
+
+Comparisons never match a field that is `null` or missing: a user without an `age` matches neither `u.age.lt(30)` nor `u.age.gte(30)`, and `u.age.ne(30)` leaves them out too, as in SQL. `.not()` works like `!` in JavaScript instead: it matches every record for which the condition is not true, so such a user matches `u.age.gte(30).not()`. Use `.not()` when "not this" should include the records without a value, and `ne`, `nin` or `lt` when it should not:
+
+| Condition | A user aged 25 | A user aged 41 | A user without an `age` |
+| --- | --- | --- | --- |
+| `u.age.lt(30)` | matches | | |
+| `u.age.gte(30)` | | matches | |
+| `u.age.gte(30).not()` | matches | | matches |
+
+Every adapter gives the same results: SQL databases run the negation as `(<condition>) IS NOT TRUE` and MongoDB as `$nor`.
 
 ## Ordering: `orderBy`, `orderByDescending`, `thenBy`, `thenByDescending`
 
@@ -202,7 +220,7 @@ repos.organizations.query().orderBy((o) => o.members); // Property 'members' doe
 
 ## Slicing: `skip` and `take`
 
-`skip(n)` leaves out the first `n` results and `take(n)` returns at most `n`. They apply to `toArray()`, `first()`, `firstOrDefault()` and `page()`, but not to `count()`, `any()` and `all()`. A negative or fractional value throws a 400 `Invalid query`, with details such as `skip: Must be an integer of at least 0`.
+`skip(n)` leaves out the first `n` results and `take(n)` returns at most `n`. They apply to `toArray()`, `first()`, `firstOrDefault()` and `page()`, but not to `count()`, `any()`, `all()` and `none()`. A negative or fractional value throws a 400 `Invalid query`, with details such as `skip: Must be an integer of at least 0`.
 
 ```ts check
 import type { Repositories } from "@quickservicets/core";
@@ -299,7 +317,7 @@ export async function relatedRecords(repos: Repositories, acmeId: string, globex
 }
 ```
 
-The query is over the array's target entity (`User` here), so `where`, ordering, `select`, `include` and every terminal method work as on `repos.users`. Results come in the usual default order, not in the array's order; add `orderBy` for another one. When the record does not exist or its array is empty, the query has no records: `toArray()` returns `[]`, `count()` 0, `any()` `false` and `all(condition)` `true`.
+The query is over the array's target entity (`User` here), so `where`, ordering, `select`, `include` and every terminal method work as on `repos.users`. Results come in the usual default order, not in the array's order; add `orderBy` for another one. When the record does not exist or its array is empty, the query has no records: `toArray()` returns `[]`, `count()` 0, `any()` `false`, and `all(condition)` and `none()` `true`.
 
 `aggregate` tells the two cases apart: it returns `null` when the record does not exist, and over an empty array counts are `0` and the other aggregates `null`. An endpoint can therefore answer 404 without reading the record first:
 
@@ -363,15 +381,16 @@ export async function firsts(repos: Repositories) {
 }
 ```
 
-### `count`, `any` and `all`
+### `count`, `any`, `all` and `none`
 
-`toArray()` reads the records; `count()`, `any()` and `all()` answer about them without loading any:
+`toArray()` reads the records; `count()`, `any()`, `all()` and `none()` answer about them without loading any:
 
 - `count()` is the number of matches.
 - `any()` is whether at least one record matches; `any(condition)` is whether at least one match also satisfies the condition.
 - `all(condition)` is whether every match satisfies the condition. It is `true` when nothing matches, and the database answers it in one round trip by counting the matches and the matches that satisfy the condition together.
+- `none()` is whether nothing matches; `none(condition)` is whether no match satisfies the condition. It is always the opposite of `any()` with the same condition, and runs as one count.
 
-Like `count()`, `any()` and `all()` look at every match of the query's `where` conditions, ignoring `skip` and `take`.
+Like `count()`, `any()`, `all()` and `none()` look at every match of the query's `where` conditions, ignoring `skip` and `take`.
 
 ```ts check
 import type { Repositories } from "@quickservicets/core";
@@ -388,7 +407,40 @@ export async function counts(repos: Repositories) {
 }
 ```
 
+The same question can be asked several ways. With `.not()`, "every admin is active" is also "no admin is inactive", and "some admin is inactive" is its opposite:
+
+```ts check
+import type { Repositories } from "@quickservicets/core";
+
+export async function sideBySide(repos: Repositories) {
+  const admins = repos.users.where((u) => u.role.eq("admin"));
+  const someInactive = await admins.any((u) => u.active.eq(true).not()); // false
+  const allActive = await admins.all((u) => u.active.eq(true)); // true
+  const noneInactive = await admins.none((u) => u.active.eq(true).not()); // true, the same as allActive
+  const noAdmins = await admins.none(); // false
+  const noneOver40 = await repos.users.query().none((u) => u.age.gt(40)); // false (Cid)
+  return { someInactive, allActive, noneInactive, noAdmins, noneOver40 };
+}
+```
+
 `all()` needs a condition: without one it fails to type-check, and at runtime it throws `all() needs a condition; use toArray() to read the records`.
+
+### Asking the repository directly
+
+For a yes/no or count question about the whole entity, call `any`, `all`, `none` and `count` on the repository itself: each is the same terminal on `query()`, and `count(condition)` is `where(condition).count()`.
+
+```ts check
+import type { Repositories } from "@quickservicets/core";
+
+export async function shortcuts(repos: Repositories) {
+  const hasAdmins = await repos.users.any((u) => u.role.eq("admin")); // true, like repos.users.query().any(...)
+  const allHaveEmail = await repos.users.all((u) => u.email.contains("@")); // true
+  const noneOver60 = await repos.users.none((u) => u.age.gt(60)); // true
+  const activeUsers = await repos.users.count((u) => u.active.eq(true)); // 3
+  const users = await repos.users.count(); // 4
+  return { hasAdmins, allHaveEmail, noneOver60, activeUsers, users };
+}
+```
 
 ### `aggregate`
 
@@ -402,6 +454,7 @@ export async function stats(repos: Repositories) {
     users: u.count(), // 4
     admins: u.count(u.role.eq("admin")), // 2
     activeOrYoung: u.count(u.active.eq(true).or(u.age.lt(30))), // 4
+    notActiveAdmins: u.count(u.role.eq("admin").and(u.active.eq(true)).not()), // 2
     totalAge: u.age.sum(), // 128
     averageAge: u.age.avg(), // 32
     youngest: u.age.min(), // 25
@@ -417,11 +470,11 @@ export async function stats(repos: Repositories) {
 | Expression | On | Result |
 | --- | --- | --- |
 | `f.count()` | the query | The number of matches |
-| `f.count(condition)` | the query | The number of matches that also satisfy `condition`, written like a `where` condition (`and`, `or`) |
+| `f.count(condition)` | the query | The number of matches that also satisfy `condition`, written like a `where` condition (`and`, `or`, `not`) |
 | `f.<field>.sum()`, `.avg()` | number fields | A number, or `null` |
 | `f.<field>.min()`, `.max()` | number and date fields | A number or a `Date`, or `null` |
 
-Like SQL, `sum`, `avg`, `min` and `max` skip `null` values and are `null` when no match has a value; counts are `0`. The query's conditions apply, including OR groups and conditions on derived relation sides; `skip`, `take`, ordering, `select` and `include` do not.
+Like SQL, `sum`, `avg`, `min` and `max` skip `null` values and are `null` when no match has a value; counts are `0`. The query's conditions apply, including OR and NOT groups and conditions on derived relation sides; `skip`, `take`, ordering, `select` and `include` do not.
 
 ```ts check
 import type { Repositories } from "@quickservicets/core";
@@ -469,7 +522,7 @@ export async function byIds(repos: Repositories, anaId: string, cidId: string, g
 
 ## Related reference
 
-- [Repositories and queries](/reference/api/): the signature of every `Repository` and `Query` method, including `related`.
+- [Repositories and queries](/reference/api/): the signature of every `Repository`, `Query` and `QueryCondition` method, including `related`, `none` and `not`.
 - [HTTP query parameters](/reference/http/): the matching filters on the generated list routes.
 - [Configuration](/reference/config/): `repositories.toArrayMax` and `populate.maxDepth`.
 

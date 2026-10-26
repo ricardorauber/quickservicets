@@ -133,7 +133,7 @@ describe("http, errors and api pages", () => {
 
   test("repository and query methods with signatures", () => {
     const api = pages["reference/api.mdx"]!;
-    for (const method of ["where", "include", "findByIds", "all", "page", "create", "findById", "update", "replace", "delete"]) {
+    for (const method of ["where", "include", "findByIds", "all", "none", "not", "page", "create", "findById", "update", "replace", "delete"]) {
       expect(api).toContain(`### \`${method}\``);
     }
     expect(api).toContain("findByIds<const P extends readonly PopulatePath<R>[] = []>(ids: readonly string[]");

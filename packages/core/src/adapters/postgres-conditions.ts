@@ -140,6 +140,16 @@ function translateField(out: Translation, condition: FieldCondition): void {
 }
 
 function translate(out: Translation, condition: Condition): void {
+  if (isConditionGroup(condition) && condition.group === "not") {
+    out.key += "not(";
+    // IS NOT TRUE also matches when the inner condition is NULL, as it is for comparisons with a NULL column.
+    out.emit("(");
+    if (condition.conditions.length === 0) out.emit("(1 = 1)");
+    else translateAll(out, condition.conditions, " and ");
+    out.emit(" is not true)");
+    out.key += ")";
+    return;
+  }
   if (isConditionGroup(condition)) {
     const or = condition.group === "or";
     out.key += or ? "or(" : "and(";

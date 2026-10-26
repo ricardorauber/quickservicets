@@ -19,6 +19,14 @@ export class QueryCondition {
     return new QueryCondition([{ group: "or", conditions: [this.single(), other.single()] }]);
   }
 
+  /**
+   * Every record for which this condition is not true, including records where a compared field is null or missing:
+   * `a.and(b).not()` is `NOT (a AND b)`.
+   */
+  not(): QueryCondition {
+    return new QueryCondition([{ group: "not", conditions: [this.single()] }]);
+  }
+
   /** The conditions as one: itself when there is one, an AND group otherwise. */
   private single(): Condition {
     return this.conditions.length === 1 ? this.conditions[0]! : { group: "and", conditions: [...this.conditions] };
@@ -287,9 +295,9 @@ export interface Query<T, R = Record<never, never>, M = never> {
   thenBy(lambda: SortLambda<T>): Query<T, R, M>;
   /** Adds a further sort field in descending order. */
   thenByDescending(lambda: SortLambda<T>): Query<T, R, M>;
-  /** Leaves out the first `count` results (not applied to `count()`, `any()` and `all()`). */
+  /** Leaves out the first `count` results (not applied to `count()`, `any()`, `all()` and `none()`). */
   skip(count: number): Query<T, R, M>;
-  /** Returns at most `count` results (not applied to `count()`, `any()` and `all()`). */
+  /** Returns at most `count` results (not applied to `count()`, `any()`, `all()` and `none()`). */
   take(count: number): Query<T, R, M>;
   /** Returns only these fields plus `id`. */
   select<K extends keyof T & string>(...fields: K[]): Query<Pick<T, K | ("id" & keyof T)>, R, M>;
@@ -313,6 +321,11 @@ export interface Query<T, R = Record<never, never>, M = never> {
    * without loading records.
    */
   all(lambda: QueryLambda<T>): Promise<boolean>;
+  /**
+   * Whether no match exists, or with a condition, whether no match satisfies it (`!(await any(lambda))`), without
+   * loading records.
+   */
+  none(lambda?: QueryLambda<T>): Promise<boolean>;
   /** `{ data, total, limit, offset }` like the generated list routes. */
   page(options?: PageOptions): Promise<{ data: T[]; total: number; limit: number; offset: number }>;
   /**
@@ -399,6 +412,8 @@ export function createQuery<T, R = Record<never, never>, M = never>(backend: Que
     return { ...result, data: shape(result.data) };
   };
   const count = () => backend.count(state.where);
+  const any = async (lambda?: QueryLambda<T>) =>
+    (await (lambda === undefined ? count() : backend.count([...state.where, ...conditionsOf(model, lambda)]))) > 0;
   return {
     where: (lambda) => next({ where: [...state.where, ...conditionsOf(model, lambda)] }),
     orderBy: (lambda) => next({ sort: [{ field: keyOf(lambda), direction: "asc" }] }),
@@ -428,9 +443,9 @@ export function createQuery<T, R = Record<never, never>, M = never>(backend: Que
       return state.take === 0 ? null : ((await read(1, state.skip)).data[0] ?? null);
     },
     count,
-    async any(lambda) {
-      if (lambda === undefined) return (await count()) > 0;
-      return (await backend.count([...state.where, ...conditionsOf(model, lambda)])) > 0;
+    any,
+    async none(lambda) {
+      return !(await any(lambda));
     },
     async all(lambda) {
       if (typeof lambda !== "function") throw new Error("all() needs a condition; use toArray() to read the records");

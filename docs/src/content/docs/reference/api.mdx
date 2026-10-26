@@ -115,6 +115,38 @@ query(): Query<T, R>;
 
 A fluent query over every record.
 
+### `any`
+
+```ts
+any(lambda?: QueryLambda<T>): Promise<boolean>;
+```
+
+Whether any record exists, or with a condition, whether any record satisfies it; `query().any(lambda)`.
+
+### `all`
+
+```ts
+all(lambda: QueryLambda<T>): Promise<boolean>;
+```
+
+Whether every record satisfies the condition (true when there are none); `query().all(lambda)`.
+
+### `none`
+
+```ts
+none(lambda?: QueryLambda<T>): Promise<boolean>;
+```
+
+Whether no record exists, or with a condition, whether no record satisfies it; `query().none(lambda)`.
+
+### `count`
+
+```ts
+count(lambda?: QueryLambda<T>): Promise<number>;
+```
+
+The number of records, or with a condition, of records satisfying it; `where(lambda).count()`.
+
 ### `related`
 
 ```ts
@@ -175,7 +207,7 @@ Adds a further sort field in descending order.
 skip(count: number): Query<T, R, M>;
 ```
 
-Leaves out the first `count` results (not applied to `count()`, `any()` and `all()`).
+Leaves out the first `count` results (not applied to `count()`, `any()`, `all()` and `none()`).
 
 ### `take`
 
@@ -183,7 +215,7 @@ Leaves out the first `count` results (not applied to `count()`, `any()` and `all
 take(count: number): Query<T, R, M>;
 ```
 
-Returns at most `count` results (not applied to `count()`, `any()` and `all()`).
+Returns at most `count` results (not applied to `count()`, `any()`, `all()` and `none()`).
 
 ### `select`
 
@@ -251,6 +283,15 @@ all(lambda: QueryLambda<T>): Promise<boolean>;
 Whether every match satisfies the condition (true when nothing matches), answered by the database in one round trip
 without loading records.
 
+### `none`
+
+```ts
+none(lambda?: QueryLambda<T>): Promise<boolean>;
+```
+
+Whether no match exists, or with a condition, whether no match satisfies it (`!(await any(lambda))`), without
+loading records.
+
 ### `page`
 
 ```ts
@@ -268,3 +309,32 @@ aggregate<A extends AggregateExpressions>(lambda: (fields: AggregateFields<T>) =
 Counts, sums, averages, minimums and maximums of the matches in one database round trip, e.g.
 `aggregate((u) => ({ admins: u.count(u.role.eq("admin")), averageAge: u.age.avg() }))` (not limited by `skip()` and
 `take()`).
+
+## QueryCondition
+
+`QueryCondition`, returned by the field handles of a query lambda (`u.role.eq("admin")`) and accepted wherever a condition is: `where`, `any`, `all`, `none`, the repository's `count` and an aggregate's `count(condition)`.
+
+### `and`
+
+```ts
+and(other: QueryCondition): QueryCondition;
+```
+
+Both this condition and `other`: `a.and(b.or(c))` is `a AND (b OR c)`.
+
+### `or`
+
+```ts
+or(other: QueryCondition): QueryCondition;
+```
+
+This condition or `other`: `a.or(b).and(c)` is `(a OR b) AND c`.
+
+### `not`
+
+```ts
+not(): QueryCondition;
+```
+
+Every record for which this condition is not true, including records where a compared field is null or missing:
+`a.and(b).not()` is `NOT (a AND b)`.

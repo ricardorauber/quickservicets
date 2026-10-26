@@ -20,7 +20,9 @@ export function compareValues(left: unknown, right: unknown): number {
 export function matches(record: StoredRecord, condition: Condition, entity: EntityModel): boolean {
   if (isConditionGroup(condition)) {
     const test = (inner: Condition) => matches(record, inner, entity);
-    return condition.group === "or" ? condition.conditions.some(test) : condition.conditions.every(test);
+    if (condition.group === "or") return condition.conditions.some(test);
+    // Comparisons with a missing value are false, so their negation matches it.
+    return condition.group === "not" ? !condition.conditions.every(test) : condition.conditions.every(test);
   }
   const actual = record[condition.field];
   const { op, value } = condition;

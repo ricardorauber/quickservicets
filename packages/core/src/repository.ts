@@ -176,6 +176,14 @@ export interface Repository<T extends EntityRecord = EntityRecord, R = Record<ne
   where(lambda: QueryLambda<T>): Query<T, R>;
   /** A fluent query over every record. */
   query(): Query<T, R>;
+  /** Whether any record exists, or with a condition, whether any record satisfies it; `query().any(lambda)`. */
+  any(lambda?: QueryLambda<T>): Promise<boolean>;
+  /** Whether every record satisfies the condition (true when there are none); `query().all(lambda)`. */
+  all(lambda: QueryLambda<T>): Promise<boolean>;
+  /** Whether no record exists, or with a condition, whether no record satisfies it; `query().none(lambda)`. */
+  none(lambda?: QueryLambda<T>): Promise<boolean>;
+  /** The number of records, or with a condition, of records satisfying it; `where(lambda).count()`. */
+  count(lambda?: QueryLambda<T>): Promise<number>;
   /**
    * A fluent query over the records the reference array `field` of record `id` lists, e.g.
    * `related(orgId, "members")`. It has no records when that record does not exist, and its `aggregate` then resolves
@@ -185,9 +193,9 @@ export interface Repository<T extends EntityRecord = EntityRecord, R = Record<ne
 }
 
 /** The read methods of a repository, the only ones offered for records the framework writes (e.g. job runs). */
-export const READ_METHODS = ["findById", "findOne", "list", "where", "query"] as const;
+export const READ_METHODS = ["findById", "findOne", "list", "where", "query", "any", "all", "none", "count"] as const;
 
-/** A repository that only reads: `findById`, `findOne`, `list`, `where` and `query`. */
+/** A repository that only reads: `findById`, `findOne`, `list`, `where`, `query`, `any`, `all`, `none` and `count`. */
 export type ReadRepository<T extends EntityRecord = EntityRecord, R = Record<never, never>> = Pick<Repository<T, R>, (typeof READ_METHODS)[number]>;
 
 /** The read methods of a repository, without its write methods. */
@@ -583,6 +591,11 @@ export function createRepository(
     query() {
       return createQuery(backend, { where: [], sort: [], skip: 0 });
     },
+
+    any: (lambda) => repository.query().any(lambda),
+    all: (lambda) => repository.query().all(lambda),
+    none: (lambda) => repository.query().none(lambda),
+    count: (lambda) => (lambda === undefined ? repository.query() : repository.where(lambda)).count(),
 
     related(id, field) {
       const definition = model.fields.find((candidate) => candidate.name === field);

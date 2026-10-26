@@ -240,7 +240,7 @@ describe("read-only repository", () => {
     const stored = run({ status: "failed" });
     await adapter.insert(model, stored);
     const repos = createRepositories([model], adapter) as Record<string, Record<string, unknown>>;
-    expect(Object.keys(repos.jobRuns!).sort()).toEqual(["findById", "findOne", "list", "query", "where"]);
+    expect(Object.keys(repos.jobRuns!).sort()).toEqual(["all", "any", "count", "findById", "findOne", "list", "none", "query", "where"]);
     const jobRuns = repos.jobRuns as unknown as {
       findById(id: string): Promise<{ id: string } | null>;
       where(lambda: (r: { status: { eq(value: string): unknown } }) => unknown): { count(): Promise<number> };

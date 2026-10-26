@@ -58,9 +58,11 @@ function translateRelation(table: Columns, condition: FieldCondition, context: R
 
 function translate(table: Columns, condition: Condition, dialect: SqlDialect, context?: RelationContext): SQL {
   if (isConditionGroup(condition)) {
-    // An empty AND matches everything; an empty OR matches nothing.
-    if (condition.conditions.length === 0) return condition.group === "or" ? sql`1 = 0` : sql`1 = 1`;
+    // An empty AND matches everything, so its negation matches nothing; an empty OR matches nothing.
+    if (condition.conditions.length === 0) return condition.group === "and" ? sql`1 = 1` : sql`1 = 0`;
     const parts = condition.conditions.map((inner) => translate(table, inner, dialect, context));
+    // IS NOT TRUE also matches when the inner condition is NULL, as it is for comparisons with a NULL column.
+    if (condition.group === "not") return sql`((${and(...parts)}) is not true)`;
     return (condition.group === "or" ? or(...parts) : and(...parts))!;
   }
   const relation = context?.entity.fields.find((field) => field.name === condition.field && field.type === "refArray");

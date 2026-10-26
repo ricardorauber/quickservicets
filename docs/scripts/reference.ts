@@ -222,6 +222,15 @@ interface ApiMember {
   description: string;
 }
 
+/** The doc comment of a declaration, as one line. */
+const docComment = (node: ts.Node) =>
+  ts
+    .getJSDocCommentsAndTags(node)
+    .filter(ts.isJSDoc)
+    .map((comment) => ts.getTextOfJSDocComment(comment.comment) ?? "")
+    .join(" ")
+    .trim();
+
 /** Members of an exported interface with their signature (without the doc comment) and doc comment. */
 export function interfaceMembers(file: string, name: string): ApiMember[] {
   const path = join(REPO, file);
@@ -231,13 +240,23 @@ export function interfaceMembers(file: string, name: string): ApiMember[] {
   return declaration.members.map((member) => ({
     name: member.name?.getText(source) ?? "",
     signature: source.text.slice(member.getStart(source), member.end).replace(/\s+/g, " ").trim(),
-    description: ts
-      .getJSDocCommentsAndTags(member)
-      .filter(ts.isJSDoc)
-      .map((comment) => ts.getTextOfJSDocComment(comment.comment) ?? "")
-      .join(" ")
-      .trim(),
+    description: docComment(member),
   }));
+}
+
+/** Public methods of an exported class with their signature (without the body) and doc comment. */
+export function classMethods(file: string, name: string): ApiMember[] {
+  const path = join(REPO, file);
+  const source = ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.ESNext, true);
+  const declaration = source.statements.find((statement): statement is ts.ClassDeclaration => ts.isClassDeclaration(statement) && statement.name?.text === name);
+  if (!declaration) throw new Error(`${name} not found in ${file}`);
+  return declaration.members
+    .filter((member): member is ts.MethodDeclaration => ts.isMethodDeclaration(member) && !member.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.PrivateKeyword))
+    .map((member) => ({
+      name: member.name.getText(source),
+      signature: `${source.text.slice(member.getStart(source), member.body?.getStart(source) ?? member.end).replace(/\s+/g, " ").trim()};`,
+      description: docComment(member),
+    }));
 }
 
 const HTTP_PARAMETERS: [string, string][] = [
@@ -340,6 +359,7 @@ function apiPage(): string {
     "",
     ...section("Repository", "`Repository<T, R, C, U>`: `T` is the record, `R` its references, `C` and `U` the create and update inputs.", interfaceMembers("packages/core/src/repository.ts", "Repository")),
     ...section("Query", "`Query<T, R, M>`, returned by `where`, `query` and `related`; every method but the terminals returns a new query. `M` is `null` on `related` queries, whose `aggregate` resolves null when the record does not exist.", interfaceMembers("packages/core/src/fluent-query.ts", "Query")),
+    ...section("QueryCondition", "`QueryCondition`, returned by the field handles of a query lambda (`u.role.eq(\"admin\")`) and accepted wherever a condition is: `where`, `any`, `all`, `none`, the repository's `count` and an aggregate's `count(condition)`.", classMethods("packages/core/src/fluent-query.ts", "QueryCondition")),
   ].join("\n");
 }
 

@@ -275,7 +275,7 @@ ATTEMPT  TRIGGER   STATUS   STARTED                   DURATION
 1        manual    success  2026-10-19T15:36:59.613Z  8ms
 ```
 
-In code, `repos.jobRuns` reads the records. It has the read methods only (`findById`, `findOne`, `list`, `where`, `query`): the framework writes the runs, so `repos.jobRuns.create(...)` does not type-check. Run records have no HTTP routes and no place in the API docs; an endpoint like this one exposes what you choose:
+In code, `repos.jobRuns` reads the records. It has the read methods only (`findById`, `findOne`, `list`, `where`, `query`, `any`, `all`, `none`, `count`): the framework writes the runs, so `repos.jobRuns.create(...)` does not type-check. Run records have no HTTP routes and no place in the API docs; an endpoint like this one exposes what you choose:
 
 ```ts check title="endpoints/job-failures/get.ts"
 import type { Endpoint } from "@quickservicets/core";

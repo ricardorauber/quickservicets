@@ -97,8 +97,10 @@ export function toFilter(conditions: Condition[], entity?: EntityModel): Filter<
     entity?.fields.some((field) => field.name === condition.field && field.type === "refArray") ?? false;
   const one = (condition: Condition): Document => {
     if (isConditionGroup(condition)) {
-      // An empty AND matches everything; an empty OR matches nothing.
-      if (condition.conditions.length === 0) return condition.group === "or" ? { _id: { $in: [] } } : {};
+      // An empty AND matches everything, so its negation matches nothing; an empty OR matches nothing.
+      if (condition.conditions.length === 0) return condition.group === "and" ? {} : { _id: { $in: [] } };
+      // $nor also matches documents where a compared field is null or missing.
+      if (condition.group === "not") return { $nor: [condition.conditions.length === 1 ? one(condition.conditions[0]!) : { $and: condition.conditions.map(one) }] };
       return { [condition.group === "or" ? "$or" : "$and"]: condition.conditions.map(one) };
     }
     return isRelation(condition) ? translateArray(condition) : translate(condition);

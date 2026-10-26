@@ -41,9 +41,12 @@ export interface FieldCondition {
   literal?: true;
 }
 
-/** Conditions joined by AND or OR, nested to any depth. */
+/**
+ * Conditions joined by AND or OR, nested to any depth. A `not` group matches every record for which its conditions
+ * (joined by AND) are not true, including records where a compared field is null or missing.
+ */
 export interface ConditionGroup {
-  group: "and" | "or";
+  group: "and" | "or" | "not";
   conditions: Condition[];
 }
 

@@ -50,7 +50,7 @@ Three pairs of fields describe the same relation from both sides, and QuickServi
 From the root of the repository, create a project that keeps its data in memory. It needs no database server, which makes it quick to experiment with; you move it to PostgreSQL at the end of this part.
 
 ```bash
-bun packages/cli/src/index.ts init examples/my-identity --db memory
+bunx quickservice init examples/my-identity --db memory
 cd examples/my-identity
 bun run dev
 ```

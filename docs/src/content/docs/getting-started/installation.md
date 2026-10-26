@@ -17,13 +17,13 @@ bun install
 ```
 
 :::note
-The packages are not on npm yet, so your project lives inside the repository, under `examples/`. Run every command on this page from the repository root.
+The packages are not on npm yet, so your project lives inside the repository, under `examples/`. Run every command on this page from the repository root, where `bunx quickservice` runs the repository's own CLI.
 :::
 
 ## Create a project
 
 ```bash
-bun packages/cli/src/index.ts init examples/my-api --db memory
+bunx quickservice init examples/my-api --db memory
 ```
 
 It prints the next steps:

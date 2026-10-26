@@ -5,6 +5,7 @@
     "": {
       "name": "quickservice",
       "devDependencies": {
+        "@quickservice/cli": "workspace:*",
         "@types/bun": "1.4.2",
         "typescript": "5.9.2",
       },

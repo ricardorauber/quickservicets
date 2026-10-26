@@ -48,6 +48,15 @@ export const spawnRunner: Runner = async (command, options = {}) => {
   return { code, output: `${stdout}${stderr}`.trim() };
 };
 
+/**
+ * Runs a command attached to the terminal, so npm can show its browser link for passkey (web) authentication and read
+ * prompts; the output is not captured.
+ */
+export const interactiveRunner: Runner = async (command, options = {}) => {
+  const child = Bun.spawn(command, { cwd: options.cwd, env: options.env ?? process.env, stdin: "inherit", stdout: "inherit", stderr: "inherit" });
+  return { code: await child.exited, output: "" };
+};
+
 const TEST_FILE = /(\.(test|spec)\.[cm]?[jt]sx?|\.snap|(^|[-.])test-support\.[cm]?[jt]sx?)$/;
 const TEST_FOLDER = /(^|\/)(__tests__|__snapshots__)\//;
 
@@ -198,13 +207,14 @@ export async function releaseCheck(destination: string, options: { packages?: re
 
 /**
  * Publishes the tarballs in order with `npm publish <tarball> --access public` (and `--otp` when given), stopping at
- * the first failure. Returns the names published and, on a failure, the package that failed.
+ * the first failure. npm runs attached to the terminal by default, so accounts with a passkey confirm each publish in the
+ * browser. Returns the names published and, on a failure, the package that failed.
  */
 export async function publishAll(
   packed: readonly PackedPackage[],
   options: { otp?: string; run?: Runner; log?: (line: string) => void } = {},
 ): Promise<{ published: string[]; failed?: string; output?: string }> {
-  const run = options.run ?? spawnRunner;
+  const run = options.run ?? interactiveRunner;
   const published: string[] = [];
   for (const entry of packed) {
     const command = ["npm", "publish", entry.tarball, "--access", "public", ...(options.otp ? ["--otp", options.otp] : [])];
@@ -235,7 +245,7 @@ if (import.meta.main) {
   const result = await publishAll(check.packed, { otp: process.env.NPM_OTP || undefined, log: (line) => console.log(line) });
   if (result.failed) {
     const rest = check.packed.map((entry) => entry.manifest.name).filter((name) => name !== result.failed && !result.published.includes(name));
-    console.error(`npm publish failed for ${result.failed}${result.output ? `:\n${result.output}` : ""}`);
+    console.error(`npm publish failed for ${result.failed}${result.output ? `:\n${result.output}` : " (see npm's output above)"}`);
     console.error(`Not published: ${[result.failed, ...rest].join(", ")}`);
     process.exit(1);
   }

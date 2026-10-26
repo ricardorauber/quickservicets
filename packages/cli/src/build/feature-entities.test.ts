@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { defineFeature, entityModel, field, loadConfig, object, registerNative, registerProjectFeatures, string, type EntityModel } from "@quickservice/core";
+import { defineFeature, entityModel, field, loadConfig, object, registerNative, registerProjectFeatures, string, type EntityModel } from "@quickservicets/core";
 import { unregisterNative } from "../../../core/src/features.ts";
 import { parseProjectModels } from "../entities/parse-entities.ts";
 import { addMigration } from "../migrations/add.ts";
@@ -10,12 +10,12 @@ import { createLinkedProject } from "../testing/project.ts";
 import { serveBuilt } from "../testing/serve.ts";
 import { build } from "./build.ts";
 
-const config = (keys = "", adapter = "memoryAdapter()") => `import { defineConfig, memoryAdapter, sqliteAdapter, postgresAdapter } from "@quickservice/core";
+const config = (keys = "", adapter = "memoryAdapter()") => `import { defineConfig, memoryAdapter, sqliteAdapter, postgresAdapter } from "@quickservicets/core";
 export default defineConfig({ database: ${adapter}${keys ? `, ${keys}` : ""} });
 `;
 const USER = "export type User = { email: string };\n";
 const project = (files: Record<string, string>, keys = "", adapter?: string) =>
-  createLinkedProject({ "quickservice.config.ts": config(keys, adapter), "entities/User.ts": USER, ...files });
+  createLinkedProject({ "quickservicets.config.ts": config(keys, adapter), "entities/User.ts": USER, ...files });
 const failure = async (work: () => Promise<unknown>): Promise<Error> => {
   try {
     await work();
@@ -95,7 +95,7 @@ describe("object and function forms", () => {
 });
 
 describe("folders", () => {
-  const FEATURE = `import { defineFeature } from "@quickservice/core";\nexport default defineFeature({ docs: { summary: "Test native." }, key: "notes", entities: "./entities" });\n`;
+  const FEATURE = `import { defineFeature } from "@quickservicets/core";\nexport default defineFeature({ docs: { summary: "Test native." }, key: "notes", entities: "./entities" });\n`;
 
   test("a project feature's entity folder is parsed with the project's entities, references both ways", async () => {
     const root = project(
@@ -143,7 +143,7 @@ describe("conflicts and overrides", () => {
     native("notes", { entities: [NOTE()] });
     native("memos", { entities: [NOTE()] });
     expect((await failure(() => build(project({}, "notes: {}, memos: {}")))).message).toBe("Features notes and memos both contribute the entity Note");
-    const FOLDER = (key: string) => `import { defineFeature } from "@quickservice/core";\nexport default defineFeature({ docs: { summary: "Test native." }, key: "${key}", entities: "./entities" });\n`;
+    const FOLDER = (key: string) => `import { defineFeature } from "@quickservicets/core";\nexport default defineFeature({ docs: { summary: "Test native." }, key: "${key}", entities: "./entities" });\n`;
     const root = project(
       {
         "features/alpha/index.ts": FOLDER("alpha"),
@@ -172,7 +172,7 @@ describe("conflicts and overrides", () => {
   test("a project entity file replaces a feature folder's entity", async () => {
     const root = project(
       {
-        "features/notes/index.ts": `import { defineFeature } from "@quickservice/core";\nexport default defineFeature({ docs: { summary: "Test native." }, key: "notes", entities: "./entities" });\n`,
+        "features/notes/index.ts": `import { defineFeature } from "@quickservicets/core";\nexport default defineFeature({ docs: { summary: "Test native." }, key: "notes", entities: "./entities" });\n`,
         "features/notes/entities/Note.ts": "export type Note = { text: string };\n",
         "entities/Note.ts": "export type Note = { body: string };\n",
       },

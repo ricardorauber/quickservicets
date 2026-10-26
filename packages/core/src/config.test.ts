@@ -13,9 +13,9 @@ import { availableCpus } from "./workers.ts";
 const coreEntry = join(import.meta.dir, "index.ts");
 
 function projectWithConfig(body: string): string {
-  const root = mkdtempSync(join(tmpdir(), "quickservice-config-"));
+  const root = mkdtempSync(join(tmpdir(), "quickservicets-config-"));
   writeFileSync(
-    join(root, "quickservice.config.ts"),
+    join(root, "quickservicets.config.ts"),
     `import { defineConfig, memoryAdapter } from ${JSON.stringify(coreEntry)};\nexport default ${body};\n`,
   );
   return root;
@@ -50,8 +50,8 @@ describe("environment fallbacks", () => {
 });
 
 test("a missing file names the expected path", async () => {
-  const root = mkdtempSync(join(tmpdir(), "quickservice-config-"));
-  await expect(loadConfig(root)).rejects.toThrow("quickservice.config.ts");
+  const root = mkdtempSync(join(tmpdir(), "quickservicets-config-"));
+  await expect(loadConfig(root)).rejects.toThrow("quickservicets.config.ts");
 });
 
 test.each([0, 70000, 3.5])("port %p is rejected naming server.port", (port) => {

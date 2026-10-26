@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { queueMessageEntity, sqliteAdapter } from "@quickservice/core";
+import { queueMessageEntity, sqliteAdapter } from "@quickservicets/core";
 import { build } from "./build.ts";
 import { addMigration } from "../migrations/add.ts";
 import { migrate } from "../migrations/migrate.ts";
@@ -9,15 +9,15 @@ import { run } from "../run.ts";
 import { createLinkedProject } from "../testing/project.ts";
 import { startTestService, type TestService } from "../testing/service.ts";
 
-const SEND_EMAIL = 'import { queue } from "@quickservice/core";\nexport default queue<{ to: string }>(() => {});\n';
+const SEND_EMAIL = 'import { queue } from "@quickservicets/core";\nexport default queue<{ to: string }>(() => {});\n';
 const sqliteConfig = (path: string) =>
-  `import { defineConfig, sqliteAdapter } from "@quickservice/core";\nexport default defineConfig({ database: sqliteAdapter({ path: ${JSON.stringify(path)} }), queues: {}, logger: { info() {}, warn() {}, error() {} } });\n`;
+  `import { defineConfig, sqliteAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: sqliteAdapter({ path: ${JSON.stringify(path)} }), queues: {}, logger: { info() {}, warn() {}, error() {} } });\n`;
 
 /** A migrated SQLite project with the queues native and a way to insert messages and run the CLI. */
 async function sqliteProject() {
-  const root = createLinkedProject({ "quickservice.config.ts": "", "queues/send-email.ts": SEND_EMAIL });
+  const root = createLinkedProject({ "quickservicets.config.ts": "", "queues/send-email.ts": SEND_EMAIL });
   const path = join(root, "data.db");
-  writeFileSync(join(root, "quickservice.config.ts"), sqliteConfig(path));
+  writeFileSync(join(root, "quickservicets.config.ts"), sqliteConfig(path));
   await build(root);
   await addMigration(root, "Initial", new Date(Date.UTC(2026, 9, 15, 12)));
   await migrate(root);
@@ -75,7 +75,7 @@ describe("queue commands", () => {
     expect(await cli("queue", "dead", "send-email")).toEqual({ code: 0, out: ["No dead messages in send-email."], err: [] });
   });
 
-  test("quickservice help lists the three commands under queues", async () => {
+  test("quickservicets help lists the three commands under queues", async () => {
     const { cli } = await sqliteProject();
     const help = (await cli("help")).out.join("\n");
     const section = help.slice(help.indexOf("queues:"));
@@ -85,7 +85,7 @@ describe("queue commands", () => {
 
   test("the reference page of the native lists the three commands", () => {
     const page = readFileSync(join(import.meta.dir, "../../../../docs/src/content/docs/reference/features/queues.mdx"), "utf8");
-    for (const command of ["quickservice queue list", "quickservice queue dead <queue>", "quickservice queue retry <message id>"]) expect(page).toContain(command);
+    for (const command of ["quickservicets queue list", "quickservicets queue dead <queue>", "quickservicets queue retry <message id>"]) expect(page).toContain(command);
   });
 });
 
@@ -101,20 +101,20 @@ describe("reprocessing from code", () => {
   test("queues.retry runs a dead message again from attempt 1, and queues.retryDead returns the count", async () => {
     const service = await startTestService({
       files: {
-        "quickservice.config.ts": `import { defineConfig, memoryAdapter } from "@quickservice/core";
+        "quickservicets.config.ts": `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter(), queues: { retries: 0 } });
 `,
-        "queues/send-email.ts": `import { queue } from "@quickservice/core";
+        "queues/send-email.ts": `import { queue } from "@quickservicets/core";
 const state = ((globalThis as { mail?: { fail: boolean; attempts: number[] } }).mail = { fail: true, attempts: [] });
 export default queue(({ message }) => {
   state.attempts.push(message.attempt);
   if (state.fail) throw new Error("smtp down");
 });
 `,
-        "endpoints/send/post.ts": `import type { ServiceRequest } from "@quickservice/core";
+        "endpoints/send/post.ts": `import type { ServiceRequest } from "@quickservicets/core";
 export default async (_repos: unknown, req: ServiceRequest) => req.queue.add("send-email", {});
 `,
-        "endpoints/retry/post.ts": `import { queues, type ServiceRequest } from "@quickservice/core";
+        "endpoints/retry/post.ts": `import { queues, type ServiceRequest } from "@quickservicets/core";
 export default async (_repos: unknown, req: ServiceRequest) => {
   const { id } = (await req.json()) as { id?: string };
   if (id) {

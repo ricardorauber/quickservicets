@@ -3,13 +3,13 @@ import { join } from "node:path";
 import { build } from "../build/build.ts";
 import { createLinkedProject } from "../testing/project.ts";
 
-const config = (grace: string) => `import { defineConfig, memoryAdapter } from "@quickservice/core";
+const config = (grace: string) => `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter(), jobs: { shutdownGrace: "${grace}" } });
 `;
 
-const STUBBORN = 'import { job } from "@quickservice/core";\nexport default job({ every: "1s" }, () => new Promise((resolve) => setTimeout(resolve, 60_000)));\n';
+const STUBBORN = 'import { job } from "@quickservicets/core";\nexport default job({ every: "1s" }, () => new Promise((resolve) => setTimeout(resolve, 60_000)));\n';
 const POLITE =
-  'import { job } from "@quickservice/core";\nexport default job({ every: "1s" }, (ctx) => new Promise((resolve) => ctx.signal.addEventListener("abort", () => resolve("stopped"))));\n';
+  'import { job } from "@quickservicets/core";\nexport default job({ every: "1s" }, (ctx) => new Promise((resolve) => ctx.signal.addEventListener("abort", () => resolve("stopped"))));\n';
 
 function freePort(): number {
   const probe = Bun.serve({ port: 0, fetch: () => new Response() });
@@ -49,7 +49,7 @@ async function signalDuringJob(root: string, signal: "SIGTERM" | "SIGINT") {
 }
 
 test("SIGTERM records a job that ignores the signal as interrupted after the grace period, then exits", async () => {
-  const root = createLinkedProject({ "quickservice.config.ts": config("2s"), "jobs/stubborn.ts": STUBBORN });
+  const root = createLinkedProject({ "quickservicets.config.ts": config("2s"), "jobs/stubborn.ts": STUBBORN });
   await build(root);
   const { output, exitCode, elapsed } = await signalDuringJob(root, "SIGTERM");
   expect(exitCode).toBe(0);
@@ -59,7 +59,7 @@ test("SIGTERM records a job that ignores the signal as interrupted after the gra
 }, 45_000);
 
 test("SIGINT lets a job that stops on the signal record its own outcome, and exits without waiting for the grace", async () => {
-  const root = createLinkedProject({ "quickservice.config.ts": config("30s"), "jobs/polite.ts": POLITE });
+  const root = createLinkedProject({ "quickservicets.config.ts": config("30s"), "jobs/polite.ts": POLITE });
   await build(root);
   const { output, exitCode, elapsed } = await signalDuringJob(root, "SIGINT");
   expect(exitCode).toBe(0);

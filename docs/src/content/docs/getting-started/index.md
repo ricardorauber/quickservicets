@@ -1,11 +1,11 @@
 ---
 title: Introduction
-description: What QuickService is and how it turns TypeScript types into a REST API.
+description: What QuickService.ts is and how it turns TypeScript types into a REST API.
 sidebar:
   order: 1
 ---
 
-QuickService is a backend framework for [Bun](https://bun.sh). You describe your data as plain TypeScript types, and it generates a typed, validated and documented REST API for them.
+QuickService.ts is a backend framework for [Bun](https://bun.sh). You describe your data as plain TypeScript types, and it generates a typed, validated and documented REST API for them.
 
 There are no decorators, schemas or classes to keep in sync. The type is the model.
 
@@ -27,10 +27,10 @@ A project has three folders you write, and one the framework writes:
 
 1. **`entities/`** holds one type per file. JSDoc tags such as `@unique` or `@default` add rules.
 2. **`endpoints/`** and **`hooks/`** hold your own routes and the code that runs before or after them. Both are optional.
-3. **`quickservice build`** reads those folders and writes **`.generated/`**: the models, the TypeScript types, the route table, the OpenAPI document and a `server.ts` entry.
+3. **`quickservicets build`** reads those folders and writes **`.generated/`**: the models, the TypeScript types, the route table, the OpenAPI document and a `server.ts` entry.
 4. **`bun .generated/server.ts`** starts the API.
 
-While you work, `quickservice dev` does steps 3 and 4 for you, and rebuilds and restarts whenever a file changes.
+While you work, `quickservicets dev` does steps 3 and 4 for you, and rebuilds and restarts whenever a file changes.
 
 ## What you get
 
@@ -47,7 +47,7 @@ While you work, `quickservice dev` does steps 3 and 4 for you, and rebuilds and 
 Every tag is listed in [JSDoc tags](/reference/tags/), and every command in [CLI](/reference/cli/).
 
 :::note
-The packages are not published to npm yet. For now, projects live inside the QuickService repository, under `examples/`, and use the workspace packages. The next page shows how.
+The packages are not published to npm yet. For now, projects live inside the QuickService.ts repository, under `examples/`, and use the workspace packages. The next page shows how.
 :::
 
 ## Next

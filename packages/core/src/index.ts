@@ -9,6 +9,8 @@ export type { Condition, FilterOperator, ListQuery, SizeComparison, SizeFilter, 
 export { UniqueViolationError } from "./adapter.ts";
 export type { AdapterKind, Aggregate, AggregateValues, ConnectOptions, ReadColumns, DatabaseAdapter, FindManyOptions, FindManyResult, ReferencePull, RelatedScope, StoredRecord } from "./adapter.ts";
 export { memoryAdapter } from "./adapters/memory.ts";
+export { LEGACY_CONFIG_FILE, LEGACY_CONFIG_MESSAGE, LEGACY_MIGRATIONS_TABLE, MIGRATIONS_TABLE, MIGRATIONS_TABLE_RENAMED, renameLegacyMigrationTables } from "./legacy-names.ts";
+export type { RenamedTable } from "./legacy-names.ts";
 export { CONFIG_FILE, ConfigError, DEFAULT_PORT, DEFAULT_POPULATE_DEPTH, defineConfig, JOB_DEFAULTS, LIFECYCLE_DEFAULTS, loadConfig, resolveConfig, WORKERS_NEED_DATABASE_SERVER } from "./config.ts";
 export { availableCpus, isPrimary, poolSizePerWorker, runPrimary, runsScheduledWork, runWorkers, SERVER_WORKERS_ENV, WORKER_INDEX_ENV, WORKERS_ENV, workerIndex } from "./workers.ts";
 export type { PrimaryOptions, WorkerProcess } from "./workers.ts";

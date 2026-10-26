@@ -9,7 +9,7 @@ export interface ListenerContext {
   log: Logger;
 }
 
-const LISTENER = Symbol.for("quickservice.events.listener");
+const LISTENER = Symbol.for("quickservicets.events.listener");
 
 /** A listener declared by a file of `events/`. */
 export interface ListenerFile<P extends string = string> {

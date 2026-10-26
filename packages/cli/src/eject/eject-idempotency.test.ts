@@ -20,7 +20,7 @@ function filesOf(root: string): Record<string, string> {
 
 const post = (body: unknown, headers: Record<string, string> = {}) => ({ method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
 
-test("quickservice eject idempotency turns the native into features/idempotency/ and keys keep working", async () => {
+test("quickservicets eject idempotency turns the native into features/idempotency/ and keys keep working", async () => {
   const root = createLinkedProject(filesOf(example));
   const lines = await eject(root, "idempotency");
   expect(lines).toContain("features/idempotency/ now replaces the idempotency native.");

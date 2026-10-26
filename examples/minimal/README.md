@@ -4,10 +4,10 @@ Every native feature ships one folder here, named after its key (`examples/minim
 
 Each folder is a workspace:
 
-- `package.json` names the workspace and depends on `@quickservice/core` and `@quickservice/cli` with `workspace:*`;
+- `package.json` names the workspace and depends on `@quickservicets/core` and `@quickservicets/cli` with `workspace:*`;
 - `tsconfig.json` extends the repository's `tsconfig.base.json`;
-- `quickservice.config.ts` enables the feature (or relies on its default when the feature is enabled by default);
-- `tests/` holds the tests, which start the project on the memory adapter with `startTestService` from `@quickservice/cli/testing`.
+- `quickservicets.config.ts` enables the feature (or relies on its default when the feature is enabled by default);
+- `tests/` holds the tests, which start the project on the memory adapter with `startTestService` from `@quickservicets/cli/testing`.
 
 The `README.md` of a native's example has these second-level headings, in this order, each with at least one code sample or a line starting with `Not applicable:` that says why:
 

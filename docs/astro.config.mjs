@@ -9,7 +9,7 @@ export default defineConfig({
   image: { service: passthroughImageService() },
   integrations: [
     starlight({
-      title: "QuickService",
+      title: "QuickService.ts",
       description: "Backend services from TypeScript types, on Bun.",
       logo: { light: "./src/assets/logo-light.svg", dark: "./src/assets/logo-dark.svg", replacesTitle: true },
       customCss: ["./src/styles/theme.css"],

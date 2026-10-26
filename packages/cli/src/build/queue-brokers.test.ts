@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { registerProjectFeatures } from "@quickservice/core";
+import { registerProjectFeatures } from "@quickservicets/core";
 import { run } from "../run.ts";
 import { createLinkedProject } from "../testing/project.ts";
 import { startTestService } from "../testing/service.ts";
@@ -8,7 +8,7 @@ import { build } from "./build.ts";
 afterEach(() => registerProjectFeatures([]));
 
 /** A broker of the test project: keeps what it receives in `globalThis.brokered`, defers transactional enqueues to the commit. */
-const TEST_BROKER = `import { afterCommit, type QueueBroker, type QueueBrokerContext, type QueueBrokerMessage } from "@quickservice/core";
+const TEST_BROKER = `import { afterCommit, type QueueBroker, type QueueBrokerContext, type QueueBrokerMessage } from "@quickservicets/core";
 export function memoryTestBroker(name = "memory-test"): QueueBroker {
   const received = (((globalThis as { brokered?: Record<string, QueueBrokerMessage[]> }).brokered ??= {})[name] = []);
   let ctx: QueueBrokerContext | undefined;
@@ -43,14 +43,14 @@ export function memoryTestBroker(name = "memory-test"): QueueBroker {
   };
 }
 `;
-const CONSUMER = `import { queue } from "@quickservice/core";
+const CONSUMER = `import { queue } from "@quickservicets/core";
 export default queue<{ to: string }>(({ payload }) => void ((globalThis as { consumed?: string[] }).consumed ??= []).push(payload.to));
 `;
 const ENDPOINTS = {
-  "endpoints/send/post.ts": `import type { ServiceRequest } from "@quickservice/core";
+  "endpoints/send/post.ts": `import type { ServiceRequest } from "@quickservicets/core";
 export default async (_repos: unknown, req: ServiceRequest) => req.queue.add("send-email", (await req.json()) as { to: string });
 `,
-  "endpoints/in-transaction/post.ts": `import type { Repositories, ServiceRequest } from "@quickservice/core";
+  "endpoints/in-transaction/post.ts": `import type { Repositories, ServiceRequest } from "@quickservicets/core";
 export default async (repos: Repositories, req: ServiceRequest) => {
   const { fail, to } = (await req.json()) as { fail: boolean; to: string };
   try {
@@ -76,7 +76,7 @@ describe("brokers", () => {
     g.consumed = [];
     const service = await startTestService({
       files: {
-        "quickservice.config.ts": `import { defineConfig, memoryAdapter } from "@quickservice/core";
+        "quickservicets.config.ts": `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 import { memoryTestBroker } from "./test-broker.ts";
 export default defineConfig({ database: memoryAdapter(), events: {}, queues: { broker: memoryTestBroker() } });
 `,
@@ -102,7 +102,7 @@ export default defineConfig({ database: memoryAdapter(), events: {}, queues: { b
   test("a broker that cannot join the transaction receives nothing for a rolled-back add, and the message after a commit", async () => {
     const service = await startTestService({
       files: {
-        "quickservice.config.ts": `import { defineConfig, memoryAdapter } from "@quickservice/core";
+        "quickservicets.config.ts": `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 import { memoryTestBroker } from "./test-broker.ts";
 export default defineConfig({ database: memoryAdapter(), queues: { broker: memoryTestBroker("deferring") } });
 `,
@@ -124,13 +124,13 @@ export default defineConfig({ database: memoryAdapter(), queues: { broker: memor
   test("queues.broker without start fails naming the missing method", async () => {
     await expect(
       startTestService({
-        files: { "quickservice.config.ts": `import { defineConfig, memoryAdapter } from "@quickservice/core";\nexport default defineConfig({ database: memoryAdapter(), queues: { broker: { enqueue() {} } as never } });\n` },
+        files: { "quickservicets.config.ts": `import { defineConfig, memoryAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: memoryAdapter(), queues: { broker: { enqueue() {} } as never } });\n` },
       }),
     ).rejects.toThrow(/Invalid queues\.broker: .*start/);
   });
 });
 
-const FEATURE = (key: string) => `import { defineFeature } from "@quickservice/core";
+const FEATURE = (key: string) => `import { defineFeature } from "@quickservicets/core";
 import { memoryTestBroker } from "../../test-broker.ts";
 export default defineFeature({
   key: "${key}",
@@ -145,7 +145,7 @@ describe("setBroker", () => {
   test("a project feature's setBroker replaces the database broker", async () => {
     const service = await startTestService({
       files: {
-        "quickservice.config.ts": `import { defineConfig, memoryAdapter } from "@quickservice/core";\nexport default defineConfig({ database: memoryAdapter(), queues: {}, rabbit: {} });\n`,
+        "quickservicets.config.ts": `import { defineConfig, memoryAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: memoryAdapter(), queues: {}, rabbit: {} });\n`,
         "test-broker.ts": TEST_BROKER,
         "features/rabbit/index.ts": FEATURE("rabbit"),
         "queues/send-email.ts": CONSUMER,
@@ -168,13 +168,13 @@ describe("setBroker", () => {
       "queues/send-email.ts": CONSUMER,
     };
     await expect(
-      startTestService({ files: { ...files, "quickservice.config.ts": `import { defineConfig, memoryAdapter } from "@quickservice/core";\nexport default defineConfig({ database: memoryAdapter(), queues: {}, rabbit: {}, kafka: {} });\n` } }),
+      startTestService({ files: { ...files, "quickservicets.config.ts": `import { defineConfig, memoryAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: memoryAdapter(), queues: {}, rabbit: {}, kafka: {} });\n` } }),
     ).rejects.toThrow("Queue broker set by kafka and rabbit; keep one");
     await expect(
       startTestService({
         files: {
           ...files,
-          "quickservice.config.ts": `import { defineConfig, memoryAdapter } from "@quickservice/core";\nimport { memoryTestBroker } from "./test-broker.ts";\nexport default defineConfig({ database: memoryAdapter(), queues: { broker: memoryTestBroker() }, rabbit: {} });\n`,
+          "quickservicets.config.ts": `import { defineConfig, memoryAdapter } from "@quickservicets/core";\nimport { memoryTestBroker } from "./test-broker.ts";\nexport default defineConfig({ database: memoryAdapter(), queues: { broker: memoryTestBroker() }, rabbit: {} });\n`,
         },
       }),
     ).rejects.toThrow("Queue broker set by queues.broker and rabbit; keep one");
@@ -184,7 +184,7 @@ describe("setBroker", () => {
 describe("optional methods", () => {
   test("queue dead with a broker without dead exits 1 naming the broker and the method", async () => {
     const root = createLinkedProject({
-      "quickservice.config.ts": `import { defineConfig, memoryAdapter } from "@quickservice/core";
+      "quickservicets.config.ts": `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 import { memoryTestBroker } from "./test-broker.ts";
 export default defineConfig({ database: memoryAdapter(), queues: { broker: memoryTestBroker("partial") }, logger: { info() {}, warn() {}, error() {} } });
 `,
@@ -203,10 +203,10 @@ export default defineConfig({ database: memoryAdapter(), queues: { broker: memor
   test("queues.retry with a broker without retry rejects naming the method", async () => {
     const service = await startTestService({
       files: {
-        "quickservice.config.ts": `import { defineConfig, memoryAdapter } from "@quickservice/core";\nimport { memoryTestBroker } from "./test-broker.ts";\nexport default defineConfig({ database: memoryAdapter(), queues: { broker: memoryTestBroker("plain") } });\n`,
+        "quickservicets.config.ts": `import { defineConfig, memoryAdapter } from "@quickservicets/core";\nimport { memoryTestBroker } from "./test-broker.ts";\nexport default defineConfig({ database: memoryAdapter(), queues: { broker: memoryTestBroker("plain") } });\n`,
         "test-broker.ts": TEST_BROKER,
         "queues/send-email.ts": CONSUMER,
-        "endpoints/retry/post.ts": `import { queues } from "@quickservice/core";
+        "endpoints/retry/post.ts": `import { queues } from "@quickservicets/core";
 export default async () => {
   try {
     await queues.retry("x");

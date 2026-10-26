@@ -1,4 +1,4 @@
-import { job } from "@quickservice/core";
+import { job } from "@quickservicets/core";
 
 /** Reads flags outside a request: for a given user, and anonymously. */
 export default job("@daily", (ctx) => ({

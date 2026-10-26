@@ -23,7 +23,7 @@ const get = async (service: TestService, path: string) => {
   return [response.status, (await response.json()) as Record<string, any>] as const;
 };
 
-test("quickservice eject health turns the native into features/health/ and the checks, details and draining keep working", async () => {
+test("quickservicets eject health turns the native into features/health/ and the checks, details and draining keep working", async () => {
   const root = createLinkedProject(filesOf(example));
   const lines = await eject(root, "health");
   expect(lines).toContain("features/health/ now replaces the health native.");

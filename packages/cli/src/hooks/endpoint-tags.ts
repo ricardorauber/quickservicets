@@ -1,4 +1,4 @@
-import type { HookCall, ParsedTags } from "@quickservice/core";
+import type { HookCall, ParsedTags } from "@quickservicets/core";
 import { applyFeatureTag } from "../entities/feature-tags.ts";
 import ts from "typescript";
 import { splitArgs } from "../entities/entity-tags.ts";

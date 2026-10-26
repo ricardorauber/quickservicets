@@ -214,7 +214,7 @@ describe("claiming", () => {
     });
 
     test("run a job once per tick", async () => {
-      const dir = mkdtempSync(join(tmpdir(), "quickservice-jobs-"));
+      const dir = mkdtempSync(join(tmpdir(), "quickservicets-jobs-"));
       dirs.push(dir);
       const path = join(dir, "data.db");
       const clock = fakeClock();

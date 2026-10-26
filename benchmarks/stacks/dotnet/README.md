@@ -33,7 +33,7 @@ project file) uses one heap per CPU. One `NpgsqlDataSource` pool of `DB_POOL_SIZ
 - Uploads are streamed with `MultipartReader`; only the `file` part is buffered, at most 1 MiB + 1 bytes.
 - Listens on `0.0.0.0:$PORT`; `SIGTERM` stops the host (5-second shutdown timeout).
 - Filter operators implemented: `eq`, `ne`, `in`, `nin` on every scalar field, plus `gt`, `gte`, `lt`, `lte` on
-  numbers and dates. The other QuickService operators (`contains`, `startsWith`, `exists`, `isNull`, the reference
+  numbers and dates. The other QuickService.ts operators (`contains`, `startsWith`, `exists`, `isNull`, the reference
   array ones) answer `Operator "<op>" is not allowed for this field`. Nested `fields` paths are not supported.
 
 ## Running on the host

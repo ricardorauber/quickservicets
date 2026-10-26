@@ -13,8 +13,8 @@ The samples come from the example project `examples/minimal/history`: a `Documen
 
 With `history: {}` (it needs [`events`](/guides/events/)), every create, update and delete of a covered entity stores one version, written by an `inTransaction` event listener inside the write's own transaction: a rolled-back write stores no version, and a version that cannot be written fails the write. Records changed indirectly, like those deleted by `@onDelete cascade`, cleared by `setNull`, pulled from reference arrays or touched by relation sync, get their versions too.
 
-```ts title="quickservice.config.ts"
-import { defineConfig, memoryAdapter } from "@quickservice/core";
+```ts title="quickservicets.config.ts"
+import { defineConfig, memoryAdapter } from "@quickservicets/core";
 
 export default defineConfig({
   database: memoryAdapter(),
@@ -52,7 +52,7 @@ Each version has:
 
 ## Tables
 
-Each covered entity gets a read-only system entity `<Entity>History`, stored in `<entity>_history` (`Document` → `document_history`, `OrderItem` → `order_item_history`) with a unique index on `entityId` and `version` and an index on `entityId` and `at`. It has no generated routes and no API docs; code reads it with `repos.documentHistory`. Run `quickservice migration add` after enabling the native or covering a new entity.
+Each covered entity gets a read-only system entity `<Entity>History`, stored in `<entity>_history` (`Document` → `document_history`, `OrderItem` → `order_item_history`) with a unique index on `entityId` and `version` and an index on `entityId` and `at`. It has no generated routes and no API docs; code reads it with `repos.documentHistory`. Run `quickservicets migration add` after enabling the native or covering a new entity.
 
 ## Actors
 
@@ -95,7 +95,7 @@ Versions are kept forever by default. Data-protection rules such as the LGPD or 
 history: { retention: "365d" }
 ```
 
-The daily job `history/prune` (one run across instances) deletes the versions older than the retention, in batches of 1000, logging `history.pruned` per entity and returning the counts as its result. The current version of a live record is always kept, so the last known state of every record survives; all versions of a deleted record go once they pass the retention. `quickservice history prune` does the same from the CLI, `--entity Document` limits it to one entity and `--dry-run` only prints what would be deleted.
+The daily job `history/prune` (one run across instances) deletes the versions older than the retention, in batches of 1000, logging `history.pruned` per entity and returning the counts as its result. The current version of a live record is always kept, so the last known state of every record survives; all versions of a deleted record go once they pass the retention. `quickservicets history prune` does the same from the CLI, `--entity Document` limits it to one entity and `--dry-run` only prints what would be deleted.
 
 ## Customization
 
@@ -126,7 +126,7 @@ export default async (repos: Repositories, req: ServiceRequest) => repos.documen
 ```
 
 7. A store: `store` replaces the tables with any object that has `write`, `list`, `get` and `prune`, such as one that archives versions to object storage; the build then adds no history tables.
-8. Eject: `quickservice eject history` copies the native into `features/history/` as a project feature that replaces it.
+8. Eject: `quickservicets eject history` copies the native into `features/history/` as a project feature that replaces it.
 
 Other features reach the native with `ctx.feature("history")`, which offers `beforeVersion(fn)`, `afterVersion(fn)` and `versions(entity, id, { limit, offset })`.
 
@@ -136,7 +136,7 @@ Writes of covered entities read the record before the write (the events native d
 
 ## Removing history
 
-Remove `history` from the config (or set `history: false`) and run `quickservice migration add`: the history tables are no longer part of the model, so the migration drops them with their versions. Export what you must keep first.
+Remove `history` from the config (or set `history: false`) and run `quickservicets migration add`: the history tables are no longer part of the model, so the migration drops them with their versions. Export what you must keep first.
 
 ## See also
 

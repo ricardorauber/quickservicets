@@ -1,4 +1,4 @@
-import { definePreHook, HttpError } from "@quickservice/core"
+import { definePreHook, HttpError } from "@quickservicets/core"
 import { grantedPermissions } from "../lib/permissions"
 
 /**

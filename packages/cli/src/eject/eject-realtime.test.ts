@@ -27,7 +27,7 @@ async function firstMessage(response: Response): Promise<string> {
   return text.slice(0, text.indexOf("\n\n"));
 }
 
-test("quickservice eject realtime turns the native into features/realtime/, and streams and change streams keep working", async () => {
+test("quickservicets eject realtime turns the native into features/realtime/, and streams and change streams keep working", async () => {
   const root = createLinkedProject(filesOf(example));
   const lines = await eject(root, "realtime");
   expect(lines).toContain("features/realtime/ now replaces the realtime native.");

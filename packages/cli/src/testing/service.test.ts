@@ -2,13 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startTestService } from "@quickservice/cli/testing";
+import { startTestService } from "@quickservicets/cli/testing";
 
-const CONFIG = (keys = "") => `import { defineConfig, memoryAdapter } from "@quickservice/core";
+const CONFIG = (keys = "") => `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter()${keys ? `, ${keys}` : ""} });
 `;
 const POST = "export type Post = { title: string };\n";
-const temporaryProjects = () => readdirSync(tmpdir()).filter((name) => name.startsWith("quickservice-test-"));
+const temporaryProjects = () => readdirSync(tmpdir()).filter((name) => name.startsWith("quickservicets-test-"));
 const failure = async (work: () => Promise<unknown>): Promise<Error> => {
   try {
     await work();
@@ -17,7 +17,7 @@ const failure = async (work: () => Promise<unknown>): Promise<Error> => {
   }
   throw new Error("expected a failure");
 };
-const ticker = (clear: boolean) => `import { defineFeature } from "@quickservice/core";
+const ticker = (clear: boolean) => `import { defineFeature } from "@quickservicets/core";
 export default defineFeature({ docs: { summary: "Test native." }, key: "ticker", setup(ctx) {
   let timer: ReturnType<typeof setInterval> | undefined;
   ctx.app.onStart(() => { timer = setInterval(() => {}, 1000); });
@@ -27,7 +27,7 @@ export default defineFeature({ docs: { summary: "Test native." }, key: "ticker",
 
 describe("starting a project", () => {
   test("fetch calls the app without a port and repos reads what it wrote", async () => {
-    const service = await startTestService({ files: { "quickservice.config.ts": CONFIG(), "entities/Post.ts": POST } });
+    const service = await startTestService({ files: { "quickservicets.config.ts": CONFIG(), "entities/Post.ts": POST } });
     try {
       const created = await service.fetch("/posts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "Hi" }) });
       expect(created.status).toBe(201);
@@ -41,12 +41,12 @@ describe("starting a project", () => {
   });
 
   test("the environment reaches the build and the service, and the database is always the memory adapter", async () => {
-    const feature = `import { defineFeature, object, string } from "@quickservice/core";
+    const feature = `import { defineFeature, object, string } from "@quickservicets/core";
 export default defineFeature({ docs: { summary: "Test native." }, key: "greeting", options: object({ text: string().default("Hi") }), setup(ctx) {
   ctx.app.route("GET", "/greeting", () => ({ text: ctx.options.text }));
 } });
 `;
-    const files = { "quickservice.config.ts": CONFIG().replace("memoryAdapter()", 'sqliteAdapter({ path: "never-created.db" })').replace("memoryAdapter }", "memoryAdapter, sqliteAdapter }"), "features/greeting/index.ts": feature };
+    const files = { "quickservicets.config.ts": CONFIG().replace("memoryAdapter()", 'sqliteAdapter({ path: "never-created.db" })').replace("memoryAdapter }", "memoryAdapter, sqliteAdapter }"), "features/greeting/index.ts": feature };
     const service = await startTestService({ files, env: { QS_GREETING_ENABLED: "true", QS_GREETING_TEXT: "Hello" } });
     try {
       expect(await (await service.fetch("/greeting")).json()).toEqual({ text: "Hello" });
@@ -59,13 +59,13 @@ export default defineFeature({ docs: { summary: "Test native." }, key: "greeting
 
 describe("stopping", () => {
   test("stop removes the folder after the shutdown sequence", async () => {
-    const service = await startTestService({ files: { "quickservice.config.ts": CONFIG("ticker: {}"), "features/ticker/index.ts": ticker(true) } });
+    const service = await startTestService({ files: { "quickservicets.config.ts": CONFIG("ticker: {}"), "features/ticker/index.ts": ticker(true) } });
     await service.stop();
     expect(existsSync(service.root)).toBe(false);
   });
 
   test("a timer a feature started in onStart and never cleared fails stop naming the feature and phase", async () => {
-    const service = await startTestService({ files: { "quickservice.config.ts": CONFIG("ticker: {}"), "features/ticker/index.ts": ticker(false) } });
+    const service = await startTestService({ files: { "quickservicets.config.ts": CONFIG("ticker: {}"), "features/ticker/index.ts": ticker(false) } });
     expect((await failure(() => service.stop())).message).toBe("A timer created by ticker in onStart is still active after onStop");
     expect(existsSync(service.root)).toBe(false);
     expect(globalThis.setInterval.name).not.toBe("");
@@ -75,15 +75,15 @@ describe("stopping", () => {
 describe("failures", () => {
   test("a build error rejects with the build output and leaves no folder", async () => {
     const before = temporaryProjects();
-    const error = await failure(() => startTestService({ files: { "quickservice.config.ts": CONFIG(), "entities/Post.ts": "export type Post = { title: Strng };\n" } }));
+    const error = await failure(() => startTestService({ files: { "quickservicets.config.ts": CONFIG(), "entities/Post.ts": "export type Post = { title: Strng };\n" } }));
     expect(error.message).toBe('Build failed:\nentities/Post.ts: field "title" has unsupported type "Strng"');
     expect(temporaryProjects()).toEqual(before);
   });
 
   test("a startup error rejects with it and leaves no folder", async () => {
     const before = temporaryProjects();
-    const broken = 'import { defineFeature } from "@quickservice/core";\nexport default defineFeature({ docs: { summary: "Test native." }, key: "broken", setup() { throw new Error("no key"); } });\n';
-    const error = await failure(() => startTestService({ files: { "quickservice.config.ts": CONFIG("broken: {}"), "features/broken/index.ts": broken } }));
+    const broken = 'import { defineFeature } from "@quickservicets/core";\nexport default defineFeature({ docs: { summary: "Test native." }, key: "broken", setup() { throw new Error("no key"); } });\n';
+    const error = await failure(() => startTestService({ files: { "quickservicets.config.ts": CONFIG("broken: {}"), "features/broken/index.ts": broken } }));
     expect(error.message).toBe("Startup failed: broken failed in setup: no key");
     expect(temporaryProjects()).toEqual(before);
   });
@@ -102,7 +102,7 @@ describe("minimal example workspaces", () => {
       .sort((a, b) => a.name.localeCompare(b.name));
     for (const folder of folders) {
       const pkg = JSON.parse(readFileSync(join(minimal, folder.name, "package.json"), "utf8")) as { dependencies: Record<string, string> };
-      expect(pkg.dependencies).toMatchObject({ "@quickservice/core": "workspace:*", "@quickservice/cli": "workspace:*" });
+      expect(pkg.dependencies).toMatchObject({ "@quickservicets/core": "workspace:*", "@quickservicets/cli": "workspace:*" });
     }
     if (folders.length === 0) return;
     const child = Bun.spawn(["bun", "test", `examples/minimal/${folders[0]!.name}`], { cwd: repository, stdout: "pipe", stderr: "pipe" });

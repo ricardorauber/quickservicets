@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { startTestService } from "@quickservice/cli/testing";
+import { startTestService } from "@quickservicets/cli/testing";
 
 const root = join(import.meta.dir, "..");
 
 /** The example's own files, as `startTestService` takes them. */
 function exampleFiles(): Record<string, string> {
-  const files: Record<string, string> = { "quickservice.config.ts": readFileSync(join(root, "quickservice.config.ts"), "utf8") };
+  const files: Record<string, string> = { "quickservicets.config.ts": readFileSync(join(root, "quickservicets.config.ts"), "utf8") };
   for (const entry of readdirSync(join(root, "entities"), { recursive: true, withFileTypes: true })) {
     if (entry.isFile()) files[relative(root, join(entry.parentPath, entry.name))] = readFileSync(join(entry.parentPath, entry.name), "utf8");
   }
@@ -41,10 +41,10 @@ test("every write of a document is a version over both history routes, without i
   }
 });
 
-test("quickservice history prune --dry-run prints a count per entity", async () => {
+test("quickservicets history prune --dry-run prints a count per entity", async () => {
   const service = await startTestService({ files: exampleFiles() });
   try {
-    const cli = join(service.root, "node_modules/@quickservice/cli/src/index.ts");
+    const cli = join(service.root, "node_modules/@quickservicets/cli/src/index.ts");
     const result = Bun.spawnSync(["bun", cli, "history", "prune", "--dry-run"], { cwd: service.root, env: { ...process.env, QS_HISTORY_RETENTION: "30d" }, stdout: "pipe", stderr: "pipe" });
     expect(result.exitCode).toBe(0);
     expect(result.stdout.toString()).toMatch(/^Document: \d+ versions would be deleted$/m);

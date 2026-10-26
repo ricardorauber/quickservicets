@@ -1,14 +1,14 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { registerProjectFeatures, startService, type LogEntry, type RunningService, type ServiceConfig } from "@quickservice/core";
+import { registerProjectFeatures, startService, type LogEntry, type RunningService, type ServiceConfig } from "@quickservicets/core";
 import { createLinkedProject } from "../testing/project.ts";
 import { build } from "./build.ts";
 
-const config = (keys = "", database = "memoryAdapter()") => `import { defineConfig, memoryAdapter, postgresAdapter } from "@quickservice/core";
+const config = (keys = "", database = "memoryAdapter()") => `import { defineConfig, memoryAdapter, postgresAdapter } from "@quickservicets/core";
 export default defineConfig({ database: ${database}${keys ? `, ${keys}` : ""} });
 `;
-const feature = (key: string, body: string, extra = "") => `import { defineFeature } from "@quickservice/core";
+const feature = (key: string, body: string, extra = "") => `import { defineFeature } from "@quickservicets/core";
 export default defineFeature({ docs: { summary: "Test native." }, key: "${key}", ${extra} async setup(ctx) {
 ${body}
 } });
@@ -47,10 +47,10 @@ afterEach(async () => {
 
 /** Builds the project and starts it in this process with `startService`, recording log entries and exit codes. */
 async function start(files: Record<string, string>, keys: string, env: Record<string, string> = {}, database?: string): Promise<Started> {
-  const root = createLinkedProject({ "quickservice.config.ts": config(keys, database), ...files });
+  const root = createLinkedProject({ "quickservicets.config.ts": config(keys, database), ...files });
   await build(root);
   const generated = join(root, ".generated");
-  const projectConfig = (await import(join(root, "quickservice.config.ts"))).default as ServiceConfig;
+  const projectConfig = (await import(join(root, "quickservicets.config.ts"))).default as ServiceConfig;
   const { models } = await import(join(generated, "models.ts"));
   const { crudRoutes, endpoints, hooks } = await import(join(generated, "routes.ts"));
   const { jobs } = await import(join(generated, "jobs.ts"));
@@ -67,7 +67,7 @@ async function start(files: Record<string, string>, keys: string, env: Record<st
   const handlers = new Map<string, () => void>();
   const target = { once: (signal: string, handler: () => void) => void handlers.set(signal, handler), exit: (code: number) => void exits.push(code) };
   const port = freePort();
-  const log = spyOn(console, "log").mockImplementation((line: unknown) => void events.push(String(line).startsWith("quickservice listening") ? "listening" : String(line)));
+  const log = spyOn(console, "log").mockImplementation((line: unknown) => void events.push(String(line).startsWith("QuickService.ts listening") ? "listening" : String(line)));
   let service: RunningService | undefined;
   try {
     service = await startService({
@@ -113,7 +113,7 @@ describe("startService", () => {
   });
 
   test("the generated server.ts is a few lines calling startService", async () => {
-    const root = createLinkedProject({ "quickservice.config.ts": config() });
+    const root = createLinkedProject({ "quickservicets.config.ts": config() });
     await build(root);
     const source = readFileSync(join(root, ".generated/server.ts"), "utf8");
     expect(source).toContain("await startService({ projectConfig, models, crudRoutes, endpoints, hooks, jobs, openApi, features, featureFolders, generatedDir: import.meta.dir });");
@@ -141,7 +141,7 @@ describe("setup context", () => {
     ctx.logger.info({ message: "start probe", seen, post: post.title, server: typeof server.fetch });
   });`,
       'options: object({ level: integer().default(2) }), folders: { notes: { dir: "notes", description: "Notes." } },',
-    ).replace('import { defineFeature } from "@quickservice/core";', 'import { defineFeature, integer, object } from "@quickservice/core";');
+    ).replace('import { defineFeature } from "@quickservicets/core";', 'import { defineFeature, integer, object } from "@quickservicets/core";');
     const started = await start({ "features/probe/index.ts": probe, "entities/Post.ts": "export type Post = { title: string };\n", "notes/first.ts": "export default 1;\n" }, "probe: {}");
     const entry = started.entries.find((item) => item.message === "start probe")!;
     expect(entry.seen).toMatchObject({ options: { level: 2, enabled: true }, models: ["Post", "File", "Media"], folders: ["first"], worker: { index: 0, count: 1, runsScheduledWork: true } });

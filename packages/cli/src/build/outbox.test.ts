@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { addOutboxPatterns, events, readOutbox, tailOutbox, transaction, type EntityModel, type OutboxRecord } from "@quickservice/core";
+import { addOutboxPatterns, events, readOutbox, tailOutbox, transaction, type EntityModel, type OutboxRecord } from "@quickservicets/core";
 import { cleanOutbox } from "../../../core/src/features/events/outbox.ts";
 import { addMigration } from "../migrations/add.ts";
 import { createLinkedProject } from "../testing/project.ts";
 import { startTestService } from "../testing/service.ts";
 import { build } from "./build.ts";
 
-const config = (events: string, adapter = "memoryAdapter()", extra = "") => `import { defineConfig, memoryAdapter, sqliteAdapter, postgresAdapter, mongodbAdapter } from "@quickservice/core";
+const config = (events: string, adapter = "memoryAdapter()", extra = "") => `import { defineConfig, memoryAdapter, sqliteAdapter, postgresAdapter, mongodbAdapter } from "@quickservicets/core";
 export default defineConfig({ database: ${adapter}, events: ${events}${extra} });
 `;
 const ENTITIES = {
@@ -28,7 +28,7 @@ const types = async () => (await readOutbox({ limit: 1000 })).map((record) => re
 
 describe("the model", () => {
   test("the outbox adds the read-only system entity OutboxEvent, without routes or API docs", async () => {
-    const service = await startTestService({ files: { "quickservice.config.ts": config("{ outbox: true }"), ...ENTITIES } });
+    const service = await startTestService({ files: { "quickservicets.config.ts": config("{ outbox: true }"), ...ENTITIES } });
     try {
       const models = (await import(join(service.root, ".generated/models.ts"))).models as EntityModel[];
       expect(models.find((model) => model.key === "OutboxEvent")).toMatchObject({ system: true, name: "outbox-events", repoKey: "outboxEvents", tableName: "outbox_events" });
@@ -43,7 +43,7 @@ describe("the model", () => {
   const adapters = { sqlite: 'sqliteAdapter({ path: ":memory:" })', postgres: 'postgresAdapter({ url: "postgres://localhost/none" })' };
   for (const [name, adapter] of Object.entries(adapters)) {
     test(`${name}: migration add creates the outbox_events table`, async () => {
-      const root = createLinkedProject({ "quickservice.config.ts": config("{ outbox: true }", adapter), ...ENTITIES });
+      const root = createLinkedProject({ "quickservicets.config.ts": config("{ outbox: true }", adapter), ...ENTITIES });
       const created = readFileSync(join(root, (await addMigration(root, "Initial", new Date(Date.UTC(2026, 0, 1)))).file), "utf8");
       expect(created).toMatch(/CREATE TABLE \\?[`"](\{\{default_schema\}\})?outbox_events/);
       expect(created).toMatch(/outbox_events_type_at|type", "at"|"type","at"/);
@@ -51,7 +51,7 @@ describe("the model", () => {
   }
 
   test("mongodb: migration add creates the outbox indexes", async () => {
-    const root = createLinkedProject({ "quickservice.config.ts": config("{ outbox: true }", 'mongodbAdapter({ url: "mongodb://localhost/none", database: "x" })'), ...ENTITIES });
+    const root = createLinkedProject({ "quickservicets.config.ts": config("{ outbox: true }", 'mongodbAdapter({ url: "mongodb://localhost/none", database: "x" })'), ...ENTITIES });
     const created = readFileSync(join(root, (await addMigration(root, "Initial", new Date(Date.UTC(2026, 0, 1)))).file), "utf8");
     // MongoDB names collections after the table name, like job_runs.
     expect(created).toContain('collection("outbox_events").createIndex({"type":1,"at":1}');
@@ -59,11 +59,11 @@ describe("the model", () => {
   });
 
   test("without the outbox the model has no OutboxEvent and writes store nothing", async () => {
-    const root = createLinkedProject({ "quickservice.config.ts": config("{}"), ...ENTITIES });
+    const root = createLinkedProject({ "quickservicets.config.ts": config("{}"), ...ENTITIES });
     await build(root);
     const models = (await import(join(root, ".generated/models.ts"))).models as EntityModel[];
     expect(models.some((model) => model.key === "OutboxEvent")).toBe(false);
-    const service = await startTestService({ files: { "quickservice.config.ts": config("{}"), ...ENTITIES } });
+    const service = await startTestService({ files: { "quickservicets.config.ts": config("{}"), ...ENTITIES } });
     try {
       expect((await service.fetch("/users", post({ name: "a" }))).status).toBe(201);
       expect((await failure(() => readOutbox())).message).toContain("The outbox is not enabled");
@@ -75,7 +75,7 @@ describe("the model", () => {
 
 describe("storing events", () => {
   test("a write stores its event in its transaction; a rolled-back transaction stores none", async () => {
-    const service = await startTestService({ files: { "quickservice.config.ts": config("{ outbox: true }"), ...ENTITIES } });
+    const service = await startTestService({ files: { "quickservicets.config.ts": config("{ outbox: true }"), ...ENTITIES } });
     try {
       const created = (await (await service.fetch("/users", post({ name: "a" }))).json()) as { id: string };
       const [row] = await readOutbox();
@@ -95,7 +95,7 @@ describe("storing events", () => {
   });
 
   test("outbox.events filters by pattern; custom events outside a transaction are stored; other natives add patterns", async () => {
-    const service = await startTestService({ files: { "quickservice.config.ts": config('{ outbox: { events: ["order.*", "invoice.*"] } }'), ...ENTITIES } });
+    const service = await startTestService({ files: { "quickservicets.config.ts": config('{ outbox: { events: ["order.*", "invoice.*"] } }'), ...ENTITIES } });
     try {
       await service.fetch("/orders", post({ item: "x" }));
       await service.fetch("/users", post({ name: "a" }));
@@ -110,7 +110,7 @@ describe("storing events", () => {
   });
 
   test("a failing insert fails the write", async () => {
-    const service = await startTestService({ files: { "quickservice.config.ts": config("{ outbox: true }"), ...ENTITIES } });
+    const service = await startTestService({ files: { "quickservicets.config.ts": config("{ outbox: true }"), ...ENTITIES } });
     try {
       const { adapter } = (await import("../../../core/src/features/events/outbox.ts")).outboxStore();
       const insert = adapter.insert;
@@ -126,7 +126,7 @@ describe("storing events", () => {
 
 describe("reading", () => {
   test("readOutbox pages in id order after a cursor and filters by type", async () => {
-    const service = await startTestService({ files: { "quickservice.config.ts": config("{ outbox: true }"), ...ENTITIES } });
+    const service = await startTestService({ files: { "quickservicets.config.ts": config("{ outbox: true }"), ...ENTITIES } });
     try {
       for (const name of ["a", "b", "c", "d"]) await service.fetch("/users", post({ name }));
       await service.fetch("/orders", post({ item: "x" }));
@@ -141,7 +141,7 @@ describe("reading", () => {
   });
 
   test("tailOutbox delivers late commits behind its cursor exactly once", async () => {
-    const service = await startTestService({ files: { "quickservice.config.ts": config("{ outbox: true }"), ...ENTITIES } });
+    const service = await startTestService({ files: { "quickservicets.config.ts": config("{ outbox: true }"), ...ENTITIES } });
     try {
       const received: OutboxRecord[] = [];
       const { adapter, model } = (await import("../../../core/src/features/events/outbox.ts")).outboxStore();
@@ -168,7 +168,7 @@ describe("reading", () => {
 
 describe("retention", () => {
   test("rows past the retention are deleted, newer ones kept, and QS_EVENTS_OUTBOX_RETENTION shortens it", async () => {
-    const service = await startTestService({ files: { "quickservice.config.ts": config("{ outbox: true }"), ...ENTITIES } });
+    const service = await startTestService({ files: { "quickservicets.config.ts": config("{ outbox: true }"), ...ENTITIES } });
     try {
       const { adapter, model } = (await import("../../../core/src/features/events/outbox.ts")).outboxStore();
       const day = 86_400_000;
@@ -183,9 +183,9 @@ describe("retention", () => {
     } finally {
       await service.stop();
     }
-    const shortened = await startTestService({ files: { "quickservice.config.ts": config("{ outbox: true }"), ...ENTITIES }, env: { QS_EVENTS_OUTBOX_RETENTION: "1d" } });
+    const shortened = await startTestService({ files: { "quickservicets.config.ts": config("{ outbox: true }"), ...ENTITIES }, env: { QS_EVENTS_OUTBOX_RETENTION: "1d" } });
     try {
-      const { eventsFeature } = await import("@quickservice/core");
+      const { eventsFeature } = await import("@quickservicets/core");
       expect(eventsFeature.options().outbox.retention).toBe("1d");
     } finally {
       await shortened.stop();

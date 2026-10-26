@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { boolean, defineFeature, duration, integer, list, loadConfig, number, object, oneOf, registerNative, secret, size, string, url } from "@quickservice/core";
+import { boolean, defineFeature, duration, integer, list, loadConfig, number, object, oneOf, registerNative, secret, size, string, url } from "@quickservicets/core";
 import ts from "typescript";
 import { clearEnvValues } from "../../../core/src/env-vars.ts";
 import { unregisterNative } from "../../../core/src/features.ts";
@@ -9,13 +9,13 @@ import { createLinkedProject } from "../testing/project.ts";
 import { build } from "./build.ts";
 import { envVarsLines, optionValueType } from "./generate-types.ts";
 
-const CONFIG = `import { defineConfig, integer, memoryAdapter, secret, url } from "@quickservice/core";
+const CONFIG = `import { defineConfig, integer, memoryAdapter, secret, url } from "@quickservicets/core";
 export default defineConfig({
   database: memoryAdapter(),
   env: { DATABASE_URL: url().protocols(["postgres"]), STRIPE_KEY: secret(), REPORT_HOUR: integer().min(0).max(23).default(6) },
 });
 `;
-const REPORT = `import { env, type Endpoint } from "@quickservice/core";
+const REPORT = `import { env, type Endpoint } from "@quickservicets/core";
 
 /** @summary Next report hour */
 const handler: Endpoint<unknown, { next: number }> = () => ({ next: env.REPORT_HOUR + 1 });
@@ -23,7 +23,7 @@ const handler: Endpoint<unknown, { next: number }> = () => ({ next: env.REPORT_H
 export default handler;
 `;
 const project = (files: Record<string, string> = {}) =>
-  createLinkedProject({ "quickservice.config.ts": CONFIG, "entities/User.ts": "export type User = { email: string };\n", ...files });
+  createLinkedProject({ "quickservicets.config.ts": CONFIG, "entities/User.ts": "export type User = { email: string };\n", ...files });
 const variables = { DATABASE_URL: "postgres://localhost/app", STRIPE_KEY: "sk_test_1" };
 
 function typeErrors(root: string, source: string): string[] {
@@ -80,7 +80,7 @@ describe("generated EnvVars", () => {
       typeErrors(
         root,
         `import "./.generated/types.ts";
-import { env } from "@quickservice/core";
+import { env } from "@quickservicets/core";
 export const hour: number = env.REPORT_HOUR;
 // @ts-expect-error only declared variables exist
 export const nope = env.NOPE;
@@ -125,24 +125,24 @@ export const text: string = env.REPORT_HOUR;
     const root = project();
     await withVariables(variables, () => build(root));
     expect(readFileSync(join(root, ".generated/types.ts"), "utf8")).toContain("    EXAMPLE_API_URL: string | undefined;");
-    const conflicting = project({ "quickservice.config.ts": CONFIG.replace("REPORT_HOUR:", "EXAMPLE_API_URL: integer(), REPORT_HOUR:") });
+    const conflicting = project({ "quickservicets.config.ts": CONFIG.replace("REPORT_HOUR:", "EXAMPLE_API_URL: integer(), REPORT_HOUR:") });
     await expect(withVariables(variables, () => build(conflicting))).rejects.toThrow("EXAMPLE_API_URL is declared as integer by the project and as url by example");
   });
 
   test("reading env in the config file fails with how to fix it", async () => {
     clearEnvValues();
     const root = project({
-      "quickservice.config.ts": `import { defineConfig, env, memoryAdapter } from "@quickservice/core";
+      "quickservicets.config.ts": `import { defineConfig, env, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter(), server: { publicUrl: String(env.DATABASE_URL) } });
 `,
     });
-    await expect(loadConfig(root, {})).rejects.toThrow("env.DATABASE_URL was read before the configuration was resolved; use process.env inside quickservice.config.ts");
+    await expect(loadConfig(root, {})).rejects.toThrow("env.DATABASE_URL was read before the configuration was resolved; use process.env inside quickservicets.config.ts");
   });
 
   test("a project without env keeps its types, with an empty EnvVars", async () => {
-    const root = createLinkedProject({ "quickservice.config.ts": 'import { defineConfig, memoryAdapter } from "@quickservice/core";\nexport default defineConfig({ database: memoryAdapter() });\n', "entities/User.ts": "export type User = { email: string };\n" });
+    const root = createLinkedProject({ "quickservicets.config.ts": 'import { defineConfig, memoryAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: memoryAdapter() });\n', "entities/User.ts": "export type User = { email: string };\n" });
     await build(root);
     const types = readFileSync(join(root, ".generated/types.ts"), "utf8");
-    expect(types).toContain('declare module "@quickservice/core" {\n  interface Repositories extends GeneratedRepositories {}\n  interface EnvVars {}\n  interface EventMap {');
+    expect(types).toContain('declare module "@quickservicets/core" {\n  interface Repositories extends GeneratedRepositories {}\n  interface EnvVars {}\n  interface EventMap {');
   });
 });

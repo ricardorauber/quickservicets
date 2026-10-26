@@ -13,7 +13,7 @@ import {
   UniqueViolationError,
   type DatabaseAdapter,
   type EntityModel,
-} from "@quickservice/core";
+} from "@quickservicets/core";
 import { MongoClient } from "mongodb";
 import ts from "typescript";
 import { build } from "../build/build.ts";
@@ -23,7 +23,7 @@ import { addMigration } from "../migrations/add.ts";
 import { migrate } from "../migrations/migrate.ts";
 import { createLinkedProject, createProject, MEMORY_CONFIG } from "../testing/project.ts";
 
-const JOB = 'import { job } from "@quickservice/core";\nexport default job("@daily", async () => 1);\n';
+const JOB = 'import { job } from "@quickservicets/core";\nexport default job("@daily", async () => 1);\n';
 const at = (seconds: number) => new Date(Date.UTC(2026, 9, 15, 12, 0, seconds));
 const silent = { info() {}, warn() {}, error() {} };
 
@@ -86,7 +86,7 @@ describe("JobRun model", () => {
 });
 
 const sqlConfig = (adapter: "sqlite" | "postgres", target: string) =>
-  `import { defineConfig, ${adapter}Adapter } from "@quickservice/core";\nexport default defineConfig({ database: ${adapter}Adapter(${adapter === "sqlite" ? `{ path: ${JSON.stringify(target)} }` : `{ url: ${JSON.stringify(target)} }`}) });\n`;
+  `import { defineConfig, ${adapter}Adapter } from "@quickservicets/core";\nexport default defineConfig({ database: ${adapter}Adapter(${adapter === "sqlite" ? `{ path: ${JSON.stringify(target)} }` : `{ url: ${JSON.stringify(target)} }`}) });\n`;
 
 describe("model inclusion", () => {
   test("only projects with jobs get JobRun", () => {
@@ -104,18 +104,18 @@ describe("model inclusion", () => {
 
   test.each(["sqlite", "postgres"] as const)("migration add creates the %s table only with jobs", async (adapter) => {
     const config = sqlConfig(adapter, adapter === "sqlite" ? ":memory:" : "postgres://localhost/none");
-    const withJobs = createLinkedProject({ "quickservice.config.ts": config, "jobs/nightly.ts": JOB });
+    const withJobs = createLinkedProject({ "quickservicets.config.ts": config, "jobs/nightly.ts": JOB });
     const source = readFileSync(join(withJobs, (await addMigration(withJobs, "Initial", at(0))).file), "utf8");
     expect(source).toMatch(/CREATE TABLE \\?[`"](\{\{default_schema\}\})?job_runs/);
     expect(source).toMatch(/CREATE UNIQUE INDEX \\?[`"](\{\{default_schema\}\})?job_runs_job_scheduled_at_attempt_uq\\?[`"] ON .*\(\\?[`"]job\\?[`"],\\?[`"]scheduled_at\\?[`"],\\?[`"]attempt\\?[`"]\)/);
     expect(source).toMatch(/CREATE INDEX \\?[`"](\{\{default_schema\}\})?job_runs_job_started_at_idx/);
-    const without = createLinkedProject({ "quickservice.config.ts": config, "entities/User.ts": "export type User = { email: string }" });
+    const without = createLinkedProject({ "quickservicets.config.ts": config, "entities/User.ts": "export type User = { email: string }" });
     expect(readFileSync(join(without, (await addMigration(without, "Initial", at(0))).file), "utf8")).not.toContain("job_runs");
   });
 
   test("the SQLite table enforces the unique index", async () => {
-    const root = createLinkedProject({ "jobs/nightly.ts": JOB, "quickservice.config.ts": "" });
-    writeFileSync(join(root, "quickservice.config.ts"), sqlConfig("sqlite", join(root, "data.db")));
+    const root = createLinkedProject({ "jobs/nightly.ts": JOB, "quickservicets.config.ts": "" });
+    writeFileSync(join(root, "quickservicets.config.ts"), sqlConfig("sqlite", join(root, "data.db")));
     await addMigration(root, "Initial", at(0));
     expect((await migrate(root)).applied).toEqual(["20261015120000_Initial"]);
     const models = parseProjectEntities(root);
@@ -131,7 +131,7 @@ describe("model inclusion", () => {
     const admin = new SQL(postgresUrl!);
     await admin.unsafe("drop schema if exists public cascade; create schema public;");
     await admin.close();
-    const root = createLinkedProject({ "quickservice.config.ts": sqlConfig("postgres", postgresUrl!), "jobs/nightly.ts": JOB });
+    const root = createLinkedProject({ "quickservicets.config.ts": sqlConfig("postgres", postgresUrl!), "jobs/nightly.ts": JOB });
     await addMigration(root, "Initial", at(0));
     expect((await migrate(root)).applied).toEqual(["20261015120000_Initial"]);
     const models = parseProjectEntities(root);
@@ -146,7 +146,7 @@ describe("model inclusion", () => {
   (mongoUrl ? test : test.skip)("MongoDB migrations create the indexes", async () => {
     const database = `ss_jobs_${Bun.randomUUIDv7().replaceAll("-", "")}`;
     const root = createLinkedProject({
-      "quickservice.config.ts": `import { defineConfig, mongodbAdapter } from "@quickservice/core";\nexport default defineConfig({ database: mongodbAdapter({ url: ${JSON.stringify(mongoUrl)}, database: ${JSON.stringify(database)} }) });\n`,
+      "quickservicets.config.ts": `import { defineConfig, mongodbAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: mongodbAdapter({ url: ${JSON.stringify(mongoUrl)}, database: ${JSON.stringify(database)} }) });\n`,
       "jobs/nightly.ts": JOB,
     });
     await addMigration(root, "Initial", at(0));
@@ -164,7 +164,7 @@ describe("model inclusion", () => {
   });
 
   test("no routes and no entry in the API docs", async () => {
-    const root = createLinkedProject({ "quickservice.config.ts": MEMORY_CONFIG, "entities/User.ts": "export type User = { email: string }", "jobs/nightly.ts": JOB });
+    const root = createLinkedProject({ "quickservicets.config.ts": MEMORY_CONFIG, "entities/User.ts": "export type User = { email: string }", "jobs/nightly.ts": JOB });
     await build(root);
     const { models } = (await import(join(root, ".generated/models.ts"))) as { models: EntityModel[] };
     const { crudRoutes } = (await import(join(root, ".generated/routes.ts"))) as { crudRoutes: { path: string }[] };
@@ -185,7 +185,7 @@ describe("model inclusion", () => {
 
 describe("read-only repository", () => {
   test("generated types offer only reads", async () => {
-    const root = createLinkedProject({ "quickservice.config.ts": MEMORY_CONFIG, "jobs/nightly.ts": JOB });
+    const root = createLinkedProject({ "quickservicets.config.ts": MEMORY_CONFIG, "jobs/nightly.ts": JOB });
     await build(root);
     const types = readFileSync(join(root, ".generated/types.ts"), "utf8");
     expect(types).toContain("jobRuns: ReadRepository<JobRun, JobRunReferences>;");

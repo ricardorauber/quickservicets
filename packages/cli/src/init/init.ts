@@ -26,7 +26,7 @@ const bunInstall: Install = async (workspaceRoot) => {
   }
 };
 
-const FRAMEWORK_PACKAGES = ["@quickservice/core", "@quickservice/cli"];
+const FRAMEWORK_PACKAGES = ["@quickservicets/core", "@quickservicets/cli"];
 
 function readJson(file: string): Record<string, unknown> | undefined {
   try {
@@ -43,10 +43,10 @@ function workspaceGlobs(manifest: Record<string, unknown>): string[] {
 }
 
 /**
- * The root of the QuickService monorepo the target folder belongs to: a parent whose `workspaces` match the
+ * The root of the QuickService.ts monorepo the target folder belongs to: a parent whose `workspaces` match the
  * folder and include both framework packages. Undefined anywhere else.
  */
-export function quickserviceWorkspace(target: string): string | undefined {
+export function quickservicetsWorkspace(target: string): string | undefined {
   for (let dir = dirname(resolve(target)); ; dir = dirname(dir)) {
     const manifest = readJson(join(dir, "package.json"));
     const globs = manifest ? workspaceGlobs(manifest) : [];
@@ -66,25 +66,25 @@ export function quickserviceWorkspace(target: string): string | undefined {
 }
 
 const CONFIGS: Record<DatabaseChoice, string> = {
-  postgres: `import { defineConfig, postgresAdapter } from "@quickservice/core";
+  postgres: `import { defineConfig, postgresAdapter } from "@quickservicets/core";
 
 export default defineConfig({
   database: postgresAdapter({ url: process.env.DATABASE_URL! }),
 });
 `,
-  mongodb: `import { defineConfig, mongodbAdapter } from "@quickservice/core";
+  mongodb: `import { defineConfig, mongodbAdapter } from "@quickservicets/core";
 
 export default defineConfig({
   database: mongodbAdapter({ url: process.env.DATABASE_URL!, database: process.env.DATABASE_NAME! }),
 });
 `,
-  sqlite: `import { defineConfig, sqliteAdapter } from "@quickservice/core";
+  sqlite: `import { defineConfig, sqliteAdapter } from "@quickservicets/core";
 
 export default defineConfig({
   database: sqliteAdapter({ path: process.env.DATABASE_PATH! }),
 });
 `,
-  memory: `import { defineConfig, memoryAdapter } from "@quickservice/core";
+  memory: `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 
 export default defineConfig({
   database: memoryAdapter(),
@@ -111,7 +111,7 @@ const TSCONFIG = `${JSON.stringify(
       allowImportingTsExtensions: true,
     },
     // TypeScript skips folders starting with a dot unless a pattern names their files.
-    include: ["quickservice.config.ts", "entities", "endpoints", "hooks", "features", ".generated/**/*.ts"],
+    include: ["quickservicets.config.ts", "entities", "endpoints", "hooks", "features", ".generated/**/*.ts"],
   },
   null,
   2,
@@ -124,14 +124,14 @@ function packageJson(name: string, dependency: string): string {
       private: true,
       type: "module",
       scripts: {
-        dev: "quickservice dev",
-        build: "quickservice build",
-        migrate: "quickservice migrate",
+        dev: "quickservicets dev",
+        build: "quickservicets build",
+        migrate: "quickservicets migrate",
         start: "bun .generated/server.ts",
       },
       dependencies: {
-        "@quickservice/core": dependency,
-        "@quickservice/cli": dependency,
+        "@quickservicets/core": dependency,
+        "@quickservicets/cli": dependency,
       },
     },
     null,
@@ -163,7 +163,7 @@ export const NEXT_STEPS = [
   "  3. Start the dev server: bun run dev",
 ];
 
-/** `quickservice init [dir] [--db <database>]` */
+/** `quickservicets init [dir] [--db <database>]` */
 export async function initProject(directory: string, options: InitOptions = {}): Promise<string[]> {
   const root = resolve(directory);
   if (existsSync(root) && readdirSync(root).length > 0) throw new BuildError("Directory is not empty");
@@ -171,10 +171,10 @@ export async function initProject(directory: string, options: InitOptions = {}):
     throw new BuildError(`Unknown database "${options.db}" (use ${DATABASES.join(", ")})`);
   }
   const db = (options.db ?? (await (options.prompt ?? terminalPrompt)("Which database?", DATABASES))) as DatabaseChoice;
-  const workspace = quickserviceWorkspace(root);
+  const workspace = quickservicetsWorkspace(root);
 
   const files: Record<string, string> = {
-    "quickservice.config.ts": CONFIGS[db],
+    "quickservicets.config.ts": CONFIGS[db],
     ".env": ENV[db],
     ".gitignore": GITIGNORE,
     "entities/.gitkeep": "",

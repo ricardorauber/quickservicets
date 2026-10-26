@@ -1,4 +1,4 @@
-import type { ServiceRequest, ServiceResponse } from "@quickservice/core";
+import type { ServiceRequest, ServiceResponse } from "@quickservicets/core";
 
 /** Charges a card; a retried request with the same Idempotency-Key gets the first charge back instead of a second one. */
 export default async (_repos: unknown, req: ServiceRequest, res: ServiceResponse) => {

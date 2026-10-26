@@ -32,7 +32,7 @@ test("the features/greeting sample of the project features guide builds and runs
     "features/greeting/middleware.ts",
     "features/greeting/request.ts",
     "greetings/formal.ts",
-    "quickservice.config.ts",
+    "quickservicets.config.ts",
   ]);
   const root = createLinkedProject(files);
   const summary = await build(root, {});

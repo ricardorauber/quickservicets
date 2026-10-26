@@ -1,12 +1,12 @@
 import { beforeAll, expect, test } from "bun:test";
 import { join } from "node:path";
-import { createRepositories, memoryAdapter, type Repositories } from "@quickservice/core";
+import { createRepositories, memoryAdapter, type Repositories } from "@quickservicets/core";
 import { seed } from "../scripts/seed.ts";
 
 const root = join(import.meta.dir, "..");
 
 beforeAll(() => {
-  const built = Bun.spawnSync(["bun", "run", "quickservice", "build"], { cwd: root, stdout: "pipe", stderr: "pipe" });
+  const built = Bun.spawnSync(["bun", "run", "quickservicets", "build"], { cwd: root, stdout: "pipe", stderr: "pipe" });
   if (built.exitCode !== 0) throw new Error(`build failed: ${built.stderr.toString()}${built.stdout.toString()}`);
 });
 

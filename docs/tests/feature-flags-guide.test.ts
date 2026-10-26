@@ -16,7 +16,7 @@ function titledSamples(markdown: string): Map<string, string> {
 describe("the feature flags guide", () => {
   test("its file samples are the example project's files", () => {
     const samples = titledSamples(guide);
-    expect([...samples.keys()].sort()).toEqual(["endpoints/checkout/post.ts", "endpoints/settings/get.ts", "features/demo-user/index.ts", "jobs/flag-report.ts", "quickservice.config.ts"]);
+    expect([...samples.keys()].sort()).toEqual(["endpoints/checkout/post.ts", "endpoints/settings/get.ts", "features/demo-user/index.ts", "jobs/flag-report.ts", "quickservicets.config.ts"]);
     for (const [path, code] of samples) expect(code).toBe(readFileSync(join(example, path), "utf8"));
   });
 
@@ -29,7 +29,7 @@ describe("the feature flags guide", () => {
       "## `@flag` and the 404 answer",
       "## Flags in jobs and queue consumers",
       "## The database source",
-      "quickservice flags set",
+      "quickservicets flags set",
       "## Environment overrides",
       "QS_FLAGS_RULES_CHECKOUT_V2",
       "## Function rules",

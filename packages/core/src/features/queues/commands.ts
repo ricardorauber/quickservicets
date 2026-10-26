@@ -53,7 +53,7 @@ export function age(ms: number): string {
 
 const list = defineCommand({
   name: "queue list",
-  usage: "quickservice queue list",
+  usage: "quickservicets queue list",
   description: "Prints each queue with its number of waiting, active, completed and dead messages, and the age of its oldest waiting message.",
   async run(ctx) {
     const stats = await (await connected(ctx)).stats();
@@ -70,7 +70,7 @@ const list = defineCommand({
 
 const dead = defineCommand({
   name: "queue dead",
-  usage: "quickservice queue dead <queue> [--limit <n>]",
+  usage: "quickservicets queue dead <queue> [--limit <n>]",
   description: "Prints the latest dead messages of a queue with their id, attempts, finish time and error message.",
   args: [{ name: "queue", required: true, description: "The queue name." }],
   flags: object({ limit: integer().min(1).default(20).describe("How many messages to print.") }),
@@ -87,7 +87,7 @@ const dead = defineCommand({
 
 const retry = defineCommand({
   name: "queue retry",
-  usage: "quickservice queue retry <message id> | quickservice queue retry --queue <name> --dead",
+  usage: "quickservicets queue retry <message id> | quickservicets queue retry --queue <name> --dead",
   description: "Moves dead messages back to waiting with attempt 0, one by id or every dead one of a queue, and prints how many.",
   args: [{ name: "id", description: "The id of one dead message." }],
   flags: object({

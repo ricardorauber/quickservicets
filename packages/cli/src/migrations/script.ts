@@ -1,4 +1,4 @@
-import { loadConfig, SQLITE_DEFAULT_SCHEMA_TOKEN, sqliteDefaultPrefix, type MigrationContext, type Repositories, type SqlDialect } from "@quickservice/core";
+import { loadConfig, SQLITE_DEFAULT_SCHEMA_TOKEN, sqliteDefaultPrefix, type MigrationContext, type Repositories, type SqlDialect } from "@quickservicets/core";
 import { BuildError } from "../errors.ts";
 import { sqlDialectOf } from "./add.ts";
 import { HISTORY_TABLE, MONGO_HISTORY_COLLECTION, splitSqlOptions } from "./migrate.ts";
@@ -113,7 +113,7 @@ function position(point: string, files: MigrationFile[]): number {
   return index;
 }
 
-/** `quickservice migration script [from] [to]`: the SQL between two migration points, without executing it. */
+/** `quickservicets migration script [from] [to]`: the SQL between two migration points, without executing it. */
 export async function migrationScript(projectRoot: string, options: ScriptOptions = {}): Promise<string> {
   const config = await loadConfig(projectRoot);
   const mongo = config.database.kind === "mongodb";

@@ -1,15 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { startTestService, type TestService } from "@quickservice/cli/testing";
+import { startTestService, type TestService } from "@quickservicets/cli/testing";
 
-const CONFIG = (security = "", extra = "") => `import { defineConfig, memoryAdapter } from "@quickservice/core";
+const CONFIG = (security = "", extra = "") => `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter()${security ? `, security: ${security}` : ""}${extra ? `, ${extra}` : ""} });
 `;
 const POST = "export type Post = { title: string };\n";
-const endpoint = (tag: string) => `import type { Endpoint } from "@quickservice/core";\n/** ${tag} */\nconst handler: Endpoint = () => ({ ok: true });\nexport default handler;\n`;
+const endpoint = (tag: string) => `import type { Endpoint } from "@quickservicets/core";\n/** ${tag} */\nconst handler: Endpoint = () => ({ ok: true });\nexport default handler;\n`;
 /** A project feature whose handler middleware signs in the user and tenant named by headers. */
-const AUTH = `import { defineFeature } from "@quickservice/core";
+const AUTH = `import { defineFeature } from "@quickservicets/core";
 export default defineFeature({
   key: "auth",
   middleware: [{ stage: "handler", run(req, _res, next) {
@@ -45,15 +45,15 @@ const statuses = async (service: TestService, count: number, path: string, init?
 
 describe("the tag", () => {
   test("@rateLimit 2/min on a login endpoint refuses the third login while GET /posts still passes", async () => {
-    await withService({ "quickservice.config.ts": CONFIG(), "endpoints/login/post.ts": endpoint("@rateLimit 2/min") }, async (service) => {
+    await withService({ "quickservicets.config.ts": CONFIG(), "endpoints/login/post.ts": endpoint("@rateLimit 2/min") }, async (service) => {
       expect(await statuses(service, 3, "/login", { method: "POST", peer: "203.0.113.5" })).toEqual([200, 200, 429]);
       expect((await service.fetch("/posts", { peer: "203.0.113.5" })).status).toBe(200);
     });
   });
 
   test("an invalid rate fails the build; @rateLimit off lets 2000 requests a minute through", async () => {
-    expect(await buildError({ "quickservice.config.ts": CONFIG(), "endpoints/login/post.ts": endpoint("@rateLimit limit=soon") })).toContain("invalid @rateLimit");
-    await withService({ "quickservice.config.ts": CONFIG(), "endpoints/webhooks/post.ts": endpoint("@rateLimit off") }, async (service) => {
+    expect(await buildError({ "quickservicets.config.ts": CONFIG(), "endpoints/login/post.ts": endpoint("@rateLimit limit=soon") })).toContain("invalid @rateLimit");
+    await withService({ "quickservicets.config.ts": CONFIG(), "endpoints/webhooks/post.ts": endpoint("@rateLimit off") }, async (service) => {
       const results = await statuses(service, 2000, "/webhooks", { method: "POST", peer: "203.0.113.5" });
       expect(results.every((status) => status === 200)).toBe(true);
       const last = await service.fetch("/webhooks", { method: "POST", peer: "203.0.113.5" });
@@ -65,7 +65,7 @@ describe("the tag", () => {
 describe("entities and endpoints", () => {
   test("an entity's tag limits each of its routes separately, and an endpoint's own tag wins", async () => {
     const files = {
-      "quickservice.config.ts": CONFIG(),
+      "quickservicets.config.ts": CONFIG(),
       "entities/Post.ts": "/** @rateLimit 5/min */\nexport type Post = { title: string };\n",
       "entities/Note.ts": "/** @rateLimit 5/min */\nexport type Note = { text: string };\n",
       "endpoints/notes/get.ts": endpoint("@rateLimit 50/min"),
@@ -86,7 +86,7 @@ describe("entities and endpoints", () => {
 
 describe("combined buckets", () => {
   test("with a global 3/min and a route 10/min, the route's responses show the global bucket once it is lower", async () => {
-    await withService({ "quickservice.config.ts": CONFIG('{ rateLimit: { limit: "3/min" } }'), "endpoints/search/get.ts": endpoint("@rateLimit 10/min") }, async (service) => {
+    await withService({ "quickservicets.config.ts": CONFIG('{ rateLimit: { limit: "3/min" } }'), "endpoints/search/get.ts": endpoint("@rateLimit 10/min") }, async (service) => {
       const first = await service.fetch("/search", { peer: "203.0.113.5" });
       expect([first.headers.get("ratelimit-limit"), first.headers.get("ratelimit-remaining")]).toEqual(["3", "2"]);
       await service.fetch("/search", { peer: "203.0.113.5" });
@@ -101,7 +101,7 @@ describe("combined buckets", () => {
 
 describe("user and tenant keys", () => {
   test("by=user shares one budget across a user's addresses, and anonymous requests count per address", async () => {
-    const files = { "quickservice.config.ts": CONFIG("", "auth: {}"), "features/auth/index.ts": AUTH, "endpoints/reports/get.ts": endpoint("@rateLimit limit=2/min by=user") };
+    const files = { "quickservicets.config.ts": CONFIG("", "auth: {}"), "features/auth/index.ts": AUTH, "endpoints/reports/get.ts": endpoint("@rateLimit limit=2/min by=user") };
     await withService(files, async (service) => {
       const asUser = (peer: string) => service.fetch("/reports", { peer, headers: { "x-user": "u1" } });
       expect([(await asUser("203.0.113.5")).status, (await asUser("198.51.100.7")).status, (await asUser("198.51.100.8")).status]).toEqual([200, 200, 429]);
@@ -109,7 +109,7 @@ describe("user and tenant keys", () => {
       expect((await service.fetch("/reports", { peer: "203.0.113.10" })).status).toBe(200);
       // A tenant key works the same way.
     });
-    const tenantFiles = { "quickservice.config.ts": CONFIG('{ rateLimit: { limit: "2/min", by: ["tenant"] } }', "auth: {}"), "features/auth/index.ts": AUTH };
+    const tenantFiles = { "quickservicets.config.ts": CONFIG('{ rateLimit: { limit: "2/min", by: ["tenant"] } }', "auth: {}"), "features/auth/index.ts": AUTH };
     await withService(tenantFiles, async (service) => {
       const asTenant = (peer: string) => service.fetch("/posts", { peer, headers: { "x-tenant": "acme" } });
       expect([(await asTenant("203.0.113.5")).status, (await asTenant("198.51.100.7")).status, (await asTenant("198.51.100.8")).status]).toEqual([200, 200, 429]);
@@ -120,11 +120,11 @@ describe("user and tenant keys", () => {
 describe("per-request limits", () => {
   test("a function of the user gives each user its limit, and an invalid result fails the request with 500", async () => {
     const limit = '{ rateLimit: { limit: ({ user }) => ((user as { id?: string } | undefined)?.id === "vip" ? "100/min" : "2/min") } }';
-    await withService({ "quickservice.config.ts": CONFIG(limit, "auth: {}"), "features/auth/index.ts": AUTH }, async (service) => {
+    await withService({ "quickservicets.config.ts": CONFIG(limit, "auth: {}"), "features/auth/index.ts": AUTH }, async (service) => {
       expect(await statuses(service, 3, "/posts", { peer: "203.0.113.5", headers: { "x-user": "u1" } })).toEqual([200, 200, 429]);
       expect(await statuses(service, 3, "/posts", { peer: "203.0.113.5", headers: { "x-user": "vip" } })).toEqual([200, 200, 200]);
     });
-    await withService({ "quickservice.config.ts": CONFIG('{ rateLimit: { limit: () => "lots" } }') }, async (service) => {
+    await withService({ "quickservicets.config.ts": CONFIG('{ rateLimit: { limit: () => "lots" } }') }, async (service) => {
       const failed = await service.fetch("/posts", { peer: "203.0.113.5" });
       expect(failed.status).toBe(500);
       expect(JSON.stringify(await failed.json())).toContain("security.rateLimit.limit");

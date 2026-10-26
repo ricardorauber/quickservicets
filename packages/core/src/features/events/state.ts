@@ -1,4 +1,4 @@
-const STORE = Symbol.for("quickservice.events.state");
+const STORE = Symbol.for("quickservicets.events.state");
 
 /**
  * Process-wide state of the `events` feature, by name. It lives on `globalThis`, so the native and a copy of it ejected

@@ -1,4 +1,4 @@
-import { events, HttpError, type Endpoint } from "@quickservice/core";
+import { events, HttpError, type Endpoint } from "@quickservicets/core";
 
 /** Publishes a post and emits `post.published` in the same transaction: a failed publish emits nothing. */
 const publish: Endpoint<{ dryRun?: boolean }> = async (repos, req) =>

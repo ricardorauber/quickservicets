@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { startTestService } from "../testing/service.ts";
 
-const config = (events: string) => `import { defineConfig, memoryAdapter } from "@quickservice/core";
+const config = (events: string) => `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter(), events: ${events}, sink: {} });
 `;
-const SINK = `import { defineFeature, type AnyEvent } from "@quickservice/core";
+const SINK = `import { defineFeature, type AnyEvent } from "@quickservicets/core";
 export default defineFeature({
   key: "sink",
   requires: ["events"],
@@ -15,7 +15,7 @@ export default defineFeature({
 });
 `;
 const files = (events: string) => ({
-  "quickservice.config.ts": config(events),
+  "quickservicets.config.ts": config(events),
   "entities/User.ts": "export type User = { name: string };\n",
   "features/sink/index.ts": SINK,
 });

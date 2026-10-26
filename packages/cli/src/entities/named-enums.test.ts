@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createApp, memoryAdapter, resolveConfig } from "@quickservice/core";
+import { createApp, memoryAdapter, resolveConfig } from "@quickservicets/core";
 import { planMigration } from "../migrations/add.ts";
 import { createProject } from "../testing/project.ts";
 import { parseEntities, parseProjectEntities } from "./parse-entities.ts";

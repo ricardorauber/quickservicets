@@ -44,19 +44,19 @@ describe("exempt folder and marker", () => {
   });
 
   test("a marker with a reason on the line above allows the call", () => {
-    expect(check(`// quickservice-allow-unsafe: creates a test schema\n${interpolated}`)).toEqual([]);
-    expect(check(`  // quickservice-allow-unsafe: creates a test schema\n  ${interpolated}`)).toEqual([]);
+    expect(check(`// quickservicets-allow-unsafe: creates a test schema\n${interpolated}`)).toEqual([]);
+    expect(check(`  // quickservicets-allow-unsafe: creates a test schema\n  ${interpolated}`)).toEqual([]);
   });
 
   test("a marker further up does not allow the call", () => {
-    expect(check(`// quickservice-allow-unsafe: creates a test schema\n\n${interpolated}`)).toEqual([`packages/cli/src/example.ts:3: ${built}`]);
+    expect(check(`// quickservicets-allow-unsafe: creates a test schema\n\n${interpolated}`)).toEqual([`packages/cli/src/example.ts:3: ${built}`]);
   });
 
   test("a marker without a reason is reported and allows nothing", () => {
-    expect(check(`// quickservice-allow-unsafe:\n${interpolated}`)).toEqual([
-      "packages/cli/src/example.ts:1: quickservice-allow-unsafe needs a reason",
+    expect(check(`// quickservicets-allow-unsafe:\n${interpolated}`)).toEqual([
+      "packages/cli/src/example.ts:1: quickservicets-allow-unsafe needs a reason",
       `packages/cli/src/example.ts:2: ${built}`,
     ]);
-    expect(check("// quickservice-allow-unsafe:   \nconst x = 1;")).toEqual(["packages/cli/src/example.ts:1: quickservice-allow-unsafe needs a reason"]);
+    expect(check("// quickservicets-allow-unsafe:   \nconst x = 1;")).toEqual(["packages/cli/src/example.ts:1: quickservicets-allow-unsafe needs a reason"]);
   });
 });

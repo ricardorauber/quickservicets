@@ -1,4 +1,4 @@
-import type { ServiceRequest } from "@quickservice/core";
+import type { ServiceRequest } from "@quickservicets/core";
 
 /** Queues the welcome email of a user once: repeated requests return the same message. */
 export default async (_repos: unknown, req: ServiceRequest) =>

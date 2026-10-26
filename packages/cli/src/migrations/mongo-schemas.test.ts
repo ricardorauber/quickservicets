@@ -13,7 +13,7 @@ const url = process.env.TEST_MONGODB_URL;
 
 function project(schema: string, database: string, mongoUrl = url ?? "mongodb://127.0.0.1:1") {
   return createLinkedProject({
-    "quickservice.config.ts": `import { defineConfig, mongodbAdapter } from "@quickservice/core";\nexport default defineConfig({ database: mongodbAdapter({ url: ${JSON.stringify(mongoUrl)}, database: ${JSON.stringify(database)} }) });\n`,
+    "quickservicets.config.ts": `import { defineConfig, mongodbAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: mongodbAdapter({ url: ${JSON.stringify(mongoUrl)}, database: ${JSON.stringify(database)} }) });\n`,
     "entities/User.ts": "export type User = { /** @unique */ email: string }",
     [`entities/${schema}/Account.ts`]: "export type Account = { /** @unique */ email: string }",
   });

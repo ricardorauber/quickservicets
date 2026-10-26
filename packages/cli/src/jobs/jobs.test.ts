@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { isJobDefinition, job } from "@quickservice/core";
+import { isJobDefinition, job } from "@quickservicets/core";
 import ts from "typescript";
 import { build } from "../build/build.ts";
 import { BuildError } from "../errors.ts";
@@ -143,10 +143,10 @@ const userEntity = "export type User = { email: string }";
 describe("job registry", () => {
   test("lists every job with its name", async () => {
     const root = createLinkedProject({
-      "quickservice.config.ts": MEMORY_CONFIG,
+      "quickservicets.config.ts": MEMORY_CONFIG,
       "entities/Session.ts": sessionEntity,
       "jobs/cleanup/expired-sessions.ts":
-        'import { job } from "@quickservice/core";\nexport default job("*/5 * * * *", async ({ repos }) => repos.sessions.where((s) => s.expiresAt.lt(new Date())).count());\n',
+        'import { job } from "@quickservicets/core";\nexport default job("*/5 * * * *", async ({ repos }) => repos.sessions.where((s) => s.expiresAt.lt(new Date())).count());\n',
       "jobs/reports/daily.ts": jobFile('"@daily"'),
     });
     await build(root);
@@ -161,7 +161,7 @@ describe("job registry", () => {
 
   test("every schedule form builds", async () => {
     const root = createLinkedProject({
-      "quickservice.config.ts": MEMORY_CONFIG,
+      "quickservicets.config.ts": MEMORY_CONFIG,
       "jobs/interval.ts": jobFile('{ every: "10s" }'),
       "jobs/preset.ts": jobFile('"@daily"'),
       "jobs/seconds.ts": jobFile('"0 30 9 * * 1-5"'),
@@ -173,7 +173,7 @@ describe("job registry", () => {
   });
 
   test("is empty without a jobs folder", async () => {
-    const root = createLinkedProject({ "quickservice.config.ts": MEMORY_CONFIG, "entities/User.ts": userEntity });
+    const root = createLinkedProject({ "quickservicets.config.ts": MEMORY_CONFIG, "entities/User.ts": userEntity });
     await build(root);
     const registry = readFileSync(join(root, ".generated/jobs.ts"), "utf8");
     expect(registry).toContain("export const jobs = new Map<string, JobDefinition>([\n]);");
@@ -182,7 +182,7 @@ describe("job registry", () => {
   });
 
   test("a failing job file fails the build", async () => {
-    const root = createLinkedProject({ "quickservice.config.ts": MEMORY_CONFIG, "jobs/broken.ts": "export {};\n" });
+    const root = createLinkedProject({ "quickservicets.config.ts": MEMORY_CONFIG, "jobs/broken.ts": "export {};\n" });
     expect(await buildError(build(root))).toBe("jobs/broken.ts: must default-export job(...)");
   });
 });
@@ -190,7 +190,7 @@ describe("job registry", () => {
 describe("job context types", () => {
   test("ctx exposes repos, files, signal, log and run", async () => {
     const root = createLinkedProject({
-      "quickservice.config.ts": MEMORY_CONFIG,
+      "quickservicets.config.ts": MEMORY_CONFIG,
       "entities/User.ts": userEntity,
       "jobs/check.ts": jobFile('"@daily"'),
     });
@@ -199,7 +199,7 @@ describe("job context types", () => {
     writeFileSync(
       check,
       [
-        'import { job } from "@quickservice/core";',
+        'import { job } from "@quickservicets/core";',
         "export default job({ every: \"1m\" }, async (ctx) => {",
         "  const users = await ctx.repos.users.where((u) => u.email.eq(\"a@b.c\")).all();",
         "  const storage = ctx.files.default;",

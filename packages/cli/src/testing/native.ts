@@ -1,6 +1,6 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { NATIVE_FEATURES_DIR } from "@quickservice/core";
+import { NATIVE_FEATURES_DIR } from "@quickservicets/core";
 
 /**
  * Writes files into a native feature's folder of the core (`packages/core/src/features/<key>/`) for a test, and

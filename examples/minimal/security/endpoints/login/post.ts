@@ -1,4 +1,4 @@
-import type { Endpoint } from "@quickservice/core";
+import type { Endpoint } from "@quickservicets/core";
 
 /**
  * Signs a user in; five attempts a minute per address slow down password guessing.

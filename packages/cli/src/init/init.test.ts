@@ -18,13 +18,13 @@ describe("files for each database", () => {
   ])("%s", async (db, adapter, env) => {
     const root = emptyDir();
     await initProject(root, { db });
-    expect(read(root, "quickservice.config.ts")).toContain(adapter);
+    expect(read(root, "quickservicets.config.ts")).toContain(adapter);
     expect(read(root, ".env")).toBe(env);
     for (const folder of ["entities", "endpoints", "hooks"]) expect(readdirSync(join(root, folder))).toEqual([".gitkeep"]);
     expect(existsSync(join(root, "tsconfig.json"))).toBe(true);
     const pkg = JSON.parse(read(root, "package.json"));
     expect(pkg.name).toBe("my-api");
-    expect(Object.keys(pkg.dependencies)).toEqual(["@quickservice/core", "@quickservice/cli"]);
+    expect(Object.keys(pkg.dependencies)).toEqual(["@quickservicets/core", "@quickservicets/cli"]);
     expect(Object.keys(pkg.scripts)).toEqual(["dev", "build", "migrate", "start"]);
   });
 });
@@ -32,9 +32,9 @@ describe("files for each database", () => {
 test("the tsconfig includes features, and the new project builds", async () => {
   const root = emptyDir();
   expect(await run(["init", root, "--db", "memory"], { log: () => {}, error: () => {} }, dirname(root))).toBe(0);
-  expect(JSON.parse(read(root, "tsconfig.json")).include).toEqual(["quickservice.config.ts", "entities", "endpoints", "hooks", "features", ".generated/**/*.ts"]);
-  mkdirSync(join(root, "node_modules/@quickservice"), { recursive: true });
-  symlinkSync(join(import.meta.dir, "../../../core"), join(root, "node_modules/@quickservice/core"), "dir");
+  expect(JSON.parse(read(root, "tsconfig.json")).include).toEqual(["quickservicets.config.ts", "entities", "endpoints", "hooks", "features", ".generated/**/*.ts"]);
+  mkdirSync(join(root, "node_modules/@quickservicets"), { recursive: true });
+  symlinkSync(join(import.meta.dir, "../../../core"), join(root, "node_modules/@quickservicets/core"), "dir");
   writeFileSync(join(root, "entities/Post.ts"), "export type Post = { title: string };\n");
   expect((await build(root)).entities).toBe(3);
 });
@@ -70,7 +70,7 @@ test("without --db the prompt offers the four databases", async () => {
     },
   });
   expect(offered).toEqual(DATABASES);
-  expect(read(root, "quickservice.config.ts")).toContain("sqliteAdapter");
+  expect(read(root, "quickservicets.config.ts")).toContain("sqliteAdapter");
 });
 
 test("prints the next steps and creates the target directory", async () => {
@@ -78,14 +78,14 @@ test("prints the next steps and creates the target directory", async () => {
   const logs: string[] = [];
   expect(await run(["init", "my-api", "--db", "memory"], { log: (line) => logs.push(line), error: () => {} }, parent)).toBe(0);
   expect(logs.join("\n")).toMatch(/bun install[\s\S]*entities\/User\.ts[\s\S]*bun run dev/);
-  expect(existsSync(join(parent, "my-api/quickservice.config.ts"))).toBe(true);
+  expect(existsSync(join(parent, "my-api/quickservicets.config.ts"))).toBe(true);
 });
 
 test("a new project builds once it has an entity", async () => {
   const root = emptyDir();
   await initProject(root, { db: "sqlite" });
-  mkdirSync(join(root, "node_modules/@quickservice"), { recursive: true });
-  symlinkSync(join(import.meta.dir, "../../../core"), join(root, "node_modules/@quickservice/core"), "dir");
+  mkdirSync(join(root, "node_modules/@quickservicets"), { recursive: true });
+  symlinkSync(join(import.meta.dir, "../../../core"), join(root, "node_modules/@quickservicets/core"), "dir");
   writeFileSync(join(root, "entities/User.ts"), "export type User = { email: string }");
   process.env.DATABASE_PATH = join(root, "data.db");
   try {
@@ -94,4 +94,20 @@ test("a new project builds once it has an entity", async () => {
     delete process.env.DATABASE_PATH;
   }
   expect(existsSync(join(root, ".generated/server.ts"))).toBe(true);
+});
+
+test("every file init writes uses the @quickservicets packages and quickservicets.config.ts", async () => {
+  for (const db of DATABASES) {
+    const root = emptyDir();
+    await initProject(root, { db });
+    expect(read(root, "quickservicets.config.ts")).toContain('from "@quickservicets/core"');
+    const files = readdirSync(root, { recursive: true, withFileTypes: true }).filter((entry) => entry.isFile());
+    for (const entry of files) {
+      const text = readFileSync(join(entry.parentPath, entry.name), "utf8");
+      // The previous lowercase name, spelled in parts so this file does not contain it.
+      expect(text).not.toMatch(new RegExp(`${["quick", "service"].join("")}(?!ts)`));
+    }
+    const pkg = JSON.parse(read(root, "package.json"));
+    expect(Object.keys(pkg.dependencies)).toEqual(["@quickservicets/core", "@quickservicets/cli"]);
+  }
 });

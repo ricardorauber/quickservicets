@@ -5,7 +5,7 @@ type EventsOptions = { outbox?: { enabled?: boolean } };
 
 /** Connects to the database and returns the adapter, or fails when the outbox is off. */
 async function connected(ctx: CommandContext<unknown, unknown>): Promise<DatabaseAdapter> {
-  if (!(ctx.options as EventsOptions).outbox?.enabled) throw new Error("The outbox is not enabled; set events: { outbox: true } in quickservice.config.ts");
+  if (!(ctx.options as EventsOptions).outbox?.enabled) throw new Error("The outbox is not enabled; set events: { outbox: true } in quickservicets.config.ts");
   await ctx.connect();
   return ctx.config.database;
 }
@@ -31,7 +31,7 @@ function age(ms: number): string {
 
 const outbox = defineCommand({
   name: "events outbox",
-  usage: "quickservice events outbox",
+  usage: "quickservicets events outbox",
   description: "Prints, per durable consumer, how many deliveries are pending, delivering, delivered and failed, and the age of the oldest pending one.",
   async run(ctx) {
     const adapter = await connected(ctx);
@@ -51,7 +51,7 @@ const outbox = defineCommand({
 
 const retry = defineCommand({
   name: "events retry",
-  usage: "quickservice events retry <delivery id> | quickservice events retry --consumer <name> --failed",
+  usage: "quickservicets events retry <delivery id> | quickservicets events retry --consumer <name> --failed",
   description: "Resets failed deliveries to pending with attempt 0, one by id or every failed one of a consumer, and prints how many.",
   args: [{ name: "id", description: "The id of one failed delivery." }],
   flags: object({

@@ -1,4 +1,4 @@
-import { defineFeature, type Repositories } from "@quickservice/core";
+import { defineFeature, type Repositories } from "@quickservicets/core";
 
 /**
  * Notifies about published posts: its listener file `events/notify.ts` writes an in-app notification after the

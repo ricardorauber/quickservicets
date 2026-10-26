@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
-import { FEATURES_DIR, loadConfig, NATIVE_FEATURES_DIR, registeredNatives, type ResolvedFeature } from "@quickservice/core";
+import { FEATURES_DIR, loadConfig, NATIVE_FEATURES_DIR, registeredNatives, type ResolvedFeature } from "@quickservicets/core";
 import { BuildError } from "../errors.ts";
 import { importsOf, PUBLIC_ENTRY, resolvesTo, sourceFilesOf } from "./native-imports.ts";
 
@@ -27,8 +27,8 @@ const inside = (root: string, path: string) => {
 };
 
 /**
- * Rewrites a native file's imports for the project: `features/public.ts` becomes `@quickservice/core`, and other files
- * of the native that are not copied are imported through `@quickservice/core/features/<key>/<path>`.
+ * Rewrites a native file's imports for the project: `features/public.ts` becomes `@quickservicets/core`, and other files
+ * of the native that are not copied are imported through `@quickservicets/core/features/<key>/<path>`.
  */
 export function rewriteImports(source: string, file: string, nativeDir: string, key: string, copied: (path: string) => boolean): string {
   const publicEntry = join(NATIVE_FEATURES_DIR, PUBLIC_ENTRY);
@@ -36,11 +36,11 @@ export function rewriteImports(source: string, file: string, nativeDir: string, 
   for (const { specifier, pos, end } of importsOf(source).reverse()) {
     if (!specifier.startsWith(".")) continue;
     let replacement: string | undefined;
-    if (resolvesTo(file, specifier, publicEntry)) replacement = "@quickservice/core";
+    if (resolvesTo(file, specifier, publicEntry)) replacement = "@quickservicets/core";
     else {
       const target = resolve(dirname(file), specifier);
       const path = inside(nativeDir, target);
-      if (path !== undefined && !copied(path) && !copied(`${path}.ts`)) replacement = `@quickservice/core/features/${key}/${path}`;
+      if (path !== undefined && !copied(path) && !copied(`${path}.ts`)) replacement = `@quickservicets/core/features/${key}/${path}`;
     }
     if (replacement !== undefined) result = `${result.slice(0, pos)}${replacement}${result.slice(end)}`;
   }
@@ -82,7 +82,7 @@ async function enabledNative(cwd: string, key: string): Promise<ResolvedFeature>
   return feature;
 }
 
-/** `quickservice eject <key> [--file <path>] [--dry-run] [--force]`: the lines to print. */
+/** `quickservicets eject <key> [--file <path>] [--dry-run] [--force]`: the lines to print. */
 export async function eject(cwd: string, key: string, options: EjectOptions = {}): Promise<string[]> {
   const feature = await enabledNative(cwd, key);
   const nativeDir = join(NATIVE_FEATURES_DIR, feature.key);
@@ -114,7 +114,7 @@ export async function eject(cwd: string, key: string, options: EjectOptions = {}
   return [
     ...files.map((file) => `Wrote ${file.path}`),
     `${FEATURES_DIR}/${feature.key}/ now replaces the ${feature.key} native.`,
-    `quickservice.config.ts keeps ${feature.key}: {…} unchanged.`,
+    `quickservicets.config.ts keeps ${feature.key}: {…} unchanged.`,
     `Delete ${FEATURES_DIR}/${feature.key}/ to go back to the native.`,
   ];
 }

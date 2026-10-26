@@ -2,13 +2,13 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import ts from "typescript";
-import { defineFeature, object, registerNative, registerProjectFeatures, string, type FeatureDefinition } from "@quickservice/core";
+import { defineFeature, object, registerNative, registerProjectFeatures, string, type FeatureDefinition } from "@quickservicets/core";
 import { unregisterNative } from "../../../core/src/features.ts";
 import { createLinkedProject } from "../testing/project.ts";
 import { serveBuilt } from "../testing/serve.ts";
 import { build } from "./build.ts";
 
-const config = (keys = "") => `import { defineConfig, memoryAdapter } from "@quickservice/core";
+const config = (keys = "") => `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter()${keys ? `, ${keys}` : ""} });
 `;
 
@@ -37,10 +37,10 @@ afterEach(() => {
 
 describe("typed request slots and properties", () => {
   test("RequestUser and RequestExtensions augment ServiceRequest by declaration merging", () => {
-    const root = createLinkedProject({ "quickservice.config.ts": config() });
-    const source = `import { defineFeature, type ServiceRequest } from "@quickservice/core";
+    const root = createLinkedProject({ "quickservicets.config.ts": config() });
+    const source = `import { defineFeature, type ServiceRequest } from "@quickservicets/core";
 interface Greeter { greet(name: string): string }
-declare module "@quickservice/core" {
+declare module "@quickservicets/core" {
   interface RequestUser { id: string }
   interface RequestExtensions { example: Greeter }
 }
@@ -73,7 +73,7 @@ describe("features end to end", () => {
     );
     registered.push("example");
     const root = createLinkedProject({
-      "quickservice.config.ts": config("example: {}"),
+      "quickservicets.config.ts": config("example: {}"),
       "endpoints/hello/[name]/get.ts": "export default (_repos: unknown, req: any) => ({ text: req.example.greet(req.params.name), user: req.user });\n",
     });
     await build(root);
@@ -92,7 +92,7 @@ describe("features end to end", () => {
     registerNative(audit);
     registered.push("audit");
     const root = createLinkedProject({
-      "quickservice.config.ts": config("audit: {}"),
+      "quickservicets.config.ts": config("audit: {}"),
       "entities/Post.ts": '/** @audit greeting="Good day" */\nexport type Post = { title: string };\n',
       "entities/Comment.ts": "export type Comment = { body: string };\n",
       "endpoints/stats/get.ts": "/** @audit greeting=Stats */\nexport default () => ({ ok: true });\n",

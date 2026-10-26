@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { createApp, resolveConfig } from "@quickservice/core";
+import { createApp, resolveConfig } from "@quickservicets/core";
 import { build } from "../build/build.ts";
 import { createLinkedProject, createProject, MEMORY_CONFIG } from "../testing/project.ts";
 import { parseEntities, parseProjectEntities } from "./parse-entities.ts";
 
-import type { EntityModel } from "@quickservice/core";
+import type { EntityModel } from "@quickservicets/core";
 
 const byName = (models: EntityModel[], name: string) => models.find((model) => model.entityName === name)!;
 
@@ -19,13 +19,13 @@ describe("built-in entities", () => {
 
   test("a project can reference Media and serve /media", async () => {
     const root = createLinkedProject({
-      "quickservice.config.ts": MEMORY_CONFIG,
-      "entities/Organization.ts": 'import type { Media } from "@quickservice/core";\nexport type Organization = { name: string; logo?: Media }',
+      "quickservicets.config.ts": MEMORY_CONFIG,
+      "entities/Organization.ts": 'import type { Media } from "@quickservicets/core";\nexport type Organization = { name: string; logo?: Media }',
     });
     await build(root);
     const { models } = await import(join(root, ".generated/models.ts"));
     const { crudRoutes, endpoints, hooks } = await import(join(root, ".generated/routes.ts"));
-    const config = resolveConfig({ database: (await import(join(root, "quickservice.config.ts"))).default.database, logger: { info() {}, warn() {}, error() {} } }, {});
+    const config = resolveConfig({ database: (await import(join(root, "quickservicets.config.ts"))).default.database, logger: { info() {}, warn() {}, error() {} } }, {});
     await config.database.connect(models);
     const { server } = createApp({ models, crudRoutes, endpoints, hooks, config });
     expect((await server.fetch(new Request("http://x/media"))).status).toBe(200);
@@ -36,7 +36,7 @@ describe("references", () => {
   test("to core File and Media, single and array", () => {
     const [organization] = parseEntities(
       createProject({
-        "entities/Organization.ts": 'import type { Media, File as Upload } from "@quickservice/core";\nexport type Organization = { logo?: Media; gallery?: Media[]; contract?: Upload }',
+        "entities/Organization.ts": 'import type { Media, File as Upload } from "@quickservicets/core";\nexport type Organization = { logo?: Media; gallery?: Media[]; contract?: Upload }',
       }),
     );
     expect(organization!.fields).toMatchObject([
@@ -51,7 +51,7 @@ describe("extending", () => {
   test("built-in Media gains fields from /entities/Media.ts", () => {
     const models = parseProjectEntities(
       createProject({
-        "entities/Media.ts": 'import type { Media as BaseMedia } from "@quickservice/core";\nexport type Media = BaseMedia & { alt?: string }',
+        "entities/Media.ts": 'import type { Media as BaseMedia } from "@quickservicets/core";\nexport type Media = BaseMedia & { alt?: string }',
       }),
     );
     const media = models.filter((model) => model.entityName === "Media");
@@ -63,8 +63,8 @@ describe("extending", () => {
   test("user entities extending File or Media become file entities", () => {
     const models = parseEntities(
       createProject({
-        "entities/Document.ts": 'import type { File } from "@quickservice/core";\nexport type Document = File & { pages?: number }',
-        "entities/Photo.ts": 'import type { Media } from "@quickservice/core";\nexport interface Photo extends Media { caption?: string }',
+        "entities/Document.ts": 'import type { File } from "@quickservicets/core";\nexport type Document = File & { pages?: number }',
+        "entities/Photo.ts": 'import type { Media } from "@quickservicets/core";\nexport interface Photo extends Media { caption?: string }',
       }),
     );
     expect(byName(models, "Document")).toMatchObject({ name: "documents", file: { base: "file" } });
@@ -74,20 +74,20 @@ describe("extending", () => {
 
   test("base fields cannot be redeclared", () => {
     expect(() =>
-      parseEntities(createProject({ "entities/Document.ts": 'import type { File } from "@quickservice/core";\nexport type Document = File & { size: number }' })),
+      parseEntities(createProject({ "entities/Document.ts": 'import type { File } from "@quickservicets/core";\nexport type Document = File & { size: number }' })),
     ).toThrow('"size" is a base field');
   });
 });
 
 test("base fields are read-only in JSON bodies except filename on PATCH, and storageKey is never returned", async () => {
   const root = createLinkedProject({
-    "quickservice.config.ts": MEMORY_CONFIG,
-    "entities/Media.ts": 'import type { Media as BaseMedia } from "@quickservice/core";\nexport type Media = BaseMedia & { alt?: string }',
+    "quickservicets.config.ts": MEMORY_CONFIG,
+    "entities/Media.ts": 'import type { Media as BaseMedia } from "@quickservicets/core";\nexport type Media = BaseMedia & { alt?: string }',
   });
   await build(root);
   const { models } = await import(join(root, ".generated/models.ts"));
   const { crudRoutes, endpoints, hooks } = await import(join(root, ".generated/routes.ts"));
-  const database = (await import(join(root, "quickservice.config.ts"))).default.database;
+  const database = (await import(join(root, "quickservicets.config.ts"))).default.database;
   const config = resolveConfig({ database, logger: { info() {}, warn() {}, error() {} } }, {});
   await database.connect(models);
   const media = models.find((model: { entityName: string }) => model.entityName === "Media");

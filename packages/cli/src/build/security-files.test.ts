@@ -2,8 +2,8 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startTestService, type TestService } from "@quickservice/cli/testing";
-import { contentDisposition } from "@quickservice/core";
+import { startTestService, type TestService } from "@quickservicets/cli/testing";
+import { contentDisposition } from "@quickservicets/core";
 import { FILE_CSP } from "../../../core/src/features/security/files.ts";
 
 const dirs: string[] = [];
@@ -12,20 +12,20 @@ afterAll(() => {
 });
 
 const CONFIG = (security = "") => {
-  const dir = mkdtempSync(join(tmpdir(), "quickservice-files-"));
+  const dir = mkdtempSync(join(tmpdir(), "quickservicets-files-"));
   dirs.push(dir);
-  return `import { defineConfig, localStorage, memoryAdapter } from "@quickservice/core";
+  return `import { defineConfig, localStorage, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter(), storage: { default: localStorage({ dir: ${JSON.stringify(dir)} }) }, files: { signingSecret: "test-secret" }${security ? `, security: ${security}` : ""} });
 `;
 };
 const ENTITIES = {
-  "entities/Document.ts": 'import type { File } from "@quickservice/core";\n/** @access proxy */\nexport type Document = File & { title?: string };\n',
-  "entities/Contract.ts": 'import type { File } from "@quickservice/core";\n/** @access signed 60 */\nexport type Contract = File & { party?: string };\n',
+  "entities/Document.ts": 'import type { File } from "@quickservicets/core";\n/** @access proxy */\nexport type Document = File & { title?: string };\n',
+  "entities/Contract.ts": 'import type { File } from "@quickservicets/core";\n/** @access signed 60 */\nexport type Contract = File & { party?: string };\n',
 };
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 73, 72, 68, 82]);
 
 async function withService(security: string, run: (service: TestService) => Promise<void>): Promise<void> {
-  const service = await startTestService({ files: { "quickservice.config.ts": CONFIG(security), ...ENTITIES } });
+  const service = await startTestService({ files: { "quickservicets.config.ts": CONFIG(security), ...ENTITIES } });
   try {
     await run(service);
   } finally {

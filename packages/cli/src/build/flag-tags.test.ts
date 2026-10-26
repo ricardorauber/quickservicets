@@ -6,11 +6,11 @@ import { createLinkedProject } from "../testing/project.ts";
 import { startTestService } from "../testing/service.ts";
 import { build } from "./build.ts";
 
-const config = (flags: string | undefined, extra = "") => `import { defineConfig, memoryAdapter } from "@quickservice/core";
+const config = (flags: string | undefined, extra = "") => `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter(), signin: {}, events: {}, history: {}, queues: { pollInterval: "1s" }${flags === undefined ? "" : `, flags: ${flags}`}${extra ? `, ${extra}` : ""} });
 `;
 /** A project feature that signs requests in as the user of x-user, before the flags are read. */
-const SIGN_IN = `import { defineFeature } from "@quickservice/core";
+const SIGN_IN = `import { defineFeature } from "@quickservicets/core";
 export default defineFeature({
   key: "signin",
   middleware: [{ stage: "handler", order: -60000, run: (req, _res, next) => { const user = req.headers.get("x-user"); if (user) (req as { user?: unknown }).user = { id: user }; return next(); } }],
@@ -18,7 +18,7 @@ export default defineFeature({
 `;
 const RULES = '{ rules: { "checkout-v2": { users: ["u1"] }, coupons: { users: ["u1"] }, beta: { users: ["u1"] }, "dark-mode": true } }';
 const FILES = {
-  "quickservice.config.ts": config(RULES),
+  "quickservicets.config.ts": config(RULES),
   "features/signin/index.ts": SIGN_IN,
   "endpoints/checkout/post.ts": `/**
  * @flag checkout-v2
@@ -26,7 +26,7 @@ const FILES = {
  */
 export default () => ({ ordered: true });
 `,
-  "hooks/counted.ts": 'import { definePreHook } from "@quickservice/core";\nexport default definePreHook(() => { (globalThis as any).hookRuns = ((globalThis as any).hookRuns ?? 0) + 1; });\n',
+  "hooks/counted.ts": 'import { definePreHook } from "@quickservicets/core";\nexport default definePreHook(() => { (globalThis as any).hookRuns = ((globalThis as any).hookRuns ?? 0) + 1; });\n',
   "endpoints/status/get.ts": "/** @flag off */\nexport default () => ({ up: true });\n",
   "endpoints/open/get.ts": "export default () => ({ open: true });\n",
   "entities/Coupon.ts": "/**\n * @flag coupons\n * @history\n */\nexport type Coupon = { code: string };\n",
@@ -73,7 +73,7 @@ describe("gates", () => {
   });
 
   test("a global gate hides every route from u2, except an endpoint tagged @flag off", async () => {
-    const service = await startTestService({ files: { ...FILES, "quickservice.config.ts": config(RULES.replace("{ rules:", '{ gate: "beta", rules:')) } });
+    const service = await startTestService({ files: { ...FILES, "quickservicets.config.ts": config(RULES.replace("{ rules:", '{ gate: "beta", rules:')) } });
     try {
       expect((await service.fetch("/open", { headers: { "x-user": "u2" } })).status).toBe(404);
       expect((await service.fetch("/open", { headers: { "x-user": "u1" } })).status).toBe(200);
@@ -88,7 +88,7 @@ describe("build checks and OpenAPI", () => {
   test("an unknown flag fails the build with a suggestion; with the database source any name builds", async () => {
     const files = { ...FILES, "endpoints/checkout/post.ts": "/** @flag checkout-v3 */\nexport default () => ({});\n" };
     expect((await failure(() => build(createLinkedProject(files)))).message).toContain("endpoints/checkout/post.ts: invalid @flag: unknown flag checkout-v3 (did you mean checkout-v2?)");
-    await build(createLinkedProject({ ...files, "quickservice.config.ts": config('{ source: "database" }') }));
+    await build(createLinkedProject({ ...files, "quickservicets.config.ts": config('{ source: "database" }') }));
   });
 
   test("gated operations carry x-feature-flag", async () => {
@@ -103,11 +103,11 @@ describe("build checks and OpenAPI", () => {
 });
 
 describe("flags in jobs and queue consumers", () => {
-  const JOB = 'import { job } from "@quickservice/core";\nexport default job("@daily", (ctx) => ({ checkout: ctx.flags.on("checkout-v2", { user: { id: "u1" } }), anonymous: ctx.flags.on("checkout-v2") }));\n';
-  const QUEUE = 'import { queue } from "@quickservice/core";\nexport default queue((ctx) => { (globalThis as any).queueDarkMode = ctx.flags.on("dark-mode"); });\n';
+  const JOB = 'import { job } from "@quickservicets/core";\nexport default job("@daily", (ctx) => ({ checkout: ctx.flags.on("checkout-v2", { user: { id: "u1" } }), anonymous: ctx.flags.on("checkout-v2") }));\n';
+  const QUEUE = 'import { queue } from "@quickservicets/core";\nexport default queue((ctx) => { (globalThis as any).queueDarkMode = ctx.flags.on("dark-mode"); });\n';
   const ENDPOINTS = {
-    "endpoints/run/post.ts": 'import type { Repositories, ServiceRequest } from "@quickservice/core";\nexport default (_repos: Repositories, req: ServiceRequest) => req.jobs.run("report");\n',
-    "endpoints/enqueue/post.ts": 'import type { Repositories, ServiceRequest } from "@quickservice/core";\nexport default (_repos: Repositories, req: ServiceRequest) => req.queue.add("notify", {});\n',
+    "endpoints/run/post.ts": 'import type { Repositories, ServiceRequest } from "@quickservicets/core";\nexport default (_repos: Repositories, req: ServiceRequest) => req.jobs.run("report");\n',
+    "endpoints/enqueue/post.ts": 'import type { Repositories, ServiceRequest } from "@quickservicets/core";\nexport default (_repos: Repositories, req: ServiceRequest) => req.queue.add("notify", {});\n',
   };
 
   test("a job reads ctx.flags for a user it passes, and a queue consumer gets the rule's value", async () => {
@@ -126,10 +126,10 @@ describe("flags in jobs and queue consumers", () => {
   });
 
   test("without flags, ctx.flags is a type error", async () => {
-    const root = createLinkedProject({ "features/signin/index.ts": SIGN_IN, "quickservice.config.ts": config(undefined) });
+    const root = createLinkedProject({ "features/signin/index.ts": SIGN_IN, "quickservicets.config.ts": config(undefined) });
     await build(root);
     const check = join(root, "check.ts");
-    writeFileSync(check, 'import { job } from "@quickservice/core";\nexport default job("@daily", (ctx) => ctx.flags.on("x"));\n');
+    writeFileSync(check, 'import { job } from "@quickservicets/core";\nexport default job("@daily", (ctx) => ctx.flags.on("x"));\n');
     const program = ts.createProgram([check], { strict: true, noEmit: true, skipLibCheck: true, lib: ["lib.esnext.d.ts", "lib.dom.d.ts"], types: [], target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, allowImportingTsExtensions: true });
     const errors = ts.getPreEmitDiagnostics(program, program.getSourceFile(check)).map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, " "));
     expect(errors.some((error) => error.includes("flags"))).toBe(true);

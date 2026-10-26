@@ -1,4 +1,4 @@
-import { Media } from "@quickservice/core"
+import { Media } from "@quickservicets/core"
 import { Organization } from "./Organization"
 import { Profile } from "./Profile"
 import { User } from "./User"

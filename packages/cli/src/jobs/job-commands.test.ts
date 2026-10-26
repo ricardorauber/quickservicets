@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { createApp, memoryAdapter, nextRunTime, resolveConfig, sqliteAdapter, type EntityModel, type JobRun } from "@quickservice/core";
+import { createApp, memoryAdapter, nextRunTime, resolveConfig, sqliteAdapter, type EntityModel, type JobRun } from "@quickservicets/core";
 import ts from "typescript";
 import { build } from "../build/build.ts";
 import { parseProjectEntities } from "../entities/parse-entities.ts";
@@ -11,19 +11,19 @@ import { run } from "../run.ts";
 import { createLinkedProject, MEMORY_CONFIG } from "../testing/project.ts";
 import { listJobsCommand } from "./job-commands.ts";
 
-const CLEANUP = 'import { job } from "@quickservice/core";\nexport default job("0 3 * * *", async () => ({ deleted: 3 }), { timeZone: "America/Sao_Paulo" });\n';
-const FAILING = 'import { job } from "@quickservice/core";\nexport default job({ every: "10m" }, async () => { throw new Error("boom"); });\n';
+const CLEANUP = 'import { job } from "@quickservicets/core";\nexport default job("0 3 * * *", async () => ({ deleted: 3 }), { timeZone: "America/Sao_Paulo" });\n';
+const FAILING = 'import { job } from "@quickservicets/core";\nexport default job({ every: "10m" }, async () => { throw new Error("boom"); });\n';
 const SLOW =
-  'import { job } from "@quickservice/core";\nexport default job("@daily", async (ctx) => { await Bun.sleep(300); ctx.log.info("done"); return { deleted: 1 }; });\n';
+  'import { job } from "@quickservicets/core";\nexport default job("@daily", async (ctx) => { await Bun.sleep(300); ctx.log.info("done"); return { deleted: 1 }; });\n';
 
 const sqliteConfig = (path: string) =>
-  `import { defineConfig, sqliteAdapter } from "@quickservice/core";\nexport default defineConfig({ database: sqliteAdapter({ path: ${JSON.stringify(path)} }), logger: { info() {}, warn() {}, error() {} } });\n`;
+  `import { defineConfig, sqliteAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: sqliteAdapter({ path: ${JSON.stringify(path)} }), logger: { info() {}, warn() {}, error() {} } });\n`;
 
 /** A SQLite project with jobs, migrated, and a direct connection to its database. */
 async function sqliteProject(files: Record<string, string>) {
-  const root = createLinkedProject({ "quickservice.config.ts": "", ...files });
+  const root = createLinkedProject({ "quickservicets.config.ts": "", ...files });
   const path = join(root, "data.db");
-  writeFileSync(join(root, "quickservice.config.ts"), sqliteConfig(path));
+  writeFileSync(join(root, "quickservicets.config.ts"), sqliteConfig(path));
   await addMigration(root, "Initial", new Date(Date.UTC(2026, 9, 15, 12)));
   await migrate(root);
   const models = parseProjectEntities(root);
@@ -121,7 +121,7 @@ describe("job list and job runs", () => {
     expect(listed.code).toBe(0);
     expect(listed.out).toHaveLength(3);
     expect(listed.out[1]).toMatch(/^cleanup\/expired-sessions +0 3 \* \* \* +America\/Sao_Paulo +\d{4}-\d\d-\d\dT06:00:00\.000Z$/);
-    const empty = createLinkedProject({ "quickservice.config.ts": MEMORY_CONFIG });
+    const empty = createLinkedProject({ "quickservicets.config.ts": MEMORY_CONFIG });
     expect((await listJobsCommand(empty, now)).lines).toEqual(["No jobs"]);
   });
 
@@ -150,20 +150,20 @@ describe("job list and job runs", () => {
 });
 
 describe("req.jobs.run", () => {
-  const ENDPOINT = `import type { Endpoint } from "@quickservice/core";
+  const ENDPOINT = `import type { Endpoint } from "@quickservicets/core";
 const handler: Endpoint = async (repos, req) => req.jobs.run("cleanup/expired-sessions");
 export default handler;
 `;
-  const UNKNOWN = `import type { Endpoint } from "@quickservice/core";
+  const UNKNOWN = `import type { Endpoint } from "@quickservicets/core";
 const handler: Endpoint = async (repos, req) => req.jobs.run("nope" as never);
 export default handler;
 `;
-  const HOOK = `import { definePreHook } from "@quickservice/core";
+  const HOOK = `import { definePreHook } from "@quickservicets/core";
 export default definePreHook(async (repos, req) => {
   req.context.hookRun = await req.jobs.run("cleanup/expired-sessions", { force: true });
 });
 `;
-  const HOOKED = `import type { Endpoint } from "@quickservice/core";
+  const HOOKED = `import type { Endpoint } from "@quickservicets/core";
 /** @startCleanup */
 const handler: Endpoint = async (repos, req) => req.context.hookRun;
 export default handler;
@@ -171,7 +171,7 @@ export default handler;
 
   async function app() {
     const root = createLinkedProject({
-      "quickservice.config.ts": MEMORY_CONFIG,
+      "quickservicets.config.ts": MEMORY_CONFIG,
       "jobs/cleanup/expired-sessions.ts": SLOW,
       "endpoints/cleanup/post.ts": ENDPOINT,
       "endpoints/unknown/post.ts": UNKNOWN,
@@ -220,7 +220,7 @@ export default handler;
 
   test("an unknown job rejects with its name", async () => {
     const { jobRunner } = await app();
-    const { createRequestJobs } = await import("@quickservice/core");
+    const { createRequestJobs } = await import("@quickservicets/core");
     const jobs = createRequestJobs(jobRunner, { logger: { info() {}, warn() {}, error() {} } });
     await expect(jobs.run("nope" as never)).rejects.toThrow("Unknown job nope");
   });
@@ -232,7 +232,7 @@ export default handler;
       check,
       [
         'import "./.generated/jobs.ts";',
-        'import { definePreHook, type Endpoint } from "@quickservice/core";',
+        'import { definePreHook, type Endpoint } from "@quickservicets/core";',
         "export const ok: Endpoint = async (repos, req) => {",
         '  const { runId } = await req.jobs.run("cleanup/expired-sessions");',
         '  await req.jobs.run("cleanup/expired-sessions", { force: true });',

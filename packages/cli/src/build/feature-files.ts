@@ -1,4 +1,4 @@
-import { featureDir, type ResolvedFeature } from "@quickservice/core";
+import { featureDir, type ResolvedFeature } from "@quickservicets/core";
 import { join, relative, resolve, sep } from "node:path";
 import { featureFileName } from "../entities/parse-entities.ts";
 import { scanEndpointFolder, scanEndpoints, type EndpointRoute } from "../endpoints/scan-endpoints.ts";
@@ -172,7 +172,7 @@ export async function scanFeatureFolders(projectRoot: string, features: readonly
   return files;
 }
 
-/** The project paths `quickservice dev` watches for the enabled features: their folders and `watch` paths. */
+/** The project paths `quickservicets dev` watches for the enabled features: their folders and `watch` paths. */
 export function featureWatchPaths(features: readonly ResolvedFeature[]): string[] {
   return [...new Set(features.flatMap((feature) => [...Object.values(feature.definition.folders ?? {}).map((folder) => folder.dir), ...(feature.definition.watch ?? [])]))];
 }

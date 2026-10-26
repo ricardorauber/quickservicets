@@ -115,7 +115,7 @@ const idempotencyFeature = defineFeature({
   setup(ctx) {
     const configured = ctx.options.store as IdempotencyStore | undefined;
     const model = ctx.models.find((candidate) => candidate.key === "IdempotencyKey" && candidate.system);
-    if (!configured && !model) throw new Error("The idempotency native needs the IdempotencyKey entity; run quickservice build after enabling it");
+    if (!configured && !model) throw new Error("The idempotency native needs the IdempotencyKey entity; run quickservicets build after enabling it");
     const store: IdempotencyStore = configured ?? databaseStore(ctx.config.database, model!, ctx.logger);
     const { beforeReplay, afterStore, onConflict } = ctx.options;
     const maxBytes = parseSize(ctx.options.maxResponseSize) ?? 1_048_576;

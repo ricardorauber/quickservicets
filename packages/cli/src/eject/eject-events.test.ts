@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { events } from "@quickservice/core";
+import { events } from "@quickservicets/core";
 import { createLinkedProject } from "../testing/project.ts";
 import { startTestService } from "../testing/service.ts";
 import { eject } from "./eject.ts";
@@ -21,12 +21,12 @@ function filesOf(root: string): Record<string, string> {
 
 const post = (body: unknown) => ({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
-test("quickservice eject events turns the native into features/events/ and the example keeps working", async () => {
+test("quickservicets eject events turns the native into features/events/ and the example keeps working", async () => {
   const root = createLinkedProject(filesOf(example));
   const lines = await eject(root, "events");
   expect(lines).toContain("features/events/ now replaces the events native.");
   expect(existsSync(join(root, "features/events/index.ts"))).toBe(true);
-  expect(readFileSync(join(root, "features/events/bus.ts"), "utf8")).toContain('from "@quickservice/core"');
+  expect(readFileSync(join(root, "features/events/bus.ts"), "utf8")).toContain('from "@quickservicets/core"');
 
   const service = await startTestService({ files: filesOf(root) });
   try {

@@ -36,7 +36,7 @@ export type Article = {
 The build writes this file for you; it is shown here so the snippets on this page type-check on their own.
 
 ```ts check title=".generated/types.ts"
-import type { One, Repository } from "@quickservice/core";
+import type { One, Repository } from "@quickservicets/core";
 
 export type Author = { id: string; createdAt: Date; updatedAt: Date; name: string };
 export type AuthorReferences = Record<never, never>;
@@ -57,7 +57,7 @@ export interface GeneratedRepositories {
   articles: Repository<Article, ArticleReferences>;
 }
 
-declare module "@quickservice/core" {
+declare module "@quickservicets/core" {
   interface Repositories extends GeneratedRepositories {}
 }
 ```
@@ -69,7 +69,7 @@ declare module "@quickservice/core" {
 `GET /authors/:authorId/articles` lists an author's published articles, newest first, with an optional title search:
 
 ```ts check title="endpoints/authors/[authorId]/articles/get.ts"
-import type { Endpoint } from "@quickservice/core";
+import type { Endpoint } from "@quickservicets/core";
 
 type Query = {
   /** @integer @default 10 @min 1 @max 50 */
@@ -266,7 +266,7 @@ Use the generated route when clients may filter freely; write an endpoint when t
 **Page numbers.** If clients think in pages, take `page` and `pageSize` and convert them:
 
 ```ts check title="endpoints/authors/[authorId]/articles-by-page/get.ts"
-import type { Endpoint } from "@quickservice/core";
+import type { Endpoint } from "@quickservicets/core";
 
 type Query = {
   /** @integer @default 1 @min 1 */

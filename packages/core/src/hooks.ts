@@ -89,7 +89,7 @@ export type PostHookFn = (
   args: string[],
 ) => unknown | Promise<unknown>;
 
-const HOOK_MARKER = Symbol.for("quickservice.hook");
+const HOOK_MARKER = Symbol.for("quickservicets.hook");
 
 /** How a hook appears in the API docs: extra error responses and the security scheme it enforces. */
 export interface HookDocs {

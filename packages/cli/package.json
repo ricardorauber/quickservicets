@@ -1,16 +1,25 @@
 {
-  "name": "@quickservice/cli",
+  "name": "@quickservicets/cli",
   "version": "0.1.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ricardorauber/quickservicets.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/ricardorauber/quickservicets#readme",
+  "bugs": {
+    "url": "https://github.com/ricardorauber/quickservicets/issues"
+  },
   "type": "module",
   "bin": {
-    "quickservice": "src/index.ts"
+    "quickservicets": "src/index.ts"
   },
   "exports": {
     ".": "./src/lib.ts",
     "./testing": "./src/testing/index.ts"
   },
   "dependencies": {
-    "@quickservice/core": "workspace:*",
+    "@quickservicets/core": "workspace:*",
     "typescript": "5.9.2",
     "drizzle-kit": "0.31.11",
     "drizzle-orm": "0.45.4"

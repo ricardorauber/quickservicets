@@ -1,14 +1,14 @@
 import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { startTestService, type TestService } from "@quickservice/cli/testing";
+import { startTestService, type TestService } from "@quickservicets/cli/testing";
 
 const root = join(import.meta.dir, "..");
 
 /** The example's own files, as `startTestService` takes them. */
 function exampleFiles(): Record<string, string> {
   const files: Record<string, string> = {};
-  for (const file of ["quickservice.config.ts", "tagger.ts"]) files[file] = readFileSync(join(root, file), "utf8");
+  for (const file of ["quickservicets.config.ts", "tagger.ts"]) files[file] = readFileSync(join(root, file), "utf8");
   for (const entry of readdirSync(join(root, "entities"), { recursive: true, withFileTypes: true })) {
     if (entry.isFile()) files[relative(root, join(entry.parentPath, entry.name))] = readFileSync(join(entry.parentPath, entry.name), "utf8");
   }
@@ -49,9 +49,9 @@ test("of two editors of one version, the second gets 412 instead of overwriting,
 
 test("the version tagger tags documents with their version", async () => {
   const files = exampleFiles();
-  files["quickservice.config.ts"] = files["quickservice.config.ts"]!.replace(
-    'import { defineConfig, memoryAdapter } from "@quickservice/core";',
-    'import { defineConfig, memoryAdapter } from "@quickservice/core";\nimport { versionTagger } from "./tagger.ts";',
+  files["quickservicets.config.ts"] = files["quickservicets.config.ts"]!.replace(
+    'import { defineConfig, memoryAdapter } from "@quickservicets/core";',
+    'import { defineConfig, memoryAdapter } from "@quickservicets/core";\nimport { versionTagger } from "./tagger.ts";',
   ).replace("etag: {}", "etag: { tagger: versionTagger }");
   const service = await startTestService({ files });
   try {

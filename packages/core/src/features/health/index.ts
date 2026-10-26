@@ -66,7 +66,7 @@ const registry = sharedState("checks", () => ({
 
 /** Runs the readiness checks of the running service, for a project endpoint that replaces the ready route. */
 export function runHealthChecks(): Promise<HealthReport> {
-  if (!registry.run) return Promise.reject(new Error("health is not enabled; add health: {} to quickservice.config.ts"));
+  if (!registry.run) return Promise.reject(new Error("health is not enabled; add health: {} to quickservicets.config.ts"));
   return registry.run();
 }
 

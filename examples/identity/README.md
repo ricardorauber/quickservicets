@@ -1,6 +1,6 @@
 # Identity example
 
-An identity service built with QuickService: organizations, their users and teams, and the permissions that decide what each user may do. It is the finished project of the [tutorial](../../docs/src/content/docs/tutorial/index.md), which builds it step by step.
+An identity service built with QuickService.ts: organizations, their users and teams, and the permissions that decide what each user may do. It is the finished project of the [tutorial](../../docs/src/content/docs/tutorial/index.md), which builds it step by step.
 
 ## The domain
 
@@ -37,7 +37,7 @@ A user's permissions in an organization are those of the profiles of their activ
 
 ## Run it
 
-You need [Bun](https://bun.sh) and Docker. The QuickService packages are not on npm yet, so the example runs inside a clone of the repository. Install once, from the repository root:
+You need [Bun](https://bun.sh) and Docker. The QuickService.ts packages are not on npm yet, so the example runs inside a clone of the repository. Install once, from the repository root:
 
 ```bash
 bun install
@@ -105,7 +105,7 @@ bun run dev
 ```
 
 ```text
-quickservice listening on http://localhost:3000
+QuickService.ts listening on http://localhost:3000
 ```
 
 The interactive API reference is at <http://localhost:3000/docs>, and the OpenAPI document at <http://localhost:3000/openapi.json>.
@@ -285,7 +285,7 @@ An organization that does not exist answers `404 Organization not found`.
 `jobs/deactivate-memberships-of-inactive-organizations.ts` runs every day at 03:00 UTC, while the server runs, and sets `active: false` on the active memberships of inactive organizations. Its result is the number it changed. The schedule:
 
 ```bash
-bun run quickservice job list
+bun run quickservicets job list
 ```
 
 ```text
@@ -297,7 +297,7 @@ Run it now instead: deactivate Globex, then run the job from the CLI, which reco
 
 ```bash
 curl -X PATCH localhost:3000/organizations/<globex-id> -d '{"active":false}'
-bun run quickservice job run deactivate-memberships-of-inactive-organizations
+bun run quickservicets job run deactivate-memberships-of-inactive-organizations
 ```
 
 ```text
@@ -308,7 +308,7 @@ Job deactivate-memberships-of-inactive-organizations: success in 35ms
 Result: 2
 ```
 
-Globex's two memberships, Carla's and Ana's, are now inactive. `bun run quickservice job runs deactivate-memberships-of-inactive-organizations` lists the recorded runs.
+Globex's two memberships, Carla's and Ana's, are now inactive. `bun run quickservicets job runs deactivate-memberships-of-inactive-organizations` lists the recorded runs.
 
 ## Run the tests
 
@@ -340,25 +340,25 @@ They cover every route, the data rules, the `@requires` hook (401, 403 and allow
 
 ## Production image
 
-`Dockerfile` builds an image from the repository root, like every QuickService image in this repository:
+`Dockerfile` builds an image from the repository root, like every QuickService.ts image in this repository:
 
 ```bash
 docker build -f examples/identity/Dockerfile -t identity .
 ```
 
-Each start applies the pending migrations, then starts the server with `NODE_ENV=production`. In production on Linux with PostgreSQL, QuickService starts one server worker per CPU the container is given, so `--cpus=2` gives two workers. To run it against the database of step 1 (from Docker Desktop, the host is `host.docker.internal`):
+Each start applies the pending migrations, then starts the server with `NODE_ENV=production`. In production on Linux with PostgreSQL, QuickService.ts starts one server worker per CPU the container is given, so `--cpus=2` gives two workers. To run it against the database of step 1 (from Docker Desktop, the host is `host.docker.internal`):
 
 ```bash
 docker run --rm --cpus=2 -p 3000:3000 -e DATABASE_URL=postgres://postgres:postgres@host.docker.internal:5432/postgres identity
 ```
 
 ```text
-$ quickservice migrate
+$ quickservicets migrate
 Database is up to date (0 migrations applied)
 {"level":"info","timestamp":"2026-10-20T13:54:30.180Z","message":"worker.started","worker":0,"pid":23}
 {"level":"info","timestamp":"2026-10-20T13:54:30.180Z","message":"worker.started","worker":1,"pid":24}
-quickservice listening on http://localhost:3000
-quickservice listening on http://localhost:3000
+QuickService.ts listening on http://localhost:3000
+QuickService.ts listening on http://localhost:3000
 {"level":"info","timestamp":"2026-10-20T13:55:59.542Z","message":"job-runs.cleanup","deleted":0}
 ```
 

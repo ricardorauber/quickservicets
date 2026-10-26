@@ -1,4 +1,4 @@
-import { HttpError, type Endpoint } from "@quickservice/core"
+import { HttpError, type Endpoint } from "@quickservicets/core"
 
 type Stats = {
     members: number

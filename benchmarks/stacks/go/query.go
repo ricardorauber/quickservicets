@@ -146,7 +146,7 @@ type selection struct {
 	populate bool
 }
 
-// parseSelection validates `populate` (first) and `fields`, as QuickService does, and returns the error to send.
+// parseSelection validates `populate` (first) and `fields`, as QuickService.ts does, and returns the error to send.
 func parseSelection(e *entity, params []param) (selection, *apiError) {
 	sel := selection{mask: e.allFields()}
 	if raw, ok := first(params, "populate"); ok {

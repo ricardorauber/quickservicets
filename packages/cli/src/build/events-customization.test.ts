@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { events, readOutbox, type AnyEvent } from "@quickservice/core";
+import { events, readOutbox, type AnyEvent } from "@quickservicets/core";
 import { startTestService } from "../testing/service.ts";
 
 type Seen = { seen?: string[]; published?: string[]; subscribed?: string[]; hooks?: string[] };
@@ -11,18 +11,18 @@ afterEach(() => {
   g.hooks = [];
 });
 
-const config = (events: string) => `import { defineConfig, memoryAdapter, type AnyEvent } from "@quickservice/core";
+const config = (events: string) => `import { defineConfig, memoryAdapter, type AnyEvent } from "@quickservicets/core";
 const g = globalThis as { seen?: string[]; published?: string[]; subscribed?: string[]; hooks?: string[] };
 export default defineConfig({ database: memoryAdapter(), events: ${events} });
 `;
-const LOG = `import { listen } from "@quickservice/core";
+const LOG = `import { listen } from "@quickservicets/core";
 export default listen("*", (event) => void ((globalThis as { seen?: string[] }).seen ??= []).push(event.type));
 `;
 const USER = "export type User = { name: string; passwordHash?: string; lastSeenAt?: string };\n";
 const post = (path: string, body: unknown) => ({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 const json = (method: string, body: unknown) => ({ method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 const start = (events: string, files: Record<string, string> = {}, env: Record<string, string> = {}) =>
-  startTestService({ files: { "quickservice.config.ts": config(events), "entities/User.ts": USER, "events/log.ts": LOG, ...files }, env });
+  startTestService({ files: { "quickservicets.config.ts": config(events), "entities/User.ts": USER, "events/log.ts": LOG, ...files }, env });
 
 describe("the @events tag and the defaults", () => {
   test("events: {} alone delivers user.created to a listener file", async () => {
@@ -100,7 +100,7 @@ describe("hooks", () => {
   });
 
   test("a feature adds an afterEmit hook through the feature API, after the config's", async () => {
-    const feature = `import { defineFeature } from "@quickservice/core";
+    const feature = `import { defineFeature } from "@quickservicets/core";
 export default defineFeature({
   key: "watcher",
   requires: ["events"],

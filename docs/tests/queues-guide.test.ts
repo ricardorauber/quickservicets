@@ -16,7 +16,7 @@ function titledSamples(markdown: string): Map<string, string> {
 describe("the queues guide", () => {
   test("its file samples are the example project's files", () => {
     const samples = titledSamples(guide);
-    expect([...samples.keys()].sort()).toEqual(["endpoints/users/[id]/welcome/post.ts", "entities/User.ts", "memory-broker.ts", "queues/events.ts", "queues/send-email.ts", "quickservice.config.ts"]);
+    expect([...samples.keys()].sort()).toEqual(["endpoints/users/[id]/welcome/post.ts", "entities/User.ts", "memory-broker.ts", "queues/events.ts", "queues/send-email.ts", "quickservicets.config.ts"]);
     for (const [path, code] of samples) expect(code).toBe(readFileSync(join(example, path), "utf8"));
   });
 
@@ -34,7 +34,7 @@ describe("the queues guide", () => {
       "## Retries and backoff",
       "## Timeouts",
       "## Dead letter and the CLI",
-      "quickservice queue list",
+      "quickservicets queue list",
       "## Retention",
       "## Publishing entity events with `@publish`",
       "## Overrides and variables",

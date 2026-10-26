@@ -6,7 +6,7 @@ import { nativeImportProblems } from "./native-imports.ts";
 
 /** A copy of the core's layout: `<root>/repository.ts` and natives in `<root>/features/`. */
 function layout(files: Record<string, string>): string {
-  const root = mkdtempSync(join(tmpdir(), "quickservice-natives-"));
+  const root = mkdtempSync(join(tmpdir(), "quickservicets-natives-"));
   for (const [path, content] of Object.entries({ "repository.ts": "export const x = 1;\n", "features/public.ts": 'export * from "../repository.ts";\n', ...files })) {
     mkdirSync(dirname(join(root, path)), { recursive: true });
     writeFileSync(join(root, path), content);
@@ -27,7 +27,7 @@ describe("the native import rule", () => {
       "features/audit/lib/y.ts": 'export { x as y } from "../../public";\n',
     });
     expect(nativeImportProblems(good)).toEqual([]);
-    const packageImport = layout({ "features/audit/index.ts": 'export { defineFeature } from "@quickservice/core";\n' });
-    expect(nativeImportProblems(packageImport)).toEqual(["audit/index.ts: imports @quickservice/core; natives import the core only from ../public.ts"]);
+    const packageImport = layout({ "features/audit/index.ts": 'export { defineFeature } from "@quickservicets/core";\n' });
+    expect(nativeImportProblems(packageImport)).toEqual(["audit/index.ts: imports @quickservicets/core; natives import the core only from ../public.ts"]);
   });
 });

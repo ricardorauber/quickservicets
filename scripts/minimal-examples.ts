@@ -23,7 +23,7 @@ export interface ExampleNative {
   enabledByDefault: boolean;
 }
 
-const WORKSPACE_DEPENDENCIES = { "@quickservice/core": "workspace:*", "@quickservice/cli": "workspace:*" };
+const WORKSPACE_DEPENDENCIES = { "@quickservicets/core": "workspace:*", "@quickservicets/cli": "workspace:*" };
 
 /** The test files of a folder, subfolders included, without `node_modules`. */
 function testFiles(dir: string): string[] {
@@ -65,13 +65,13 @@ function exampleProblems(dir: string, native: ExampleNative): string[] {
   else {
     const dependencies = (JSON.parse(readFileSync(packageFile, "utf8")) as { dependencies?: Record<string, string> }).dependencies ?? {};
     if (Object.entries(WORKSPACE_DEPENDENCIES).some(([name, version]) => dependencies[name] !== version)) {
-      problems.push("package.json must depend on @quickservice/core and @quickservice/cli with workspace:*");
+      problems.push("package.json must depend on @quickservicets/core and @quickservicets/cli with workspace:*");
     }
   }
-  const configFile = join(dir, "quickservice.config.ts");
-  if (!existsSync(configFile)) problems.push("missing quickservice.config.ts");
+  const configFile = join(dir, "quickservicets.config.ts");
+  if (!existsSync(configFile)) problems.push("missing quickservicets.config.ts");
   else if (!native.enabledByDefault && !new RegExp(`(^|[\\s{,])["']?${native.key}["']?\\s*:`, "m").test(readFileSync(configFile, "utf8"))) {
-    problems.push(`quickservice.config.ts does not enable ${native.key}`);
+    problems.push(`quickservicets.config.ts does not enable ${native.key}`);
   }
   const readmeFile = join(dir, "README.md");
   if (!existsSync(readmeFile)) problems.push("missing README.md");

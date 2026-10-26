@@ -9,7 +9,7 @@ Feature flags turned on per user, per tenant or for a percentage of users, read 
 
 ## Enabling
 
-Turn it on in `quickservice.config.ts`:
+Turn it on in `quickservicets.config.ts`:
 
 ```ts
 flags: {}
@@ -57,7 +57,7 @@ export default () => ({ ok: true });
 Prints each flag with its origin (config, database or both), on or off, its user and tenant counts and its percentage.
 
 ```bash
-quickservice flags list
+quickservicets flags list
 ```
 
 ### `flags set`
@@ -65,7 +65,7 @@ quickservice flags list
 Creates or updates a flag of the database source, changing only the flags given, and prints its line.
 
 ```bash
-quickservice flags set <name> [--on | --off] [--percentage <n>] [--users <a,b>] [--tenants <a,b>] [--description <text>]
+quickservicets flags set <name> [--on | --off] [--percentage <n>] [--users <a,b>] [--tenants <a,b>] [--description <text>]
 ```
 
 **Arguments:**
@@ -86,7 +86,7 @@ quickservice flags set <name> [--on | --off] [--percentage <n>] [--users <a,b>] 
 Deletes a flag of the database source; the config's rule of that name applies again.
 
 ```bash
-quickservice flags remove <name>
+quickservicets flags remove <name>
 ```
 
 **Arguments:**

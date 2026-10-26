@@ -13,8 +13,8 @@ function project(databasePath?: string) {
   const root = createLinkedProject({ "entities/User.ts": "export type User = { email: string }" });
   const path = databasePath ?? join(root, "app.db");
   writeFileSync(
-    join(root, "quickservice.config.ts"),
-    `import { defineConfig, sqliteAdapter } from "@quickservice/core";\nexport default defineConfig({ database: sqliteAdapter({ path: ${JSON.stringify(path)} }) });\n`,
+    join(root, "quickservicets.config.ts"),
+    `import { defineConfig, sqliteAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: sqliteAdapter({ path: ${JSON.stringify(path)} }) });\n`,
   );
   return root;
 }
@@ -45,7 +45,7 @@ describe("list", () => {
   });
 
   test("an unreachable database yields unknown statuses and a warning", async () => {
-    const root = project("/nonexistent-dir/for/quickservice/app.db");
+    const root = project("/nonexistent-dir/for/quickservicets/app.db");
     await twoMigrations(root);
     const errors: string[] = [];
     const logs: string[] = [];
@@ -76,7 +76,7 @@ describe("remove", () => {
     const errors: string[] = [];
     expect(await run(["migration", "remove"], { log: () => {}, error: (line) => errors.push(line) }, root)).toBe(1);
     expect(errors).toEqual([
-      'Migration 20261015120001_AddAge is applied. Revert it with "quickservice migrate Initial" first',
+      'Migration 20261015120001_AddAge is applied. Revert it with "quickservicets migrate Initial" first',
     ]);
   });
 

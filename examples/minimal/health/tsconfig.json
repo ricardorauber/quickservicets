@@ -1,4 +1,4 @@
 {
   "extends": "../../../tsconfig.base.json",
-  "include": ["quickservice.config.ts", "entities", "features", "tests", ".generated/**/*.ts"]
+  "include": ["quickservicets.config.ts", "entities", "features", "tests", ".generated/**/*.ts"]
 }

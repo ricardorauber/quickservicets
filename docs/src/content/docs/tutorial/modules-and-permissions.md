@@ -27,7 +27,7 @@ export type Module = {
 
 `Module` gets the routes `/modules` and `/modules/<id>`, and every record also has `id`, `createdAt` and `updatedAt`. The file exports `ModuleAction` too, which the permission uses next. An enum is not an entity, so it gets no routes.
 
-The JSDoc comment above a field holds its **tags**, the rules QuickService checks for you:
+The JSDoc comment above a field holds its **tags**, the rules QuickService.ts checks for you:
 
 - `@unique` rejects a slug that another module already has, with `409 Value already exists`.
 - `@minLength 2` and `@maxLength 64` keep the slug between 2 and 64 characters, or the request fails with `400`.
@@ -35,7 +35,7 @@ The JSDoc comment above a field holds its **tags**, the rules QuickService check
 
 ## An enum without initializers
 
-`ModuleAction` has no values after its members. In that case QuickService uses the member names as the values, so the API accepts and returns `"manage"` and `"view"`, never `0` or `1`.
+`ModuleAction` has no values after its members. In that case QuickService.ts uses the member names as the values, so the API accepts and returns `"manage"` and `"view"`, never `0` or `1`.
 
 Other string forms work the same way. All of these are valid:
 

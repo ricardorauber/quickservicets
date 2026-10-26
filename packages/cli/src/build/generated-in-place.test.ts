@@ -5,7 +5,7 @@ import { createLinkedProject, MEMORY_CONFIG } from "../testing/project.ts";
 import { build } from "./build.ts";
 
 const project = () =>
-  createLinkedProject({ "quickservice.config.ts": MEMORY_CONFIG, "entities/User.ts": "export type User = { email: string }" });
+  createLinkedProject({ "quickservicets.config.ts": MEMORY_CONFIG, "entities/User.ts": "export type User = { email: string }" });
 
 const generated = (root: string) => join(root, ".generated");
 const PAST = new Date("2020-01-01T00:00:00Z");

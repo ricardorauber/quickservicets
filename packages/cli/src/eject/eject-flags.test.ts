@@ -18,7 +18,7 @@ function filesOf(root: string): Record<string, string> {
   return files;
 }
 
-test("quickservice eject flags turns the native into features/flags/, and the example's flags keep working", async () => {
+test("quickservicets eject flags turns the native into features/flags/, and the example's flags keep working", async () => {
   const root = createLinkedProject(filesOf(example));
   const lines = await eject(root, "flags");
   expect(lines).toContain("features/flags/ now replaces the flags native.");

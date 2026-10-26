@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { defineFeature, registerNative, registerProjectFeatures } from "@quickservice/core";
+import { defineFeature, registerNative, registerProjectFeatures } from "@quickservicets/core";
 import { unregisterNative } from "../../../core/src/features.ts";
 import { run } from "../run.ts";
 import { writeNativeFolder } from "../testing/native.ts";
@@ -9,12 +9,12 @@ import { createLinkedProject } from "../testing/project.ts";
 import { serveBuilt } from "../testing/serve.ts";
 import { build } from "./build.ts";
 
-const config = (keys = "") => `import { defineConfig, memoryAdapter } from "@quickservice/core";
+const config = (keys = "") => `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter()${keys ? `, ${keys}` : ""} });
 `;
 const POST = "/** @noteStamp */\nexport type Post = { title: string };\n";
 const project = (files: Record<string, string>, keys = "") =>
-  createLinkedProject({ "quickservice.config.ts": config(keys), "entities/User.ts": "export type User = { email: string };\n", ...files });
+  createLinkedProject({ "quickservicets.config.ts": config(keys), "entities/User.ts": "export type User = { email: string };\n", ...files });
 const read = (root: string, file: string) => readFileSync(join(root, file), "utf8");
 const failure = async (work: () => Promise<unknown>): Promise<Error> => {
   try {
@@ -30,17 +30,17 @@ const capture = async (args: string[], root: string) => {
   return { code, lines };
 };
 
-/** A native's files import the core from `features/public.ts`; a project feature's import `@quickservice/core`. */
+/** A native's files import the core from `features/public.ts`; a project feature's import `@quickservicets/core`. */
 const files = (core: (path: string) => string) => ({
   "endpoints/notes/hello/get.ts": "/** @summary Says hello from notes */\nexport default () => ({ hello: \"notes\" });\n",
   "hooks/noteStamp.ts": `import { definePostHook } from ${JSON.stringify(core("hooks.ts"))};\nexport default definePostHook((data) => ({ ...(data as object), stamped: true }));\n`,
   "jobs/prune.ts": `import { job } from ${JSON.stringify(core("jobs/job.ts"))};\nexport default job({ every: "1h" }, async () => "pruned");\n`,
 });
 const NATIVE_FILES = files(() => "../../public.ts");
-const PROJECT_FILES = files(() => "@quickservice/core");
+const PROJECT_FILES = files(() => "@quickservicets/core");
 const prefixed = (prefix: string, entries: Record<string, string>) => Object.fromEntries(Object.entries(entries).map(([path, content]) => [`${prefix}${path}`, content]));
 const featureIndex = (key: string) =>
-  `import { defineFeature } from "@quickservice/core";\nexport default defineFeature({ docs: { summary: "Test native." }, key: "${key}", endpoints: "./endpoints", hooks: "./hooks", jobs: "./jobs" });\n`;
+  `import { defineFeature } from "@quickservicets/core";\nexport default defineFeature({ docs: { summary: "Test native." }, key: "${key}", endpoints: "./endpoints", hooks: "./hooks", jobs: "./jobs" });\n`;
 
 const cleanups: (() => void)[] = [];
 const notesNative = () => {
@@ -86,9 +86,9 @@ describe("generated imports", () => {
     notesNative();
     const root = project({ "entities/Post.ts": POST }, "notes: {}");
     await build(root);
-    expect(read(root, ".generated/routes.ts")).toContain('import endpoint0 from "@quickservice/core/features/notes/endpoints/notes/hello/get.ts";');
-    expect(read(root, ".generated/routes.ts")).toContain('import hook_noteStamp from "@quickservice/core/features/notes/hooks/noteStamp.ts";');
-    expect(read(root, ".generated/jobs.ts")).toContain('import job0 from "@quickservice/core/features/notes/jobs/prune.ts";');
+    expect(read(root, ".generated/routes.ts")).toContain('import endpoint0 from "@quickservicets/core/features/notes/endpoints/notes/hello/get.ts";');
+    expect(read(root, ".generated/routes.ts")).toContain('import hook_noteStamp from "@quickservicets/core/features/notes/hooks/noteStamp.ts";');
+    expect(read(root, ".generated/jobs.ts")).toContain('import job0 from "@quickservicets/core/features/notes/jobs/prune.ts";');
     expect(read(root, ".generated/jobs.ts")).toContain('["notes/prune", { ...job0, feature: "notes" }],');
     expect(read(root, ".generated/routes.ts")).toContain('feature: "notes", handler: endpoint0');
 
@@ -110,17 +110,17 @@ describe("project overrides", () => {
       {
         "entities/Post.ts": POST,
         "endpoints/notes/hello/get.ts": 'export default () => ({ hello: "project" });\n',
-        "hooks/noteStamp.ts": 'import { definePostHook } from "@quickservice/core";\nexport default definePostHook((data) => ({ ...(data as object), stamped: "project" }));\n',
-        "jobs/notes/prune.ts": 'import { job } from "@quickservice/core";\nexport default job({ every: "2h" }, async () => "project");\n',
+        "hooks/noteStamp.ts": 'import { definePostHook } from "@quickservicets/core";\nexport default definePostHook((data) => ({ ...(data as object), stamped: "project" }));\n',
+        "jobs/notes/prune.ts": 'import { job } from "@quickservicets/core";\nexport default job({ every: "2h" }, async () => "project");\n',
       },
       "notes: {}",
     );
     const { code, lines } = await capture(["build"], root);
     expect(code).toBe(0);
     expect(lines.slice(0, 3).sort()).toEqual([
-      "Override: endpoints/notes/hello/get.ts replaces @quickservice/core/features/notes/endpoints/notes/hello/get.ts from notes",
-      "Override: hooks/noteStamp.ts replaces @quickservice/core/features/notes/hooks/noteStamp.ts from notes",
-      "Override: jobs/notes/prune.ts replaces @quickservice/core/features/notes/jobs/prune.ts from notes",
+      "Override: endpoints/notes/hello/get.ts replaces @quickservicets/core/features/notes/endpoints/notes/hello/get.ts from notes",
+      "Override: hooks/noteStamp.ts replaces @quickservicets/core/features/notes/hooks/noteStamp.ts from notes",
+      "Override: jobs/notes/prune.ts replaces @quickservicets/core/features/notes/jobs/prune.ts from notes",
     ]);
     const app = await serveBuilt(root);
     expect((await app.get("/notes/hello")).body).toEqual({ hello: "project" });
@@ -129,7 +129,7 @@ describe("project overrides", () => {
   });
 
   test("a feature endpoint overrides a generated route, and a project endpoint overrides the feature's", async () => {
-    const feature = `import { defineFeature } from "@quickservice/core";\nexport default defineFeature({ docs: { summary: "Test native." }, key: "profiles", endpoints: "./endpoints" });\n`;
+    const feature = `import { defineFeature } from "@quickservicets/core";\nexport default defineFeature({ docs: { summary: "Test native." }, key: "profiles", endpoints: "./endpoints" });\n`;
     const read_ = 'export default (_repos: unknown, req: { params: { id: string } }) => ({ id: req.params.id, email: "feature" });\n';
     const root = project({ "features/profiles/index.ts": feature, "features/profiles/endpoints/users/[id]/get.ts": read_ }, "profiles: {}");
     await build(root);

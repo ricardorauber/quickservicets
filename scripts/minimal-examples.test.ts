@@ -30,10 +30,10 @@ const README = (skip: string[] = [], empty: string[] = []) =>
   ].join("\n");
 
 const complete = (extra: Record<string, string> = {}) => ({
-  "examples/minimal/audit/package.json": JSON.stringify({ name: "minimal-audit", dependencies: { "@quickservice/core": "workspace:*", "@quickservice/cli": "workspace:*" } }),
-  "examples/minimal/audit/quickservice.config.ts": "export default defineConfig({ database: memoryAdapter(), audit: {} });\n",
+  "examples/minimal/audit/package.json": JSON.stringify({ name: "minimal-audit", dependencies: { "@quickservicets/core": "workspace:*", "@quickservicets/cli": "workspace:*" } }),
+  "examples/minimal/audit/quickservicets.config.ts": "export default defineConfig({ database: memoryAdapter(), audit: {} });\n",
   "examples/minimal/audit/README.md": README(),
-  "examples/minimal/audit/tests/audit.test.ts": 'import { startTestService } from "@quickservice/cli/testing";\n',
+  "examples/minimal/audit/tests/audit.test.ts": 'import { startTestService } from "@quickservicets/cli/testing";\n',
   ...extra,
 });
 
@@ -52,14 +52,14 @@ describe("folders and files", () => {
   });
 
   test("missing files, a config that does not enable the native and tests without startTestService are reported", () => {
-    const root = repo({ "examples/minimal/audit/quickservice.config.ts": "export default defineConfig({});\n", "examples/minimal/audit/tests/a.test.ts": "test();\n" });
+    const root = repo({ "examples/minimal/audit/quickservicets.config.ts": "export default defineConfig({});\n", "examples/minimal/audit/tests/a.test.ts": "test();\n" });
     expect(minimalExampleProblems(root, audit)).toEqual([
       "examples/minimal/audit: missing package.json",
-      "examples/minimal/audit: quickservice.config.ts does not enable audit",
+      "examples/minimal/audit: quickservicets.config.ts does not enable audit",
       "examples/minimal/audit: missing README.md",
       "examples/minimal/audit: tests must start the project with startTestService",
     ]);
-    expect(minimalExampleProblems(root, [{ key: "audit", enabledByDefault: true }])).not.toContain("examples/minimal/audit: quickservice.config.ts does not enable audit");
+    expect(minimalExampleProblems(root, [{ key: "audit", enabledByDefault: true }])).not.toContain("examples/minimal/audit: quickservicets.config.ts does not enable audit");
   });
 
   test("a complete example passes", () => {

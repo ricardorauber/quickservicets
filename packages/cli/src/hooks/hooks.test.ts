@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { definePostHook, definePreHook, isHookDefinition } from "@quickservice/core";
+import { definePostHook, definePreHook, isHookDefinition } from "@quickservicets/core";
 import { parseEntities } from "../entities/parse-entities.ts";
 import { BuildError } from "../errors.ts";
 import { CORE_IMPORT } from "../testing/core-path.ts";

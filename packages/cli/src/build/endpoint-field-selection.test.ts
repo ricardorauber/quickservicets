@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { createApp, definePostHook, projectResult, resolveConfig } from "@quickservice/core";
+import { createApp, definePostHook, projectResult, resolveConfig } from "@quickservicets/core";
 import { BuildError } from "../errors.ts";
 import { parseEndpointTags } from "../hooks/endpoint-tags.ts";
 import { scanHooks } from "../hooks/scan-hooks.ts";
@@ -21,7 +21,7 @@ describe("tags", () => {
     expect(() => parseEndpointTags("/** @fields a @exclude b */\nexport default () => {};", "endpoints/get.ts")).toThrow("endpoints/get.ts");
   });
   test("fields and exclude are reserved hook names", async () => {
-    const root = createLinkedProject({ "hooks/fields.ts": 'import { definePreHook } from "@quickservice/core";\nexport default definePreHook(() => {});' });
+    const root = createLinkedProject({ "hooks/fields.ts": 'import { definePreHook } from "@quickservicets/core";\nexport default definePreHook(() => {});' });
     await expect(scanHooks(root)).rejects.toBeInstanceOf(BuildError);
   });
 });
@@ -44,15 +44,15 @@ const user = `export type User = {
 
 async function appFor(endpoints: Record<string, string>) {
   const root = createLinkedProject({
-    "quickservice.config.ts": MEMORY_CONFIG,
+    "quickservicets.config.ts": MEMORY_CONFIG,
     "entities/User.ts": user,
-    "hooks/spy.ts": 'import { definePostHook } from "@quickservice/core";\nexport const seen = [];\nexport default definePostHook((data) => (seen.push(data), data));',
+    "hooks/spy.ts": 'import { definePostHook } from "@quickservicets/core";\nexport const seen = [];\nexport default definePostHook((data) => (seen.push(data), data));',
     ...endpoints,
   });
   await build(root);
   const { models } = await import(join(root, ".generated/models.ts"));
   const { crudRoutes, endpoints: generated, hooks } = await import(join(root, ".generated/routes.ts"));
-  const config = resolveConfig({ ...(await import(join(root, "quickservice.config.ts"))).default, logger: { info() {}, warn() {}, error() {} } }, {});
+  const config = resolveConfig({ ...(await import(join(root, "quickservicets.config.ts"))).default, logger: { info() {}, warn() {}, error() {} } }, {});
   await config.database.connect(models);
   const { server, repos } = createApp({ models, crudRoutes, endpoints: generated, hooks, config });
   await (repos.users as { create(data: unknown): Promise<unknown> }).create({ email: "a@b.co", name: "Ann", address: { city: "Rio", zip: "1" } });
@@ -82,7 +82,7 @@ test("an override without tags keeps the entity rules", async () => {
 
 test("override paths are validated at build time", async () => {
   const root = createLinkedProject({
-    "quickservice.config.ts": MEMORY_CONFIG,
+    "quickservicets.config.ts": MEMORY_CONFIG,
     "entities/User.ts": user,
     "endpoints/users/[id]/get.ts": "/** @fields nope */\nexport default () => ({});",
   });

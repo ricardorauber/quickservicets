@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { SQL } from "bun";
-import { buildDrizzleSchema, createApp, loadConfig } from "@quickservice/core";
+import { buildDrizzleSchema, createApp, loadConfig } from "@quickservicets/core";
 import { getTableConfig as pgTableConfig } from "drizzle-orm/pg-core";
 import { getTableConfig as sqliteTableConfig } from "drizzle-orm/sqlite-core";
 import { build } from "../build/build.ts";
@@ -40,7 +40,7 @@ describe("drizzle schema", () => {
 function sqliteProject(path: string) {
   return createLinkedProject({
     ...entities,
-    "quickservice.config.ts": `import { defineConfig, sqliteAdapter } from "@quickservice/core";\nexport default defineConfig({ database: sqliteAdapter({ path: ${JSON.stringify(path)} }) });\n`,
+    "quickservicets.config.ts": `import { defineConfig, sqliteAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: sqliteAdapter({ path: ${JSON.stringify(path)} }) });\n`,
   });
 }
 
@@ -83,7 +83,7 @@ if (postgresUrl) {
     const pgProject = () =>
       createLinkedProject({
         ...entities,
-        "quickservice.config.ts": `import { defineConfig, postgresAdapter } from "@quickservice/core";\nexport default defineConfig({ database: postgresAdapter({ url: ${JSON.stringify(postgresUrl)} }) });\n`,
+        "quickservicets.config.ts": `import { defineConfig, postgresAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: postgresAdapter({ url: ${JSON.stringify(postgresUrl)} }) });\n`,
       });
     const reset = async () => {
       const admin = new SQL(postgresUrl);
@@ -125,7 +125,7 @@ if (postgresUrl) {
       const tables = (await admin.unsafe(
         "select table_schema || '.' || table_name as name from information_schema.tables where table_schema in ('tenant_a', 'auth', 'public') order by 1",
       )) as { name: string }[];
-      expect(tables.map((row) => row.name)).toEqual(["auth.__quickservice_migrations", "auth.users", "tenant_a.__quickservice_migrations", "tenant_a.files", "tenant_a.media", "tenant_a.users"]);
+      expect(tables.map((row) => row.name)).toEqual(["auth.__quickservicets_migrations", "auth.users", "tenant_a.__quickservicets_migrations", "tenant_a.files", "tenant_a.media", "tenant_a.users"]);
       const rows = (await admin.unsafe("select count(*)::int as count from tenant_a.users")) as { count: number }[];
       expect(rows[0]?.count).toBe(1);
       await admin.close();

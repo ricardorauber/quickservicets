@@ -307,7 +307,7 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
           app,
           generated: (relativePath) => generatedPath(join(generatedDir, feature.key), relativePath, feature.key),
           feature: ((key: string) => {
-            if (!enabledKeys.has(key)) throw new Error(`${feature.key} uses ${key}, which is not enabled; add ${key}: {} to quickservice.config.ts`);
+            if (!enabledKeys.has(key)) throw new Error(`${feature.key} uses ${key}, which is not enabled; add ${key}: {} to quickservicets.config.ts`);
             const { requires, after, enables } = feature.definition;
             if (!requires.some((requirement) => requirement.name === key) && !after.includes(key) && !enables.includes(key)) {
               throw new Error(`${feature.key} uses ${key}; add it to requires or after`);

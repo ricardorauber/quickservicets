@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { defineFeature, memoryAdapter, registerNative, registerProjectFeatures, resolveConfig } from "@quickservice/core";
+import { defineFeature, memoryAdapter, registerNative, registerProjectFeatures, resolveConfig } from "@quickservicets/core";
 import { unregisterNative } from "../../../core/src/features.ts";
 import { startDev, watchPaths, WATCHED_PATHS, type DevSession } from "../dev/dev.ts";
 import { run } from "../run.ts";
@@ -10,10 +10,10 @@ import { createLinkedProject } from "../testing/project.ts";
 import { serveBuilt } from "../testing/serve.ts";
 import { build, type BuildSummary } from "./build.ts";
 
-const config = (keys = "audit: {}") => `import { defineConfig, memoryAdapter } from "@quickservice/core";
+const config = (keys = "audit: {}") => `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter()${keys ? `, ${keys}` : ""} });
 `;
-const project = (files: Record<string, string>, keys?: string) => createLinkedProject({ "quickservice.config.ts": config(keys), ...files });
+const project = (files: Record<string, string>, keys?: string) => createLinkedProject({ "quickservicets.config.ts": config(keys), ...files });
 const failure = async (work: () => Promise<unknown>): Promise<Error> => {
   try {
     await work();
@@ -62,15 +62,15 @@ describe("scanning folders", () => {
     const root = project({ "greetings/formal.ts": 'export default "Good day";\n' });
     const lines: string[] = [];
     expect(await run(["build"], { log: (line) => lines.push(line), error: (line) => lines.push(line) }, root)).toBe(0);
-    expect(lines).toContain("Override: greetings/formal.ts replaces @quickservice/core/features/audit/greetings/formal.ts from audit");
+    expect(lines).toContain("Override: greetings/formal.ts replaces @quickservicets/core/features/audit/greetings/formal.ts from audit");
     const features = readFileSync(join(root, ".generated/features.ts"), "utf8");
-    expect(features).toContain('import folder1 from "@quickservice/core/features/audit/greetings/warm.ts";');
+    expect(features).toContain('import folder1 from "@quickservicets/core/features/audit/greetings/warm.ts";');
     const app = await serveBuilt(root);
     expect(Object.fromEntries(app.featureFolders.audit!.greetings!)).toEqual({ formal: "Good day", warm: "Hello, friend" });
   });
 
   test("a project feature's folder is imported by relative paths", async () => {
-    const feature = `import { defineFeature } from "@quickservice/core";
+    const feature = `import { defineFeature } from "@quickservicets/core";
 export default defineFeature({ docs: { summary: "Test native." }, key: "audit", folders: { greetings: { dir: "greetings", description: "Greetings." } } });
 `;
     const root = project({ "features/audit/index.ts": feature, "features/audit/greetings/formal.ts": 'export default "Good day";\n' });
@@ -114,7 +114,7 @@ describe("dev watch paths", () => {
     const summary = await build(project({}));
     expect(summary.watch).toEqual(["greetings", "content/greetings.md"]);
     expect(watchPaths(summary)).toEqual([...WATCHED_PATHS, "greetings", "content/greetings.md"]);
-    expect(WATCHED_PATHS).toEqual(expect.arrayContaining(["entities", "endpoints", "hooks", "jobs", "features", "quickservice.config.ts", ".env"]));
+    expect(WATCHED_PATHS).toEqual(expect.arrayContaining(["entities", "endpoints", "hooks", "jobs", "features", "quickservicets.config.ts", ".env"]));
     expect(watchPaths({})).toEqual(WATCHED_PATHS);
   });
 
@@ -159,7 +159,7 @@ describe("dev watch paths", () => {
     const root = project({
       "greetings/formal.ts": 'export default "Good day";\n',
       "content/notes.md": "# Notes\n",
-      "features/extra/index.ts": 'import { defineFeature } from "@quickservice/core";\nexport default defineFeature({ docs: { summary: "Test native." }, key: "extra" });\n',
+      "features/extra/index.ts": 'import { defineFeature } from "@quickservicets/core";\nexport default defineFeature({ docs: { summary: "Test native." }, key: "extra" });\n',
     });
     let builds = 0;
     let starts = 0;

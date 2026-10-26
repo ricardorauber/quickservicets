@@ -1,4 +1,7 @@
-import { version } from "./version.ts";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { CONFIG_FILE, LEGACY_CONFIG_FILE, LEGACY_CONFIG_MESSAGE } from "@quickservicets/core";
+import { versionHeader } from "./version.ts";
 import { BUILT_IN_COMMANDS } from "./commands.ts";
 import { commandHelp, generalHelp, loadFeatureCommands, resolveCommand, runCommand, unknownCommand, type FeatureCommands } from "./registry.ts";
 
@@ -6,6 +9,9 @@ export interface Output {
   log(line: string): void;
   error(line: string): void;
 }
+
+/** The exit code of a project that still has its config file under the previous name. */
+export const LEGACY_CONFIG_EXIT_CODE = 3;
 
 const consoleOutput: Output = { log: (line) => console.log(line), error: (line) => console.error(line) };
 
@@ -20,7 +26,7 @@ async function featuresForHelp(cwd: string, loadFeatures: (cwd: string) => Promi
 }
 
 /**
- * Runs `quickservice <args>`: built-in commands are found without loading the project's config; other names are
+ * Runs `quickservicets <args>`: built-in commands are found without loading the project's config; other names are
  * looked up among the enabled features' commands.
  */
 export async function run(
@@ -30,10 +36,14 @@ export async function run(
   loadFeatures: (cwd: string) => Promise<FeatureCommands | undefined> = loadFeatureCommands,
 ): Promise<number> {
   if (args.includes("--version")) {
-    output.log(version);
+    output.log(versionHeader);
     return 0;
   }
   if (args.length === 0) return 0;
+  if (existsSync(join(cwd, LEGACY_CONFIG_FILE)) && !existsSync(join(cwd, CONFIG_FILE))) {
+    output.error(LEGACY_CONFIG_MESSAGE);
+    return LEGACY_CONFIG_EXIT_CODE;
+  }
   try {
     if (args[0] === "help" || args[0] === "--help") {
       for (const line of generalHelp(await featuresForHelp(cwd, loadFeatures, output))) output.log(line);

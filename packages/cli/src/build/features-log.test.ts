@@ -11,7 +11,7 @@ function freePort(): number {
 }
 
 test("the generated server logs the enabled features at startup", async () => {
-  const root = createLinkedProject({ "quickservice.config.ts": MEMORY_CONFIG, "entities/User.ts": "export type User = { email: string };\n" });
+  const root = createLinkedProject({ "quickservicets.config.ts": MEMORY_CONFIG, "entities/User.ts": "export type User = { email: string };\n" });
   await build(root);
   const child = Bun.spawn(["bun", join(root, ".generated/server.ts")], {
     cwd: root,
@@ -30,7 +30,7 @@ test("the generated server logs the enabled features at startup", async () => {
       output += decoder.decode(chunk.value, { stream: true });
     }
   })();
-  while (Date.now() < deadline && !(output.includes("quickservice listening") && output.includes("features.enabled"))) await Bun.sleep(50);
+  while (Date.now() < deadline && !(output.includes("QuickService.ts listening") && output.includes("features.enabled"))) await Bun.sleep(50);
   child.kill();
   await child.exited;
   await read.catch(() => undefined);

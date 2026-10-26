@@ -70,5 +70,5 @@ idempotency: { store: redisIdempotencyStore({ url: env.REDIS_URL }) }
 Copy the native into the project as a `features/idempotency/` project feature that replaces it:
 
 ```bash
-quickservice eject idempotency
+quickservicets eject idempotency
 ```

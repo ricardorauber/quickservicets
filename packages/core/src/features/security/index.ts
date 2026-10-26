@@ -133,7 +133,7 @@ export const COUNTER_CLEANUP_INTERVAL = 60_000;
  */
 function databaseStore(ctx: FeatureSetupContext<SecurityOptions>): RateLimitStore {
   const model = ctx.models.find((candidate) => candidate.key === "RateLimitCounter" && candidate.system);
-  if (!model) throw new Error('security.rateLimit.store is "database", but the build did not include RateLimitCounter; rebuild and run quickservice migration add');
+  if (!model) throw new Error('security.rateLimit.store is "database", but the build did not include RateLimitCounter; rebuild and run quickservicets migration add');
   const adapter = ctx.config.database;
   if (typeof adapter.increment !== "function") throw new Error('security.rateLimit.store "database" needs an adapter with increment()');
   const store = databaseRateLimitStore({ adapter, model, logger: ctx.logger });

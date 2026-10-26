@@ -29,7 +29,7 @@ export interface SseStream {
 /** The handler of an `sse.ts` endpoint: it runs with an open stream and may keep writing after it resolves. */
 export type SseHandler = (stream: SseStream, repos: Repositories, req: ServiceRequest) => void | Promise<void>;
 
-const SSE = Symbol.for("quickservice.sse");
+const SSE = Symbol.for("quickservicets.sse");
 
 /** What `defineSse` returns, the default export of an `sse.ts` endpoint. */
 export interface SseDefinition {
@@ -61,7 +61,7 @@ export function isSseDefinition(value: unknown): value is SseDefinition {
 /** Answers a request of an `sse.ts` endpoint with a streaming response; the `realtime` native sets it. */
 export type SseRunner = (definition: SseDefinition, repos: Repositories, req: ServiceRequest, res: ServiceResponse) => Promise<Response>;
 
-const RUNNER = Symbol.for("quickservice.sse.runner");
+const RUNNER = Symbol.for("quickservicets.sse.runner");
 const slot = globalThis as unknown as { [RUNNER]?: SseRunner };
 
 /** Sets (or, with undefined, removes) what serves `sse.ts` endpoints; without one they answer 404. */

@@ -1,4 +1,4 @@
-import { afterCommit, type QueueBroker, type QueueBrokerContext, type QueueBrokerMessage } from "@quickservice/core";
+import { afterCommit, type QueueBroker, type QueueBrokerContext, type QueueBrokerMessage } from "@quickservicets/core";
 
 /** A small broker that keeps messages in memory and runs each once: enough to show how a broker plugs in. */
 export function memoryBroker(): QueueBroker & { received: QueueBrokerMessage[] } {

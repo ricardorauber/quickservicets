@@ -98,7 +98,7 @@ export interface QueueBrokerContext {
 /**
  * Where messages live and how they reach their consumers. The database broker is the default; another broker (a
  * package for RabbitMQ, Kafka, Redis or SQS, or the project's own) replaces it with `queues: { broker }` or a feature's
- * `setBroker`, and passes `runQueueBrokerContract` from `@quickservice/core/testing`.
+ * `setBroker`, and passes `runQueueBrokerContract` from `@quickservicets/core/testing`.
  */
 export interface QueueBroker {
   /** How errors name the broker, like `database` (default `custom`). */

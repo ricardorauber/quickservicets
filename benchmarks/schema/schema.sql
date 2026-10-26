@@ -1,4 +1,4 @@
--- Generated from benchmarks/quickservice/migrations with `quickservice migration script`.
+-- Generated from benchmarks/quickservicets/migrations with `quickservicets migration script`.
 -- Every stack uses exactly these tables. Regenerate with: bun benchmarks/schema/generate.ts
 CREATE TABLE "media" (
 	"id" text PRIMARY KEY NOT NULL,

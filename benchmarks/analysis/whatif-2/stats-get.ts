@@ -1,5 +1,5 @@
-import { HttpError, type Endpoint } from "@quickservice/core";
-import projectConfig from "../../../../quickservice.config.ts";
+import { HttpError, type Endpoint } from "@quickservicets/core";
+import projectConfig from "../../../../quickservicets.config.ts";
 
 type Stats = { members: number; admins: number; averageAge: number | null };
 

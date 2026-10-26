@@ -143,13 +143,13 @@ describe("options()", () => {
   test("reads the resolved options once a configuration enabling the feature is resolved", () => {
     register(audit);
     const local = defineFeature({ docs: { summary: "Test native." }, key: "local", options: object({ level: integer().default(0) }) });
-    expect(failure(() => local.options()).message).toBe("local is not enabled; add local: {} to quickservice.config.ts");
+    expect(failure(() => local.options()).message).toBe("local is not enabled; add local: {} to quickservicets.config.ts");
     resolve({ audit: { level: 2 } });
     const level: number = audit.options().level;
     expect(level).toBe(2);
     expect(audit.options().enabled).toBe(true);
     resolve({ audit: false });
-    expect(failure(() => audit.options()).message).toBe("audit is not enabled; add audit: {} to quickservice.config.ts");
+    expect(failure(() => audit.options()).message).toBe("audit is not enabled; add audit: {} to quickservicets.config.ts");
   });
 });
 

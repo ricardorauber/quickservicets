@@ -2,12 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { validate } from "@scalar/openapi-parser";
-import { createApp, memoryAdapter, resolveConfig } from "@quickservice/core";
+import { createApp, memoryAdapter, resolveConfig } from "@quickservicets/core";
 import { parseEndpointTags } from "../hooks/endpoint-tags.ts";
 import { createLinkedProject, MEMORY_CONFIG } from "../testing/project.ts";
 import { build } from "./build.ts";
 
-const MEMBERS = (tags: string, body: string) => `import type { Endpoint } from "@quickservice/core";
+const MEMBERS = (tags: string, body: string) => `import type { Endpoint } from "@quickservicets/core";
 type AddMember = { email: string };
 /** @summary Add a member ${tags} */
 const handler: Endpoint<AddMember, { members: number }> = async (repos, req, res) => {
@@ -19,7 +19,7 @@ export default handler;
 
 async function project(files: Record<string, string>) {
   const root = createLinkedProject({
-    "quickservice.config.ts": MEMORY_CONFIG,
+    "quickservicets.config.ts": MEMORY_CONFIG,
     "entities/Organization.ts": "export type Organization = { name: string }",
     ...files,
   });
@@ -53,7 +53,7 @@ describe("tag", () => {
   test("other values fail the build", async () => {
     for (const value of ["404", "abc", "", "199", "300", "2.5e2"]) {
       const root = createLinkedProject({
-        "quickservice.config.ts": MEMORY_CONFIG,
+        "quickservicets.config.ts": MEMORY_CONFIG,
         "endpoints/jobs/post.ts": `/** @status ${value} */\nexport default () => ({});`,
       });
       await expect(build(root)).rejects.toThrow("endpoints/jobs/post.ts: invalid @status: expects a 2xx status code");

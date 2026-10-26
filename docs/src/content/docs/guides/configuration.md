@@ -5,14 +5,14 @@ sidebar:
   order: 43
 ---
 
-A project has one configuration file, `quickservice.config.ts`, at its root. The CLI reads it for `build`, `dev` and the migration commands, and the server reads it when it starts. Most settings have defaults, so a config often holds just the database.
+A project has one configuration file, `quickservicets.config.ts`, at its root. The CLI reads it for `build`, `dev` and the migration commands, and the server reads it when it starts. Most settings have defaults, so a config often holds just the database.
 
-## `quickservice.config.ts`
+## `quickservicets.config.ts`
 
 The file default-exports the result of `defineConfig`. `defineConfig` returns its argument unchanged; it is there so your editor types and completes every key:
 
-```ts check title="quickservice.config.ts"
-import { defineConfig, postgresAdapter } from "@quickservice/core";
+```ts check title="quickservicets.config.ts"
+import { defineConfig, postgresAdapter } from "@quickservicets/core";
 
 export default defineConfig({
   database: postgresAdapter({ url: process.env.DATABASE_URL! }),
@@ -28,10 +28,10 @@ The config is TypeScript, so it can read environment variables, branch on them, 
 
 ## Database adapters
 
-`database` takes one of four adapters, all exported by `@quickservice/core`:
+`database` takes one of four adapters, all exported by `@quickservicets/core`:
 
 ```ts check
-import { memoryAdapter, mongodbAdapter, postgresAdapter, sqliteAdapter } from "@quickservice/core";
+import { memoryAdapter, mongodbAdapter, postgresAdapter, sqliteAdapter } from "@quickservicets/core";
 
 // Records live in memory and disappear on restart; no migrations.
 export const memory = memoryAdapter();
@@ -46,7 +46,7 @@ export const postgres = postgresAdapter({ url: process.env.DATABASE_URL! });
 export const mongodb = mongodbAdapter({ url: process.env.DATABASE_URL!, database: process.env.DATABASE_NAME! });
 ```
 
-`quickservice init --db <database>` writes the matching config and a `.env` with the variables it reads.
+`quickservicets init --db <database>` writes the matching config and a `.env` with the variables it reads.
 
 `postgresAdapter` opens up to 10 connections; `max` changes that. The total holds across all the server's workers (see below).
 
@@ -54,8 +54,8 @@ export const mongodb = mongodbAdapter({ url: process.env.DATABASE_URL!, database
 
 A server is one process, so it uses one CPU. `server.workers` starts several processes that share the port:
 
-```ts check title="quickservice.config.ts"
-import { defineConfig, postgresAdapter } from "@quickservice/core";
+```ts check title="quickservicets.config.ts"
+import { defineConfig, postgresAdapter } from "@quickservicets/core";
 
 export default defineConfig({
   database: postgresAdapter({ url: process.env.DATABASE_URL!, max: 10 }),
@@ -85,25 +85,25 @@ The operating system spreads connections across the workers only on Linux. On ma
 
 ## Environment variables
 
-Bun loads `.env` from the project folder, so values there reach `process.env` in the config. `init` adds `.env` to `.gitignore`; keep secrets there or in your host's settings. The [Environment](/guides/environment/) guide shows how to declare the variables a service needs with types, check them at startup and with `quickservice env check`, and keep secrets out of logs.
+Bun loads `.env` from the project folder, so values there reach `process.env` in the config. `init` adds `.env` to `.gitignore`; keep secrets there or in your host's settings. The [Environment](/guides/environment/) guide shows how to declare the variables a service needs with types, check them at startup and with `quickservicets env check`, and keep secrets out of logs.
 
 | Variable | Read by | Effect |
 | --- | --- | --- |
 | `DATABASE_URL` | the config written by `init` | Connection URL for PostgreSQL and MongoDB. |
 | `DATABASE_NAME` | the config written by `init` | MongoDB database name. |
 | `DATABASE_PATH` | the config written by `init` | SQLite file path. |
-| `DATABASE_SCHEMA` | QuickService | Default database schema; overrides `schema` in the config. Must match `^[a-z][a-z0-9-]*$`. |
-| `PORT` | QuickService | Port to listen on; overrides `server.port` (default 3000). |
-| `QS_WORKERS` | QuickService | Number of server processes, or `auto`; overrides `server.workers`. |
-| `NODE_ENV` | QuickService | `production` turns on production mode, even when `production` is set in the config. |
-| `FILES_SIGNING_SECRET` | QuickService | Secret of signed file URLs; overrides `files.signingSecret`. |
-| `QS_<KEY>` | QuickService | Any config key that holds a value, named after its path: `QS_SERVER_PORT`, `QS_JOBS_RETRIES`, `QS_FILES_ACCEPT`. See below. |
+| `DATABASE_SCHEMA` | QuickService.ts | Default database schema; overrides `schema` in the config. Must match `^[a-z][a-z0-9-]*$`. |
+| `PORT` | QuickService.ts | Port to listen on; overrides `server.port` (default 3000). |
+| `QS_WORKERS` | QuickService.ts | Number of server processes, or `auto`; overrides `server.workers`. |
+| `NODE_ENV` | QuickService.ts | `production` turns on production mode, even when `production` is set in the config. |
+| `FILES_SIGNING_SECRET` | QuickService.ts | Secret of signed file URLs; overrides `files.signingSecret`. |
+| `QS_<KEY>` | QuickService.ts | Any config key that holds a value, named after its path: `QS_SERVER_PORT`, `QS_JOBS_RETRIES`, `QS_FILES_ACCEPT`. See below. |
 | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION`, `S3_ENDPOINT` | `s3Storage` | Credentials, region and endpoint left out of the options; the `AWS_*` versions also work. |
 
 The `DATABASE_*` names other than `DATABASE_SCHEMA` are a convention of the generated config, not built in: rename them as you like. `DATABASE_SCHEMA` lets one build run against a different schema per environment:
 
 ```bash
-DATABASE_SCHEMA=staging bun run quickservice migrate
+DATABASE_SCHEMA=staging bun run quickservicets migrate
 DATABASE_SCHEMA=staging bun .generated/server.ts
 ```
 
@@ -129,7 +129,7 @@ A value that does not fit stops the service, naming the variable and the key:
 Invalid QS_SERVER_PORT (server.port): expected an integer between 1 and 65535, got "abc"
 ```
 
-Keys that hold code (`database`, `logger`, `storage`) are not overridable. A `QS_*` variable that matches no key is not an error, since environments are often shared; the server logs it once at startup and `quickservice build` prints it as a warning, with the closest name:
+Keys that hold code (`database`, `logger`, `storage`) are not overridable. A `QS_*` variable that matches no key is not an error, since environments are often shared; the server logs it once at startup and `quickservicets build` prints it as a warning, with the closest name:
 
 ```text
 Warning: Unknown environment variable QS_SERVR_PORT (did you mean QS_SERVER_PORT?)
@@ -213,7 +213,7 @@ Content-Length: 33
 `logger` takes any object with `info`, `warn` and `error` methods, each receiving the entry as an object. Send entries to your log library, or add fields to them. This config adds the service name and keeps the JSON lines of the default `jsonLogger`:
 
 ```ts check
-import { defineConfig, jsonLogger, sqliteAdapter, type Logger } from "@quickservice/core";
+import { defineConfig, jsonLogger, sqliteAdapter, type Logger } from "@quickservicets/core";
 
 const logger: Logger = {
   info: (entry) => jsonLogger.info({ service: "accounts", ...entry }),

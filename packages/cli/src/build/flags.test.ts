@@ -6,11 +6,11 @@ import { createLinkedProject } from "../testing/project.ts";
 import { startTestService } from "../testing/service.ts";
 import { build } from "./build.ts";
 
-const config = (flags: string | undefined, extra = "") => `import { defineConfig, memoryAdapter } from "@quickservice/core";
+const config = (flags: string | undefined, extra = "") => `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter(), signin: {}${flags === undefined ? "" : `, flags: ${flags}`}${extra ? `, ${extra}` : ""} });
 `;
 /** A project feature that signs requests in as the user of x-user and the tenant of x-tenant. */
-const SIGN_IN = `import { defineFeature } from "@quickservice/core";
+const SIGN_IN = `import { defineFeature } from "@quickservicets/core";
 export default defineFeature({
   key: "signin",
   middleware: [{ stage: "handler", order: -60000, run: (req, _res, next) => {
@@ -24,9 +24,9 @@ export default defineFeature({
 `;
 const RULES = '{ rules: { "checkout-v2": { users: ["u1"] }, "dark-mode": true, "old-search": false, rollout: { percentage: 30 }, acme: { tenants: ["acme"] }, "acme-off": { tenants: ["acme"], enabled: false } } }';
 const FILES = {
-  "quickservice.config.ts": config(RULES),
+  "quickservicets.config.ts": config(RULES),
   "features/signin/index.ts": SIGN_IN,
-  "endpoints/flags/get.ts": `import type { ServiceRequest } from "@quickservice/core";
+  "endpoints/flags/get.ts": `import type { ServiceRequest } from "@quickservicets/core";
 export default (_repos: unknown, req: ServiceRequest) => ({
   checkout: req.flags?.on("checkout-v2"),
   oldSearchOff: req.flags?.off("old-search"),
@@ -68,16 +68,16 @@ describe("req.flags", () => {
   });
 
   test("a project feature reads isOn through the feature API; without flags req.flags is undefined", async () => {
-    const reader = `import { defineFeature } from "@quickservice/core";
+    const reader = `import { defineFeature } from "@quickservicets/core";
 export default defineFeature({ key: "reader", requires: ["flags"], setup(ctx) { (globalThis as any).flagRead = ctx.feature("flags").isOn("checkout-v2", { user: { id: "u1" } }); } });
 `;
-    const service = await startTestService({ files: { ...FILES, "features/reader/index.ts": reader, "quickservice.config.ts": config(RULES, "reader: {}") } });
+    const service = await startTestService({ files: { ...FILES, "features/reader/index.ts": reader, "quickservicets.config.ts": config(RULES, "reader: {}") } });
     try {
       expect((globalThis as { flagRead?: boolean }).flagRead).toBe(true);
     } finally {
       await service.stop();
     }
-    const without = await startTestService({ files: { ...FILES, "quickservice.config.ts": config(undefined) } });
+    const without = await startTestService({ files: { ...FILES, "quickservicets.config.ts": config(undefined) } });
     try {
       expect((await read(without)).present).toBe(false);
     } finally {
@@ -103,7 +103,7 @@ describe("generated types", () => {
     });
     return ts.getPreEmitDiagnostics(program, program.getSourceFile(check)).map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, " "));
   }
-  const usage = 'import type { ServiceRequest } from "@quickservice/core";\nexport const read = (req: ServiceRequest) => [req.flags!.on("checkout-v2"), req.flags!.on("nope")];\n';
+  const usage = 'import type { ServiceRequest } from "@quickservicets/core";\nexport const read = (req: ServiceRequest) => [req.flags!.on("checkout-v2"), req.flags!.on("nope")];\n';
 
   test("with the config source on() takes the rules' names; with the database source any name", async () => {
     const root = createLinkedProject(FILES);
@@ -111,7 +111,7 @@ describe("generated types", () => {
     const errors = typeErrors(root, usage);
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain('"nope"');
-    const database = createLinkedProject({ ...FILES, "quickservice.config.ts": config('{ source: "database", rules: { "checkout-v2": true } }') });
+    const database = createLinkedProject({ ...FILES, "quickservicets.config.ts": config('{ source: "database", rules: { "checkout-v2": true } }') });
     await build(database);
     expect(typeErrors(database, usage)).toEqual([]);
   });

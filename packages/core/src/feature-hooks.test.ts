@@ -165,7 +165,7 @@ describe("feature APIs", () => {
   test("a disabled feature, an unlisted feature and an unknown hook throw", async () => {
     const after = defineFeature({ docs: { summary: "Test native." }, key: "b", after: ["audit"], setup: (ctx) => void ctx.feature("audit") });
     register(audit, after);
-    expect((await failure(() => lifecycleOf({ b: {} }).setup())).message).toBe("b failed in setup: b uses audit, which is not enabled; add audit: {} to quickservice.config.ts");
+    expect((await failure(() => lifecycleOf({ b: {} }).setup())).message).toBe("b failed in setup: b uses audit, which is not enabled; add audit: {} to quickservicets.config.ts");
     register(defineFeature({ docs: { summary: "Test native." }, key: "c", setup: (ctx) => void ctx.feature("audit") }));
     expect((await failure(() => lifecycleOf({ audit: {}, c: {} }).setup())).message).toBe("c failed in setup: c uses audit; add it to requires or after");
     register(defineFeature({ docs: { summary: "Test native." }, key: "d", requires: ["audit"], setup: (ctx) => ctx.feature("audit").addHook("nope" as never, () => undefined) }));

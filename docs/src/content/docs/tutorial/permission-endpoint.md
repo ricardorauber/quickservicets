@@ -33,7 +33,7 @@ The file default-exports a handler. It receives the repositories (`repos`), the 
 Here is the whole file, as it is in `examples/identity`:
 
 ```ts check title="endpoints/users/[userId]/has-permissions/get.ts"
-import { type Endpoint } from "@quickservice/core";
+import { type Endpoint } from "@quickservicets/core";
 
 type Query = {
     /** Permissions as `<module slug>:<action>`, e.g. `billing:manage`; repeat the key for each one. */
@@ -133,7 +133,7 @@ The path parameter comes from `req.params.userId`. It is always a string, and th
 Repositories have a fluent, typed query API. `where(...)` takes a lambda that receives one handle per field, and returns a query:
 
 ```ts check
-import type { Repositories } from "@quickservice/core";
+import type { Repositories } from "@quickservicets/core";
 declare const repos: Repositories;
 declare const organization: string;
 
@@ -147,7 +147,7 @@ const org = await repos.organizations.where((o) => o.id.eq(organization).and(o.a
 The memberships query uses the same pieces, plus `include`:
 
 ```ts check
-import type { Repositories } from "@quickservice/core";
+import type { Repositories } from "@quickservicets/core";
 declare const repos: Repositories;
 declare const organization: string, userId: string;
 
@@ -164,7 +164,7 @@ const memberships = await repos.memberships
 The teams query is the same, with `t.users.contains(userId)`: `users` is a reference array, and `contains` matches teams that hold the user's id.
 
 :::note
-`include` follows the same depth limit as `populate`: `populate.maxDepth`, 2 by default. `profiles.permissions.module` has three segments, so the example sets `populate: { maxDepth: 3 }` in `quickservice.config.ts`.
+`include` follows the same depth limit as `populate`: `populate.maxDepth`, 2 by default. `profiles.permissions.module` has three segments, so the example sets `populate: { maxDepth: 3 }` in `quickservicets.config.ts`.
 :::
 
 TypeScript rejects paths that don't exist. This one has a typo, so it fails to compile:
@@ -237,7 +237,7 @@ true
 
 ```ts check title=".generated/types.ts"
 // Trimmed: the generated file also has the Create and Update input types and every repository.
-import type { Many, One, Repository } from "@quickservice/core";
+import type { Many, One, Repository } from "@quickservicets/core";
 
 export type Membership = {
   id: string;
@@ -365,7 +365,7 @@ export interface GeneratedRepositories {
   teams: Repository<Team, TeamReferences>;
 }
 
-declare module "@quickservice/core" {
+declare module "@quickservicets/core" {
   interface Repositories extends GeneratedRepositories {}
 }
 ```

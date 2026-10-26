@@ -38,10 +38,10 @@ curl -X PATCH localhost:3000/media/01a146d1-021f-737c-84f5-b476dc5cacc2 -d '{"si
 {"error":{"code":"VALIDATION_ERROR","message":"Invalid body","details":[{"field":"size","message":"Field is read-only"},{"field":"url","message":"Field is read-only"}]}}
 ```
 
-To reference a file from another entity, import the type from `@quickservice/core`. A single field becomes a reference, an array becomes a reference array:
+To reference a file from another entity, import the type from `@quickservicets/core`. A single field becomes a reference, an array becomes a reference array:
 
 ```ts check title="entities/Organization.ts"
-import type { File, Media } from "@quickservice/core";
+import type { File, Media } from "@quickservicets/core";
 
 export type Organization = {
   name: string;
@@ -63,7 +63,7 @@ The rest of this page uses this entity.
 To add fields to a built-in entity, create `entities/Media.ts` (or `entities/File.ts`). Import the core type under another name and intersect it with your fields; do not redeclare the base fields:
 
 ```ts check title="entities/Media.ts"
-import type { Media as BaseMedia } from "@quickservice/core";
+import type { Media as BaseMedia } from "@quickservicets/core";
 
 export type Media = BaseMedia & {
   alt?: string;
@@ -75,7 +75,7 @@ export type Media = BaseMedia & {
 You can also create your own file entities. Any entity whose type extends `File` or `Media` (with `File & { ... }` or `interface Document extends File`) gets the base fields, the same MIME rule as its base and its own routes:
 
 ```ts check title="entities/Document.ts"
-import type { File } from "@quickservice/core";
+import type { File } from "@quickservicets/core";
 
 /** @access proxy @maxSize 5MB @accept application/pdf */
 export type Document = File & {
@@ -348,8 +348,8 @@ Each file must pass the field's and the target's `@maxSize` and `@accept`, with 
 
 Without a `storage` key in the config, files go to a local folder, `uploads/`, in the project; that is the setup of every example above. To choose, give `storage` a map of named storages; it must contain `default`:
 
-```ts check title="quickservice.config.ts"
-import { defineConfig, localStorage, sqliteAdapter } from "@quickservice/core";
+```ts check title="quickservicets.config.ts"
+import { defineConfig, localStorage, sqliteAdapter } from "@quickservicets/core";
 
 export default defineConfig({
   database: sqliteAdapter({ path: process.env.DATABASE_PATH! }),
@@ -364,7 +364,7 @@ export default defineConfig({
 - `s3Storage({ bucket, region?, endpoint?, accessKeyId?, secretAccessKey?, publicBaseUrl? })` works with AWS S3, Cloudflare R2, MinIO and other S3-compatible services. Credentials, region and endpoint left out are read from `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION` and `S3_ENDPOINT` (or their `AWS_*` versions).
 
 ```ts check
-import { s3Storage } from "@quickservice/core";
+import { s3Storage } from "@quickservicets/core";
 
 export const archive = s3Storage({
   bucket: process.env.S3_BUCKET!,
@@ -444,7 +444,7 @@ The `files` item of the security native keeps a browser from running an uploaded
 Move `Document` to the `archive` storage and sign its URLs for 60 seconds, in `entities/Document.ts`:
 
 ```ts check
-import type { File } from "@quickservice/core";
+import type { File } from "@quickservicets/core";
 
 /** @storage archive @access signed 60 @maxSize 5MB @accept application/pdf */
 export type Document = File & {
@@ -512,7 +512,7 @@ Stored objects are deleted when nothing uses them anymore. Three config flags, a
 | `files.deleteWithOwner` | The files a record references when the record is deleted. |
 
 ```ts check
-import { defineConfig, memoryAdapter } from "@quickservice/core";
+import { defineConfig, memoryAdapter } from "@quickservicets/core";
 
 export default defineConfig({
   database: memoryAdapter(),

@@ -23,7 +23,7 @@ const optionsOf = (ctx: CommandContext<unknown, unknown>) => ctx.options as Flag
 
 const listCommand = defineCommand({
   name: "flags list",
-  usage: "quickservice flags list",
+  usage: "quickservicets flags list",
   description: "Prints each flag with its origin (config, database or both), on or off, its user and tenant counts and its percentage.",
   async run(ctx) {
     const options = optionsOf(ctx);
@@ -44,7 +44,7 @@ const listCommand = defineCommand({
 
 const setCommand = defineCommand({
   name: "flags set",
-  usage: "quickservice flags set <name> [--on | --off] [--percentage <n>] [--users <a,b>] [--tenants <a,b>] [--description <text>]",
+  usage: "quickservicets flags set <name> [--on | --off] [--percentage <n>] [--users <a,b>] [--tenants <a,b>] [--description <text>]",
   description: "Creates or updates a flag of the database source, changing only the flags given, and prints its line.",
   args: [{ name: "name", description: "The flag's name." }],
   flags: object({
@@ -90,7 +90,7 @@ const setCommand = defineCommand({
 
 const removeCommand = defineCommand({
   name: "flags remove",
-  usage: "quickservice flags remove <name>",
+  usage: "quickservicets flags remove <name>",
   description: "Deletes a flag of the database source; the config's rule of that name applies again.",
   args: [{ name: "name", description: "The flag's name." }],
   async run(ctx) {

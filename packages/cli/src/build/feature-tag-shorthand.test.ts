@@ -1,16 +1,16 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { boolean, defineFeature, list, object, oneOf, registerNative, registerProjectFeatures, string, toggle, type EntityModel } from "@quickservice/core";
+import { boolean, defineFeature, list, object, oneOf, registerNative, registerProjectFeatures, string, toggle, type EntityModel } from "@quickservicets/core";
 import { unregisterNative } from "../../../core/src/features.ts";
 import { createLinkedProject } from "../testing/project.ts";
 import { serveBuilt } from "../testing/serve.ts";
 import { build } from "./build.ts";
 
 // The test native's tags share names with the security native's, which is off here.
-const config = `import { defineConfig, memoryAdapter } from "@quickservice/core";
+const config = `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter(), security: false, guard: {} });
 `;
-const project = (files: Record<string, string>) => createLinkedProject({ "quickservice.config.ts": config, ...files });
+const project = (files: Record<string, string>) => createLinkedProject({ "quickservicets.config.ts": config, ...files });
 const failure = async (work: () => Promise<unknown>): Promise<Error> => {
   try {
     await work();

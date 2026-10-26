@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { startTestService, type TestService } from "@quickservice/cli/testing";
+import { startTestService, type TestService } from "@quickservicets/cli/testing";
 
 const root = join(import.meta.dir, "..");
 /** Where the tests' logger writes the service's log entries. */
@@ -15,9 +15,9 @@ function exampleFiles(): Record<string, string> {
       if (entry.isFile()) files[relative(root, join(entry.parentPath, entry.name))] = readFileSync(join(entry.parentPath, entry.name), "utf8");
     }
   }
-  const config = readFileSync(join(root, "quickservice.config.ts"), "utf8");
+  const config = readFileSync(join(root, "quickservicets.config.ts"), "utf8");
   const logger = `logger: { info: (entry) => void ((globalThis as Record<string, unknown>).${SINK} as unknown[]).push(entry), warn() {}, error() {} },\n  audit: {},`;
-  files["quickservice.config.ts"] = config.replace("audit: {},", logger);
+  files["quickservicets.config.ts"] = config.replace("audit: {},", logger);
   return files;
 }
 

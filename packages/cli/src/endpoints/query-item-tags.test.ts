@@ -2,14 +2,14 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { validate } from "@scalar/openapi-parser";
-import { createApp, memoryAdapter, resolveConfig } from "@quickservice/core";
+import { createApp, memoryAdapter, resolveConfig } from "@quickservicets/core";
 import { build } from "../build/build.ts";
 import { createLinkedProject, MEMORY_CONFIG } from "../testing/project.ts";
 
 const endpoint = (query: string, extra = "") =>
-  `import type { Endpoint } from "@quickservice/core";\n${extra}\nconst handler: Endpoint<${query}, unknown> = async (_, req) => req.queryItems;\nexport default handler;\n`;
+  `import type { Endpoint } from "@quickservicets/core";\n${extra}\nconst handler: Endpoint<${query}, unknown> = async (_, req) => req.queryItems;\nexport default handler;\n`;
 
-const MEMBERS = `import { HttpError, type Endpoint } from "@quickservice/core";
+const MEMBERS = `import { HttpError, type Endpoint } from "@quickservicets/core";
 type MembersQuery = {
   /** @minLength 2 */
   search?: string;
@@ -27,7 +27,7 @@ export default handler;
 `;
 
 async function project(files: Record<string, string>) {
-  const root = createLinkedProject({ "quickservice.config.ts": MEMORY_CONFIG, ...files });
+  const root = createLinkedProject({ "quickservicets.config.ts": MEMORY_CONFIG, ...files });
   await build(root);
   const generated = join(root, ".generated");
   const { models } = await import(join(generated, "models.ts"));
@@ -82,7 +82,7 @@ describe("integer items", () => {
 
 describe("tag errors", () => {
   const fails = (query: string) =>
-    expect(build(createLinkedProject({ "quickservice.config.ts": MEMORY_CONFIG, "endpoints/x/get.ts": endpoint(query) }))).rejects;
+    expect(build(createLinkedProject({ "quickservicets.config.ts": MEMORY_CONFIG, "endpoints/x/get.ts": endpoint(query) }))).rejects;
 
   test("misapplied, mismatched and unknown tags fail the build", async () => {
     await fails("{ /** @min 1 */ q?: string }").toThrow('endpoints/x/get.ts: query item "q" has invalid @min: only applies to number items');

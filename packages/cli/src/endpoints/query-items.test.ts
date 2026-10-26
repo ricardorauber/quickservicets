@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { createApp, memoryAdapter, parseQueryItems, resolveConfig, type QueryItem } from "@quickservice/core";
+import { createApp, memoryAdapter, parseQueryItems, resolveConfig, type QueryItem } from "@quickservicets/core";
 import ts from "typescript";
 import { build } from "../build/build.ts";
 import { createLinkedProject, MEMORY_CONFIG } from "../testing/project.ts";
@@ -9,7 +9,7 @@ import { scanEndpoints } from "./scan-endpoints.ts";
 import { extractQueryItems } from "./query-items.ts";
 
 const ENDPOINT = (query: string, method = "GET", extra = "") =>
-  `import type { Endpoint } from "@quickservice/core";\n${extra}\nconst handler: Endpoint<${query}, unknown> = async (_, req) => ({ items: req.queryItems, raw: req.query.get("utm_source") });\nexport default handler;\n`;
+  `import type { Endpoint } from "@quickservicets/core";\n${extra}\nconst handler: Endpoint<${query}, unknown> = async (_, req) => ({ items: req.queryItems, raw: req.query.get("utm_source") });\nexport default handler;\n`;
 
 function itemsOf(files: Record<string, string>) {
   const root = createLinkedProject(files);
@@ -17,7 +17,7 @@ function itemsOf(files: Record<string, string>) {
 }
 
 async function serve(files: Record<string, string>) {
-  const root = createLinkedProject({ "quickservice.config.ts": MEMORY_CONFIG, ...files });
+  const root = createLinkedProject({ "quickservicets.config.ts": MEMORY_CONFIG, ...files });
   await build(root);
   const generated = join(root, ".generated");
   const { models } = await import(join(generated, "models.ts"));
@@ -146,8 +146,8 @@ describe("requests", () => {
   test("validation runs after the pre-hooks and before the handler", async () => {
     const send = await serve({
       "hooks/blocked.ts":
-        'import { definePreHook, HttpError } from "@quickservice/core";\nexport default definePreHook((_, req) => { if (req.headers.get("x-allow") !== "yes") throw new HttpError(403, "Blocked"); });',
-      "endpoints/reports/get.ts": `import type { Endpoint } from "@quickservice/core";
+        'import { definePreHook, HttpError } from "@quickservicets/core";\nexport default definePreHook((_, req) => { if (req.headers.get("x-allow") !== "yes") throw new HttpError(403, "Blocked"); });',
+      "endpoints/reports/get.ts": `import type { Endpoint } from "@quickservicets/core";
 /** @blocked */
 const handler: Endpoint<{ limit: number }, unknown> = async () => { throw new Error("handler ran"); };
 export default handler;
@@ -161,11 +161,11 @@ export default handler;
 });
 
 test("req.queryItems is typed with the first generic", async () => {
-  const root = createLinkedProject({ "quickservice.config.ts": MEMORY_CONFIG });
+  const root = createLinkedProject({ "quickservicets.config.ts": MEMORY_CONFIG });
   const check = join(root, "check.ts");
   writeFileSync(
     check,
-    `import type { Endpoint } from "@quickservice/core";
+    `import type { Endpoint } from "@quickservicets/core";
 export const handler: Endpoint<{ limit?: number; tags: string[] }, number> = async (_, req) => {
   const limit: number | undefined = req.queryItems.limit;
   const first: string | undefined = req.queryItems.tags[0];

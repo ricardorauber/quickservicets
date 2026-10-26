@@ -112,7 +112,7 @@ describe("errors", () => {
   };
 
   test("an undeclared queue, a payload that is not JSON and add without the native each throw their message", async () => {
-    await expect(queues.add("send-email" as never, { to: "a@b.c" } as never)).rejects.toThrow("queues is not enabled; add queues: {} to quickservice.config.ts");
+    await expect(queues.add("send-email" as never, { to: "a@b.c" } as never)).rejects.toThrow("queues is not enabled; add queues: {} to quickservicets.config.ts");
     const { config, lifecycle } = await start({ "send-email": queue(() => {}) });
     try {
       await expect(queues.add("send-mail" as never, {} as never)).rejects.toThrow("Unknown queue send-mail");

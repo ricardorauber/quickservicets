@@ -56,7 +56,7 @@ describe("missing requirements", () => {
     native({ key: "trail", requires: ["signals"] });
     const error = failure(() => resolve({ trail: {} }));
     expect(error).toBeInstanceOf(ConfigError);
-    expect(error.message).toBe("trail requires signals; add signals: {} to quickservice.config.ts");
+    expect(error.message).toBe("trail requires signals; add signals: {} to quickservicets.config.ts");
     expect(keys({ trail: {}, signals: {} })).toEqual(["signals", "trail"]);
   });
 
@@ -65,8 +65,8 @@ describe("missing requirements", () => {
     native({ key: "tasks" });
     native({ key: "trail", requires: ["signals", { name: "tasks", hint: "deliveries run on tasks" }] });
     expect(failure(() => resolve({ trail: {} })).message.split("\n")).toEqual([
-      "trail requires signals; add signals: {} to quickservice.config.ts",
-      "trail requires tasks; add tasks: {} to quickservice.config.ts (deliveries run on tasks)",
+      "trail requires signals; add signals: {} to quickservicets.config.ts",
+      "trail requires tasks; add tasks: {} to quickservicets.config.ts (deliveries run on tasks)",
     ]);
   });
 

@@ -102,7 +102,7 @@ describe("compiled conditions", () => {
 });
 
 test("lambdas are type-checked", () => {
-  const dir = mkdtempSync(join(tmpdir(), "quickservice-fluent-"));
+  const dir = mkdtempSync(join(tmpdir(), "quickservicets-fluent-"));
   const file = join(dir, "check.ts");
   const core = join(import.meta.dir, "index.ts");
   writeFileSync(
@@ -137,7 +137,7 @@ users.where((u) => u.role.eq("owner"));
 });
 
 test("aggregate expressions are type-checked", () => {
-  const dir = mkdtempSync(join(tmpdir(), "quickservice-aggregate-"));
+  const dir = mkdtempSync(join(tmpdir(), "quickservicets-aggregate-"));
   const file = join(dir, "check.ts");
   const core = join(import.meta.dir, "index.ts");
   writeFileSync(

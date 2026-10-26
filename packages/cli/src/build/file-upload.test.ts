@@ -2,13 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createApp, localStorage, memoryAdapter, parseSize, resolveConfig, sanitizeFilename, type DatabaseAdapter } from "@quickservice/core";
+import { createApp, localStorage, memoryAdapter, parseSize, resolveConfig, sanitizeFilename, type DatabaseAdapter } from "@quickservicets/core";
 import { parseEntities, parseProjectEntities } from "../entities/parse-entities.ts";
 import { createProject } from "../testing/project.ts";
 
 const files = {
-  "entities/Media.ts": 'import type { Media as BaseMedia } from "@quickservice/core";\nexport type Media = BaseMedia & { alt?: string; rank?: number }',
-  "entities/Avatar.ts": 'import type { Media } from "@quickservice/core";\n/** @maxSize 1KB @accept image/png */\nexport type Avatar = Media & { label?: string }',
+  "entities/Media.ts": 'import type { Media as BaseMedia } from "@quickservicets/core";\nexport type Media = BaseMedia & { alt?: string; rank?: number }',
+  "entities/Avatar.ts": 'import type { Media } from "@quickservicets/core";\n/** @maxSize 1KB @accept image/png */\nexport type Avatar = Media & { label?: string }',
 };
 
 function walk(dir: string): string[] {
@@ -21,7 +21,7 @@ function walk(dir: string): string[] {
 
 async function setup(adapterOverride?: (base: DatabaseAdapter) => DatabaseAdapter, filesConfig?: { maxSize?: number | string }) {
   const models = parseProjectEntities(createProject(files));
-  const dir = mkdtempSync(join(tmpdir(), "quickservice-uploads-"));
+  const dir = mkdtempSync(join(tmpdir(), "quickservicets-uploads-"));
   const base = memoryAdapter();
   const database = adapterOverride ? adapterOverride(base) : base;
   const config = resolveConfig(

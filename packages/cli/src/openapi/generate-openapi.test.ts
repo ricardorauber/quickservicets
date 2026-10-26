@@ -48,6 +48,11 @@ describe("document", () => {
     expect(doc.info).toEqual({ title: "acme-api", version: "1.2.3" });
   });
 
+  test("the title defaults to QuickService.ts API when the package has no name", () => {
+    expect(documentFor(entities, { version: "1.0.0" } as never).info).toEqual({ title: "QuickService.ts API", version: "1.0.0" });
+    expect(documentFor(entities, { name: "", version: "1.0.0" }).info.title).toBe("QuickService.ts API");
+  });
+
   test("validates for examples/basic", async () => {
     const root = join(import.meta.dir, "../../../../examples/basic");
     const models = parseProjectEntities(root);

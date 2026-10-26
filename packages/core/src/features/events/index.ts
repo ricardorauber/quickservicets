@@ -138,7 +138,7 @@ const eventsFeature = defineFeature({
     if (outbox.enabled) {
       const model = ctx.models.find((candidate) => candidate.key === "OutboxEvent" && candidate.system);
       const deliveryModel = ctx.models.find((candidate) => candidate.key === "OutboxDelivery" && candidate.system);
-      if (!model || !deliveryModel) throw new Error("The outbox needs the OutboxEvent and OutboxDelivery entities; run quickservice build after turning the outbox on");
+      if (!model || !deliveryModel) throw new Error("The outbox needs the OutboxEvent and OutboxDelivery entities; run quickservicets build after turning the outbox on");
       const adapter = ctx.config.database;
       startOutbox(adapter, model, outbox.events, deliveryModel);
       const retentionMs = parseDuration(outbox.retention) ?? 7 * 86_400_000;

@@ -3,23 +3,26 @@ import type { SQL } from "bun";
 import {
   createRepositories,
   loadConfig,
+  MIGRATIONS_TABLE,
+  renameLegacyMigrationTables,
   schemaIdentifier,
   SQLITE_DEFAULT_SCHEMA_TOKEN,
   sqliteDefaultPrefix,
   type MigrationContext,
   type MigrationSqlOptions,
   type MongodbAdapter,
+  type RenamedTable,
   type Repositories,
   type ResolvedConfig,
   type SqlDialect,
-} from "@quickservice/core";
+} from "@quickservicets/core";
 import { drizzle as drizzleSqlite } from "drizzle-orm/bun-sqlite";
 import { drizzle as drizzlePostgres } from "drizzle-orm/bun-sql";
 import { parseProjectEntities as parseEntities } from "../entities/parse-entities.ts";
 import { BuildError } from "../errors.ts";
 import { listMigrations, type MigrationFile } from "./snapshot.ts";
 
-export const HISTORY_TABLE = "__quickservice_migrations";
+export const HISTORY_TABLE = MIGRATIONS_TABLE;
 const HISTORY_TABLE_NAME = HISTORY_TABLE;
 export const MONGO_HISTORY_COLLECTION = "_migrations";
 export const MONGO_NO_TRANSACTION_WARNING =
@@ -45,6 +48,8 @@ export interface MigrateResult {
   reverted: string[];
   messages: string[];
   warnings: string[];
+  /** Migrations tables renamed from their previous name before migrating. */
+  renamed: RenamedTable[];
 }
 
 export interface AppliedMigration {
@@ -266,7 +271,7 @@ function postgresDriver(client: SQL, defaultSchema: string | null): MigrationDri
   return {
     warnings: [],
     async ensureHistory() {
-      // quickservice-allow-unsafe: the history table name is a constant
+      // quickservicets-allow-unsafe: the history table name is a constant
       await client.unsafe(
         `create table if not exists ${HISTORY_TABLE} (id text primary key, name text not null, applied_at timestamptz not null)`,
       );
@@ -274,14 +279,14 @@ function postgresDriver(client: SQL, defaultSchema: string | null): MigrationDri
     async readHistory() {
       const [row] = (await client.unsafe("select to_regclass($1) as found", [HISTORY_TABLE])) as { found: string | null }[];
       if (!row?.found) return [];
-      // quickservice-allow-unsafe: the history table name is a constant
+      // quickservicets-allow-unsafe: the history table name is a constant
       return (await client.unsafe(`select id, name from ${HISTORY_TABLE} order by id`)) as AppliedMigration[];
     },
     async readSchemaHistory(schema) {
       const table = schemaHistoryTable("postgres", schema);
       const [row] = (await client.unsafe("select to_regclass($1) as found", [table])) as { found: string | null }[];
       if (!row?.found) return new Map();
-      // quickservice-allow-unsafe: the table name is built by schemaHistoryTable from a validated schema name
+      // quickservicets-allow-unsafe: the table name is built by schemaHistoryTable from a validated schema name
       return recordsOf((await client.unsafe(`select id, default_schemas from ${table}`)) as SchemaRecordRow[]);
     },
     async runStep(migration, direction, module, repos) {
@@ -293,11 +298,11 @@ function postgresDriver(client: SQL, defaultSchema: string | null): MigrationDri
         const runner: SqlRunner = {
           dialect: "postgres",
           placeholder: (index) => `$${index}`,
-          // quickservice-allow-unsafe: runs the statements of migration files, with their values as parameters
+          // quickservicets-allow-unsafe: runs the statements of migration files, with their values as parameters
           statement: (text, params) => tx.unsafe(text, params),
-          // quickservice-allow-unsafe: runs the statements of migration files, with their values as parameters
+          // quickservicets-allow-unsafe: runs the statements of migration files, with their values as parameters
           exec: (text, params = []) => tx.unsafe(numbered(text), params),
-          // quickservice-allow-unsafe: runs the statements of migration files, with their values as parameters
+          // quickservicets-allow-unsafe: runs the statements of migration files, with their values as parameters
           rows: async <T>(text: string, params: unknown[] = []) => (await tx.unsafe(numbered(text), params)) as T[],
         };
         const step = { runner, history: HISTORY_TABLE, defaultSchema: defaultSchema ?? "", db, repos };
@@ -400,13 +405,14 @@ export function readMigrationHistory(projectRoot: string, schemas: string[]): Pr
   });
 }
 
-/** `quickservice migrate [target] [--force]` */
+/** `quickservicets migrate [target] [--force]` */
 export async function migrate(projectRoot: string, options: MigrateOptions = {}): Promise<MigrateResult> {
   const config = await loadConfig(projectRoot);
   if (config.database.kind === "memory") {
-    return { applied: [], reverted: [], warnings: [], messages: ["Nothing to migrate: the memory adapter keeps no schema"] };
+    return { applied: [], reverted: [], warnings: [], renamed: [], messages: ["Nothing to migrate: the memory adapter keeps no schema"] };
   }
   return withDriver(projectRoot, async (driver, resolved) => {
+    const renamed = await renameLegacyMigrationTables(resolved.database as { kind?: string; client?: unknown });
     await driver.ensureHistory();
     const files = listMigrations(projectRoot);
     const applied = await driver.readHistory();
@@ -423,7 +429,7 @@ export async function migrate(projectRoot: string, options: MigrateOptions = {})
     }
 
     const repos = createRepositories(parseEntities(projectRoot, resolved.features), resolved.database) as unknown as Repositories;
-    const result: MigrateResult = { applied: [], reverted: [], messages: [], warnings: driver.warnings };
+    const result: MigrateResult = { applied: [], reverted: [], messages: [], warnings: driver.warnings, renamed };
     for (const { migration, direction } of steps) {
       const module = (await import(migration.file)) as MigrationModule;
       try {

@@ -29,7 +29,7 @@ import {
 } from "../public.ts";
 import type { ErrorsApi } from "./api.ts";
 
-const CONSOLE = Symbol.for("quickservice.errors.console");
+const CONSOLE = Symbol.for("quickservicets.errors.console");
 
 /** The logger console reporters write to: the configured one of the running service. */
 let consoleLogger: Logger | undefined;

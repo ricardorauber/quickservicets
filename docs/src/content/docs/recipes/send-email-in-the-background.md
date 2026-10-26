@@ -11,8 +11,8 @@ sidebar:
 
 ## Turn queues on
 
-```ts title="quickservice.config.ts"
-import { defineConfig, sqliteAdapter } from "@quickservice/core";
+```ts title="quickservicets.config.ts"
+import { defineConfig, sqliteAdapter } from "@quickservicets/core";
 
 export default defineConfig({
   database: sqliteAdapter({ path: "data.db" }),
@@ -21,8 +21,8 @@ export default defineConfig({
 ```
 
 ```bash
-bun run quickservice migration add Queues
-bun run quickservice migrate
+bun run quickservicets migration add Queues
+bun run quickservicets migrate
 ```
 
 ## The consumer
@@ -30,7 +30,7 @@ bun run quickservice migrate
 The consumer sends one email; a throw fails the attempt, which is retried after 30 seconds, then a minute, then two, before the message is dead. `dedupeWindow` keeps the key of a sent email for a week, so the same user never gets it twice:
 
 ```ts title="queues/welcome-email.ts"
-import { queue } from "@quickservice/core";
+import { queue } from "@quickservicets/core";
 import { sendMail } from "../mail.ts";
 
 export default queue<{ userId: string }>(
@@ -49,7 +49,7 @@ export default queue<{ userId: string }>(
 A post-hook runs after the user was created and adds the message; the dedupe key makes a repeated signup, or two workers running the hook, add one message:
 
 ```ts title="hooks/sendWelcome.ts"
-import { definePostHook } from "@quickservice/core";
+import { definePostHook } from "@quickservicets/core";
 
 export default definePostHook(async (data, _repos, req) => {
   const user = data as { id: string };
@@ -74,8 +74,8 @@ export type User = {
 Each failure is logged with `queue.message.failed`, and the last one with `queue.message.dead`. Once the server is back, requeue the dead messages:
 
 ```bash
-bun run quickservice queue dead welcome-email
-bun run quickservice queue retry --queue welcome-email --dead
+bun run quickservicets queue dead welcome-email
+bun run quickservicets queue retry --queue welcome-email --dead
 ```
 
 ## See also

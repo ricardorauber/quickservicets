@@ -1,5 +1,5 @@
 import { dirname, join, relative, resolve, sep } from "node:path";
-import type { CrudOperation, EntityModel, HookCall, QueryItem } from "@quickservice/core";
+import type { CrudOperation, EntityModel, HookCall, QueryItem } from "@quickservicets/core";
 import ts from "typescript";
 import type { EndpointRoute } from "../endpoints/scan-endpoints.ts";
 import type { EndpointMetadata } from "../hooks/endpoint-tags.ts";
@@ -138,7 +138,7 @@ function generatedSchemaOf(name: string, found: FoundDeclaration, context: Conve
 
 /** The entity a type reference names: a declaration in `/entities`, or `File`/`Media` from the core package. */
 function entityOf(name: string, found: FoundDeclaration, context: ConvertContext): EntityModel | undefined {
-  if (found.module === "@quickservice/core") {
+  if (found.module === "@quickservicets/core") {
     return context.models.find((model) => model.key === name && model.file);
   }
   const file = found.declaration?.getSourceFile().fileName;

@@ -21,12 +21,12 @@ function filesOf(root: string): Record<string, string> {
 const post = (body: unknown = {}) => ({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 type Message = { status: string; result?: unknown };
 
-test("quickservice eject queues turns the native into features/queues/ and the example keeps processing", async () => {
+test("quickservicets eject queues turns the native into features/queues/ and the example keeps processing", async () => {
   const root = createLinkedProject(filesOf(example));
   const lines = await eject(root, "queues");
   expect(lines).toContain("features/queues/ now replaces the queues native.");
   expect(existsSync(join(root, "features/queues/index.ts"))).toBe(true);
-  expect(readFileSync(join(root, "features/queues/database.ts"), "utf8")).toContain('from "@quickservice/core"');
+  expect(readFileSync(join(root, "features/queues/database.ts"), "utf8")).toContain('from "@quickservicets/core"');
 
   const service = await startTestService({ files: filesOf(root) });
   try {

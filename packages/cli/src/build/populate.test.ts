@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { createApp, memoryAdapter, resolveConfig, type DatabaseAdapter } from "@quickservice/core";
+import { createApp, memoryAdapter, resolveConfig, type DatabaseAdapter } from "@quickservicets/core";
 import { parseEntities } from "../entities/parse-entities.ts";
 import { createLinkedProject, createProject, MEMORY_CONFIG } from "../testing/project.ts";
 import { build } from "./build.ts";
@@ -174,7 +174,7 @@ test("a deleted referenced record becomes null", async () => {
 
 describe("endpoint @populate", () => {
   async function built(files: Record<string, string>) {
-    const root = createLinkedProject({ "quickservice.config.ts": MEMORY_CONFIG, ...entities(), ...files });
+    const root = createLinkedProject({ "quickservicets.config.ts": MEMORY_CONFIG, ...entities(), ...files });
     await build(root);
     return root;
   }
@@ -205,7 +205,7 @@ describe("endpoint @populate", () => {
 });
 
 test("generated types map references for populated reads", async () => {
-  const root = createLinkedProject({ "quickservice.config.ts": MEMORY_CONFIG, ...entities() });
+  const root = createLinkedProject({ "quickservicets.config.ts": MEMORY_CONFIG, ...entities() });
   await build(root);
   const types = await Bun.file(join(root, ".generated/types.ts")).text();
   expect(types).toContain("users: Repository<User, UserReferences, UserCreate, UserUpdate>;");

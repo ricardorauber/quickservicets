@@ -13,9 +13,9 @@ const entities = {
   "entities/Account.ts": "/** @schema billing */\nexport type Account = { /** @unique */ name: string }",
 };
 const sqliteConfig = (path: string) =>
-  `import { defineConfig, sqliteAdapter } from "@quickservice/core";\nexport default defineConfig({ database: sqliteAdapter({ path: ${JSON.stringify(path)} }) });\n`;
+  `import { defineConfig, sqliteAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: sqliteAdapter({ path: ${JSON.stringify(path)} }) });\n`;
 const postgresConfig = (url: string) =>
-  `import { defineConfig, postgresAdapter } from "@quickservice/core";\nexport default defineConfig({ database: postgresAdapter({ url: ${JSON.stringify(url)} }) });\n`;
+  `import { defineConfig, postgresAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: postgresAdapter({ url: ${JSON.stringify(url)} }) });\n`;
 
 async function asTenant<T>(schema: string, work: () => Promise<T>): Promise<T> {
   process.env.DATABASE_SCHEMA = schema;
@@ -32,7 +32,7 @@ const brokenMigration = (createStatement: string) =>
 
 describe("generated statements", () => {
   test("SQLite statements on explicit-schema tables carry their schema", async () => {
-    const source = await migrationSource(createLinkedProject({ ...entities, "quickservice.config.ts": sqliteConfig(":memory:") }));
+    const source = await migrationSource(createLinkedProject({ ...entities, "quickservicets.config.ts": sqliteConfig(":memory:") }));
     expect(source).toMatch(/ctx\.sql\("CREATE TABLE `billing__accounts`[^\n]*, \{ schema: "billing" \}\);/);
     expect(source).toContain('ctx.sql("CREATE UNIQUE INDEX `billing_accounts_name_uq` ON `billing__accounts` (`name`);", { schema: "billing" });');
     const usersTable = source.split("\n").find((line) => line.includes("CREATE TABLE `{{default_schema}}users`"));
@@ -41,7 +41,7 @@ describe("generated statements", () => {
   });
 
   test("PostgreSQL marks the schema, its tables and its indexes, not default tables referencing them", async () => {
-    const source = await migrationSource(createLinkedProject({ ...entities, "quickservice.config.ts": postgresConfig("postgres://localhost/none") }));
+    const source = await migrationSource(createLinkedProject({ ...entities, "quickservicets.config.ts": postgresConfig("postgres://localhost/none") }));
     const lines = source.split("\n");
     const line = (text: string) => lines.find((candidate) => candidate.includes(text)) ?? "";
     expect(line('CREATE SCHEMA IF NOT EXISTS \\"billing\\"')).toContain('{ schema: "billing" }');
@@ -52,7 +52,7 @@ describe("generated statements", () => {
   });
 
   test("changes to an existing explicit-schema table stay marked, including table rebuilds and dropped indexes", async () => {
-    const root = createLinkedProject({ ...entities, "quickservice.config.ts": sqliteConfig(":memory:") });
+    const root = createLinkedProject({ ...entities, "quickservicets.config.ts": sqliteConfig(":memory:") });
     await addMigration(root, "Initial", at(0));
     const upCalls = async (body: string, name: string, seconds: number) => {
       writeFileSync(join(root, "entities/Account.ts"), `/** @schema billing */\nexport type Account = ${body}`);
@@ -87,7 +87,7 @@ describe("statements without a schema", () => {
   test("a migration file with plain statements still applies", async () => {
     const path = join(createProject({}), "app.db");
     const root = createLinkedProject({
-      "quickservice.config.ts": sqliteConfig(path),
+      "quickservicets.config.ts": sqliteConfig(path),
       "migrations/20261015120000_Plain.ts":
         'export async function up(ctx) {\n  await ctx.sql("create table notes (id text primary key, body text)");\n  await ctx.sql`insert into notes (id, body) values (${"n1"}, ${"hello"})`;\n  await ctx.sql("insert into notes (id, body) values (?, ?)", "n2", "bye");\n}\nexport async function down(ctx) {\n  await ctx.sql("drop table notes");\n}\n',
     });
@@ -101,7 +101,7 @@ describe("statements without a schema", () => {
 describe("two tenants on SQLite", () => {
   const setup = async () => {
     const path = join(createProject({}), "app.db");
-    const root = createLinkedProject({ ...entities, "quickservice.config.ts": sqliteConfig(path) });
+    const root = createLinkedProject({ ...entities, "quickservicets.config.ts": sqliteConfig(path) });
     await addMigration(root, "Initial", at(0));
     return { root, path };
   };
@@ -157,7 +157,7 @@ if (postgresUrl) {
     const query = async <T>(text: string) => {
       const admin = new SQL(postgresUrl);
       try {
-        // quickservice-allow-unsafe: runs the literal queries this test file passes to it
+        // quickservicets-allow-unsafe: runs the literal queries this test file passes to it
         return (await admin.unsafe(text)) as T[];
       } finally {
         await admin.close();
@@ -165,7 +165,7 @@ if (postgresUrl) {
     };
     const setup = async () => {
       await reset();
-      const root = createLinkedProject({ ...entities, "quickservice.config.ts": postgresConfig(postgresUrl) });
+      const root = createLinkedProject({ ...entities, "quickservicets.config.ts": postgresConfig(postgresUrl) });
       await addMigration(root, "Initial", at(0));
       return root;
     };
@@ -175,14 +175,14 @@ if (postgresUrl) {
       expect((await asTenant("tenant-a", () => migrate(root))).applied).toEqual(["20261015120000_Initial"]);
       expect((await asTenant("tenant-b", () => migrate(root))).applied).toEqual(["20261015120000_Initial"]);
       const tables = await query<{ name: string }>(
-        "select table_schema || '.' || table_name as name from information_schema.tables where table_schema in ('billing', 'tenant_a', 'tenant_b') and table_name in ('users', 'accounts', '__quickservice_migrations') order by 1",
+        "select table_schema || '.' || table_name as name from information_schema.tables where table_schema in ('billing', 'tenant_a', 'tenant_b') and table_name in ('users', 'accounts', '__quickservicets_migrations') order by 1",
       );
       expect(tables.map((row) => row.name)).toEqual([
-        "billing.__quickservice_migrations",
+        "billing.__quickservicets_migrations",
         "billing.accounts",
-        "tenant_a.__quickservice_migrations",
+        "tenant_a.__quickservicets_migrations",
         "tenant_a.users",
-        "tenant_b.__quickservice_migrations",
+        "tenant_b.__quickservicets_migrations",
         "tenant_b.users",
       ]);
       const records = await query<{ id: string; default_schemas: string }>(`select id, default_schemas from ${schemaHistoryTable("postgres", "billing")}`);

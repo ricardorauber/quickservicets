@@ -48,7 +48,7 @@ describe("the events guide", () => {
       "currentOperation()",
       "`beforeEmit(event, { operation })`",
       "`bus: { publish, subscribe }`",
-      "quickservice eject events",
+      "quickservicets eject events",
     ]) {
       expect(guide).toContain(topic);
     }

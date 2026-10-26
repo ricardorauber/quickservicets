@@ -8,7 +8,7 @@ import {
   sqliteAdapter,
   type DatabaseAdapter,
   type Repository,
-} from "@quickservice/core";
+} from "@quickservicets/core";
 import { resetPostgresTables } from "../../../core/src/testing/postgres.ts";
 import { createSqliteTables } from "../../../core/src/testing/sql.ts";
 import { parseProjectEntities } from "../entities/parse-entities.ts";

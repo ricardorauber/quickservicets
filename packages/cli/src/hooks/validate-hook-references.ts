@@ -1,4 +1,4 @@
-import type { EntityModel, HookCall } from "@quickservice/core";
+import type { EntityModel, HookCall } from "@quickservicets/core";
 import { BuildError } from "../errors.ts";
 import { unknownTagMessage } from "../entities/feature-tags.ts";
 import type { HookEntry } from "./scan-hooks.ts";

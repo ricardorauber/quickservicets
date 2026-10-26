@@ -102,5 +102,5 @@ history: { store: memoryStore }
 Copy the native into the project as a `features/history/` project feature that replaces it:
 
 ```bash
-quickservice eject history
+quickservicets eject history
 ```

@@ -3,7 +3,7 @@
  * Compares a benchmark result with the baseline (every native at its default):
  *
  *   bun benchmarks/compare-features.ts benchmarks/results/features/events-off.json
- *   bun benchmarks/compare-features.ts <result> --baseline benchmarks/results/quickservice.json
+ *   bun benchmarks/compare-features.ts <result> --baseline benchmarks/results/quickservicets.json
  *
  * Prints the change of req/s, p50 and p99 per scenario, and exits 1 when a budget check fails (see features.ts).
  */
@@ -12,7 +12,7 @@ import { compareResults, type BenchResult } from "./features.ts";
 
 const args = process.argv.slice(2);
 const at = args.indexOf("--baseline");
-const baselineFile = at >= 0 ? args[at + 1] : join(import.meta.dir, "results", "quickservice.json");
+const baselineFile = at >= 0 ? args[at + 1] : join(import.meta.dir, "results", "quickservicets.json");
 const runFile = args.find((arg, index) => !arg.startsWith("--") && index !== at + 1);
 if (!runFile || !baselineFile) {
   console.error("Usage: bun benchmarks/compare-features.ts <result> [--baseline <file>]");

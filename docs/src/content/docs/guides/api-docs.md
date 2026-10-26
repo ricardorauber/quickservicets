@@ -9,7 +9,7 @@ Every build writes an OpenAPI 3.1 document of your API, and the server shows it 
 
 ## The OpenAPI document
 
-`quickservice build` (and so `dev`) writes the document to `.generated/openapi.json`. Its `info.title` and `info.version` come from the project's `package.json`. The same input always gives the same document, so you can commit it or diff it in CI to review API changes.
+`quickservicets build` (and so `dev`) writes the document to `.generated/openapi.json`. Its `info.title` and `info.version` come from the project's `package.json`. The same input always gives the same document, so you can commit it or diff it in CI to review API changes.
 
 The server also serves it:
 
@@ -58,8 +58,8 @@ Content-Length: 374
 
 `docs.enabled` decides whether the two routes exist. It defaults to `true`, except in production (`NODE_ENV=production` or `production: true`), where it defaults to `false`:
 
-```ts check title="quickservice.config.ts"
-import { defineConfig, sqliteAdapter } from "@quickservice/core";
+```ts check title="quickservicets.config.ts"
+import { defineConfig, sqliteAdapter } from "@quickservicets/core";
 
 export default defineConfig({
   database: sqliteAdapter({ path: process.env.DATABASE_PATH! }),
@@ -103,7 +103,7 @@ Each generated route is an operation tagged with the entity's collection (or `<s
 A custom endpoint's `@summary` and `@description` become the operation's. When its default export is typed `Endpoint<Body, Result>`, the body and result types become the request and response schemas (entity types become `$ref`s); on `GET` and `DELETE` the first type is the query instead, and each typed query item becomes a query parameter with its tags:
 
 ```ts check title="endpoints/health/get.ts"
-import type { Endpoint } from "@quickservice/core";
+import type { Endpoint } from "@quickservicets/core";
 
 type HealthQuery = {
   /** @default false */
@@ -137,7 +137,7 @@ Without generics, bodies and responses are documented as `{ "type": "object" }`.
 Each operation lists the hooks that run on it: a `Hooks: <name>(<args>)` line in its description and an `x-hooks` extension. A hook can also declare the responses it adds and that it expects a bearer token:
 
 ```ts check title="hooks/authorized.ts"
-import { definePreHook, HttpError } from "@quickservice/core";
+import { definePreHook, HttpError } from "@quickservicets/core";
 
 export default definePreHook(
   (repos, req) => {

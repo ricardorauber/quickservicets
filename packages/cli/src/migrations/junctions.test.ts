@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { buildDrizzleSchema } from "@quickservice/core";
+import { buildDrizzleSchema } from "@quickservicets/core";
 import { getTableConfig } from "drizzle-orm/sqlite-core";
 import { parseEntities } from "../entities/parse-entities.ts";
 import { createLinkedProject, createProject } from "../testing/project.ts";
@@ -33,7 +33,7 @@ describe("junction tables", () => {
   test("migrations create junction tables in up and drop them in down", async () => {
     const root = createLinkedProject({
       ...files(),
-      "quickservice.config.ts": 'import { defineConfig, sqliteAdapter } from "@quickservice/core";\nexport default defineConfig({ database: sqliteAdapter({ path: ":memory:" }) });\n',
+      "quickservicets.config.ts": 'import { defineConfig, sqliteAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: sqliteAdapter({ path: ":memory:" }) });\n',
     });
     const source = readFileSync(join(root, (await addMigration(root, "Initial")).file), "utf8");
     const [up, down] = source.split("export async function down");

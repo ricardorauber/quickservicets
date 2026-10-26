@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import ts from "typescript";
-import { registerProjectFeatures, type EntityModel } from "@quickservice/core";
+import { registerProjectFeatures, type EntityModel } from "@quickservicets/core";
 import { addMigration } from "../migrations/add.ts";
 import { createLinkedProject } from "../testing/project.ts";
 import { startTestService, type TestService } from "../testing/service.ts";
@@ -10,10 +10,10 @@ import { build } from "./build.ts";
 
 afterEach(() => registerProjectFeatures([]));
 
-const config = (queues = "queues: {}", adapter = "memoryAdapter()") => `import { defineConfig, memoryAdapter, sqliteAdapter, postgresAdapter, mongodbAdapter } from "@quickservice/core";
+const config = (queues = "queues: {}", adapter = "memoryAdapter()") => `import { defineConfig, memoryAdapter, sqliteAdapter, postgresAdapter, mongodbAdapter } from "@quickservicets/core";
 export default defineConfig({ database: ${adapter}${queues ? `, ${queues}` : ""} });
 `;
-const SEND_EMAIL = `import { queue } from "@quickservice/core";
+const SEND_EMAIL = `import { queue } from "@quickservicets/core";
 export default queue<{ to: string }>(async ({ payload }) => payload.to);
 `;
 const post = (body: unknown = {}) => ({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -22,9 +22,9 @@ type MessageRepos = { queueMessages: { findById(id: string): Promise<Message | n
 const messages = (service: TestService) => (service.repos as unknown as MessageRepos).queueMessages;
 
 const BASE = {
-  "quickservice.config.ts": config(),
+  "quickservicets.config.ts": config(),
   "queues/send-email.ts": SEND_EMAIL,
-  "endpoints/welcome/post.ts": `import type { ServiceRequest } from "@quickservice/core";
+  "endpoints/welcome/post.ts": `import type { ServiceRequest } from "@quickservicets/core";
 export default async (_repos: unknown, req: ServiceRequest) => req.queue.add("send-email", { to: "a@b.c" });
 `,
 };
@@ -33,10 +33,10 @@ describe("declaring queues", () => {
   test("queue files are named by their path, feature queues get the feature's key, and the registry holds them", async () => {
     const root = createLinkedProject({
       ...BASE,
-      "queues/billing/close.ts": 'import { queue } from "@quickservice/core";\nexport default queue(() => {});\n',
-      "features/example/index.ts": 'import { defineFeature } from "@quickservice/core";\nexport default defineFeature({ key: "example" });\n',
-      "features/example/queues/notify.ts": 'import { queue } from "@quickservice/core";\nexport default queue<{ id: string }>(() => {});\n',
-      "quickservice.config.ts": config("queues: {}, example: {}"),
+      "queues/billing/close.ts": 'import { queue } from "@quickservicets/core";\nexport default queue(() => {});\n',
+      "features/example/index.ts": 'import { defineFeature } from "@quickservicets/core";\nexport default defineFeature({ key: "example" });\n',
+      "features/example/queues/notify.ts": 'import { queue } from "@quickservicets/core";\nexport default queue<{ id: string }>(() => {});\n',
+      "quickservicets.config.ts": config("queues: {}, example: {}"),
     });
     await build(root);
     const { featureFolders } = await import(join(root, ".generated/features.ts"));
@@ -63,8 +63,8 @@ describe("the QueueMessage entity", () => {
     } finally {
       await service.stop();
     }
-    const without = createLinkedProject({ "quickservice.config.ts": config(""), "entities/User.ts": "export type User = { name: string };\n" });
-    const off = createLinkedProject({ "quickservice.config.ts": config("queues: false"), "entities/User.ts": "export type User = { name: string };\n" });
+    const without = createLinkedProject({ "quickservicets.config.ts": config(""), "entities/User.ts": "export type User = { name: string };\n" });
+    const off = createLinkedProject({ "quickservicets.config.ts": config("queues: false"), "entities/User.ts": "export type User = { name: string };\n" });
     await build(without);
     await build(off);
     for (const file of readdirSync(join(without, ".generated"))) {
@@ -77,7 +77,7 @@ describe("the QueueMessage entity", () => {
   const adapters = { sqlite: 'sqliteAdapter({ path: ":memory:" })', postgres: 'postgresAdapter({ url: "postgres://localhost/none" })' };
   for (const [name, adapter] of Object.entries(adapters)) {
     test(`${name}: migration add creates the queue_messages table and its index`, async () => {
-      const root = createLinkedProject({ ...BASE, "quickservice.config.ts": config("queues: {}", adapter) });
+      const root = createLinkedProject({ ...BASE, "quickservicets.config.ts": config("queues: {}", adapter) });
       const created = readFileSync(join(root, (await addMigration(root, "Initial", new Date(Date.UTC(2026, 0, 1)))).file), "utf8");
       expect(created).toMatch(/CREATE TABLE \\?[`"](\{\{default_schema\}\})?queue_messages/);
       expect(created).toMatch(/queue_messages_queue_status_priority_run_at/);
@@ -85,7 +85,7 @@ describe("the QueueMessage entity", () => {
   }
 
   test("mongodb: migration add creates the queue_messages index", async () => {
-    const root = createLinkedProject({ ...BASE, "quickservice.config.ts": config("queues: {}", 'mongodbAdapter({ url: "mongodb://localhost/none", database: "x" })') });
+    const root = createLinkedProject({ ...BASE, "quickservicets.config.ts": config("queues: {}", 'mongodbAdapter({ url: "mongodb://localhost/none", database: "x" })') });
     const created = readFileSync(join(root, (await addMigration(root, "Initial", new Date(Date.UTC(2026, 0, 1)))).file), "utf8");
     expect(created).toContain('collection("queue_messages").createIndex({"queue":1,"status":1,"priority":1,"runAt":1}');
   });
@@ -94,16 +94,16 @@ describe("the QueueMessage entity", () => {
 describe("adding messages", () => {
   const files = {
     ...BASE,
-    "jobs/enqueue.ts": `import { job } from "@quickservice/core";
+    "jobs/enqueue.ts": `import { job } from "@quickservicets/core";
 export default job({ every: "1h" }, async (ctx) => ctx.queue.add("send-email", { to: "job@b.c" }));
 `,
-    "endpoints/run-job/post.ts": `import type { ServiceRequest } from "@quickservice/core";
+    "endpoints/run-job/post.ts": `import type { ServiceRequest } from "@quickservicets/core";
 export default async (_repos: unknown, req: ServiceRequest) => req.jobs.run("enqueue");
 `,
-    "endpoints/core/post.ts": `import { queues } from "@quickservice/core";
+    "endpoints/core/post.ts": `import { queues } from "@quickservicets/core";
 export default async () => queues.add("send-email", { to: "core@b.c" });
 `,
-    "endpoints/in-transaction/post.ts": `import type { Repositories, ServiceRequest } from "@quickservice/core";
+    "endpoints/in-transaction/post.ts": `import type { Repositories, ServiceRequest } from "@quickservicets/core";
 export default async (repos: Repositories, req: ServiceRequest) => {
   const { fail } = (await req.json()) as { fail: boolean };
   try {
@@ -182,7 +182,7 @@ describe("payload types", () => {
     const root = createLinkedProject(BASE);
     await build(root);
     const source = `import "./.generated/types.ts";
-import { defineFeature, queues, type JobContext, type ServiceRequest } from "@quickservice/core";
+import { defineFeature, queues, type JobContext, type ServiceRequest } from "@quickservicets/core";
 export async function endpoint(req: ServiceRequest) {
   const added: { id: string; deduplicated: boolean } = await req.queue.add("send-email", { to: "a@b.c" });
   // @ts-expect-error the queue is send-email

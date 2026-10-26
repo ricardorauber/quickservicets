@@ -2,7 +2,7 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 import packageJson from "../package.json" with { type: "json" };
 import type { EntityModel } from "./model.ts";
 
-/** The version of `@quickservice/core`, part of every build step's cache hash. */
+/** The version of `@quickservicets/core`, part of every build step's cache hash. */
 export const CORE_VERSION: string = packageJson.version;
 
 /** One file of a feature's convention folder, as build steps see it. */

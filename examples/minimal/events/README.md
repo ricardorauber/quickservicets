@@ -98,5 +98,5 @@ events: { bus: { publish: (event) => broker.send(event), subscribe: (pattern, li
 Copy the native into the project as `features/events/`, which then replaces it with the same behavior:
 
 ```bash
-bun run quickservice eject events
+bun run quickservicets eject events
 ```

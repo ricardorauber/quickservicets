@@ -20,7 +20,7 @@ function filesOf(root: string): Record<string, string> {
 
 const send = (method: string, body?: unknown, headers: Record<string, string> = {}) => ({ method, headers: { "content-type": "application/json", ...headers }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 
-test("quickservice eject etag turns the native into features/etag/ and tags, 304, 412 and 428 keep working", async () => {
+test("quickservicets eject etag turns the native into features/etag/ and tags, 304, 412 and 428 keep working", async () => {
   const root = createLinkedProject(filesOf(example));
   const lines = await eject(root, "etag");
   expect(lines).toContain("features/etag/ now replaces the etag native.");

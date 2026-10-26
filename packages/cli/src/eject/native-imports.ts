@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import ts from "typescript";
-import { NATIVE_FEATURES_DIR } from "@quickservice/core";
+import { NATIVE_FEATURES_DIR } from "@quickservicets/core";
 
 /** The entry natives import the core from, relative to the folder of natives. */
 export const PUBLIC_ENTRY = "public.ts";
@@ -33,7 +33,7 @@ export function resolvesTo(file: string, specifier: string, target: string): boo
 
 /**
  * The imports of native features (`<dir>/<key>/**`) that reach the core other than through `<dir>/public.ts`: relative
- * paths outside the native's own folder and `@quickservice/core` specifiers. Each problem names the file and import.
+ * paths outside the native's own folder and `@quickservicets/core` specifiers. Each problem names the file and import.
  */
 export function nativeImportProblems(dir: string = NATIVE_FEATURES_DIR): string[] {
   if (!existsSync(dir)) return [];
@@ -44,7 +44,7 @@ export function nativeImportProblems(dir: string = NATIVE_FEATURES_DIR): string[
     for (const file of sourceFilesOf(root)) {
       const name = relative(dir, file).split(sep).join("/");
       for (const { specifier } of importsOf(readFileSync(file, "utf8"))) {
-        if (specifier === "@quickservice/core" || specifier.startsWith("@quickservice/core/")) {
+        if (specifier === "@quickservicets/core" || specifier.startsWith("@quickservicets/core/")) {
           problems.push(`${name}: imports ${specifier}; natives import the core only from ../${PUBLIC_ENTRY}`);
           continue;
         }

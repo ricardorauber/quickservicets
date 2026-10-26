@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { sqliteAdapter, type EntityModel, type StoredRecord } from "@quickservice/core";
+import { sqliteAdapter, type EntityModel, type StoredRecord } from "@quickservicets/core";
 import { addMigration } from "../migrations/add.ts";
 import { migrate } from "../migrations/migrate.ts";
 import { run } from "../run.ts";
@@ -15,7 +15,7 @@ const LOGGER = `logger: {
     warn: (entry: object) => void ((globalThis as any).historyLogs ??= []).push(entry),
     error: (entry: object) => void ((globalThis as any).historyLogs ??= []).push(entry),
   }`;
-const config = (history: string, extra = "") => `import { defineConfig, memoryAdapter, sqliteAdapter } from "@quickservice/core";
+const config = (history: string, extra = "") => `import { defineConfig, memoryAdapter, sqliteAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter(), events: {}, history: ${history}, ${LOGGER}${extra ? `, ${extra}` : ""} });
 `;
 const ENTITIES = {
@@ -44,11 +44,11 @@ const failure = async (work: () => Promise<unknown>): Promise<Error> => {
 
 /** A migrated SQLite project, a way to store versions of a given age and tenant, and the CLI. */
 async function sqliteProject(history: string) {
-  const root = createLinkedProject({ "quickservice.config.ts": "", ...ENTITIES });
+  const root = createLinkedProject({ "quickservicets.config.ts": "", ...ENTITIES });
   const path = join(root, "data.db");
   writeFileSync(
-    join(root, "quickservice.config.ts"),
-    `import { defineConfig, sqliteAdapter } from "@quickservice/core";\nexport default defineConfig({ database: sqliteAdapter({ path: ${JSON.stringify(path)} }), events: {}, history: ${history}, logger: { info() {}, warn() {}, error() {} } });\n`,
+    join(root, "quickservicets.config.ts"),
+    `import { defineConfig, sqliteAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: sqliteAdapter({ path: ${JSON.stringify(path)} }), events: {}, history: ${history}, logger: { info() {}, warn() {}, error() {} } });\n`,
   );
   await build(root);
   await addMigration(root, "Initial", new Date(Date.UTC(2026, 9, 15, 12)));
@@ -92,7 +92,7 @@ describe("options, variables and tags", () => {
     }
     expect(await count("UserHistory")).toBe(1);
     const plain = { "entities/User.ts": "export type User = { name: string };\n" };
-    const off = await startTestService({ files: { "quickservice.config.ts": config('{ entities: "all" }'), ...plain }, env: { QS_HISTORY_ENABLED: "false" } });
+    const off = await startTestService({ files: { "quickservicets.config.ts": config('{ entities: "all" }'), ...plain }, env: { QS_HISTORY_ENABLED: "false" } });
     try {
       const id = await create(off);
       expect((await off.fetch(`/users/${id}/history`)).status).toBe(404);
@@ -110,9 +110,9 @@ describe("options, variables and tags", () => {
     await insert("UserHistory", "u", 2, 1);
     expect((await cli("history", "prune")).out).toEqual(["Session: 1 versions deleted", "User: 0 versions deleted"]);
     expect([await count("SessionHistory"), await count("UserHistory")]).toEqual([1, 2]);
-    const keep = createLinkedProject({ "quickservice.config.ts": config("{}"), ...ENTITIES, "entities/Note.ts": "/** @history keep=1 */\nexport type Note = { text: string };\n" });
+    const keep = createLinkedProject({ "quickservicets.config.ts": config("{}"), ...ENTITIES, "entities/Note.ts": "/** @history keep=1 */\nexport type Note = { text: string };\n" });
     expect((await failure(() => build(keep))).message).toContain("entities/Note.ts: invalid @history: unknown option keep");
-    const field = createLinkedProject({ "quickservice.config.ts": config("{}"), ...ENTITIES, "entities/Note.ts": "export type Note = {\n  /** @history retention=7d */\n  text: string;\n};\n" });
+    const field = createLinkedProject({ "quickservicets.config.ts": config("{}"), ...ENTITIES, "entities/Note.ts": "export type Note = {\n  /** @history retention=7d */\n  text: string;\n};\n" });
     expect((await failure(() => build(field))).message).toContain("entities/Note.ts: invalid @history: takes no options, got retention");
   });
 
@@ -137,7 +137,7 @@ describe("options, variables and tags", () => {
 describe("hooks and the feature API", () => {
   test("beforeVersion masks, skips and fails writes; a failing afterVersion is logged", async () => {
     const masking = await startTestService({
-      files: { "quickservice.config.ts": config('{ beforeVersion: (step) => step && { ...step, version: { ...step.version, record: { ...step.version.record, email: "[masked]" } } } }'), ...ENTITIES },
+      files: { "quickservicets.config.ts": config('{ beforeVersion: (step) => step && { ...step, version: { ...step.version, record: { ...step.version.record, email: "[masked]" } } } }'), ...ENTITIES },
     });
     try {
       const id = await create(masking);
@@ -145,7 +145,7 @@ describe("hooks and the feature API", () => {
     } finally {
       await masking.stop();
     }
-    const skipping = await startTestService({ files: { "quickservice.config.ts": config('{ beforeVersion: (step) => (step?.version.operation === "update" ? null : undefined) }'), ...ENTITIES } });
+    const skipping = await startTestService({ files: { "quickservicets.config.ts": config('{ beforeVersion: (step) => (step?.version.operation === "update" ? null : undefined) }'), ...ENTITIES } });
     try {
       const id = await create(skipping);
       await skipping.fetch(`/users/${id}`, send("PATCH", { name: "B" }));
@@ -155,7 +155,7 @@ describe("hooks and the feature API", () => {
       await skipping.stop();
     }
     const throwing = await startTestService({
-      files: { "quickservice.config.ts": config('{ beforeVersion: (step) => { if (step?.version.operation === "update") throw new Error("no history"); }, afterVersion: () => { throw new Error("after failed"); } }'), ...ENTITIES },
+      files: { "quickservicets.config.ts": config('{ beforeVersion: (step) => { if (step?.version.operation === "update") throw new Error("no history"); }, afterVersion: () => { throw new Error("after failed"); } }'), ...ENTITIES },
     });
     try {
       const id = await create(throwing);
@@ -168,7 +168,7 @@ describe("hooks and the feature API", () => {
   });
 
   test("a project feature adds a beforeVersion hook after the config's and reads versions through the API", async () => {
-    const feature = `import { defineFeature } from "@quickservice/core";
+    const feature = `import { defineFeature } from "@quickservicets/core";
 export default defineFeature({
   key: "audit",
   requires: ["history"],
@@ -181,7 +181,7 @@ export default defineFeature({
 `;
     const service = await startTestService({
       files: {
-        "quickservice.config.ts": config('{ beforeVersion: (step) => step && { ...step, version: { ...step.version, record: { ...step.version.record, order: ["config"] } } } }', "audit: {}"),
+        "quickservicets.config.ts": config('{ beforeVersion: (step) => step && { ...step, version: { ...step.version, record: { ...step.version.record, order: ["config"] } } } }', "audit: {}"),
         "features/audit/index.ts": feature,
         ...ENTITIES,
       },
@@ -201,10 +201,10 @@ export default defineFeature({
 describe("override files and the store", () => {
   test("a project endpoint replaces one entity's history list route and a project job replaces the prune job, each with an override line", async () => {
     const root = createLinkedProject({
-      "quickservice.config.ts": config("{}"),
+      "quickservicets.config.ts": config("{}"),
       ...ENTITIES,
       "endpoints/users/[id]/history/get.ts": "export default () => ({ custom: true });\n",
-      "jobs/history/prune.ts": 'import { job } from "@quickservice/core";\nexport default job("@weekly", async () => ({ custom: true }));\n',
+      "jobs/history/prune.ts": 'import { job } from "@quickservicets/core";\nexport default job("@weekly", async () => ({ custom: true }));\n',
     });
     const summary = await build(root);
     const lines = [...(summary.overrides ?? []), ...(summary.buildSteps ?? []).flatMap((step) => step.lines)];
@@ -212,7 +212,7 @@ describe("override files and the store", () => {
     expect(lines.some((line) => line.startsWith("Override: jobs/history/prune.ts replaces"))).toBe(true);
     const service = await startTestService({
       files: {
-        "quickservice.config.ts": config("{}"),
+        "quickservicets.config.ts": config("{}"),
         ...ENTITIES,
         "endpoints/users/[id]/history/get.ts": "export default () => ({ custom: true });\n",
       },
@@ -251,7 +251,7 @@ export const memoryStore = {
 };
 `;
     const files = {
-      "quickservice.config.ts": config('{ store: memoryStore, retention: "30d" }').replace('import { defineConfig, memoryAdapter, sqliteAdapter } from "@quickservice/core";', 'import { defineConfig, memoryAdapter, sqliteAdapter } from "@quickservice/core";\nimport { memoryStore } from "./store.ts";'),
+      "quickservicets.config.ts": config('{ store: memoryStore, retention: "30d" }').replace('import { defineConfig, memoryAdapter, sqliteAdapter } from "@quickservicets/core";', 'import { defineConfig, memoryAdapter, sqliteAdapter } from "@quickservicets/core";\nimport { memoryStore } from "./store.ts";'),
       "store.ts": store,
       ...ENTITIES,
     };
@@ -267,7 +267,7 @@ export const memoryStore = {
     } finally {
       await service.stop();
     }
-    const root = createLinkedProject({ ...files, "quickservice.config.ts": files["quickservice.config.ts"].replace("memoryAdapter()", 'sqliteAdapter({ path: ":memory:" })') });
+    const root = createLinkedProject({ ...files, "quickservicets.config.ts": files["quickservicets.config.ts"].replace("memoryAdapter()", 'sqliteAdapter({ path: ":memory:" })') });
     const migration = readFileSync(join(root, (await addMigration(root, "Initial", new Date(Date.UTC(2026, 0, 1)))).file), "utf8");
     expect(migration).not.toContain("user_history");
     await build(root);
@@ -283,7 +283,7 @@ export const memoryStore = {
 describe("the reference page", () => {
   test("lists the options with their variables, the tag, the hooks, the command and the feature API", () => {
     const page = readFileSync(join(import.meta.dir, "../../../../docs/src/content/docs/reference/features/history.mdx"), "utf8");
-    for (const text of ["`QS_HISTORY_RETENTION`", "`QS_HISTORY_ENTITIES`", "`history.beforeVersion`", "`history.afterVersion`", "`history.store`", "### `@history`", "quickservice history prune", "## Feature API", "### `versions`"]) {
+    for (const text of ["`QS_HISTORY_RETENTION`", "`QS_HISTORY_ENTITIES`", "`history.beforeVersion`", "`history.afterVersion`", "`history.store`", "### `@history`", "quickservicets history prune", "## Feature API", "### `versions`"]) {
       expect(page).toContain(text);
     }
   });

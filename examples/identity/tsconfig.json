@@ -9,7 +9,7 @@
     "allowImportingTsExtensions": true
   },
   "include": [
-    "quickservice.config.ts",
+    "quickservicets.config.ts",
     "entities",
     "endpoints",
     "hooks",

@@ -1,4 +1,4 @@
-import { schemaIdentifier, SQLITE_DEFAULT_SCHEMA_TOKEN, type EntityModel, type SqlDialect } from "@quickservice/core";
+import { schemaIdentifier, SQLITE_DEFAULT_SCHEMA_TOKEN, type EntityModel, type SqlDialect } from "@quickservicets/core";
 import type { DrizzleSnapshot } from "./snapshot.ts";
 
 /** Finds the explicit schema whose table a generated statement changes, or undefined for default-schema tables. */

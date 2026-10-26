@@ -127,13 +127,13 @@ const readOnly = () => {
 
 /**
  * The declared environment variables, parsed and typed, once a configuration has been resolved in this process.
- * Reading it before (for example at the top level of `quickservice.config.ts`) throws. Secrets read as their values
+ * Reading it before (for example at the top level of `quickservicets.config.ts`) throws. Secrets read as their values
  * but print and serialize as `[secret]`.
  */
 export const env: Readonly<EnvVars> = new Proxy(store as Readonly<EnvVars>, {
   get(target, name) {
     if (!resolved && typeof name === "string" && name !== "toJSON") {
-      throw new Error(`env.${name} was read before the configuration was resolved; use process.env inside quickservice.config.ts`);
+      throw new Error(`env.${name} was read before the configuration was resolved; use process.env inside quickservicets.config.ts`);
     }
     return Reflect.get(target, name);
   },

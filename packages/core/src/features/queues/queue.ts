@@ -39,7 +39,7 @@ export interface QueueClient {
   add<N extends QueueName>(name: N, payload: QueuePayloads[N], options?: QueueAddOptions): Promise<QueueAddResult>;
 }
 
-/** The project's queues as `@quickservice/core` exports them: adding messages and reprocessing dead ones. */
+/** The project's queues as `@quickservicets/core` exports them: adding messages and reprocessing dead ones. */
 export interface Queues extends QueueClient {
   /**
    * Moves a `dead` message back to `waiting` with attempt 0, to run now, keeping `lastError` until its next run; throws
@@ -90,7 +90,7 @@ export interface QueueOptions {
   dedupeWindow?: string;
 }
 
-const QUEUE_MARKER = Symbol.for("quickservice.queue");
+const QUEUE_MARKER = Symbol.for("quickservicets.queue");
 
 /** A queue declared with `queue(...)`, default-exported by a file in `queues/`. */
 export interface QueueDefinition<Payload = unknown> {

@@ -1,5 +1,5 @@
 {
-  "name": "@quickservice/docs",
+  "name": "@quickservicets/docs",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,8 +12,8 @@
     "astro": "7.3.5"
   },
   "devDependencies": {
-    "@quickservice/cli": "workspace:*",
-    "@quickservice/core": "workspace:*",
+    "@quickservicets/cli": "workspace:*",
+    "@quickservicets/core": "workspace:*",
     "typescript": "5.9.2"
   }
 }

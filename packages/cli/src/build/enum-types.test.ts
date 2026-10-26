@@ -67,7 +67,7 @@ describe("generated types", () => {
 });
 
 test("generated types type-check enum members and reject plain strings and numbers", async () => {
-  const root = createLinkedProject({ "quickservice.config.ts": MEMORY_CONFIG, ...entities });
+  const root = createLinkedProject({ "quickservicets.config.ts": MEMORY_CONFIG, ...entities });
   await build(root);
   const check = join(root, "check.ts");
   writeFileSync(

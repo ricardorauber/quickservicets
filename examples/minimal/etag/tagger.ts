@@ -1,4 +1,4 @@
-import type { EntityTagger } from "@quickservice/core";
+import type { EntityTagger } from "@quickservicets/core";
 
 /** Tags a document with its version, like `"v3"`, in place of the default hash of its id and `updatedAt`. */
 export const versionTagger: EntityTagger = {

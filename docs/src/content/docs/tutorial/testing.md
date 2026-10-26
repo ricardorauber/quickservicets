@@ -46,7 +46,7 @@ bun test v1.4.2 (744846f84)
 Ran 216 tests across 3 files. [9250.00ms]
 ```
 
-Every API test runs once on memory and once on PostgreSQL. For the PostgreSQL run, the suite creates a schema of its own with the project's migrations (`quickservice migrate` with `DATABASE_SCHEMA` set), runs the tests in it and drops it at the end, so runs never see each other's records.
+Every API test runs once on memory and once on PostgreSQL. For the PostgreSQL run, the suite creates a schema of its own with the project's migrations (`quickservicets migrate` with `DATABASE_SCHEMA` set), runs the tests in it and drops it at the end, so runs never see each other's records.
 
 `bun run test` does the same (it is the `test` script in `package.json`). To run some of the tests, filter by name with `-t`:
 
@@ -79,7 +79,7 @@ import { SQL } from "bun";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createApp, localStorage, memoryAdapter, postgresAdapter, resolveConfig, schemaIdentifier, type App, type DatabaseAdapter, type EntityModel } from "@quickservice/core";
+import { createApp, localStorage, memoryAdapter, postgresAdapter, resolveConfig, schemaIdentifier, type App, type DatabaseAdapter, type EntityModel } from "@quickservicets/core";
 
 const root = join(import.meta.dir, "..");
 type Json = Record<string, any>;
@@ -99,7 +99,7 @@ async function postgresDatabase(models: EntityModel[]): Promise<TestDatabase> {
   const url = process.env.TEST_POSTGRES_URL!;
   const schema = `identity-test-${Date.now().toString(36)}`;
   const env = { ...process.env, DATABASE_URL: url, DATABASE_SCHEMA: schema };
-  const migrated = Bun.spawnSync(["bun", "run", "quickservice", "migrate"], { cwd: root, env, stdout: "pipe", stderr: "pipe" });
+  const migrated = Bun.spawnSync(["bun", "run", "quickservicets", "migrate"], { cwd: root, env, stdout: "pipe", stderr: "pipe" });
   if (migrated.exitCode !== 0) throw new Error(`migrate failed: ${migrated.stderr.toString()}${migrated.stdout.toString()}`);
   const database = postgresAdapter({ url });
   await database.connect(models, { defaultSchema: schema });
@@ -124,7 +124,7 @@ let fetchApp: (request: Request) => Promise<Response>;
 let app: App;
 
 beforeAll(async () => {
-  const built = Bun.spawnSync(["bun", "run", "quickservice", "build"], { cwd: root, stdout: "pipe", stderr: "pipe" });
+  const built = Bun.spawnSync(["bun", "run", "quickservicets", "build"], { cwd: root, stdout: "pipe", stderr: "pipe" });
   if (built.exitCode !== 0) throw new Error(`build failed: ${built.stderr.toString()}${built.stdout.toString()}`);
   const { models } = await import(join(root, ".generated/models.ts"));
   const { crudRoutes, endpoints, hooks } = await import(join(root, ".generated/routes.ts"));
@@ -264,12 +264,12 @@ The rest of this page goes through it, top to bottom.
 
 The top-level `beforeAll` runs once, before any test:
 
-1. **Build.** It runs `quickservice build` in the project folder, which writes `.generated/`: the models, the routes (CRUD routes, custom endpoints and hooks), the types and `openapi.json`. When the build fails, the error is the build output, so a broken entity fails the suite right away.
+1. **Build.** It runs `quickservicets build` in the project folder, which writes `.generated/`: the models, the routes (CRUD routes, custom endpoints and hooks), the types and `openapi.json`. When the build fails, the error is the build output, so a broken entity fails the suite right away.
 2. **Import the generated code.** It imports `models` from `.generated/models.ts`, `crudRoutes`, `endpoints` and `hooks` from `.generated/routes.ts`, and reads `.generated/openapi.json`. These are the same pieces `.generated/server.ts` puts together for the real server.
 
 Every test sits inside `describe.each(databases)`, which repeats them once per database: `memory`, and `PostgreSQL` when `TEST_POSTGRES_URL` is set. Its `beforeAll` calls `startApp`, and its `afterAll` cleans up:
 
-3. **Connect the database.** `memoryDatabase` uses `memoryAdapter()`, which keeps everything in memory, so each run starts empty. `postgresDatabase` creates a new schema with the project's migrations and connects to it; its `close` drops the schema. The tests don't read `quickservice.config.ts`, so they never touch the database the project is configured with.
+3. **Connect the database.** `memoryDatabase` uses `memoryAdapter()`, which keeps everything in memory, so each run starts empty. `postgresDatabase` creates a new schema with the project's migrations and connects to it; its `close` drops the schema. The tests don't read `quickservicets.config.ts`, so they never touch the database the project is configured with.
 4. **Resolve the config.** `resolveConfig` fills every default, as it does for the real server. The test passes the database, the same `populate: { maxDepth: 3 }` as the project, a local storage in a temporary folder for uploads, and a logger that drops the request logs. The second argument, `{}`, is the environment: an empty one, so variables such as `NODE_ENV` don't change the config (the API docs stay on, for example).
 5. **Create the app.** `createApp` returns a `server` whose `fetch(request)` handles a `Request` like the running service would: routing, hooks, validation, errors and all.
 
@@ -314,7 +314,7 @@ The messages in the suite are the API's contract. When a test compares a full me
 
 ## Reference
 
-- [CLI](/reference/cli/): `quickservice build` and what it writes.
+- [CLI](/reference/cli/): `quickservicets build` and what it writes.
 - [Configuration](/reference/config/): every key `resolveConfig` fills, such as `populate.maxDepth` and `storage`.
 - [Errors](/reference/errors/): every status, code and message the tests check.
 - [HTTP query parameters](/reference/http/): the paging, sorting and filter parameters of the list routes.

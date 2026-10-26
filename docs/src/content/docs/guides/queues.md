@@ -13,8 +13,8 @@ The samples come from the example project `examples/minimal/queues`: users tagge
 
 Turn the native on with `queues: {}`, then add one file per queue to `queues/`. Each file default-exports `queue(handler, options?)`, and its path without extension is the queue's name: `queues/send-email.ts` is `send-email`, `queues/billing/close.ts` is `billing/close`. A file without a default `queue(...)` fails the build.
 
-```ts title="quickservice.config.ts"
-import { defineConfig, memoryAdapter } from "@quickservice/core";
+```ts title="quickservicets.config.ts"
+import { defineConfig, memoryAdapter } from "@quickservicets/core";
 
 export default defineConfig({
   database: memoryAdapter(),
@@ -30,7 +30,7 @@ export default defineConfig({
 The handler receives `ctx` with the `payload`, the typed `repos`, the `message` (`id`, `queue`, `attempt` from 1, `enqueuedAt`, `dedupeKey`), a `signal` aborted on timeout or shutdown, `log`, which writes to the service logger with the queue and message id, and `queue`, to add more messages. Its return value is stored as the message's `result`; a throw fails the attempt.
 
 ```ts title="queues/send-email.ts"
-import { queue } from "@quickservice/core";
+import { queue } from "@quickservicets/core";
 
 /** Sends the welcome email of a user and records it; addresses at fail.test bounce. */
 export default queue<{ userId: string }>(
@@ -52,10 +52,10 @@ The type argument of `queue<Payload>` is the payload's type. The build collects 
 
 ## Adding messages
 
-Endpoints and hooks add messages with `req.queue.add(name, payload, options?)`, jobs and consumers with `ctx.queue.add`, and any other code with `queues.add` from `@quickservice/core`. Each call resolves `{ id, deduplicated }`; a name no queue declares fails with `Unknown queue <name>`.
+Endpoints and hooks add messages with `req.queue.add(name, payload, options?)`, jobs and consumers with `ctx.queue.add`, and any other code with `queues.add` from `@quickservicets/core`. Each call resolves `{ id, deduplicated }`; a name no queue declares fails with `Unknown queue <name>`.
 
 ```ts title="endpoints/users/[id]/welcome/post.ts"
-import type { ServiceRequest } from "@quickservice/core";
+import type { ServiceRequest } from "@quickservicets/core";
 
 /** Queues the welcome email of a user once: repeated requests return the same message. */
 export default async (_repos: unknown, req: ServiceRequest) =>
@@ -107,9 +107,9 @@ A run longer than the queue's `timeout` (default `5m`) fails at once with `Timed
 A message that failed its last attempt is `dead`: it keeps its payload, attempts and `lastError`, is never claimed again, and logs `queue.message.dead`. Fix the cause, then requeue it with `queues.retry(id)` or every dead message of a queue with `queues.retryDead(queue)`; it runs again from attempt 1.
 
 ```bash
-quickservice queue list
-quickservice queue dead send-email --limit 5
-quickservice queue retry --queue send-email --dead
+quickservicets queue list
+quickservicets queue dead send-email --limit 5
+quickservicets queue retry --queue send-email --dead
 ```
 
 ```text
@@ -137,7 +137,7 @@ export type User = {
 The target queue's payload type is the write events of the entities publishing to it:
 
 ```ts title="queues/events.ts"
-import { queue, type QueuePayloads } from "@quickservice/core";
+import { queue, type QueuePayloads } from "@quickservicets/core";
 
 /** Logs each write event that `@publish` sends to the `events` queue. */
 export default queue<QueuePayloads["events"]>(({ payload, log }) => {
@@ -182,7 +182,7 @@ A queue a feature ships in `features/<key>/queues/<name>.ts` is named `<key>/<na
 The database is one implementation of the `QueueBroker` interface: `enqueue`, `start`, `stop` and `stats`, and the optional `retry`, `retryDead`, `dead`, `cleanup` and `health`. `queues: { broker }`, or `ctx.feature("queues").setBroker(broker)` from a feature's setup, moves messages to another broker such as RabbitMQ, Kafka, Redis or SQS, while `add`, `@publish` and the consumers stay the same. A broker that cannot join the database transaction publishes after the commit with `afterCommit`. The example's `memory-broker.ts` is the smallest broker:
 
 ```ts title="memory-broker.ts"
-import { afterCommit, type QueueBroker, type QueueBrokerContext, type QueueBrokerMessage } from "@quickservice/core";
+import { afterCommit, type QueueBroker, type QueueBrokerContext, type QueueBrokerMessage } from "@quickservicets/core";
 
 /** A small broker that keeps messages in memory and runs each once: enough to show how a broker plugs in. */
 export function memoryBroker(): QueueBroker & { received: QueueBrokerMessage[] } {
@@ -217,7 +217,7 @@ export function memoryBroker(): QueueBroker & { received: QueueBrokerMessage[] }
 }
 ```
 
-A real broker keeps retries, delays, priorities and dedupe too: `runQueueBrokerContract(createBroker)` from `@quickservice/core/testing` registers the tests every broker must pass, and the database broker passes them on memory, SQLite and PostgreSQL. A broker without an optional method makes the matching command and function fail with `The <name> queue broker does not support <method>`.
+A real broker keeps retries, delays, priorities and dedupe too: `runQueueBrokerContract(createBroker)` from `@quickservicets/core/testing` registers the tests every broker must pass, and the database broker passes them on memory, SQLite and PostgreSQL. A broker without an optional method makes the matching command and function fail with `The <name> queue broker does not support <method>`.
 
 ## Queues or jobs
 

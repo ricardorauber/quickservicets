@@ -3,11 +3,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { startTestService, type TestService } from "../testing/service.ts";
 
-const config = (etag = "{}") => `import { defineConfig, memoryAdapter } from "@quickservice/core";
+const config = (etag = "{}") => `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter(), etag: ${etag} });
 `;
 const files = (etag = "{}", note = "/** @etag off */") => ({
-  "quickservice.config.ts": config(etag),
+  "quickservicets.config.ts": config(etag),
   "entities/User.ts": "export type User = { name: string };\n",
   "entities/Note.ts": `${note}\nexport type Note = { text: string };\n`,
   "entities/Document.ts": "export type Document = {\n  title: string;\n  /** @default 1 */\n  version: number;\n};\n",

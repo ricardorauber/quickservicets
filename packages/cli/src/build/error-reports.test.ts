@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { reportError, type ErrorReport } from "@quickservice/core";
+import { reportError, type ErrorReport } from "@quickservicets/core";
 import { startTestService } from "../testing/service.ts";
 
 const LOGGER = `logger: {
@@ -7,31 +7,31 @@ const LOGGER = `logger: {
     warn: (entry: object) => void ((globalThis as any).errorLogs ??= []).push(entry),
     error: (entry: object) => void ((globalThis as any).errorLogs ??= []).push(entry),
   }`;
-const config = (errors: string | undefined, extra = "") => `import { defineConfig, memoryAdapter, HttpError } from "@quickservice/core";
+const config = (errors: string | undefined, extra = "") => `import { defineConfig, memoryAdapter, HttpError } from "@quickservicets/core";
 import { memoryReporter, throwingReporter, slowReporter } from "./reporters.ts";
 export default defineConfig({ database: memoryAdapter(), ${errors === undefined ? "" : `errors: ${errors}, `}${LOGGER}${extra ? `, ${extra}` : ""} });
 `;
-const REPORTERS = `import type { ErrorReport } from "@quickservice/core";
+const REPORTERS = `import type { ErrorReport } from "@quickservicets/core";
 export const received: ErrorReport[] = ((globalThis as any).receivedReports = []);
 export const memoryReporter = { report: (report: ErrorReport) => void received.push(report) };
 export const throwingReporter = { report: () => { throw new Error("reporter down"); } };
 export const slowReporter = { report: () => new Promise<void>(() => undefined) };
 `;
 /** A project feature that signs requests in as the user of the x-user header. */
-const SIGN_IN = `import { defineFeature } from "@quickservice/core";
+const SIGN_IN = `import { defineFeature } from "@quickservicets/core";
 export default defineFeature({
   key: "signin",
   middleware: [{ stage: "handler", run: (req, _res, next) => { const id = req.headers.get("x-user"); if (id) (req as { user?: unknown }).user = { id }; return next(); } }],
 });
 `;
 const FILES = {
-  "quickservice.config.ts": config("{}"),
+  "quickservicets.config.ts": config("{}"),
   "reporters.ts": REPORTERS,
   "features/signin/index.ts": SIGN_IN,
   "endpoints/boom/get.ts": 'export default () => { throw new Error("boom"); };\n',
-  "endpoints/missing/get.ts": 'import { HttpError } from "@quickservice/core";\nexport default () => { throw new HttpError(404, "Nothing here"); };\n',
-  "endpoints/unavailable/get.ts": 'import { HttpError } from "@quickservice/core";\nexport default () => { throw new HttpError(503, "Try later"); };\n',
-  "endpoints/manual/post.ts": 'import { reportError } from "@quickservice/core";\nexport default () => { reportError(new Error("x"), { tags: { area: "billing" } }); return { ok: true }; };\n',
+  "endpoints/missing/get.ts": 'import { HttpError } from "@quickservicets/core";\nexport default () => { throw new HttpError(404, "Nothing here"); };\n',
+  "endpoints/unavailable/get.ts": 'import { HttpError } from "@quickservicets/core";\nexport default () => { throw new HttpError(503, "Try later"); };\n',
+  "endpoints/manual/post.ts": 'import { reportError } from "@quickservicets/core";\nexport default () => { reportError(new Error("x"), { tags: { area: "billing" } }); return { ok: true }; };\n',
 };
 const withSignIn = (errors: string) => config(errors, "signin: {}");
 const logs = () => ((globalThis as { errorLogs?: Record<string, unknown>[] }).errorLogs ??= []);
@@ -57,7 +57,7 @@ describe("request reports", () => {
   });
 
   test("an HttpError below 500 sends no report, a 503 sends one", async () => {
-    const service = await startTestService({ files: { ...FILES, "quickservice.config.ts": config("{ reporter: memoryReporter }") } });
+    const service = await startTestService({ files: { ...FILES, "quickservicets.config.ts": config("{ reporter: memoryReporter }") } });
     try {
       expect((await service.fetch("/missing")).status).toBe(404);
       expect(received()).toEqual([]);
@@ -69,7 +69,7 @@ describe("request reports", () => {
   });
 
   test("a report holds only three headers, masks secret-looking query values, and has the user", async () => {
-    const service = await startTestService({ files: { ...FILES, "quickservice.config.ts": withSignIn("{ reporter: memoryReporter }") } });
+    const service = await startTestService({ files: { ...FILES, "quickservicets.config.ts": withSignIn("{ reporter: memoryReporter }") } });
     try {
       await service.fetch("/boom?token=abc&page=2", {
         headers: { authorization: "Bearer secret-token-value", cookie: "session=abc", "x-api-key": "k", "user-agent": "tests", "content-type": "text/plain", referer: "https://example.com", "x-user": "u1" },
@@ -87,7 +87,7 @@ describe("request reports", () => {
 
 describe("manual reports", () => {
   test("reportError sends a manual report with its tags and the release; without the native it does nothing", async () => {
-    const service = await startTestService({ files: { ...FILES, "quickservice.config.ts": config('{ reporter: memoryReporter, release: "1.4.2", tags: { region: "eu" } }') } });
+    const service = await startTestService({ files: { ...FILES, "quickservicets.config.ts": config('{ reporter: memoryReporter, release: "1.4.2", tags: { region: "eu" } }') } });
     try {
       await service.fetch("/manual", { method: "POST" });
       expect(received()).toMatchObject([{ kind: "manual", error: { message: "x" }, tags: { region: "eu", area: "billing" }, release: "1.4.2" }]);
@@ -95,7 +95,7 @@ describe("manual reports", () => {
       await service.stop();
     }
     received().length = 0;
-    const without = await startTestService({ files: { ...FILES, "quickservice.config.ts": config(undefined) } });
+    const without = await startTestService({ files: { ...FILES, "quickservicets.config.ts": config(undefined) } });
     try {
       expect((await without.fetch("/manual", { method: "POST" })).status).toBe(200);
       reportError(new Error("ignored"));
@@ -108,7 +108,7 @@ describe("manual reports", () => {
 
 describe("reporter failures", () => {
   test("a throwing reporter is logged and the next still receives the report; a reporter that never resolves does not delay the response", async () => {
-    const service = await startTestService({ files: { ...FILES, "quickservice.config.ts": config("{ reporter: [slowReporter, throwingReporter, memoryReporter] }", "lifecycle: { stopTimeout: \"1s\" }") } });
+    const service = await startTestService({ files: { ...FILES, "quickservicets.config.ts": config("{ reporter: [slowReporter, throwingReporter, memoryReporter] }", "lifecycle: { stopTimeout: \"1s\" }") } });
     try {
       const response = await service.fetch("/boom");
       expect(response.status).toBe(500);
@@ -122,7 +122,7 @@ describe("reporter failures", () => {
 
 describe("the feature API and the disabled path", () => {
   test("a feature's reporter receives reports after the configured ones", async () => {
-    const feature = `import { defineFeature, type ErrorReport } from "@quickservice/core";
+    const feature = `import { defineFeature, type ErrorReport } from "@quickservicets/core";
 export default defineFeature({
   key: "tracker",
   requires: ["errors"],
@@ -131,7 +131,7 @@ export default defineFeature({
   },
 });
 `;
-    const service = await startTestService({ files: { ...FILES, "features/tracker/index.ts": feature, "quickservice.config.ts": config("{ reporter: memoryReporter }", "tracker: {}") } });
+    const service = await startTestService({ files: { ...FILES, "features/tracker/index.ts": feature, "quickservicets.config.ts": config("{ reporter: memoryReporter }", "tracker: {}") } });
     try {
       await service.fetch("/boom");
       expect(received().map((report) => (report as ErrorReport & { by?: string }).by ?? "config")).toEqual(["config", "feature"]);
@@ -141,13 +141,13 @@ export default defineFeature({
   });
 
   test("without errors no error middleware is registered and nothing is reported", async () => {
-    const { createFeatureLifecycle, resolveConfig, memoryAdapter } = await import("@quickservice/core");
+    const { createFeatureLifecycle, resolveConfig, memoryAdapter } = await import("@quickservicets/core");
     const resolved = resolveConfig({ database: memoryAdapter() }, {});
     const lifecycle = createFeatureLifecycle({ features: resolved.features, config: resolved, models: [], worker: { index: 0, count: 1, runsScheduledWork: true } });
     await lifecycle.setup();
     expect(lifecycle.middleware.filter((entry) => entry.middleware.stage === "error")).toEqual([]);
     await lifecycle.stop();
-    const service = await startTestService({ files: { ...FILES, "quickservice.config.ts": config(undefined) } });
+    const service = await startTestService({ files: { ...FILES, "quickservicets.config.ts": config(undefined) } });
     try {
       expect((await service.fetch("/boom")).status).toBe(500);
       expect(logs().some((entry) => entry.message === "error.report")).toBe(false);

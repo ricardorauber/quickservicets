@@ -75,8 +75,8 @@ export type Invoice = {
 
 The path `profiles.permissions.module` has three segments, one more than the default [`populate.maxDepth`](/reference/config/):
 
-```ts check title="quickservice.config.ts"
-import { defineConfig, sqliteAdapter } from "@quickservice/core";
+```ts check title="quickservicets.config.ts"
+import { defineConfig, sqliteAdapter } from "@quickservicets/core";
 
 export default defineConfig({
   database: sqliteAdapter({ path: process.env.DATABASE_PATH! }),
@@ -91,7 +91,7 @@ export default defineConfig({
 The build writes this file for you; it is shown here so the snippets on this page type-check on their own.
 
 ```ts check title=".generated/types.ts"
-import type { Many, One, Repository } from "@quickservice/core";
+import type { Many, One, Repository } from "@quickservicets/core";
 
 export type Module = { id: string; createdAt: Date; updatedAt: Date; slug: string; active: boolean };
 export type ModuleReferences = Record<never, never>;
@@ -125,7 +125,7 @@ export interface GeneratedRepositories {
   invoices: Repository<Invoice>;
 }
 
-declare module "@quickservice/core" {
+declare module "@quickservicets/core" {
   interface Repositories extends GeneratedRepositories {}
 }
 ```
@@ -137,7 +137,7 @@ declare module "@quickservice/core" {
 One function answers "what may this user do?", so the hook and the endpoint below agree. It loads the user with every profile, permission and module in one query, and fails with 404 `User not found` when the id does not exist.
 
 ```ts check title="lib/permissions.ts"
-import type { Repositories } from "@quickservice/core";
+import type { Repositories } from "@quickservicets/core";
 
 /** Every `<module>:<action>` the user's profiles grant; `manage` also grants `view`, inactive modules grant nothing. */
 export async function grantedPermissions(repos: Repositories, userId: string): Promise<Set<string>> {
@@ -172,7 +172,7 @@ The tag's arguments say what the route needs:
 Admins pass every check. The hook keeps the user in `req.context.user`, so later hooks and the handler can use it.
 
 ```ts check title="hooks/authorized.ts"
-import { definePreHook, HttpError } from "@quickservice/core";
+import { definePreHook, HttpError } from "@quickservicets/core";
 import { grantedPermissions, hashToken } from "../lib/permissions.ts";
 
 export default definePreHook(
@@ -202,7 +202,7 @@ export default definePreHook(
 `GET /users/:userId/has-permissions?p=billing:manage&p=reports:view` answers whether a user holds the permissions, and which are missing. Its [typed query items](/reference/http/) are converted and validated before the handler runs; only admins may ask.
 
 ```ts check title="endpoints/users/[userId]/has-permissions/get.ts"
-import type { Endpoint } from "@quickservice/core";
+import type { Endpoint } from "@quickservicets/core";
 import { grantedPermissions } from "../../../../lib/permissions.ts";
 
 type Query = {
@@ -237,7 +237,7 @@ export default handler;
 Every route that manages access is now admin-only, so create the first admin outside the API, for example in a migration that reads the token from the environment:
 
 ```ts check title="migrations/20261016120000_SeedAdmin.ts"
-import type { MigrationContext } from "@quickservice/core";
+import type { MigrationContext } from "@quickservicets/core";
 import { hashToken } from "../lib/permissions.ts";
 
 export async function up(ctx: MigrationContext): Promise<void> {
@@ -394,7 +394,7 @@ curl -s localhost:3000/openapi.json | jq '.paths["/invoices"].post | {descriptio
 **Read the current user in a handler.** The hook stored the user in `req.context`, so a `GET /me` endpoint is a few lines:
 
 ```ts check title="endpoints/me/get.ts"
-import type { Endpoint } from "@quickservice/core";
+import type { Endpoint } from "@quickservicets/core";
 import type { User } from "../../.generated/types.ts";
 
 /**

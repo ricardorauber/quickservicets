@@ -18,10 +18,10 @@ import type { Middleware } from "./middleware.ts";
 import type { OpenApiDoc, ProjectOpenApiContext } from "./openapi.ts";
 import { activeFeatureDefinitions, assertFeatureFolders, loadProjectFeatures, resolveFeatures, type NativeFeatures, type ResolvedFeature } from "./features.ts";
 
-export const CONFIG_FILE = "quickservice.config.ts";
+export const CONFIG_FILE = "quickservicets.config.ts";
 export const DEFAULT_PORT = 3000;
 
-/** The project configuration written in `quickservice.config.ts`. Native features add their keys through `NativeFeatures`. */
+/** The project configuration written in `quickservicets.config.ts`. Native features add their keys through `NativeFeatures`. */
 export interface ServiceConfig extends NativeFeatures {
   /** The database adapter: `memoryAdapter()`, `sqliteAdapter(...)`, `postgresAdapter(...)` or `mongodbAdapter(...)`. */
   database: DatabaseAdapter;
@@ -80,7 +80,7 @@ export interface ServiceConfig extends NativeFeatures {
   };
   /** Migration settings. */
   migrations?: {
-    /** Whether `quickservice dev` creates migrations automatically for model changes (default true). */
+    /** Whether `quickservicets dev` creates migrations automatically for model changes (default true). */
     autoInDev?: boolean;
   };
   /**

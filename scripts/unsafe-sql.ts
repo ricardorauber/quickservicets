@@ -1,6 +1,6 @@
 /**
  * Finds `unsafe()` calls that receive SQL text built at runtime, outside the database adapters. Run by
- * `bun run typecheck`; a call that must pass built text says why with `// quickservice-allow-unsafe: <reason>` on the
+ * `bun run typecheck`; a call that must pass built text says why with `// quickservicets-allow-unsafe: <reason>` on the
  * line above it.
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -11,7 +11,7 @@ const root = join(import.meta.dir, "..");
 
 /** Files below this folder build SQL from validated identifiers and are not checked. */
 export const EXEMPT_FOLDER = "packages/core/src/adapters/";
-const MARKER = /^\/\/\s*quickservice-allow-unsafe:(.*)$/;
+const MARKER = /^\/\/\s*quickservicets-allow-unsafe:(.*)$/;
 
 /** A finding, printed as `<file>:<line>: <message>`. */
 export interface UnsafeSqlProblem {
@@ -67,7 +67,7 @@ export function findUnsafeSql(file: string, source: string): UnsafeSqlProblem[] 
 
   const problems: UnsafeSqlProblem[] = [];
   for (const [line, reason] of markers) {
-    if (reason === "") problems.push({ file, line, message: "quickservice-allow-unsafe needs a reason" });
+    if (reason === "") problems.push({ file, line, message: "quickservicets-allow-unsafe needs a reason" });
   }
   for (const line of calls) {
     if (markers.get(line - 1)) continue;
@@ -81,7 +81,7 @@ export function checkedFolders(repositoryRoot = root): string[] {
   const packages = readdirSync(join(repositoryRoot, "packages"), { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => `packages/${entry.name}`);
-  return [...packages.sort(), "examples", "benchmarks/quickservice", "docs/scripts"];
+  return [...packages.sort(), "examples", "benchmarks/quickservicets", "docs/scripts"];
 }
 
 function sourceFiles(dir: string): string[] {

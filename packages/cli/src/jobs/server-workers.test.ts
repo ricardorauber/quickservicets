@@ -7,7 +7,7 @@ import { createLinkedProject } from "../testing/project.ts";
 
 const SCHEMA = "workerjobs";
 // The run result records which worker ran the job.
-const TICK = 'import { job } from "@quickservice/core";\nexport default job({ every: "1s" }, () => process.env.QS_WORKER_INDEX ?? "none");\n';
+const TICK = 'import { job } from "@quickservicets/core";\nexport default job({ every: "1s" }, () => process.env.QS_WORKER_INDEX ?? "none");\n';
 
 function freePort(): number {
   const probe = Bun.serve({ port: 0, fetch: () => new Response() });
@@ -22,7 +22,7 @@ const postgresUrl = process.env.TEST_POSTGRES_URL;
   const admin = new SQL(postgresUrl!);
   await admin.unsafe('drop schema if exists "workerjobs" cascade');
   const root = createLinkedProject({
-    "quickservice.config.ts": `import { defineConfig, postgresAdapter } from "@quickservice/core";
+    "quickservicets.config.ts": `import { defineConfig, postgresAdapter } from "@quickservicets/core";
 export default defineConfig({ database: postgresAdapter({ url: ${JSON.stringify(postgresUrl)} }), schema: "${SCHEMA}", server: { workers: 2 } });
 `,
     "jobs/tick.ts": TICK,
@@ -56,7 +56,7 @@ export default defineConfig({ database: postgresAdapter({ url: ${JSON.stringify(
     await read.catch(() => undefined);
 
     expect(exitCode).toBe(0);
-    expect(output.match(/quickservice listening on/g)).toHaveLength(2);
+    expect(output.match(/QuickService.ts listening on/g)).toHaveLength(2);
     expect(output.match(/"message":"worker\.started"/g)).toHaveLength(2);
     expect(finished()).toBeGreaterThanOrEqual(3);
     const runs = (await admin.unsafe(`select scheduled_at, result from "workerjobs".job_runs where trigger = 'schedule'`)) as { scheduled_at: Date; result: unknown }[];

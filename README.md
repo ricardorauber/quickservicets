@@ -1,8 +1,10 @@
-# QuickService
+# QuickService.ts
 
-Build backend services from TypeScript entity types. Write an entity as a `type` with JSDoc tags in `/entities`, and QuickService generates its CRUD routes, validation, filters, relations, file uploads, migrations and OpenAPI docs, on Bun with an in-memory, SQLite, PostgreSQL or MongoDB database.
+Build backend services from TypeScript entity types. Write an entity as a `type` with JSDoc tags in `/entities`, and QuickService.ts generates its CRUD routes, validation, filters, relations, file uploads, migrations and OpenAPI docs, on Bun with an in-memory, SQLite, PostgreSQL or MongoDB database.
 
-This monorepo holds `@quickservice/core` (runtime), `@quickservice/cli` (the `quickservice` command) and examples in `examples/`.
+The source lives at [github.com/ricardorauber/quickservicets](https://github.com/ricardorauber/quickservicets).
+
+This monorepo holds `@quickservicets/core` (runtime), `@quickservicets/cli` (the `quickservicets` command) and examples in `examples/`.
 
 ## Documentation
 
@@ -19,7 +21,7 @@ To build a first project, follow the [Getting started](docs/src/content/docs/get
 
 ## Features
 
-Everything beyond the generated API is a feature turned on by a key in `quickservice.config.ts`. A project can write its own in `features/<key>/`, with the same extension points as the framework's native features, or replace a native with one; the [Project features](docs/src/content/docs/guides/project-features.md) guide shows how.
+Everything beyond the generated API is a feature turned on by a key in `quickservicets.config.ts`. A project can write its own in `features/<key>/`, with the same extension points as the framework's native features, or replace a native with one; the [Project features](docs/src/content/docs/guides/project-features.md) guide shows how.
 
 ## Using PostgreSQL or MongoDB
 
@@ -52,4 +54,4 @@ Type-check every project of the repository (the test suite runs this too):
 bun run typecheck
 ```
 
-Two more checks guard contributions. `bun run typecheck` also fails when code outside `packages/core/src/adapters/` passes SQL text built at runtime to `unsafe()`: pass values as parameters, or put `// quickservice-allow-unsafe: <reason>` on the line above a call that must build its text. `bun run audit` runs `bun audit` and fails on a critical vulnerability unless `scripts/audit-allow.json` lists it with an id, package, reason and `expires` date; the test suite runs it when `CI` is set.
+Two more checks guard contributions. `bun run typecheck` also fails when code outside `packages/core/src/adapters/` passes SQL text built at runtime to `unsafe()`: pass values as parameters, or put `// quickservicets-allow-unsafe: <reason>` on the line above a call that must build its text. `bun run audit` runs `bun audit` and fails on a critical vulnerability unless `scripts/audit-allow.json` lists it with an id, package, reason and `expires` date; the test suite runs it when `CI` is set.

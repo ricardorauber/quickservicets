@@ -82,5 +82,5 @@ realtime: {
 Copy the native into the project as a `features/realtime/` project feature that replaces it:
 
 ```bash
-quickservice eject realtime
+quickservicets eject realtime
 ```

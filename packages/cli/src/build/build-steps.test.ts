@@ -1,18 +1,18 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { createFeatureLifecycle, generatedPath, loadConfig, registerProjectFeatures, type LogEntry } from "@quickservice/core";
+import { createFeatureLifecycle, generatedPath, loadConfig, registerProjectFeatures, type LogEntry } from "@quickservicets/core";
 import { startDev, stepsFor } from "../dev/dev.ts";
 import { run } from "../run.ts";
 import { createLinkedProject } from "../testing/project.ts";
 import { build } from "./build.ts";
 
-const config = (keys: string) => `import { defineConfig, memoryAdapter } from "@quickservice/core";
+const config = (keys: string) => `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter()${keys ? `, ${keys}` : ""} });
 `;
 const runs = globalThis as unknown as Record<string, number>;
 /** A project feature whose build step writes `hello.txt` from its greetings, counting its runs in a global. */
-const greeter = (key: string, body = "") => `import { defineFeature } from "@quickservice/core";
+const greeter = (key: string, body = "") => `import { defineFeature } from "@quickservicets/core";
 import { readFileSync } from "node:fs";
 export default defineFeature({ docs: { summary: "Test native." },
   key: "${key}",
@@ -31,7 +31,7 @@ export default defineFeature({ docs: { summary: "Test native." },
 });
 `;
 const project = (key: string, keys = `${key}: {}`, body = "") =>
-  createLinkedProject({ "quickservice.config.ts": config(keys), [`features/${key}/index.ts`]: greeter(key, body), "greetings/formal.ts": 'export default "Good day";\n' });
+  createLinkedProject({ "quickservicets.config.ts": config(keys), [`features/${key}/index.ts`]: greeter(key, body), "greetings/formal.ts": 'export default "Good day";\n' });
 const capture = async (args: string[], root: string) => {
   const lines: string[] = [];
   const code = await run(args, { log: (line) => lines.push(line), error: (line) => lines.push(line) }, root);
@@ -59,14 +59,14 @@ describe("running build steps", () => {
 
   test("steps run in feature order with the context the feature needs", async () => {
     const order: unknown[] = [];
-    const recorder = (key: string, extra = "") => `import { defineFeature, object, string } from "@quickservice/core";
+    const recorder = (key: string, extra = "") => `import { defineFeature, object, string } from "@quickservicets/core";
 export default defineFeature({ docs: { summary: "Test native." }, key: "${key}", ${extra} options: object({ label: string().default("${key}") }), build(ctx) {
   (globalThis as any).order.push({ key: ctx.options.label, outDir: ctx.outDir.endsWith(".generated/${key}"), root: ctx.root, models: ctx.models.map((model) => model.key), production: ctx.production });
 } });
 `;
     (globalThis as unknown as { order: unknown[] }).order = order;
     const root = createLinkedProject({
-      "quickservice.config.ts": config("second: {}, first: {}"),
+      "quickservicets.config.ts": config("second: {}, first: {}"),
       "entities/Post.ts": "export type Post = { title: string };\n",
       "features/first/index.ts": recorder("first"),
       "features/second/index.ts": recorder("second", 'after: ["first"],'),

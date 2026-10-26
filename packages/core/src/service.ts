@@ -8,6 +8,7 @@ import { handleShutdownSignals, type SignalTarget } from "./jobs/lifecycle.ts";
 import { createFeatureLifecycle, LifecycleError, logLifecycleFailure, notifyShutdownSignal, withTimeout, type FeatureLifecycle, type FeatureSetupContext } from "./lifecycle.ts";
 import { parseDuration } from "./jobs/job.ts";
 import { flushLogs, jsonLogger, safeLog } from "./logger.ts";
+import { MIGRATIONS_TABLE_RENAMED, renameLegacyMigrationTables } from "./legacy-names.ts";
 import { reportStartupFailure } from "./error-reports.ts";
 import type { EntityModel } from "./model.ts";
 import type { ResolvedFeature } from "./features.ts";
@@ -99,6 +100,13 @@ export async function startService(options: StartServiceOptions): Promise<Runnin
   } catch (error) {
     return fail(error, false, "connect");
   }
+  try {
+    for (const table of await renameLegacyMigrationTables(config.database as { kind?: string; client?: unknown })) {
+      safeLog(logger, "info", { timestamp: new Date().toISOString(), message: MIGRATIONS_TABLE_RENAMED, from: table.from, to: table.to });
+    }
+  } catch (error) {
+    return fail(error, true, "connect");
+  }
   let app: App;
   try {
     app = createApp({
@@ -119,7 +127,7 @@ export async function startService(options: StartServiceOptions): Promise<Runnin
     return fail(error, true);
   }
   const listening = app.server.listen();
-  console.log(`quickservice listening on http://localhost:${listening.port}`);
+  console.log(`QuickService.ts listening on http://localhost:${listening.port}`);
   if (runsScheduledWork(env)) app.scheduler.start();
   const stop = () => stopService(config, app, lifecycle, listening);
   handleShutdownSignals(stop, target);

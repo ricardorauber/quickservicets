@@ -1,1 +1,1 @@
-import {} from "@quickservice/core";
+import {} from "@quickservicets/core";

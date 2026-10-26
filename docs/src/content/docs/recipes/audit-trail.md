@@ -13,8 +13,8 @@ sidebar:
 
 Turn on `events` and `history` with a one-year retention:
 
-```ts title="quickservice.config.ts"
-import { defineConfig, memoryAdapter } from "@quickservice/core";
+```ts title="quickservicets.config.ts"
+import { defineConfig, memoryAdapter } from "@quickservicets/core";
 
 export default defineConfig({
   database: memoryAdapter(),
@@ -40,8 +40,8 @@ export type Document = {
 ```
 
 ```bash
-bun run quickservice migration add DocumentHistory
-bun run quickservice migrate
+bun run quickservicets migration add DocumentHistory
+bun run quickservicets migrate
 ```
 
 ## Restrict who reads them
@@ -49,7 +49,7 @@ bun run quickservice migrate
 The history routes, `GET /documents/[id]/history` and `GET /documents/[id]/history/[version]`, run the hooks of the document's read route, so one hook guards the document and its history:
 
 ```ts title="hooks/auditReader.ts"
-import { definePreHook, HttpError } from "@quickservice/core";
+import { definePreHook, HttpError } from "@quickservicets/core";
 
 /** Lets the document's owner and the users with the auditor role read a document and its history. */
 export default definePreHook(async (repos, req) => {
@@ -73,7 +73,7 @@ curl -H "authorization: Bearer <auditor token>" http://localhost:3000/documents/
 The daily `history/prune` job deletes the versions older than 365 days, keeping the current version of every document that still exists. Check what it would delete with:
 
 ```bash
-bun run quickservice history prune --dry-run
+bun run quickservicets history prune --dry-run
 ```
 
 `@history retention=7d` on another entity gives it a shorter retention, and `QS_HISTORY_RETENTION` changes the global one per environment.

@@ -11,19 +11,19 @@ import {
   type LogEntry,
   type ServiceConfig,
   type StorageAdapter,
-} from "@quickservice/core";
+} from "@quickservicets/core";
 import { parseEntities, parseProjectEntities } from "../entities/parse-entities.ts";
 import { createProject } from "../testing/project.ts";
 
 const entities = {
-  "entities/Organization.ts": `import type { Media } from "@quickservice/core";
+  "entities/Organization.ts": `import type { Media } from "@quickservicets/core";
 export type Organization = {
   name: string;
   logo?: Media;
   /** @keepFile */
   banner?: Media;
 };`,
-  "entities/Post.ts": 'import type { Media } from "@quickservice/core";\nexport type Post = { title: string; images?: Media[] }',
+  "entities/Post.ts": 'import type { Media } from "@quickservicets/core";\nexport type Post = { title: string; images?: Media[] }',
 };
 
 function walk(dir: string): string[] {
@@ -42,7 +42,7 @@ interface SetupOptions {
 
 async function setup(options: SetupOptions = {}) {
   const models = parseProjectEntities(createProject(entities));
-  const dir = mkdtempSync(join(tmpdir(), "quickservice-cleanup-"));
+  const dir = mkdtempSync(join(tmpdir(), "quickservicets-cleanup-"));
   const base = memoryAdapter();
   const database = options.adapter ? options.adapter(base) : base;
   const local = localStorage({ dir });

@@ -11,7 +11,7 @@ export interface ContextFlagEvaluator<Name extends string = string> {
   all(target?: FlagTarget): Record<string, boolean>;
 }
 
-const SLOT = Symbol.for("quickservice.flags.context");
+const SLOT = Symbol.for("quickservicets.flags.context");
 const slot = globalThis as unknown as { [SLOT]?: ContextFlagEvaluator };
 
 /** Sets (or removes) the `ctx.flags` jobs and queue consumers receive; the `flags` native sets it while it runs. */

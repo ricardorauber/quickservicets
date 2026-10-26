@@ -119,7 +119,7 @@ describe("endpoint tags", () => {
     const { doc } = documentFor({
       "entities/User.ts": `export type User = { email: string; ${address} }`,
       "endpoints/me/get.ts":
-        'import type { Endpoint } from "@quickservice/core";\nimport type { User } from "../../entities/User.ts";\n/** @fields email */\nconst h: Endpoint<unknown, User> = async () => ({}) as never;\nexport default h;',
+        'import type { Endpoint } from "@quickservicets/core";\nimport type { User } from "../../entities/User.ts";\n/** @fields email */\nconst h: Endpoint<unknown, User> = async () => ({}) as never;\nexport default h;',
       "endpoints/stats/get.ts": "/** @fields total */\nexport default () => ({});",
     });
     expect(readSchema(doc, "/me").properties).toEqual({ email: { type: "string" } });

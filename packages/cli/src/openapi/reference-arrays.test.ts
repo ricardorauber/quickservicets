@@ -6,7 +6,7 @@ import { createProject } from "../testing/project.ts";
 import { generateOpenApi } from "./generate-openapi.ts";
 
 const entities = {
-  "entities/Organization.ts": `import type { Media } from "@quickservice/core";
+  "entities/Organization.ts": `import type { Media } from "@quickservicets/core";
 import type { User } from "./User.ts";
 export type Organization = {
   name: string;

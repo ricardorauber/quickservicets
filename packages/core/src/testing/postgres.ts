@@ -13,7 +13,7 @@ export async function postgresDdl(models: EntityModel[]): Promise<string[]> {
 export async function resetPostgresTables(client: SQL, models: EntityModel[]): Promise<void> {
   await client.unsafe("drop schema if exists public cascade; create schema public;");
   for (const statement of await postgresDdl(models)) {
-    // quickservice-allow-unsafe: runs the DDL drizzle-kit generates from the models
+    // quickservicets-allow-unsafe: runs the DDL drizzle-kit generates from the models
     await client.unsafe(statement);
   }
 }

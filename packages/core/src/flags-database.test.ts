@@ -46,7 +46,7 @@ describe("the model", () => {
     expect(model.fields.map((field) => field.name)).toEqual(["name", "enabled", "users", "tenants", "percentage", "description"]);
     const resolved = resolveConfig({ database: memoryAdapter(), logger, flags: { source: "database" } } as ServiceConfig, {});
     const lifecycle = createFeatureLifecycle({ features: resolved.features, config: resolved, models: [], worker: { index: 0, count: 1, runsScheduledWork: true } });
-    await expect(lifecycle.setup()).rejects.toThrow('flags.source is "database" but the FeatureFlag entity is missing; set flags: { source: "database" } in quickservice.config.ts, then run quickservice migration add');
+    await expect(lifecycle.setup()).rejects.toThrow('flags.source is "database" but the FeatureFlag entity is missing; set flags: { source: "database" } in quickservicets.config.ts, then run quickservicets migration add');
   });
 });
 

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { startTestService, type TestService } from "../testing/service.ts";
 
-const config = (extra = "") => `import { defineConfig, memoryAdapter, type LogEntry } from "@quickservice/core";
+const config = (extra = "") => `import { defineConfig, memoryAdapter, type LogEntry } from "@quickservicets/core";
 const entries = ((globalThis as { queueLogs?: LogEntry[] }).queueLogs = []);
 const logger = { info: (entry: LogEntry) => void entries.push(entry), warn: (entry: LogEntry) => void entries.push(entry), error: (entry: LogEntry) => void entries.push(entry) };
 export default defineConfig({ database: memoryAdapter(), logger, queues: { pollInterval: "1s" }${extra} });
@@ -16,17 +16,17 @@ const settle = async (check: () => Promise<boolean>) => {
 };
 
 const files = (extra = "") => ({
-  "quickservice.config.ts": config(extra),
-  "queues/send-email.ts": `import { queue } from "@quickservice/core";
+  "quickservicets.config.ts": config(extra),
+  "queues/send-email.ts": `import { queue } from "@quickservicets/core";
 export default queue<{ to: string }>(async ({ payload, message }) => ({ sentTo: payload.to, attempt: message.attempt }));
 `,
-  "queues/stubborn.ts": `import { queue } from "@quickservice/core";
+  "queues/stubborn.ts": `import { queue } from "@quickservicets/core";
 export default queue(() => new Promise((resolve) => setTimeout(resolve, 5000)));
 `,
-  "endpoints/send/post.ts": `import type { ServiceRequest } from "@quickservice/core";
+  "endpoints/send/post.ts": `import type { ServiceRequest } from "@quickservicets/core";
 export default async (_repos: unknown, req: ServiceRequest) => req.queue.add("send-email", (await req.json()) as { to: string });
 `,
-  "endpoints/stubborn/post.ts": `import type { ServiceRequest } from "@quickservice/core";
+  "endpoints/stubborn/post.ts": `import type { ServiceRequest } from "@quickservicets/core";
 export default async (_repos: unknown, req: ServiceRequest) => req.queue.add("stubborn", {});
 `,
 });

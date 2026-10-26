@@ -113,7 +113,7 @@ export const outboxRunning = () => shared.state !== undefined;
 /** The adapter and model of the running outbox; throws when it is off. */
 export function outboxStore(): { adapter: DatabaseAdapter; model: EntityModel; deliveryModel?: EntityModel } {
   const state = shared.state;
-  if (!state) throw new Error("The outbox is not enabled; set events: { outbox: true } in quickservice.config.ts");
+  if (!state) throw new Error("The outbox is not enabled; set events: { outbox: true } in quickservicets.config.ts");
   return { adapter: state.adapter, model: state.model, ...(state.deliveryModel ? { deliveryModel: state.deliveryModel } : {}) };
 }
 

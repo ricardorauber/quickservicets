@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { createApp, createCrudRoutes, createRepositories, memoryAdapter, resolveConfig, type Repository } from "@quickservice/core";
+import { createApp, createCrudRoutes, createRepositories, memoryAdapter, resolveConfig, type Repository } from "@quickservicets/core";
 import { build } from "../build/build.ts";
 import { generateTypesFile } from "../build/generate-types.ts";
 import { createLinkedProject, createProject, MEMORY_CONFIG } from "../testing/project.ts";
@@ -101,14 +101,14 @@ test("references resolve to the right schema by import path", () => {
 
 test("custom endpoints override schema-prefixed CRUD routes", async () => {
   const root = createLinkedProject({
-    "quickservice.config.ts": MEMORY_CONFIG,
+    "quickservicets.config.ts": MEMORY_CONFIG,
     "entities/auth/User.ts": user,
     "endpoints/auth/users/[id]/get.ts": "export default () => ({ email: \"custom\" });",
   });
   await build(root);
   const { models } = await import(join(root, ".generated/models.ts"));
   const { crudRoutes, endpoints, hooks } = await import(join(root, ".generated/routes.ts"));
-  const config = resolveConfig((await import(join(root, "quickservice.config.ts"))).default, {});
+  const config = resolveConfig((await import(join(root, "quickservicets.config.ts"))).default, {});
   await config.database.connect(models);
   const { server } = createApp({ models, crudRoutes, endpoints, hooks, config });
   const response = await server.fetch(new Request("http://localhost/auth/users/abc"));

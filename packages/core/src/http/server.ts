@@ -90,7 +90,7 @@ class ResponseControls implements ServiceResponse {
   ) {}
 
   etag(value: object | string): ServiceResponse {
-    if (!this.tags) throw new Error("etag is not enabled; add etag: {} to quickservice.config.ts");
+    if (!this.tags) throw new Error("etag is not enabled; add etag: {} to quickservicets.config.ts");
     const tag = typeof value === "string" ? (/^(W\/)?".*"$/.test(value) ? value : `"${value}"`) : this.tags.tag(value);
     this.headers.set("etag", tag);
     if (this.request && this.tags.noneMatch(this.request.headers.get("if-none-match"), tag)) this.notModified = true;

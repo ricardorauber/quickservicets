@@ -3,124 +3,124 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "quickservice",
+      "name": "quickservicets",
       "devDependencies": {
-        "@quickservice/cli": "workspace:*",
+        "@quickservicets/cli": "workspace:*",
         "@types/bun": "1.4.2",
         "typescript": "5.9.2",
       },
     },
-    "benchmarks/quickservice": {
-      "name": "quickservice-benchmark",
+    "benchmarks/quickservicets": {
+      "name": "quickservicets-benchmark",
       "dependencies": {
-        "@quickservice/cli": "workspace:*",
-        "@quickservice/core": "workspace:*",
+        "@quickservicets/cli": "workspace:*",
+        "@quickservicets/core": "workspace:*",
       },
     },
     "docs": {
-      "name": "@quickservice/docs",
+      "name": "@quickservicets/docs",
       "dependencies": {
         "@astrojs/starlight": "0.42.5",
         "astro": "7.3.5",
       },
       "devDependencies": {
-        "@quickservice/cli": "workspace:*",
-        "@quickservice/core": "workspace:*",
+        "@quickservicets/cli": "workspace:*",
+        "@quickservicets/core": "workspace:*",
         "typescript": "5.9.2",
       },
     },
     "examples/basic": {
       "name": "basic-example",
       "dependencies": {
-        "@quickservice/cli": "workspace:*",
-        "@quickservice/core": "workspace:*",
+        "@quickservicets/cli": "workspace:*",
+        "@quickservicets/core": "workspace:*",
       },
     },
     "examples/identity": {
       "name": "organizations",
       "dependencies": {
-        "@quickservice/cli": "workspace:*",
-        "@quickservice/core": "workspace:*",
+        "@quickservicets/cli": "workspace:*",
+        "@quickservicets/core": "workspace:*",
       },
     },
     "examples/minimal/errors": {
       "name": "minimal-errors",
       "dependencies": {
-        "@quickservice/cli": "workspace:*",
-        "@quickservice/core": "workspace:*",
+        "@quickservicets/cli": "workspace:*",
+        "@quickservicets/core": "workspace:*",
       },
     },
     "examples/minimal/etag": {
       "name": "minimal-etag",
       "dependencies": {
-        "@quickservice/cli": "workspace:*",
-        "@quickservice/core": "workspace:*",
+        "@quickservicets/cli": "workspace:*",
+        "@quickservicets/core": "workspace:*",
       },
     },
     "examples/minimal/events": {
       "name": "minimal-events",
       "dependencies": {
-        "@quickservice/cli": "workspace:*",
-        "@quickservice/core": "workspace:*",
+        "@quickservicets/cli": "workspace:*",
+        "@quickservicets/core": "workspace:*",
       },
     },
     "examples/minimal/flags": {
       "name": "minimal-flags",
       "dependencies": {
-        "@quickservice/cli": "workspace:*",
-        "@quickservice/core": "workspace:*",
+        "@quickservicets/cli": "workspace:*",
+        "@quickservicets/core": "workspace:*",
       },
     },
     "examples/minimal/health": {
       "name": "minimal-health",
       "dependencies": {
-        "@quickservice/cli": "workspace:*",
-        "@quickservice/core": "workspace:*",
+        "@quickservicets/cli": "workspace:*",
+        "@quickservicets/core": "workspace:*",
       },
     },
     "examples/minimal/history": {
       "name": "minimal-history",
       "dependencies": {
-        "@quickservice/cli": "workspace:*",
-        "@quickservice/core": "workspace:*",
+        "@quickservicets/cli": "workspace:*",
+        "@quickservicets/core": "workspace:*",
       },
     },
     "examples/minimal/idempotency": {
       "name": "minimal-idempotency",
       "dependencies": {
-        "@quickservice/cli": "workspace:*",
-        "@quickservice/core": "workspace:*",
+        "@quickservicets/cli": "workspace:*",
+        "@quickservicets/core": "workspace:*",
       },
     },
     "examples/minimal/queues": {
       "name": "minimal-queues",
       "dependencies": {
-        "@quickservice/cli": "workspace:*",
-        "@quickservice/core": "workspace:*",
+        "@quickservicets/cli": "workspace:*",
+        "@quickservicets/core": "workspace:*",
       },
     },
     "examples/minimal/realtime": {
       "name": "minimal-realtime",
       "dependencies": {
-        "@quickservice/cli": "workspace:*",
-        "@quickservice/core": "workspace:*",
+        "@quickservicets/cli": "workspace:*",
+        "@quickservicets/core": "workspace:*",
       },
     },
     "examples/minimal/security": {
       "name": "minimal-security",
       "dependencies": {
-        "@quickservice/cli": "workspace:*",
-        "@quickservice/core": "workspace:*",
+        "@quickservicets/cli": "workspace:*",
+        "@quickservicets/core": "workspace:*",
       },
     },
     "packages/cli": {
-      "name": "@quickservice/cli",
+      "name": "@quickservicets/cli",
       "version": "0.1.0",
       "bin": {
-        "quickservice": "src/index.ts",
+        "quickservicets": "src/index.ts",
       },
       "dependencies": {
-        "@quickservice/core": "workspace:*",
+        "@quickservicets/core": "workspace:*",
         "drizzle-kit": "0.31.11",
         "drizzle-orm": "0.45.4",
         "typescript": "5.9.2",
@@ -131,7 +131,7 @@
       },
     },
     "packages/core": {
-      "name": "@quickservice/core",
+      "name": "@quickservicets/core",
       "version": "0.1.0",
       "dependencies": {
         "drizzle-orm": "0.45.4",
@@ -367,11 +367,11 @@
 
     "@pagefind/windows-x64": ["@pagefind/windows-x64@1.5.2", "", { "os": "win32", "cpu": "x64" }, "sha512-Fa2Iyw7kaDRzGMfNYNUXNW2zbL5FQVDgSOcbDHdzBrDEdpqOqg8TcZ68F22ol6NJ9IGzvUdmeyZypLW5dyhqsg=="],
 
-    "@quickservice/cli": ["@quickservice/cli@workspace:packages/cli"],
+    "@quickservicets/cli": ["@quickservicets/cli@workspace:packages/cli"],
 
-    "@quickservice/core": ["@quickservice/core@workspace:packages/core"],
+    "@quickservicets/core": ["@quickservicets/core@workspace:packages/core"],
 
-    "@quickservice/docs": ["@quickservice/docs@workspace:docs"],
+    "@quickservicets/docs": ["@quickservicets/docs@workspace:docs"],
 
     "@rolldown/binding-android-arm-eabi": ["@rolldown/binding-android-arm-eabi@1.2.14", "", { "os": "android", "cpu": "arm" }, "sha512-aWR+XKH9+rW7m5fWq/5360J3mHycrx/o6xZM2DQFdJnTMdyP7/WzxPjhtLbVWdKo2y612/4U1bWqb3HQhiF7vg=="],
 
@@ -863,7 +863,7 @@
 
     "punycode": ["punycode@2.3.1", "", {}, "sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg=="],
 
-    "quickservice-benchmark": ["quickservice-benchmark@workspace:benchmarks/quickservice"],
+    "quickservicets-benchmark": ["quickservicets-benchmark@workspace:benchmarks/quickservicets"],
 
     "radix3": ["radix3@1.1.2", "", {}, "sha512-b484I/7b8rDEdSDKckSSBA8knMpcdsXudlE/LNL639wFoHKwLbEkQFZHWEYwDC0wa0FKUcCY+GAF73Z7wxNVFA=="],
 

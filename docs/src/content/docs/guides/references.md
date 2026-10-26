@@ -5,7 +5,7 @@ sidebar:
   order: 20
 ---
 
-A field typed with another entity is a **reference**: it stores the id of one record of that entity. QuickService checks that the record exists on every write and, when the referenced record is deleted, applies the field's `@onDelete` rule.
+A field typed with another entity is a **reference**: it stores the id of one record of that entity. QuickService.ts checks that the record exists on every write and, when the referenced record is deleted, applies the field's `@onDelete` rule.
 
 ## Declaring a reference
 

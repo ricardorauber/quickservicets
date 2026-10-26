@@ -3,11 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "quickservice build",
+    "build": "quickservicets build",
     "test": "bun test tests"
   },
   "dependencies": {
-    "@quickservice/core": "workspace:*",
-    "@quickservice/cli": "workspace:*"
+    "@quickservicets/core": "workspace:*",
+    "@quickservicets/cli": "workspace:*"
   }
 }

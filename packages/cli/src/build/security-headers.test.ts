@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { startTestService, type TestService } from "@quickservice/cli/testing";
-import { SCALAR_URL } from "@quickservice/core";
+import { startTestService, type TestService } from "@quickservicets/cli/testing";
+import { SCALAR_URL } from "@quickservicets/core";
 import { DEFAULT_DOCS_CSP } from "../../../core/src/features/security/headers.ts";
 
-const CONFIG = (keys = "") => `import { defineConfig, memoryAdapter } from "@quickservice/core";
+const CONFIG = (keys = "") => `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter()${keys ? `, ${keys}` : ""} });
 `;
 const POST = "export type Post = { title: string };\n";
@@ -27,8 +27,8 @@ const headersOf = (response: Response, names: readonly string[]) => Object.fromE
 
 describe("default headers", () => {
   test("success, not-found and error responses carry the API headers", async () => {
-    const failing = `import type { Endpoint } from "@quickservice/core";\nconst handler: Endpoint = () => { throw new Error("boom"); };\nexport default handler;\n`;
-    await withService({ "quickservice.config.ts": CONFIG(), "endpoints/fail/get.ts": failing }, async (service) => {
+    const failing = `import type { Endpoint } from "@quickservicets/core";\nconst handler: Endpoint = () => { throw new Error("boom"); };\nexport default handler;\n`;
+    await withService({ "quickservicets.config.ts": CONFIG(), "endpoints/fail/get.ts": failing }, async (service) => {
       for (const [path, status] of [["/posts", 200], ["/nowhere", 404], ["/fail", 500]] as const) {
         const response = await service.fetch(path);
         expect(response.status).toBe(status);
@@ -41,7 +41,7 @@ describe("default headers", () => {
 
 describe("docs policy", () => {
   test("GET /docs carries the docs policy, which allows every script and stylesheet the page references", async () => {
-    await withService({ "quickservice.config.ts": CONFIG() }, async (service) => {
+    await withService({ "quickservicets.config.ts": CONFIG() }, async (service) => {
       const response = await service.fetch("/docs");
       const policy = response.headers.get("content-security-policy")!;
       expect(policy).toBe(DEFAULT_DOCS_CSP);
@@ -67,7 +67,7 @@ describe("docs policy", () => {
 describe("HSTS", () => {
   const hstsOf = async (keys: string): Promise<string | null> => {
     let value = null as string | null;
-    await withService({ "quickservice.config.ts": CONFIG(keys) }, async (service) => {
+    await withService({ "quickservicets.config.ts": CONFIG(keys) }, async (service) => {
       value = (await service.fetch("/posts")).headers.get("strict-transport-security");
     });
     return value;
@@ -83,8 +83,8 @@ describe("HSTS", () => {
 
 describe("existing headers, empty options and the tag", () => {
   test("a handler's own header wins, and an empty option leaves its header out", async () => {
-    const own = `import type { Endpoint } from "@quickservice/core";\nconst handler: Endpoint = (_repos, _req, res) => { res.header("content-security-policy", "default-src 'self'"); return { ok: true }; };\nexport default handler;\n`;
-    await withService({ "quickservice.config.ts": CONFIG('security: { headers: { referrerPolicy: "" } }'), "endpoints/page/get.ts": own }, async (service) => {
+    const own = `import type { Endpoint } from "@quickservicets/core";\nconst handler: Endpoint = (_repos, _req, res) => { res.header("content-security-policy", "default-src 'self'"); return { ok: true }; };\nexport default handler;\n`;
+    await withService({ "quickservicets.config.ts": CONFIG('security: { headers: { referrerPolicy: "" } }'), "endpoints/page/get.ts": own }, async (service) => {
       const response = await service.fetch("/page");
       expect(response.headers.get("content-security-policy")).toBe("default-src 'self'");
       expect(response.headers.get("referrer-policy")).toBeNull();
@@ -93,9 +93,9 @@ describe("existing headers, empty options and the tag", () => {
   });
 
   test("@securityHeaders off sends none of them on that route, and csp= replaces the policy there only", async () => {
-    const endpoint = (tag: string) => `import type { Endpoint } from "@quickservice/core";\n/** ${tag} */\nconst handler: Endpoint = () => ({ ok: true });\nexport default handler;\n`;
+    const endpoint = (tag: string) => `import type { Endpoint } from "@quickservicets/core";\n/** ${tag} */\nconst handler: Endpoint = () => ({ ok: true });\nexport default handler;\n`;
     const files = {
-      "quickservice.config.ts": CONFIG(),
+      "quickservicets.config.ts": CONFIG(),
       "endpoints/embed/get.ts": endpoint("@securityHeaders off"),
       "endpoints/widget/get.ts": endpoint(`@securityHeaders csp="default-src 'self'"`),
     };
@@ -111,7 +111,7 @@ describe("existing headers, empty options and the tag", () => {
 
   test("a returned Response with immutable headers still gets them", async () => {
     // Like a response from fetch() in runtimes that guard its headers: every change throws.
-    const immutable = `import type { Endpoint } from "@quickservice/core";
+    const immutable = `import type { Endpoint } from "@quickservicets/core";
 const handler: Endpoint = () => {
   const response = new Response(null, { status: 302, headers: { location: "https://example.com/" } });
   const headers = response.headers;
@@ -121,7 +121,7 @@ const handler: Endpoint = () => {
 };
 export default handler;
 `;
-    await withService({ "quickservice.config.ts": CONFIG(), "endpoints/away/get.ts": immutable }, async (service) => {
+    await withService({ "quickservicets.config.ts": CONFIG(), "endpoints/away/get.ts": immutable }, async (service) => {
       const response = await service.fetch("/away");
       expect(response.status).toBe(302);
       expect(headersOf(response, Object.keys(API_HEADERS))).toEqual(API_HEADERS);

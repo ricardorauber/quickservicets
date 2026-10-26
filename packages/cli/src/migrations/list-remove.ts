@@ -30,7 +30,7 @@ export function formatSchemaCounts(schemas: { schema: string; tenants: number }[
   return schemas.map(({ schema, tenants }) => `${schema}: ${tenants} ${tenants === 1 ? "tenant" : "tenants"}`).join(", ");
 }
 
-/** `quickservice migration list` */
+/** `quickservicets migration list` */
 export async function listMigrationStatus(projectRoot: string): Promise<MigrationList> {
   const files = listMigrations(projectRoot);
   const marked = new Map(files.map((file) => [file.id, markedSchemas(file)]));
@@ -61,7 +61,7 @@ export async function listMigrationStatus(projectRoot: string): Promise<Migratio
   return { entries };
 }
 
-/** `quickservice migration remove`: deletes the newest migration when it has not been applied. */
+/** `quickservicets migration remove`: deletes the newest migration when it has not been applied. */
 export async function removeLatestMigration(projectRoot: string): Promise<string[]> {
   const files = listMigrations(projectRoot);
   const latest = files.at(-1);
@@ -69,7 +69,7 @@ export async function removeLatestMigration(projectRoot: string): Promise<string
   const applied = await readAppliedMigrations(projectRoot);
   if (applied.some((migration) => migration.id === latest.id)) {
     const previous = files.at(-2)?.name ?? "0";
-    throw new BuildError(`Migration ${latest.id} is applied. Revert it with "quickservice migrate ${previous}" first`);
+    throw new BuildError(`Migration ${latest.id} is applied. Revert it with "quickservicets migrate ${previous}" first`);
   }
   const removed = [latest.file, snapshotFile(projectRoot, latest.id)];
   for (const file of removed) rmSync(file, { force: true });

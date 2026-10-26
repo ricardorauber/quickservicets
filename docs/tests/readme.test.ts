@@ -7,7 +7,7 @@ const readme = readFileSync(join(root, "README.md"), "utf8");
 const headings = [...readme.matchAll(/^#{1,6} (.+)$/gm)].map((match) => match[1]!.trim());
 
 test("the README is a short introduction that sends readers to the Getting started docs", () => {
-  expect(headings[0]).toBe("QuickService");
+  expect(headings[0]).toBe("QuickService.ts");
   expect(headings).toEqual(expect.arrayContaining(["Documentation", "Using PostgreSQL or MongoDB", "Running the tests"]));
   expect(headings).not.toContain("Trying it out");
   expect(headings).not.toContain("Cleaning up");

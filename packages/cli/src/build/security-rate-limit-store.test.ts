@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { createFeatureLifecycle, memoryAdapter, resolveConfig, sqliteAdapter, type DatabaseAdapter, type EntityModel, type LogEntry, type ServiceConfig } from "@quickservice/core";
+import { createFeatureLifecycle, memoryAdapter, resolveConfig, sqliteAdapter, type DatabaseAdapter, type EntityModel, type LogEntry, type ServiceConfig } from "@quickservicets/core";
 import { databaseRateLimitStore, rateLimitCounterEntity } from "../../../core/src/features/security/db-store.ts";
 import { addMigration } from "../migrations/add.ts";
 import { createLinkedProject } from "../testing/project.ts";
@@ -13,7 +13,7 @@ afterEach(() => {
   logs.length = 0;
 });
 
-const CONFIG = (adapter = "memoryAdapter()", security = '{ rateLimit: { store: "database" } }') => `import { defineConfig, memoryAdapter, sqliteAdapter, postgresAdapter } from "@quickservice/core";
+const CONFIG = (adapter = "memoryAdapter()", security = '{ rateLimit: { store: "database" } }') => `import { defineConfig, memoryAdapter, sqliteAdapter, postgresAdapter } from "@quickservicets/core";
 export default defineConfig({ database: ${adapter}, security: ${security} });
 `;
 const POST = { "entities/Post.ts": "export type Post = { title: string };\n" };
@@ -39,7 +39,7 @@ async function sharedDatabase(): Promise<DatabaseAdapter> {
 
 describe("the entity and the startup checks", () => {
   test("the database store adds RateLimitCounter, without routes", async () => {
-    const service = await startTestService({ files: { "quickservice.config.ts": CONFIG(), ...POST } });
+    const service = await startTestService({ files: { "quickservicets.config.ts": CONFIG(), ...POST } });
     try {
       const models = (await import(join(service.root, ".generated/models.ts"))).models as EntityModel[];
       expect(models.find((candidate) => candidate.key === "RateLimitCounter")).toMatchObject({ system: true, internal: true, name: "rate-limit-counters", tableName: "rate_limit_counters", indexes: [{ fields: ["expiresAt"] }] });
@@ -48,7 +48,7 @@ describe("the entity and the startup checks", () => {
     } finally {
       await service.stop();
     }
-    const memory = await startTestService({ files: { "quickservice.config.ts": CONFIG("memoryAdapter()", "{}"), ...POST } });
+    const memory = await startTestService({ files: { "quickservicets.config.ts": CONFIG("memoryAdapter()", "{}"), ...POST } });
     try {
       const models = (await import(join(memory.root, ".generated/models.ts"))).models as EntityModel[];
       expect(models.some((candidate) => candidate.key === "RateLimitCounter")).toBe(false);
@@ -59,7 +59,7 @@ describe("the entity and the startup checks", () => {
 
   for (const [name, adapter] of Object.entries({ sqlite: 'sqliteAdapter({ path: ":memory:" })', postgres: 'postgresAdapter({ url: "postgres://localhost/none" })' })) {
     test(`${name}: migration add creates the rate_limit_counters table`, async () => {
-      const root = createLinkedProject({ "quickservice.config.ts": CONFIG(adapter), ...POST });
+      const root = createLinkedProject({ "quickservicets.config.ts": CONFIG(adapter), ...POST });
       const created = readFileSync(join(root, (await addMigration(root, "Initial", new Date(Date.UTC(2026, 0, 1)))).file), "utf8");
       expect(created).toMatch(/CREATE TABLE \\?[`"](\{\{default_schema\}\})?rate_limit_counters/);
       expect(created).toContain("expires_at");
@@ -72,7 +72,7 @@ describe("the entity and the startup checks", () => {
       const lifecycle = createFeatureLifecycle({ features: config.features, config, models, worker: { index: 0, count: 1, runsScheduledWork: true } });
       await lifecycle.setup();
     };
-    expect(await failure(() => setUp(memoryAdapter(), []))).toBe('security failed in setup: security.rateLimit.store is "database", but the build did not include RateLimitCounter; rebuild and run quickservice migration add');
+    expect(await failure(() => setUp(memoryAdapter(), []))).toBe('security failed in setup: security.rateLimit.store is "database", but the build did not include RateLimitCounter; rebuild and run quickservicets migration add');
     const withoutIncrement = { ...memoryAdapter(), increment: undefined } as DatabaseAdapter;
     expect(await failure(() => setUp(withoutIncrement, [model]))).toBe('security failed in setup: security.rateLimit.store "database" needs an adapter with increment()');
   });

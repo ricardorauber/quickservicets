@@ -5,7 +5,7 @@ sidebar:
   order: 1
 ---
 
-In this tutorial you build an identity service, step by step: users who belong to organizations, teams inside those organizations, and permissions that decide what each user may do. The finished project is the `examples/identity` folder of the QuickService repository, so you can compare your files with it at any time.
+In this tutorial you build an identity service, step by step: users who belong to organizations, teams inside those organizations, and permissions that decide what each user may do. The finished project is the `examples/identity` folder of the QuickService.ts repository, so you can compare your files with it at any time.
 
 ## What you build
 
@@ -32,7 +32,7 @@ Every entity also gets `id`, `createdAt` and `updatedAt` automatically.
 | `Team` | `organization`, `name`, `picture?`, `users`, `profiles`, `active` | one `Organization`, many `User`, many `Profile` |
 | `User` | `email`, `name?`, `picture?`, `role` (`admin` or `basic`), `memberships`, `teams` | many `Membership`, many `Team` |
 
-Three pairs of fields describe the same relation from both sides, and QuickService keeps both sides in sync:
+Three pairs of fields describe the same relation from both sides, and QuickService.ts keeps both sides in sync:
 
 - `Membership.user` and `User.memberships`: each membership has one user, and a user has many memberships (1-N).
 - `Membership.organization` and `Organization.members`: each membership has one organization, and an organization has many members (1-N).
@@ -41,7 +41,7 @@ Three pairs of fields describe the same relation from both sides, and QuickServi
 ## Before you start
 
 - A recent version of [Bun](https://bun.sh).
-- A clone of the QuickService repository. The packages are not on npm yet, so your project lives inside the repository, under `examples/`.
+- A clone of the QuickService.ts repository. The packages are not on npm yet, so your project lives inside the repository, under `examples/`.
 - The [Getting started](/getting-started/) page, if you have not read it yet.
 - Docker, or any PostgreSQL server, for the last page of this part.
 
@@ -50,7 +50,7 @@ Three pairs of fields describe the same relation from both sides, and QuickServi
 From the root of the repository, create a project that keeps its data in memory. It needs no database server, which makes it quick to experiment with; you move it to PostgreSQL at the end of this part.
 
 ```bash
-bunx quickservice init examples/my-identity --db memory
+bunx quickservicets init examples/my-identity --db memory
 cd examples/my-identity
 bun run dev
 ```

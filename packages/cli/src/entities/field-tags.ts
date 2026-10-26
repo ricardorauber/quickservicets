@@ -1,4 +1,4 @@
-import { parseSize, type FieldModel, type NestedFieldModel, type StringFormat, type TypeDescriptor, type VectorMetric } from "@quickservice/core";
+import { parseSize, type FieldModel, type NestedFieldModel, type StringFormat, type TypeDescriptor, type VectorMetric } from "@quickservicets/core";
 import { tagDocRegistry } from "../tag-docs.ts";
 import { EntityParseError } from "./errors.ts";
 import type { DocTag } from "./jsdoc.ts";

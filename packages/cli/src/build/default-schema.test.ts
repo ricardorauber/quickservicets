@@ -1,14 +1,14 @@
 import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { createApp, loadConfig } from "@quickservice/core";
+import { createApp, loadConfig } from "@quickservicets/core";
 import { createLinkedProject } from "../testing/project.ts";
 import { build } from "./build.ts";
 
 test("generated output never contains the default schema, and the app works with any value", async () => {
   const root = createLinkedProject({
-    "quickservice.config.ts":
-      'import { defineConfig, memoryAdapter } from "@quickservice/core";\nexport default defineConfig({ database: memoryAdapter(), schema: "app" });\n',
+    "quickservicets.config.ts":
+      'import { defineConfig, memoryAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: memoryAdapter(), schema: "app" });\n',
     "entities/User.ts": "export type User = { email: string }",
   });
   const snapshotOf = () =>

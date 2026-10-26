@@ -1,4 +1,4 @@
-import type { EntityModel, FieldModel, RelationKind } from "@quickservice/core";
+import type { EntityModel, FieldModel, RelationKind } from "@quickservicets/core";
 import { toSnakeCase } from "./naming.ts";
 import { EntityParseError } from "./errors.ts";
 

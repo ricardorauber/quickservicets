@@ -2,18 +2,18 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { validate } from "@scalar/openapi-parser";
-import type { EntityModel } from "@quickservice/core";
+import type { EntityModel } from "@quickservicets/core";
 import { addMigration } from "../migrations/add.ts";
 import { createLinkedProject } from "../testing/project.ts";
 import { startTestService, type TestService } from "../testing/service.ts";
 import { build } from "./build.ts";
 
-const config = (keys = "events: {}, history: {}", adapter = "memoryAdapter()") => `import { defineConfig, memoryAdapter, sqliteAdapter, postgresAdapter, mongodbAdapter } from "@quickservice/core";
+const config = (keys = "events: {}, history: {}", adapter = "memoryAdapter()") => `import { defineConfig, memoryAdapter, sqliteAdapter, postgresAdapter, mongodbAdapter } from "@quickservicets/core";
 export default defineConfig({ database: ${adapter}${keys ? `, ${keys}` : ""} });
 `;
 
 /** A project feature that signs requests in as the user of the x-user header. */
-const SIGN_IN = `import { defineFeature } from "@quickservice/core";
+const SIGN_IN = `import { defineFeature } from "@quickservicets/core";
 export default defineFeature({
   key: "signin",
   middleware: [{ stage: "handler", run: (req, _res, next) => { const id = req.headers.get("x-user"); if (id) (req as { user?: unknown }).user = { id }; return next(); } }],
@@ -21,7 +21,7 @@ export default defineFeature({
 `;
 
 const FILES = {
-  "quickservice.config.ts": config("events: {}, history: {}, signin: {}"),
+  "quickservicets.config.ts": config("events: {}, history: {}, signin: {}"),
   "features/signin/index.ts": SIGN_IN,
   "entities/User.ts": `/** @history */
 export type User = {
@@ -82,7 +82,7 @@ describe("the model", () => {
   const adapters = { sqlite: 'sqliteAdapter({ path: ":memory:" })', postgres: 'postgresAdapter({ url: "postgres://localhost/none" })' };
   for (const [name, adapter] of Object.entries(adapters)) {
     test(`${name}: migration add creates user_history with its indexes`, async () => {
-      const root = createLinkedProject({ ...FILES, "quickservice.config.ts": config("events: {}, history: {}", adapter) });
+      const root = createLinkedProject({ ...FILES, "quickservicets.config.ts": config("events: {}, history: {}", adapter) });
       const created = readFileSync(join(root, (await addMigration(root, "Initial", new Date(Date.UTC(2026, 0, 1)))).file), "utf8");
       expect(created).toMatch(/CREATE TABLE \\?[`"](\{\{default_schema\}\})?user_history/);
       expect(created).toMatch(/CREATE UNIQUE INDEX[^\n]*user_history[^\n]*entity_id[^\n]*version/i);
@@ -91,20 +91,20 @@ describe("the model", () => {
   }
 
   test("mongodb: migration add creates the history indexes", async () => {
-    const root = createLinkedProject({ ...FILES, "quickservice.config.ts": config("events: {}, history: {}", 'mongodbAdapter({ url: "mongodb://localhost/none", database: "x" })') });
+    const root = createLinkedProject({ ...FILES, "quickservicets.config.ts": config("events: {}, history: {}", 'mongodbAdapter({ url: "mongodb://localhost/none", database: "x" })') });
     const created = readFileSync(join(root, (await addMigration(root, "Initial", new Date(Date.UTC(2026, 0, 1)))).file), "utf8");
     expect(created).toContain('collection("user_history").createIndex({"entityId":1,"version":1}');
     expect(created).toContain('collection("user_history").createIndex({"entityId":1,"at":1}');
   });
 
   test("history without events fails with the requirement; all covers every regular entity but those tagged @history off, never JobRun", async () => {
-    const without = createLinkedProject({ ...FILES, "quickservice.config.ts": config("history: {}, signin: {}") });
-    expect((await failure(() => build(without))).message).toContain("history requires events; add events: {} to quickservice.config.ts");
+    const without = createLinkedProject({ ...FILES, "quickservicets.config.ts": config("history: {}, signin: {}") });
+    expect((await failure(() => build(without))).message).toContain("history requires events; add events: {} to quickservicets.config.ts");
     const all = createLinkedProject({
       ...FILES,
-      "quickservice.config.ts": config('events: {}, history: { entities: "all" }'),
+      "quickservicets.config.ts": config('events: {}, history: { entities: "all" }'),
       "entities/Session.ts": "/** @history off */\nexport type Session = { token: string };\n",
-      "jobs/cleanup.ts": 'import { job } from "@quickservice/core";\nexport default job({ every: "1h" }, async () => undefined);\n',
+      "jobs/cleanup.ts": 'import { job } from "@quickservicets/core";\nexport default job({ every: "1h" }, async () => undefined);\n',
     });
     await build(all);
     const models = (await import(join(all, ".generated/models.ts"))).models as EntityModel[];
@@ -170,14 +170,14 @@ describe("versions over HTTP", () => {
 const ROUTE_FILES = {
   ...FILES,
   "entities/User.ts": FILES["entities/User.ts"].replace("/** @history */", "/**\n * @history\n * @own:read\n */"),
-  "hooks/own.ts": `import { definePreHook, HttpError } from "@quickservice/core";
+  "hooks/own.ts": `import { definePreHook, HttpError } from "@quickservicets/core";
 export default definePreHook((_repos, req) => {
   const user = req.headers.get("x-user");
   if (user && user !== req.params.id) throw new HttpError(403, "Forbidden");
 });
 `,
   "entities/AuditEntry.ts": "/**\n * @internal\n * @history\n */\nexport type AuditEntry = { line: string };\n",
-  "endpoints/audit/post.ts": `import type { Repositories } from "@quickservice/core";
+  "endpoints/audit/post.ts": `import type { Repositories } from "@quickservicets/core";
 export default async (repos: Repositories) => (repos as unknown as { auditEntries: { create(data: object): Promise<unknown> } }).auditEntries.create({ line: "x" });
 `,
 };

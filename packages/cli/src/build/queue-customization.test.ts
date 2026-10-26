@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { events, registerProjectFeatures } from "@quickservice/core";
+import { events, registerProjectFeatures } from "@quickservicets/core";
 import { createLinkedProject } from "../testing/project.ts";
 import { startTestService, type TestService } from "../testing/service.ts";
 import { build } from "./build.ts";
@@ -17,20 +17,20 @@ const settle = async (check: () => boolean | Promise<boolean>) => {
 };
 const g = globalThis as unknown as { gate?: { running: number; peak: number; release: Promise<void> }; seen?: unknown[]; dead?: unknown[]; logs?: { message: string; hook?: string }[] };
 
-const config = (queues: string, extra = "") => `import { defineConfig, memoryAdapter, HttpError, type LogEntry } from "@quickservice/core";
+const config = (queues: string, extra = "") => `import { defineConfig, memoryAdapter, HttpError, type LogEntry } from "@quickservicets/core";
 const logs = ((globalThis as { logs?: LogEntry[] }).logs = []);
 const logger = { info: (entry: LogEntry) => void logs.push(entry), warn: (entry: LogEntry) => void logs.push(entry), error: (entry: LogEntry) => void logs.push(entry) };
 export default defineConfig({ database: memoryAdapter(), logger, queues: ${queues}${extra} });
 `;
 const ADD = {
-  "endpoints/add/post.ts": `import type { QueueAddOptions, ServiceRequest } from "@quickservice/core";
+  "endpoints/add/post.ts": `import type { QueueAddOptions, ServiceRequest } from "@quickservicets/core";
 export default async (_repos: unknown, req: ServiceRequest) => {
   const { name = "send-email", payload = {}, options } = (await req.json()) as { name?: "send-email"; payload?: { to?: string }; options?: QueueAddOptions };
   return req.queue.add(name, payload as never, options);
 };
 `,
 };
-const GATED = `import { queue } from "@quickservice/core";
+const GATED = `import { queue } from "@quickservicets/core";
 export default queue(async () => {
   const gate = (globalThis as unknown as { gate: { running: number; peak: number; release: Promise<void> } }).gate;
   gate.running++;
@@ -44,7 +44,7 @@ describe("option precedence", () => {
   const peakWith = async (queues: string, env: Record<string, string> = {}) => {
     const release = Promise.withResolvers<void>();
     g.gate = { running: 0, peak: 0, release: release.promise };
-    const service = await startTestService({ files: { "quickservice.config.ts": config(queues), "queues/send-email.ts": GATED, ...ADD }, env });
+    const service = await startTestService({ files: { "quickservicets.config.ts": config(queues), "queues/send-email.ts": GATED, ...ADD }, env });
     try {
       for (let n = 0; n < 10; n++) await service.fetch("/add", post());
       // Every free slot is claimed at once after an add, so the count settles quickly.
@@ -68,9 +68,9 @@ describe("option precedence", () => {
   }, 30_000);
 
   test("an override naming no queue is a config warning", async () => {
-    const root = createLinkedProject({ "quickservice.config.ts": config(`{ overrides: { nope: {} } }`), "queues/send-email.ts": GATED });
+    const root = createLinkedProject({ "quickservicets.config.ts": config(`{ overrides: { nope: {} } }`), "queues/send-email.ts": GATED });
     expect((await build(root)).warnings).toContain("queues.overrides.nope matches no queue");
-    const service = await startTestService({ files: { "quickservice.config.ts": config(`{ overrides: { nope: {} } }`), "queues/send-email.ts": GATED } });
+    const service = await startTestService({ files: { "quickservicets.config.ts": config(`{ overrides: { nope: {} } }`), "queues/send-email.ts": GATED } });
     try {
       expect(g.logs!.find((entry) => entry.message === "config.warning")).toMatchObject({ warning: "queues.overrides.nope matches no queue" });
     } finally {
@@ -80,9 +80,9 @@ describe("option precedence", () => {
 });
 
 describe("environment", () => {
-  const FAILING = `import { queue } from "@quickservice/core";\nexport default queue(() => { throw new Error("no"); });\n`;
+  const FAILING = `import { queue } from "@quickservicets/core";\nexport default queue(() => { throw new Error("no"); });\n`;
   test("QS_QUEUES_RETRIES=0 makes a failing message dead after one attempt; QS_QUEUES_CONSUME=false and QS_QUEUES_ENABLED=false run no consumer", async () => {
-    const service = await startTestService({ files: { "quickservice.config.ts": config("{}"), "queues/send-email.ts": FAILING, ...ADD }, env: { QS_QUEUES_RETRIES: "0" } });
+    const service = await startTestService({ files: { "quickservicets.config.ts": config("{}"), "queues/send-email.ts": FAILING, ...ADD }, env: { QS_QUEUES_RETRIES: "0" } });
     try {
       await service.fetch("/add", post());
       await settle(async () => (await messages(service))[0]?.status === "dead");
@@ -90,7 +90,7 @@ describe("environment", () => {
     } finally {
       await service.stop();
     }
-    const idle = await startTestService({ files: { "quickservice.config.ts": config("{}"), "queues/send-email.ts": FAILING, ...ADD }, env: { QS_QUEUES_CONSUME: "false" } });
+    const idle = await startTestService({ files: { "quickservicets.config.ts": config("{}"), "queues/send-email.ts": FAILING, ...ADD }, env: { QS_QUEUES_CONSUME: "false" } });
     try {
       await idle.fetch("/add", post());
       await Bun.sleep(100);
@@ -98,7 +98,7 @@ describe("environment", () => {
     } finally {
       await idle.stop();
     }
-    const off = await startTestService({ files: { "quickservice.config.ts": config("{}"), "queues/send-email.ts": FAILING }, env: { QS_QUEUES_ENABLED: "false" } });
+    const off = await startTestService({ files: { "quickservicets.config.ts": config("{}"), "queues/send-email.ts": FAILING }, env: { QS_QUEUES_ENABLED: "false" } });
     try {
       // The native is off: no consumer starts, so no cleanup runs either.
       await Bun.sleep(50);
@@ -113,7 +113,7 @@ describe("per-request defaults", () => {
   test("defaultPriority as a function of the request sets the priority of calls without one", async () => {
     const service = await startTestService({
       files: {
-        "quickservice.config.ts": config(`{ consume: false, defaultPriority: ({ req }) => (req?.headers.get("x-vip") ? 10 : 0), defaultDelay: ({ req }) => (req?.headers.get("x-later") ? "1m" : "0s") }`),
+        "quickservicets.config.ts": config(`{ consume: false, defaultPriority: ({ req }) => (req?.headers.get("x-vip") ? 10 : 0), defaultDelay: ({ req }) => (req?.headers.get("x-later") ? "1m" : "0s") }`),
         "queues/send-email.ts": GATED,
         ...ADD,
       },
@@ -141,7 +141,7 @@ describe("hooks and events", () => {
     g.dead = [];
     const service = await startTestService({
       files: {
-        "quickservice.config.ts": config(
+        "quickservicets.config.ts": config(
           `{
     retries: 0,
     beforeEnqueue: (step) => {
@@ -156,7 +156,7 @@ describe("hooks and events", () => {
   }`,
           ", events: {}",
         ),
-        "queues/send-email.ts": `import { queue } from "@quickservice/core";
+        "queues/send-email.ts": `import { queue } from "@quickservicets/core";
 export default queue<{ to: string; source?: string }>(({ payload }) => {
   (globalThis as { seen?: unknown[] }).seen!.push(payload);
   if (payload.to === "fail@b.c") throw new Error("smtp down");
@@ -193,10 +193,10 @@ export default queue<{ to: string; source?: string }>(({ payload }) => {
 describe("override files", () => {
   test("a project queue file replaces the queue of a project feature, with an override line", async () => {
     const root = createLinkedProject({
-      "quickservice.config.ts": config("{}", ", example: {}"),
-      "features/example/index.ts": 'import { defineFeature } from "@quickservice/core";\nexport default defineFeature({ key: "example" });\n',
-      "features/example/queues/notify.ts": 'import { queue } from "@quickservice/core";\nexport default queue(() => "feature");\n',
-      "queues/example/notify.ts": 'import { queue } from "@quickservice/core";\nexport default queue(() => "project");\n',
+      "quickservicets.config.ts": config("{}", ", example: {}"),
+      "features/example/index.ts": 'import { defineFeature } from "@quickservicets/core";\nexport default defineFeature({ key: "example" });\n',
+      "features/example/queues/notify.ts": 'import { queue } from "@quickservicets/core";\nexport default queue(() => "feature");\n',
+      "queues/example/notify.ts": 'import { queue } from "@quickservicets/core";\nexport default queue(() => "project");\n',
     });
     const summary = await build(root);
     expect(summary.overrides).toContain("Override: queues/example/notify.ts replaces features/example/queues/notify.ts from example");
@@ -208,7 +208,7 @@ describe("override files", () => {
 describe("reference", () => {
   test("the reference page lists the variables, the per-queue pattern, the hooks, @publish and the commands", () => {
     const page = readFileSync(join(import.meta.dir, "../../../../docs/src/content/docs/reference/features/queues.mdx"), "utf8");
-    for (const text of ["QS_QUEUES_CONCURRENCY", "QS_QUEUES_OVERRIDES_<NAME>_CONCURRENCY", "beforeEnqueue", "afterEnqueue", "beforeProcess", "afterProcess", "onDead", "@publish", "quickservice queue list", "quickservice queue retry"]) {
+    for (const text of ["QS_QUEUES_CONCURRENCY", "QS_QUEUES_OVERRIDES_<NAME>_CONCURRENCY", "beforeEnqueue", "afterEnqueue", "beforeProcess", "afterProcess", "onDead", "@publish", "quickservicets queue list", "quickservicets queue retry"]) {
       expect(page).toContain(text);
     }
   });

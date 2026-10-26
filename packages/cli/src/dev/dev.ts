@@ -1,6 +1,6 @@
 import { statSync, watch as fsWatch } from "node:fs";
 import { join } from "node:path";
-import { loadConfig } from "@quickservice/core";
+import { loadConfig } from "@quickservicets/core";
 import { build, PENDING_MIGRATION_WARNING, type BuildOptions, type BuildSummary } from "../build/build.ts";
 import { addAutomaticMigration, type CreatedMigration } from "../migrations/add.ts";
 import { parseEnvFile, projectEnvironment } from "../env/env-check.ts";
@@ -10,7 +10,7 @@ import { buildStepLines } from "../build/build-steps.ts";
 import { debounce, realScheduler, type Scheduler } from "./debounce.ts";
 
 export const DEBOUNCE_MS = 200;
-export const WATCHED_PATHS = ["entities", "endpoints", "hooks", "jobs", "features", "quickservice.config.ts", ".env", ".env.development", ".env.local"];
+export const WATCHED_PATHS = ["entities", "endpoints", "hooks", "jobs", "features", "quickservicets.config.ts", ".env", ".env.development", ".env.local"];
 
 /** Every path `dev` watches: the project's own, then the enabled features' folders and `watch` paths from the last build. */
 export function watchPaths(summary: Pick<BuildSummary, "watch"> | undefined): string[] {
@@ -114,7 +114,7 @@ async function buildOnce(projectRoot: string, deps: DevDependencies, env: Env, o
   if (summary.warnings.includes(PENDING_MIGRATION_WARNING)) {
     if (await deps.autoMigrationsEnabled(projectRoot)) {
       const created = await deps.addAutomaticMigration(projectRoot);
-      if (created) deps.log(`Created ${created.file}. Run "quickservice migrate" to apply it.`);
+      if (created) deps.log(`Created ${created.file}. Run "quickservicets migrate" to apply it.`);
     } else {
       deps.error(`Warning: ${PENDING_MIGRATION_WARNING}`);
     }
@@ -139,7 +139,7 @@ export function stepsFor(changed: ReadonlySet<string> | undefined, inputs: Reado
   return [...keys];
 }
 
-/** `quickservice dev`: builds, serves, and rebuilds and restarts on every change. */
+/** `quickservicets dev`: builds, serves, and rebuilds and restarts on every change. */
 export async function startDev(projectRoot: string, overrides: Partial<DevDependencies> = {}): Promise<DevSession> {
   const deps = { ...defaultDependencies, ...overrides };
   let server: ServerProcess | undefined;

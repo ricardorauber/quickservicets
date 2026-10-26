@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { startTestService, type TestService } from "@quickservice/cli/testing";
-import { createServer, maskedLogger, maskEntry, maskUrl, REQUEST_LOG, type LogEntry } from "@quickservice/core";
+import { startTestService, type TestService } from "@quickservicets/cli/testing";
+import { createServer, maskedLogger, maskEntry, maskUrl, REQUEST_LOG, type LogEntry } from "@quickservicets/core";
 import { DEFAULT_MASKED_KEYS } from "../../../core/src/features/security/masking.ts";
 
 /** Log entries the projects' config logger writes, read by the tests. */
@@ -10,13 +10,13 @@ afterEach(() => {
   logs().length = 0;
 });
 
-const CONFIG = (keys = "") => `import { defineConfig, memoryAdapter, secret } from "@quickservice/core";
+const CONFIG = (keys = "") => `import { defineConfig, memoryAdapter, secret } from "@quickservicets/core";
 const sink = ((globalThis as Record<string, unknown>).${LOGS} ??= []) as unknown[];
 const write = (entry: unknown) => void sink.push(entry);
 export default defineConfig({ database: memoryAdapter(), logger: { info: write, warn: write, error: write }${keys ? `, ${keys}` : ""} });
 `;
 const CUSTOMER = "export type Customer = {\n  name: string;\n  /** @sensitive */\n  taxId: string;\n};\n";
-const LOGIN_JOB = `import { job } from "@quickservice/core";
+const LOGIN_JOB = `import { job } from "@quickservicets/core";
 export default job("@daily", async ({ log }) => {
   log.info("login", { email: "a@b.c", password: "hunter2", apiKey: "k", headers: { Authorization: "Bearer x" } });
   log.info("customer", { customer: { taxId: "123" } });
@@ -24,7 +24,7 @@ export default job("@daily", async ({ log }) => {
   return { token: "t", ok: true };
 });
 `;
-const RUN = `import type { Endpoint } from "@quickservice/core";
+const RUN = `import type { Endpoint } from "@quickservicets/core";
 const handler: Endpoint = (_repos, req) => req.jobs.run("login");
 export default handler;
 `;
@@ -93,7 +93,7 @@ describe("maskUrl", () => {
 
 describe("the service", () => {
   test("a job's log entries and its stored run are masked, keeping other values", async () => {
-    await withService({ "quickservice.config.ts": CONFIG(), "entities/Customer.ts": CUSTOMER, "jobs/login.ts": LOGIN_JOB, "endpoints/run/post.ts": RUN }, async (service) => {
+    await withService({ "quickservicets.config.ts": CONFIG(), "entities/Customer.ts": CUSTOMER, "jobs/login.ts": LOGIN_JOB, "endpoints/run/post.ts": RUN }, async (service) => {
       const run = await runLoginJob(service);
       expect(run.status).toBe("success");
       const login = logs().find((entry) => entry.message === "login")!;
@@ -106,15 +106,15 @@ describe("the service", () => {
   });
 
   test("@sensitive does not change API responses", async () => {
-    await withService({ "quickservice.config.ts": CONFIG(), "entities/Customer.ts": CUSTOMER }, async (service) => {
+    await withService({ "quickservicets.config.ts": CONFIG(), "entities/Customer.ts": CUSTOMER }, async (service) => {
       const created = (await (await service.fetch("/customers", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Ada", taxId: "123" }) })).json()) as { id: string };
       expect(((await (await service.fetch(`/customers/${created.id}`)).json()) as { taxId: string }).taxId).toBe("123");
     });
   });
 
   test("a secret variable is masked in the logged error and in the development response", async () => {
-    const failing = `import { env, type Endpoint } from "@quickservice/core";\nconst handler: Endpoint = () => { throw new Error(\`charge failed with \${(env as { STRIPE_KEY: string }).STRIPE_KEY}\`); };\nexport default handler;\n`;
-    const files = { "quickservice.config.ts": CONFIG("env: { STRIPE_KEY: secret() }"), "endpoints/charge/post.ts": failing };
+    const failing = `import { env, type Endpoint } from "@quickservicets/core";\nconst handler: Endpoint = () => { throw new Error(\`charge failed with \${(env as { STRIPE_KEY: string }).STRIPE_KEY}\`); };\nexport default handler;\n`;
+    const files = { "quickservicets.config.ts": CONFIG("env: { STRIPE_KEY: secret() }"), "endpoints/charge/post.ts": failing };
     await withService(
       files,
       async (service) => {
@@ -132,7 +132,7 @@ describe("the service", () => {
   });
 
   test("masking keys can be replaced, and masking: false logs values unchanged", async () => {
-    const files = (security: string) => ({ "quickservice.config.ts": CONFIG(`security: ${security}`), "jobs/login.ts": 'import { job } from "@quickservice/core";\nexport default job("@daily", async ({ log }) => { log.info("pin", { userPin: "1234", password: "hunter2" }); });\n', "endpoints/run/post.ts": RUN });
+    const files = (security: string) => ({ "quickservicets.config.ts": CONFIG(`security: ${security}`), "jobs/login.ts": 'import { job } from "@quickservicets/core";\nexport default job("@daily", async ({ log }) => { log.info("pin", { userPin: "1234", password: "hunter2" }); });\n', "endpoints/run/post.ts": RUN });
     await withService(files('{ masking: { keys: ["pin"] } }'), async (service) => {
       await runLoginJob(service);
       expect(logs().find((entry) => entry.message === "pin")).toMatchObject({ userPin: "[secret]", password: "hunter2" });

@@ -37,7 +37,7 @@ public static partial class Query
     private static readonly string[] FilterOperators =
         ["eq", "ne", "in", "nin", "gt", "gte", "lt", "lte", "contains", "startsWith", "exists", "isNull", "containsAny", "containsAll", "size", "isEmpty"];
 
-    /** The operators this service implements, per field type (a subset of QuickService's; the rest are "not allowed"). */
+    /** The operators this service implements, per field type (a subset of QuickService.ts's; the rest are "not allowed"). */
     private static string[] OperatorsFor(FieldType type) => type switch
     {
         FieldType.Number or FieldType.Date => ["eq", "ne", "in", "nin", "gt", "gte", "lt", "lte"],

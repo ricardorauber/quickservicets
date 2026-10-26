@@ -10,10 +10,10 @@ const LOGGER = `logger: {
     warn: (entry: object) => void ((globalThis as any).sseLogs ??= []).push(entry),
     error: (entry: object) => void ((globalThis as any).sseLogs ??= []).push(entry),
   }`;
-const config = (realtime = "realtime: {}") => `import { defineConfig, memoryAdapter } from "@quickservice/core";
+const config = (realtime = "realtime: {}") => `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter()${realtime ? `, ${realtime}` : ""}, ${LOGGER} });
 `;
-const CLOCK = `import { defineSse } from "@quickservice/core";
+const CLOCK = `import { defineSse } from "@quickservicets/core";
 
 /** The time, every 20 milliseconds. */
 export default defineSse((stream) => {
@@ -22,19 +22,19 @@ export default defineSse((stream) => {
 });
 `;
 const FILES = {
-  "quickservice.config.ts": config(),
+  "quickservicets.config.ts": config(),
   "endpoints/clock/sse.ts": CLOCK,
-  "endpoints/last/sse.ts": `import { defineSse } from "@quickservice/core";
+  "endpoints/last/sse.ts": `import { defineSse } from "@quickservicets/core";
 export default defineSse((stream, _repos, req) => stream.send({ lastEventId: req.lastEventId ?? null }));
 `,
-  "endpoints/failing/sse.ts": `import { defineSse } from "@quickservice/core";
+  "endpoints/failing/sse.ts": `import { defineSse } from "@quickservicets/core";
 export default defineSse(async () => { throw new Error("handler broke"); });
 `,
-  "endpoints/private/sse.ts": `import { defineSse } from "@quickservice/core";
+  "endpoints/private/sse.ts": `import { defineSse } from "@quickservicets/core";
 /** @authorized */
 export default defineSse((stream) => { (globalThis as any).privateOpened = true; stream.send("secret"); });
 `,
-  "hooks/authorized.ts": `import { definePreHook, HttpError } from "@quickservice/core";
+  "hooks/authorized.ts": `import { definePreHook, HttpError } from "@quickservicets/core";
 export default definePreHook((_repos, req) => {
   if (!req.headers.get("authorization")) throw new HttpError(401, "Sign in first");
 });
@@ -91,8 +91,8 @@ describe("sse.ts endpoints", () => {
   });
 
   test("without realtime the build fails; a default export other than defineSse fails the build", async () => {
-    const without = createLinkedProject({ ...FILES, "quickservice.config.ts": config("") });
-    expect((await failure(() => build(without))).message).toContain("endpoints/clock/sse.ts needs realtime: {} in quickservice.config.ts");
+    const without = createLinkedProject({ ...FILES, "quickservicets.config.ts": config("") });
+    expect((await failure(() => build(without))).message).toContain("endpoints/clock/sse.ts needs realtime: {} in quickservicets.config.ts");
     const plain = createLinkedProject({ ...FILES, "endpoints/clock/sse.ts": "export default () => ({});\n" });
     expect((await failure(() => build(plain))).message).toContain("endpoints/clock/sse.ts: must default-export defineSse(...)");
   });
@@ -145,7 +145,7 @@ describe("sse.ts endpoints", () => {
   });
 
   test("a third stream beyond maxStreams answers 503, and stopping the service closes the open streams", async () => {
-    const service = await startTestService({ files: { ...FILES, "quickservice.config.ts": config("realtime: { sse: { maxStreams: 2 } }") } });
+    const service = await startTestService({ files: { ...FILES, "quickservicets.config.ts": config("realtime: { sse: { maxStreams: 2 } }") } });
     let stopped = false;
     try {
       const open = [await service.fetch("/clock"), await service.fetch("/clock")];
@@ -169,7 +169,7 @@ describe("sse.ts endpoints", () => {
     } finally {
       await service.stop();
     }
-    const plain = await startTestService({ files: { "quickservice.config.ts": config(""), "entities/Note.ts": "export type Note = { text: string };\n" } });
+    const plain = await startTestService({ files: { "quickservicets.config.ts": config(""), "entities/Note.ts": "export type Note = { text: string };\n" } });
     const original = globalThis.setInterval;
     const timers: unknown[] = [];
     globalThis.setInterval = ((...args: Parameters<typeof setInterval>) => {

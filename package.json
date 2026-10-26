@@ -1,12 +1,12 @@
 {
-  "name": "quickservice",
+  "name": "quickservicets",
   "private": true,
   "type": "module",
   "workspaces": [
     "packages/*",
     "examples/*",
     "examples/minimal/*",
-    "benchmarks/quickservice",
+    "benchmarks/quickservicets",
     "docs"
   ],
   "scripts": {
@@ -18,7 +18,7 @@
     "docs:reference": "bun docs/scripts/write-reference.ts"
   },
   "devDependencies": {
-    "@quickservice/cli": "workspace:*",
+    "@quickservicets/cli": "workspace:*",
     "@types/bun": "1.4.2",
     "typescript": "5.9.2"
   }

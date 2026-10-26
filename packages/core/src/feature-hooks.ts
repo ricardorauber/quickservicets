@@ -2,7 +2,7 @@ import { jsonLogger, safeLog, type Logger } from "./logger.ts";
 import type { FeatureHook } from "./options.ts";
 
 /** Where a resolved list of hooks came from: the option's path, like `audit.beforeWrite`. */
-export const HOOK_PATH = Symbol.for("quickservice.hook.path");
+export const HOOK_PATH = Symbol.for("quickservicets.hook.path");
 
 type HookList<V, C> = readonly FeatureHook<V, C>[] & { [HOOK_PATH]?: string };
 

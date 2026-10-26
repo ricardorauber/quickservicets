@@ -1,11 +1,11 @@
 import { describe, expect, spyOn, test } from "bun:test";
-import { startTestService, type TestService } from "@quickservice/cli/testing";
-import { createServer, memoryAdapter, resolveConfig, createFeatureLifecycle, type ServiceConfig } from "@quickservice/core";
+import { startTestService, type TestService } from "@quickservicets/cli/testing";
+import { createServer, memoryAdapter, resolveConfig, createFeatureLifecycle, type ServiceConfig } from "@quickservicets/core";
 import { headersWithinLimits, pathAndQueryLength } from "../../../core/src/features/security/limits.ts";
 import { parseProjectEntities } from "../entities/parse-entities.ts";
 import { createProject } from "../testing/project.ts";
 
-const CONFIG = (security = "") => `import { defineConfig, memoryAdapter } from "@quickservice/core";
+const CONFIG = (security = "") => `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter()${security ? `, security: ${security}` : ""} });
 `;
 const POST = "export type Post = { title: string; body?: string };\n";
@@ -38,8 +38,8 @@ function streamedJson(size: number, chunk = 64 * 1024) {
 
 describe("URL and header checks", () => {
   test("a long query string, too many headers and one large header are refused", async () => {
-    const ping = `import type { Endpoint } from "@quickservice/core";\nconst handler: Endpoint = () => ({ ok: true });\nexport default handler;\n`;
-    await withService({ "quickservice.config.ts": CONFIG(), "endpoints/ping/get.ts": ping }, async (service) => {
+    const ping = `import type { Endpoint } from "@quickservicets/core";\nconst handler: Endpoint = () => ({ ok: true });\nexport default handler;\n`;
+    await withService({ "quickservicets.config.ts": CONFIG(), "endpoints/ping/get.ts": ping }, async (service) => {
       const long = await service.fetch(`/ping?q=${"a".repeat(9 * 1024)}`);
       expect(long.status).toBe(414);
       expect(await errorOf(long)).toEqual({ code: "URI_TOO_LONG", message: "URL is too long" });
@@ -78,7 +78,7 @@ describe("URL and header checks", () => {
 
 describe("body limits", () => {
   test("a declared length above the limit is refused before any read", async () => {
-    await withService({ "quickservice.config.ts": CONFIG() }, async (service) => {
+    await withService({ "quickservicets.config.ts": CONFIG() }, async (service) => {
       const read = spyOn(Request.prototype, "text");
       try {
         const response = await service.fetch("/posts", { method: "POST", headers: { "content-type": "application/json", "content-length": "2000000" }, body: "{}" });
@@ -92,7 +92,7 @@ describe("body limits", () => {
   });
 
   test("a streamed body stops after about the limit, and a smaller one passes", async () => {
-    await withService({ "quickservice.config.ts": CONFIG() }, async (service) => {
+    await withService({ "quickservicets.config.ts": CONFIG() }, async (service) => {
       const big = streamedJson(2 * 1024 * 1024);
       const refused = await service.fetch("/posts", big.init);
       expect(refused.status).toBe(413);
@@ -105,7 +105,7 @@ describe("body limits", () => {
 
   test("QS_SECURITY_LIMITS_BODY raises the limit", async () => {
     await withService(
-      { "quickservice.config.ts": CONFIG() },
+      { "quickservicets.config.ts": CONFIG() },
       async (service) => {
         expect((await service.fetch("/posts", streamedJson(2 * 1024 * 1024).init)).status).toBe(201);
       },
@@ -117,8 +117,8 @@ describe("body limits", () => {
 describe("uploads and the server body size", () => {
   test("a multipart upload is limited by the file settings, not by the body limit", async () => {
     const files = {
-      "quickservice.config.ts": CONFIG(),
-      "entities/Attachment.ts": 'import type { File } from "@quickservice/core";\n/** @maxSize 10MB */\nexport type Attachment = File & { note?: string };\n',
+      "quickservicets.config.ts": CONFIG(),
+      "entities/Attachment.ts": 'import type { File } from "@quickservicets/core";\n/** @maxSize 10MB */\nexport type Attachment = File & { note?: string };\n',
     };
     await withService(files, async (service) => {
       const form = new FormData();
@@ -131,7 +131,7 @@ describe("uploads and the server body size", () => {
   test("the server is started with the larger of the body limit and the largest upload plus form overhead", async () => {
     const models = parseProjectEntities(
       createProject({
-        "entities/Photo.ts": 'import type { Media } from "@quickservice/core";\nexport type Photo = Media & { caption?: string };\n',
+        "entities/Photo.ts": 'import type { Media } from "@quickservicets/core";\nexport type Photo = Media & { caption?: string };\n',
         "entities/Album.ts": 'import type { Photo } from "./Photo";\nexport type Album = {\n  /** @maxTotalSize 50MB */\n  photos?: Photo[];\n};\n',
       }),
     );

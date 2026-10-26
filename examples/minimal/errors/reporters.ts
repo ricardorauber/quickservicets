@@ -1,5 +1,5 @@
 import { appendFileSync } from "node:fs";
-import type { ErrorReport, ErrorReporter } from "@quickservice/core";
+import type { ErrorReport, ErrorReporter } from "@quickservicets/core";
 
 /** Keeps every report in memory, as the tests read them. */
 export function memoryReporter(): ErrorReporter & { reports: ErrorReport[] } {

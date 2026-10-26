@@ -7,16 +7,16 @@ type Repos = { queueMessages: { findById(id: string): Promise<Message | null> } 
 const messages = (service: TestService) => (service.repos as unknown as Repos).queueMessages;
 
 const files = {
-  "quickservice.config.ts": `import { defineConfig, memoryAdapter } from "@quickservice/core";
+  "quickservicets.config.ts": `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter(), queues: {} });
 `,
-  "queues/once.ts": `import { queue } from "@quickservice/core";
+  "queues/once.ts": `import { queue } from "@quickservicets/core";
 export default queue(() => {}, { retries: 1 });
 `,
-  "queues/usual.ts": `import { queue } from "@quickservice/core";
+  "queues/usual.ts": `import { queue } from "@quickservicets/core";
 export default queue(() => {});
 `,
-  "endpoints/add/post.ts": `import type { QueueAddOptions, ServiceRequest } from "@quickservice/core";
+  "endpoints/add/post.ts": `import type { QueueAddOptions, ServiceRequest } from "@quickservicets/core";
 export default async (_repos: unknown, req: ServiceRequest) => {
   const { name, options } = (await req.json()) as { name: "once" | "usual"; options?: QueueAddOptions };
   try {

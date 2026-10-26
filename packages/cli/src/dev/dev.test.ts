@@ -121,7 +121,7 @@ describe("dev session", () => {
       });
       await startDev("/project", deps);
       expect(events).toContain(
-        'log Created migrations/20261015120000_AddAgeToUsers.ts. Run "quickservice migrate" to apply it.',
+        'log Created migrations/20261015120000_AddAgeToUsers.ts. Run "quickservicets migrate" to apply it.',
       );
     });
     test("only warn when disabled", async () => {

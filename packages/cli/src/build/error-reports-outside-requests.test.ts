@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import type { ErrorReport } from "@quickservice/core";
+import type { ErrorReport } from "@quickservicets/core";
 import { startTestService, type TestService } from "../testing/service.ts";
 
 const LOGGER = `logger: {
@@ -7,11 +7,11 @@ const LOGGER = `logger: {
     warn: (entry: object) => void ((globalThis as any).outsideLogs ??= []).push(entry),
     error: (entry: object) => void ((globalThis as any).outsideLogs ??= []).push(entry),
   }`;
-const config = (keys: string) => `import { defineConfig, memoryAdapter } from "@quickservice/core";
+const config = (keys: string) => `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 import { memoryReporter, throwingReporter, slowReporter, stuckReporter } from "./reporters.ts";
 export default defineConfig({ database: memoryAdapter(), ${keys}, ${LOGGER} });
 `;
-const REPORTERS = `import type { ErrorReport } from "@quickservice/core";
+const REPORTERS = `import type { ErrorReport } from "@quickservicets/core";
 const received: ErrorReport[] = ((globalThis as any).outsideReports ??= []);
 export const memoryReporter = { report: (report: ErrorReport) => void received.push(report) };
 export const throwingReporter = { report: () => { throw new Error("reporter down"); } };
@@ -22,7 +22,7 @@ export const slowReporter = {
 export const stuckReporter = { report: () => undefined, flush: () => new Promise<void>(() => undefined) };
 `;
 /** A project feature that signs requests in as the user of the x-user header. */
-const SIGN_IN = `import { defineFeature } from "@quickservice/core";
+const SIGN_IN = `import { defineFeature } from "@quickservicets/core";
 export default defineFeature({
   key: "signin",
   middleware: [{ stage: "handler", run: (req, _res, next) => { const id = req.headers.get("x-user"); if (id) (req as { user?: unknown }).user = { id }; return next(); } }],
@@ -32,9 +32,9 @@ const FILES = {
   "reporters.ts": REPORTERS,
   "features/signin/index.ts": SIGN_IN,
   "entities/User.ts": "export type User = { name: string };\n",
-  "queues/flaky.ts": 'import { queue } from "@quickservice/core";\nexport default queue(() => { throw new Error("consumer broke"); }, { retries: 2, retryDelay: "1s" });\n',
-  "endpoints/enqueue/post.ts": 'import type { ServiceRequest } from "@quickservice/core";\nexport default async (_repos: unknown, req: ServiceRequest) => req.queue.add("flaky", {});\n',
-  "events/broken.ts": 'import { listen } from "@quickservice/core";\nexport default listen("user.created", () => { throw new Error("listener broke"); });\n',
+  "queues/flaky.ts": 'import { queue } from "@quickservicets/core";\nexport default queue(() => { throw new Error("consumer broke"); }, { retries: 2, retryDelay: "1s" });\n',
+  "endpoints/enqueue/post.ts": 'import type { ServiceRequest } from "@quickservicets/core";\nexport default async (_repos: unknown, req: ServiceRequest) => req.queue.add("flaky", {});\n',
+  "events/broken.ts": 'import { listen } from "@quickservicets/core";\nexport default listen("user.created", () => { throw new Error("listener broke"); });\n',
 };
 const reports = () => ((globalThis as { outsideReports?: ErrorReport[] }).outsideReports ??= []);
 const logs = () => ((globalThis as { outsideLogs?: Record<string, unknown>[] }).outsideLogs ??= []);
@@ -51,7 +51,7 @@ const messages = (service: TestService) => (service.repos as unknown as { queueM
 
 describe("queue messages", () => {
   test("a message that exhausts its retries is reported once, with the user of the request that added it", async () => {
-    const service = await startTestService({ files: { ...FILES, "quickservice.config.ts": config('events: {}, queues: { pollInterval: "1s" }, signin: {}, errors: { reporter: memoryReporter }') } });
+    const service = await startTestService({ files: { ...FILES, "quickservicets.config.ts": config('events: {}, queues: { pollInterval: "1s" }, signin: {}, errors: { reporter: memoryReporter }') } });
     try {
       const { id } = (await (await service.fetch("/enqueue", post({}, { "x-user": "u1" }))).json()) as { id: string };
       await settle(async () => (await messages(service)).every((message) => message.status === "dead"));
@@ -66,7 +66,7 @@ describe("queue messages", () => {
   }, 15_000);
 
   test('with jobs: "every" each failed attempt is reported too', async () => {
-    const service = await startTestService({ files: { ...FILES, "quickservice.config.ts": config('events: {}, queues: { pollInterval: "1s" }, signin: {}, errors: { reporter: memoryReporter, jobs: "every" }') } });
+    const service = await startTestService({ files: { ...FILES, "quickservicets.config.ts": config('events: {}, queues: { pollInterval: "1s" }, signin: {}, errors: { reporter: memoryReporter, jobs: "every" }') } });
     try {
       await service.fetch("/enqueue", post());
       await settle(async () => (await messages(service)).every((message) => message.status === "dead"));
@@ -81,7 +81,7 @@ describe("queue messages", () => {
 
 describe("events", () => {
   test("an after-commit listener that throws is reported with the event type and the request's user", async () => {
-    const service = await startTestService({ files: { ...FILES, "quickservice.config.ts": config("events: {}, queues: {}, signin: {}, errors: { reporter: memoryReporter }") } });
+    const service = await startTestService({ files: { ...FILES, "quickservicets.config.ts": config("events: {}, queues: {}, signin: {}, errors: { reporter: memoryReporter }") } });
     try {
       await service.fetch("/users", post({ name: "Ada" }, { "x-user": "u1" }));
       await settle(() => reports().some((report) => report.kind === "event"));
@@ -92,7 +92,7 @@ describe("events", () => {
   });
 
   test("an outbox delivery that becomes failed is reported with its consumer", async () => {
-    const consumer = `import { defineFeature } from "@quickservice/core";
+    const consumer = `import { defineFeature } from "@quickservicets/core";
 export default defineFeature({
   key: "mailer",
   requires: ["events"],
@@ -105,7 +105,7 @@ export default defineFeature({
       files: {
         ...FILES,
         "features/mailer/index.ts": consumer,
-        "quickservice.config.ts": config('events: { outbox: { delivery: { pollInterval: "1s" } } }, queues: {}, signin: {}, mailer: {}, errors: { reporter: memoryReporter }'),
+        "quickservicets.config.ts": config('events: { outbox: { delivery: { pollInterval: "1s" } } }, queues: {}, signin: {}, mailer: {}, errors: { reporter: memoryReporter }'),
       },
     });
     try {
@@ -118,7 +118,7 @@ export default defineFeature({
   });
 
   test("with a reporter that throws, queue statuses, attempts and responses are the same", async () => {
-    const service = await startTestService({ files: { ...FILES, "quickservice.config.ts": config('events: {}, queues: { pollInterval: "1s" }, signin: {}, errors: { reporter: throwingReporter }') } });
+    const service = await startTestService({ files: { ...FILES, "quickservicets.config.ts": config('events: {}, queues: { pollInterval: "1s" }, signin: {}, errors: { reporter: throwingReporter }') } });
     try {
       expect((await service.fetch("/users", post({ name: "Ada" }))).status).toBe(201);
       await service.fetch("/enqueue", post());
@@ -133,8 +133,8 @@ export default defineFeature({
 
 describe("flush on shutdown", () => {
   test("stopping waits for a slow reporter's pending report and its flush", async () => {
-    const service = await startTestService({ files: { ...FILES, "quickservice.config.ts": config("events: {}, queues: {}, signin: {}, errors: { reporter: slowReporter }") } });
-    const { reportError } = await import("@quickservice/core");
+    const service = await startTestService({ files: { ...FILES, "quickservicets.config.ts": config("events: {}, queues: {}, signin: {}, errors: { reporter: slowReporter }") } });
+    const { reportError } = await import("@quickservicets/core");
     reportError(new Error("late"));
     await service.stop();
     expect(reports().map((report) => report.tags.slow)).toEqual(["delivered"]);
@@ -142,7 +142,7 @@ describe("flush on shutdown", () => {
   });
 
   test("a flush that never resolves logs error.flush.timeout after the stop timeout and the stop still completes", async () => {
-    const service = await startTestService({ files: { ...FILES, "quickservice.config.ts": config('events: {}, queues: {}, signin: {}, errors: { reporter: stuckReporter }, lifecycle: { stopTimeout: "1s" }') } });
+    const service = await startTestService({ files: { ...FILES, "quickservicets.config.ts": config('events: {}, queues: {}, signin: {}, errors: { reporter: stuckReporter }, lifecycle: { stopTimeout: "1s" }') } });
     const started = Date.now();
     await service.stop();
     expect(Date.now() - started).toBeLessThan(3000);

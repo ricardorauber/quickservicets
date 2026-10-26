@@ -13,7 +13,7 @@ The samples come from the example project `examples/minimal/errors`: an endpoint
 
 ```ts title="reporters.ts"
 import { appendFileSync } from "node:fs";
-import type { ErrorReport, ErrorReporter } from "@quickservice/core";
+import type { ErrorReport, ErrorReporter } from "@quickservicets/core";
 
 /** Keeps every report in memory, as the tests read them. */
 export function memoryReporter(): ErrorReporter & { reports: ErrorReport[] } {
@@ -29,8 +29,8 @@ export function jsonLinesReporter(path: string): ErrorReporter {
 
 An `ErrorReporter` has `report(report)`, which may return a promise, and an optional `flush(timeoutMs)` that delivers what it buffered. `errors: { reporter }` takes one reporter or a list.
 
-```ts title="quickservice.config.ts"
-import { defineConfig, memoryAdapter } from "@quickservice/core";
+```ts title="quickservicets.config.ts"
+import { defineConfig, memoryAdapter } from "@quickservicets/core";
 
 export default defineConfig({
   database: memoryAdapter(),
@@ -57,7 +57,7 @@ export default () => {
 ```
 
 ```ts title="jobs/sync-invoices.ts"
-import { job } from "@quickservice/core";
+import { job } from "@quickservicets/core";
 
 /** Syncs invoices every night; the provider is down, so it fails on purpose. */
 export default job("@daily", async () => {
@@ -99,7 +99,7 @@ errors: { tags: ({ tenant }) => ({ plan: (tenant as { plan?: string } | undefine
 5. Hooks: `beforeReport` runs after masking and before the reporters; it returns a changed report or `null` to drop it, and one that throws is logged as `feature.hook.failed` and drops nothing.
 6. Override files: the native has no routes, jobs or entities, so no project file replaces its parts.
 7. Reporters: any object with `report`, like `jsonLinesReporter("errors.jsonl")` above, or a package for a reporting service.
-8. Eject: `quickservice eject errors` copies the native into `features/errors/`.
+8. Eject: `quickservicets eject errors` copies the native into `features/errors/`.
 
 Other features reach the native with `ctx.feature("errors")`, which offers `addReporter(reporter)` and `beforeReport(fn)`, both after the config's.
 

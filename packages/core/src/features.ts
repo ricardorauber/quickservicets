@@ -19,7 +19,7 @@ import { boolean, object, resolveOptions, type AnyOptionSchema, type ObjectOptio
  * The config keys of the native features, each typed with its options. Every native module augments it:
  *
  * ```ts
- * declare module "@quickservice/core" {
+ * declare module "@quickservicets/core" {
  *   interface NativeFeatures {
  *     history?: FeatureConfig<typeof history>;
  *   }
@@ -33,7 +33,7 @@ export interface NativeFeatures {}
  * type by augmenting it:
  *
  * ```ts
- * declare module "@quickservice/core" {
+ * declare module "@quickservicets/core" {
  *   interface FeatureApis {
  *     history: HistoryApi;
  *   }
@@ -98,7 +98,7 @@ export interface FeatureInput<S extends AnyOptionSchema> {
    * the feature's folder into the `featureFolders` registry, keyed by each file's path without extension.
    */
   folders?: Readonly<Record<string, FeatureFolder>>;
-  /** Project-relative paths `quickservice dev` watches for this feature, besides its folders. */
+  /** Project-relative paths `quickservicets dev` watches for this feature, besides its folders. */
   watch?: readonly string[];
   /**
    * Runs in each worker process before the database connects, in feature order; registers lifecycle callbacks and
@@ -117,11 +117,11 @@ export interface FeatureInput<S extends AnyOptionSchema> {
    * before the project's `docs.openapi`.
    */
   openapi?: FeatureOpenApi<FeatureOptions<S>>;
-  /** `quickservice <name>` commands, built with `defineCommand`, listed under the feature's key in the help. */
+  /** `quickservicets <name>` commands, built with `defineCommand`, listed under the feature's key in the help. */
   commands?: readonly CommandDefinition[];
   /**
    * Produces files at build time into `.generated/<key>/`, after the rest of `.generated` is written, in feature
-   * order; `quickservice dev` runs it again when its folders or `watch` paths change.
+   * order; `quickservicets dev` runs it again when its folders or `watch` paths change.
    */
   build?: FeatureBuild<FeatureOptions<S>>;
   /**
@@ -251,7 +251,7 @@ export interface FeatureDefinition<S extends AnyOptionSchema = AnyOptionSchema> 
   readonly tags?: Readonly<Record<string, FeatureTag>>;
   /** The convention folders the feature declares, by name. */
   readonly folders?: Readonly<Record<string, FeatureFolder>>;
-  /** Project-relative paths `quickservice dev` watches for this feature. */
+  /** Project-relative paths `quickservicets dev` watches for this feature. */
   readonly watch?: readonly string[];
   /** The feature's setup, run in each worker process before the database connects. */
   readonly setup?: FeatureSetup<FeatureOptions<S>>;
@@ -372,7 +372,7 @@ export function defineFeature<S extends AnyOptionSchema = ObjectOptionSchema<{}>
     ...(input.api !== undefined ? { api: functionField(input.api, "api", invalid) } : {}),
     options() {
       const resolved = resolvedOptions.get(definition as FeatureDefinition);
-      if (!resolved) throw new Error(`${key} is not enabled; add ${key}: {} to quickservice.config.ts`);
+      if (!resolved) throw new Error(`${key} is not enabled; add ${key}: {} to quickservicets.config.ts`);
       return resolved as FeatureOptions<S>;
     },
     optionsFor(target) {
@@ -576,7 +576,7 @@ function entitiesField<O>(entities: FeatureEntities<O>, invalid: (reason: string
 }
 
 /** Marks the values `defineFeature` returns, shared by every copy of the core loaded in a process. */
-const FEATURE_BRAND = Symbol.for("quickservice.feature");
+const FEATURE_BRAND = Symbol.for("quickservicets.feature");
 
 /** Whether a value is a feature definition returned by `defineFeature`. */
 export function isFeatureDefinition(value: unknown): value is FeatureDefinition {
@@ -733,7 +733,7 @@ export function resolveFeatures(config: Record<string, unknown>, definitions: re
         problems.push(`${definition.key} requires ${requirement.name}, which is not a native feature`);
       } else if (!enabled.has(requirement.name)) {
         const hint = requirement.hint ? ` (${requirement.hint})` : "";
-        problems.push(`${definition.key} requires ${requirement.name}; add ${requirement.name}: {} to quickservice.config.ts${hint}`);
+        problems.push(`${definition.key} requires ${requirement.name}; add ${requirement.name}: {} to quickservicets.config.ts${hint}`);
       }
     }
   }

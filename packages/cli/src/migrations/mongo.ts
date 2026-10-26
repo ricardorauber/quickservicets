@@ -1,4 +1,4 @@
-import { mongoIndexSpecs, type EntityModel, type MongoIndexSpec } from "@quickservice/core";
+import { mongoIndexSpecs, type EntityModel, type MongoIndexSpec } from "@quickservicets/core";
 import { readLatestSnapshot } from "./snapshot.ts";
 
 export interface MongoMigrationPlan {

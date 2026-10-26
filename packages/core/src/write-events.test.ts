@@ -262,7 +262,7 @@ describe("the events native", () => {
 
   test("without the native, events refuse to work and no observer is installed", async () => {
     resolveConfig({ database: memoryAdapter(), logger } as ServiceConfig, {});
-    expect(() => events.on("*", () => undefined)).toThrow("events is not enabled; add events: {} to quickservice.config.ts");
+    expect(() => events.on("*", () => undefined)).toThrow("events is not enabled; add events: {} to quickservicets.config.ts");
     expect(() => eventsFeature.options()).toThrow("events is not enabled");
     const { observersOf } = await import("./write-observers.ts");
     expect(observersOf(user)).toBeNull();

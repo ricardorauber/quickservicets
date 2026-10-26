@@ -1,4 +1,4 @@
-import { queue, type QueuePayloads } from "@quickservice/core";
+import { queue, type QueuePayloads } from "@quickservicets/core";
 
 /** Logs each write event that `@publish` sends to the `events` queue. */
 export default queue<QueuePayloads["events"]>(({ payload, log }) => {

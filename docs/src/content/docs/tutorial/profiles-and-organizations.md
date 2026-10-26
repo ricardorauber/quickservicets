@@ -51,7 +51,7 @@ export type Profile = {
 
 The slug has the same tags as the module's: unique, with 2 to 64 characters.
 
-`permissions: Permission[]` is a reference array: an ordered list of permission ids. QuickService checks it for you:
+`permissions: Permission[]` is a reference array: an ordered list of permission ids. QuickService.ts checks it for you:
 
 - Every id must exist, and the same id may not appear twice.
 - The order you send is the order you get back.
@@ -62,7 +62,7 @@ The slug has the same tags as the module's: unique, with 2 to 64 characters.
 Create `entities/Organization.ts`. Organizations get their members on the next page, so for now they have no `members` field:
 
 ```ts check title="entities/Organization.ts"
-import type { Media } from "@quickservice/core"
+import type { Media } from "@quickservicets/core"
 import { Module } from "./Module"
 
 export type Organization = {

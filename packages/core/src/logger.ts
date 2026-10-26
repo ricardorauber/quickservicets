@@ -116,7 +116,7 @@ export function flushLogs(): void {
  * Marks the request log entries the server writes: they hold no free-form values, so a masking logger passes them on
  * without walking them.
  */
-export const REQUEST_LOG = Symbol.for("quickservice.requestLog");
+export const REQUEST_LOG = Symbol.for("quickservicets.requestLog");
 
 /** Masks secrets and sensitive values in what the service logs, stores in job runs and returns in development errors. */
 export interface LogMasker {

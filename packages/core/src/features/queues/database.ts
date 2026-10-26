@@ -79,7 +79,7 @@ export interface DatabaseBroker extends QueueBroker {
   running(): Record<string, number>;
 }
 
-const BIND = Symbol.for("quickservice.queues.database-broker");
+const BIND = Symbol.for("quickservicets.queues.database-broker");
 
 /** Whether a broker is one `databaseBroker()` returned. */
 export function isDatabaseBroker(value: unknown): value is DatabaseBroker {

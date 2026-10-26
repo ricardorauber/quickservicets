@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { NATIVE_FEATURES_DIR, registerNative, registerProjectFeatures, type FeatureDefinition } from "@quickservice/core";
+import { NATIVE_FEATURES_DIR, registerNative, registerProjectFeatures, type FeatureDefinition } from "@quickservicets/core";
 import { unregisterNative } from "../../../core/src/features.ts";
 import { cliPage } from "../../../../docs/scripts/reference.ts";
 import { run } from "../run.ts";
@@ -39,7 +39,7 @@ afterEach(() => {
 
 const project = (keys = "audit: {}") =>
   createLinkedProject({
-    "quickservice.config.ts": `import { defineConfig, memoryAdapter } from "@quickservice/core";\nexport default defineConfig({ database: memoryAdapter()${keys ? `, ${keys}` : ""} });\n`,
+    "quickservicets.config.ts": `import { defineConfig, memoryAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: memoryAdapter()${keys ? `, ${keys}` : ""} });\n`,
   });
 const capture = async (args: string[], root: string) => {
   const out: string[] = [];
@@ -54,13 +54,13 @@ describe("one file", () => {
     const root = project();
     expect(await capture(["eject", "audit", "--file", "jobs/prune.ts"], root)).toEqual({ code: 0, out: ["Copied jobs/audit/prune.ts; it now replaces the one from audit"], err: [] });
     const copy = readFileSync(join(root, "jobs/audit/prune.ts"), "utf8");
-    expect(copy).toBe(`import { job } from "@quickservice/core";
-import { message } from "@quickservice/core/features/audit/lib/message.ts";
+    expect(copy).toBe(`import { job } from "@quickservicets/core";
+import { message } from "@quickservicets/core/features/audit/lib/message.ts";
 export default job({ every: "1h" }, async () => message("native"));
 `);
     writeFileSync(join(root, "jobs/audit/prune.ts"), copy.replace('message("native")', 'message("the copy")'));
     const built = await capture(["build"], root);
-    expect(built.out).toContain("Override: jobs/audit/prune.ts replaces @quickservice/core/features/audit/jobs/prune.ts from audit");
+    expect(built.out).toContain("Override: jobs/audit/prune.ts replaces @quickservicets/core/features/audit/jobs/prune.ts from audit");
     const ran = await capture(["job", "run", "audit/prune"], root);
     expect(ran.code).toBe(0);
     expect(ran.out[1]).toBe('Result: "pruned by the copy"');
@@ -70,15 +70,15 @@ export default job({ every: "1h" }, async () => message("native"));
     registerNative(audit);
     const root = project();
     expect((await capture(["eject", "audit", "--file", "endpoints/audit/status/get.ts"], root)).out).toEqual(["Copied endpoints/audit/status/get.ts; it now replaces the one from audit"]);
-    expect(readFileSync(join(root, "endpoints/audit/status/get.ts"), "utf8")).toContain('import { message } from "@quickservice/core/features/audit/lib/message";');
+    expect(readFileSync(join(root, "endpoints/audit/status/get.ts"), "utf8")).toContain('import { message } from "@quickservicets/core/features/audit/lib/message";');
     expect((await capture(["eject", "audit", "--file", "lib/message.ts"], root)).err).toEqual(["lib/message.ts is not a file of the entities, endpoints, hooks, jobs or folders of audit"]);
   });
 
-  test("imports of the public entry become @quickservice/core and copied files keep relative imports", () => {
+  test("imports of the public entry become @quickservicets/core and copied files keep relative imports", () => {
     const dir = join(NATIVE_FEATURES_DIR, "audit");
     const source = 'import { a } from "../../public.ts";\nimport { b } from "../lib/b.ts";\nimport c from "node:path";\nexport { d } from "./d";\n';
     expect(rewriteImports(source, join(dir, "jobs/x.ts"), dir, "audit", (path) => path === "jobs/d.ts")).toBe(
-      'import { a } from "@quickservice/core";\nimport { b } from "@quickservice/core/features/audit/lib/b.ts";\nimport c from "node:path";\nexport { d } from "./d";\n',
+      'import { a } from "@quickservicets/core";\nimport { b } from "@quickservicets/core/features/audit/lib/b.ts";\nimport c from "node:path";\nexport { d } from "./d";\n',
     );
   });
 });
@@ -97,10 +97,10 @@ describe("the whole native", () => {
       "Wrote features/audit/jobs/prune.ts",
       "Wrote features/audit/lib/message.ts",
       "features/audit/ now replaces the audit native.",
-      "quickservice.config.ts keeps audit: {…} unchanged.",
+      "quickservicets.config.ts keeps audit: {…} unchanged.",
       "Delete features/audit/ to go back to the native.",
     ]);
-    expect(readFileSync(join(root, "features/audit/index.ts"), "utf8")).toStartWith('import { defineFeature, object, string } from "@quickservice/core";');
+    expect(readFileSync(join(root, "features/audit/index.ts"), "utf8")).toStartWith('import { defineFeature, object, string } from "@quickservicets/core";');
     expect(readFileSync(join(root, "features/audit/jobs/prune.ts"), "utf8")).toContain('import { message } from "../lib/message.ts";');
     const built = await capture(["build"], root);
     expect(built.code).toBe(0);
@@ -137,6 +137,6 @@ describe("reference", () => {
   test("the CLI reference documents eject and its flags", () => {
     const page = cliPage();
     expect(page).toContain("## `eject`");
-    expect(page).toContain("quickservice eject <key> [--file <path>] [--dry-run] [--force]");
+    expect(page).toContain("quickservicets eject <key> [--file <path>] [--dry-run] [--force]");
   });
 });

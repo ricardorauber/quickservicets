@@ -1,4 +1,4 @@
-import type { EntityModel, ResolvedFeature } from "@quickservice/core";
+import type { EntityModel, ResolvedFeature } from "@quickservicets/core";
 import { BuildError } from "../errors.ts";
 
 /** An entity tagged `@publish` and where its write events go. */

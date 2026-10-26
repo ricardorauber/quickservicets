@@ -1,4 +1,4 @@
-import { assertTimeZone, parseDuration, parseSchedule, ScheduleError, type Schedule } from "@quickservice/core";
+import { assertTimeZone, parseDuration, parseSchedule, ScheduleError, type Schedule } from "@quickservicets/core";
 
 /** The reason a `ScheduleError` was thrown; other errors propagate. */
 function reasonOf(check: () => void): string | undefined {

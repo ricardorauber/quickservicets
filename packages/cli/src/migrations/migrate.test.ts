@@ -13,8 +13,8 @@ async function sqliteProject(production = false) {
   const root = createLinkedProject({ "entities/User.ts": "export type User = { email: string }" });
   const path = join(root, "app.db");
   writeFileSync(
-    join(root, "quickservice.config.ts"),
-    `import { defineConfig, sqliteAdapter } from "@quickservice/core";\nexport default defineConfig({ database: sqliteAdapter({ path: ${JSON.stringify(path)} }), production: ${production} });\n`,
+    join(root, "quickservicets.config.ts"),
+    `import { defineConfig, sqliteAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: sqliteAdapter({ path: ${JSON.stringify(path)} }), production: ${production} });\n`,
   );
   await addMigration(root, "Initial", at(0));
   writeFileSync(join(root, "entities/User.ts"), "export type User = { email: string; age?: number }");
@@ -114,7 +114,7 @@ describe("missing migrations", () => {
 });
 
 test("the memory adapter has nothing to migrate", async () => {
-  const root = createLinkedProject({ "quickservice.config.ts": MEMORY_CONFIG });
+  const root = createLinkedProject({ "quickservicets.config.ts": MEMORY_CONFIG });
   const logs: string[] = [];
   expect(await run(["migrate"], { log: (line) => logs.push(line), error: () => {} }, root)).toBe(0);
   expect(logs[0]).toContain("Nothing to migrate");
@@ -128,7 +128,7 @@ if (postgresUrl) {
     await admin.unsafe("drop schema if exists public cascade; create schema public;");
     await admin.close();
     const root = createLinkedProject({
-      "quickservice.config.ts": `import { defineConfig, postgresAdapter } from "@quickservice/core";\nexport default defineConfig({ database: postgresAdapter({ url: ${JSON.stringify(postgresUrl)} }) });\n`,
+      "quickservicets.config.ts": `import { defineConfig, postgresAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: postgresAdapter({ url: ${JSON.stringify(postgresUrl)} }) });\n`,
       "entities/User.ts": "export type User = { email: string }",
     });
     await addMigration(root, "Initial", at(0));

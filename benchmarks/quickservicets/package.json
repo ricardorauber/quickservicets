@@ -1,0 +1,15 @@
+{
+  "name": "quickservicets-benchmark",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "quickservicets dev",
+    "build": "quickservicets build",
+    "migrate": "quickservicets migrate",
+    "start": "bun .generated/server.ts"
+  },
+  "dependencies": {
+    "@quickservicets/core": "workspace:*",
+    "@quickservicets/cli": "workspace:*"
+  }
+}

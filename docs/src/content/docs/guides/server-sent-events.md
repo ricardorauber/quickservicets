@@ -13,8 +13,8 @@ The samples come from the example project `examples/minimal/realtime`: a clock s
 
 With `realtime: {}`, a file named `sse.ts` in `endpoints/` is a `GET` route that streams. It default-exports `defineSse(handler)`; the handler gets the open stream, the repositories and the request.
 
-```ts title="quickservice.config.ts"
-import { defineConfig, memoryAdapter } from "@quickservice/core";
+```ts title="quickservicets.config.ts"
+import { defineConfig, memoryAdapter } from "@quickservicets/core";
 
 export default defineConfig({
   database: memoryAdapter(),
@@ -24,7 +24,7 @@ export default defineConfig({
 ```
 
 ```ts title="endpoints/clock/sse.ts"
-import { defineSse } from "@quickservice/core";
+import { defineSse } from "@quickservicets/core";
 
 /** Sends the server's time every second until the client disconnects. */
 export default defineSse((stream) => {
@@ -108,7 +108,7 @@ realtime: { sse: { beforeDeliver: ({ user, event }) => (event.after as { owner?:
 5. Hooks: `sse.beforeSend` receives `{ req, event, data }` before each message and returns changed data, or `null` to skip it.
 6. Override files: a project `endpoints/tasks/changes/sse.ts` replaces the generated change stream, with an `Override:` line in the build output.
 7. A source: `sse.changeSource` replaces the outbox and ring buffer with any object that has `subscribe(entities, onEvent)` and `replay(entities, afterId, limit)`, such as one fed by Redis or PostgreSQL `LISTEN/NOTIFY`.
-8. Eject: `quickservice eject realtime` copies the native into `features/realtime/`.
+8. Eject: `quickservicets eject realtime` copies the native into `features/realtime/`.
 
 Other features reach the native with `ctx.feature("realtime")`, which offers `beforeDeliver(fn)`, `beforeSend(fn)` and `publish(entity, event)`, sending a change to this worker's open streams without a write.
 

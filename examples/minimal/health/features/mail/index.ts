@@ -1,4 +1,4 @@
-import { boolean, defineFeature, object } from "@quickservice/core";
+import { boolean, defineFeature, object } from "@quickservicets/core";
 
 /** A small feature that adds a readiness check for its mail server. */
 export default defineFeature({

@@ -38,7 +38,7 @@ def category(frame):
 def label(frame):
     u = frame["url"]
     u = re.sub(r".*/node_modules/\.bun/[^/]+/node_modules/", "", u)
-    u = u.replace("/app/packages/core/src/", "core/").replace("/app/benchmarks/quickservice/", "qs/")
+    u = u.replace("/app/packages/core/src/", "core/").replace("/app/benchmarks/quickservicets/", "qs/")
     return f'{frame["functionName"] or "(anon)"} {u}:{frame["lineNumber"]}' if u else frame["functionName"] or "(anon)"
 
 

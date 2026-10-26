@@ -4,7 +4,7 @@ import { run } from "../run.ts";
 import { createLinkedProject, MEMORY_CONFIG } from "../testing/project.ts";
 import { build } from "./build.ts";
 
-const project = () => createLinkedProject({ "quickservice.config.ts": MEMORY_CONFIG, "entities/User.ts": "export type User = { email: string };\n" });
+const project = () => createLinkedProject({ "quickservicets.config.ts": MEMORY_CONFIG, "entities/User.ts": "export type User = { email: string };\n" });
 
 afterEach(() => {
   delete process.env.QS_SERVR_PORT;
@@ -50,7 +50,7 @@ test("the generated server starts and logs the warning once", async () => {
   child.kill();
   await child.exited;
   await read.catch(() => undefined);
-  expect(output).toContain(`quickservice listening on http://localhost:${port}`);
+  expect(output).toContain(`QuickService.ts listening on http://localhost:${port}`);
   const warnings = output.split("\n").filter((line) => line.includes('"config.warning"')).map((line) => JSON.parse(line) as { warning: string });
   expect(warnings.map((entry) => entry.warning)).toEqual(["Unknown environment variable QS_SERVR_PORT (did you mean QS_SERVER_PORT?)"]);
 }, 30_000);

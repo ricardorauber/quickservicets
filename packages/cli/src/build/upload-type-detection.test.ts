@@ -2,25 +2,25 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createApp, localStorage, memoryAdapter, resolveConfig } from "@quickservice/core";
-import { fileSamples } from "@quickservice/core/testing";
+import { createApp, localStorage, memoryAdapter, resolveConfig } from "@quickservicets/core";
+import { fileSamples } from "@quickservicets/core/testing";
 import { parseProjectEntities } from "../entities/parse-entities.ts";
 import { createProject } from "../testing/project.ts";
 
 const entities = {
-  "entities/Organization.ts": `import type { Media } from "@quickservice/core";
+  "entities/Organization.ts": `import type { Media } from "@quickservicets/core";
 export type Organization = {
   name: string;
   /** @accept image/png,image/jpeg */
   logo?: Media;
   gallery?: Media[];
 };`,
-  "entities/Avatar.ts": 'import type { Media } from "@quickservice/core";\n/** @accept image/png */\nexport type Avatar = Media & { label?: string }',
+  "entities/Avatar.ts": 'import type { Media } from "@quickservicets/core";\n/** @accept image/png */\nexport type Avatar = Media & { label?: string }',
 };
 
 async function setup() {
   const models = parseProjectEntities(createProject(entities));
-  const dir = mkdtempSync(join(tmpdir(), "quickservice-upload-types-"));
+  const dir = mkdtempSync(join(tmpdir(), "quickservicets-upload-types-"));
   const database = memoryAdapter();
   const config = resolveConfig({ database, storage: { default: localStorage({ dir }) }, logger: { info() {}, warn() {}, error() {} } }, {});
   await database.connect(models);

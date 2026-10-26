@@ -18,7 +18,10 @@ import {
   type QueryItem,
   type QueryValueType,
   type TypeDescriptor,
-} from "@quickservice/core";
+} from "@quickservicets/core";
+
+/** The OpenAPI title of a project whose package.json has no name. */
+export const DEFAULT_OPENAPI_TITLE = "QuickService.ts API";
 
 export type JsonSchema = Record<string, unknown>;
 
@@ -866,7 +869,7 @@ export function generateOpenApi({
   }
   return {
     openapi: "3.1.0",
-    info: { title: packageJson.name ?? "QuickService", version: packageJson.version ?? "0.0.0" },
+    info: { title: packageJson.name || DEFAULT_OPENAPI_TITLE, version: packageJson.version ?? "0.0.0" },
     tags: [...tags].sort().map((name) => ({ name })),
     paths: sortKeys(
       Object.fromEntries(

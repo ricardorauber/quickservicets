@@ -53,7 +53,7 @@ export interface ReportErrorExtra {
 
 type Sink = (error: unknown, extra: ReportErrorExtra) => void;
 
-const SINK = Symbol.for("quickservice.errors.sink");
+const SINK = Symbol.for("quickservicets.errors.sink");
 const slot = globalThis as unknown as { [SINK]?: Sink };
 
 /** Sets (or removes) where `reportError` sends; the `errors` native sets it while it runs. */
@@ -87,8 +87,8 @@ export interface FailureDetails {
 type FailureSink = (error: unknown, details: FailureDetails) => void;
 type StartupSink = (error: unknown, details: { feature?: string; phase?: string }) => Promise<void>;
 
-const FAILURES = Symbol.for("quickservice.errors.failures");
-const STARTUP = Symbol.for("quickservice.errors.startup");
+const FAILURES = Symbol.for("quickservicets.errors.failures");
+const STARTUP = Symbol.for("quickservicets.errors.startup");
 const sinks = globalThis as unknown as { [FAILURES]?: FailureSink; [STARTUP]?: StartupSink };
 
 /** Sets (or removes) where `reportFailure` and `reportStartupFailure` send; the `errors` native sets them. */

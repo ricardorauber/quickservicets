@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { startTestService, type TestService } from "@quickservice/cli/testing";
-import { cidrMatcher } from "@quickservice/core";
+import { startTestService, type TestService } from "@quickservicets/cli/testing";
+import { cidrMatcher } from "@quickservicets/core";
 import { compileLists, ipStep } from "../../../core/src/features/security/ip.ts";
 
-const CONFIG = (security = "", extra = "") => `import { defineConfig, memoryAdapter } from "@quickservice/core";
+const CONFIG = (security = "", extra = "") => `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter()${security ? `, security: ${security}` : ""}${extra ? `, ${extra}` : ""} });
 `;
 const POST = "export type Post = { title: string };\n";
-const endpoint = (tag: string) => `import type { Endpoint } from "@quickservice/core";\n/** ${tag} */\nconst handler: Endpoint = () => ({ ok: true });\nexport default handler;\n`;
-const PROBES = `import { defineFeature } from "@quickservice/core";
+const endpoint = (tag: string) => `import type { Endpoint } from "@quickservicets/core";\n/** ${tag} */\nconst handler: Endpoint = () => ({ ok: true });\nexport default handler;\n`;
+const PROBES = `import { defineFeature } from "@quickservicets/core";
 export default defineFeature({
   key: "probes",
   after: ["security"],
@@ -57,7 +57,7 @@ describe("matching", () => {
 
 describe("global lists", () => {
   test("a deny list refuses its addresses with 403 Address not allowed", async () => {
-    await withService({ "quickservice.config.ts": CONFIG('{ ip: { deny: ["203.0.113.0/24"] } }') }, async (service) => {
+    await withService({ "quickservicets.config.ts": CONFIG('{ ip: { deny: ["203.0.113.0/24"] } }') }, async (service) => {
       const refused = await service.fetch("/posts", { peer: "203.0.113.9" });
       expect(refused.status).toBe(403);
       expect(await refused.json()).toEqual({ error: { code: "FORBIDDEN", message: "Address not allowed" } });
@@ -66,7 +66,7 @@ describe("global lists", () => {
   });
 
   test("an allow list with a deny entry, and a request with no peer", async () => {
-    await withService({ "quickservice.config.ts": CONFIG('{ ip: { allow: ["10.0.0.0/8"], deny: ["10.0.0.66"] } }') }, async (service) => {
+    await withService({ "quickservicets.config.ts": CONFIG('{ ip: { allow: ["10.0.0.0/8"], deny: ["10.0.0.66"] } }') }, async (service) => {
       expect(await statusOf(service, "/posts", "10.1.2.3")).toBe(200);
       expect(await statusOf(service, "/posts", "10.0.0.66")).toBe(403);
       expect(await statusOf(service, "/posts", "192.168.0.1")).toBe(403);
@@ -75,7 +75,7 @@ describe("global lists", () => {
   });
 
   test("QS_SECURITY_IP_DENY refuses that address", async () => {
-    await withService({ "quickservice.config.ts": CONFIG() }, async (service) => {
+    await withService({ "quickservicets.config.ts": CONFIG() }, async (service) => {
       expect(await statusOf(service, "/posts", "203.0.113.9")).toBe(403);
       expect(await statusOf(service, "/posts", "203.0.113.10")).toBe(200);
     }, { QS_SECURITY_IP_DENY: "203.0.113.9" });
@@ -84,13 +84,13 @@ describe("global lists", () => {
 
 describe("route tags", () => {
   test("@ipAllow narrows one route, the rest stays open; an invalid entry fails the build", async () => {
-    await withService({ "quickservice.config.ts": CONFIG(), "endpoints/admin/stats/get.ts": endpoint("@ipAllow private,loopback") }, async (service) => {
+    await withService({ "quickservicets.config.ts": CONFIG(), "endpoints/admin/stats/get.ts": endpoint("@ipAllow private,loopback") }, async (service) => {
       expect(await statusOf(service, "/admin/stats", "203.0.113.5")).toBe(403);
       expect(await statusOf(service, "/admin/stats", "10.0.0.5")).toBe(200);
       expect(await statusOf(service, "/admin/stats", "127.0.0.1")).toBe(200);
       expect(await statusOf(service, "/posts", "203.0.113.5")).toBe(200);
     });
-    const error = await startTestService({ files: { "quickservice.config.ts": CONFIG(), "entities/Post.ts": POST, "endpoints/admin/stats/get.ts": endpoint("@ipAllow 10.0.0.300") } }).then(
+    const error = await startTestService({ files: { "quickservicets.config.ts": CONFIG(), "entities/Post.ts": POST, "endpoints/admin/stats/get.ts": endpoint("@ipAllow 10.0.0.300") } }).then(
       (service) => service.stop().then(() => "built"),
       (failure: Error) => failure.message,
     );
@@ -99,7 +99,7 @@ describe("route tags", () => {
 
   test("route lists add to the global ones, and an endpoint's tag wins over its entity's", async () => {
     const files = {
-      "quickservice.config.ts": CONFIG('{ ip: { deny: ["198.51.100.66"] } }'),
+      "quickservicets.config.ts": CONFIG('{ ip: { deny: ["198.51.100.66"] } }'),
       "entities/Post.ts": "/** @ipDeny 203.0.113.0/24 */\nexport type Post = { title: string };\n",
       "endpoints/posts/get.ts": endpoint("@ipDeny 192.0.2.0/24"),
     };
@@ -116,7 +116,7 @@ describe("route tags", () => {
 
 describe("exemptions and the no-work path", () => {
   test("an exempted path skips the global lists", async () => {
-    await withService({ "quickservice.config.ts": CONFIG('{ ip: { allow: ["10.0.0.0/8"] } }', "probes: {}"), "features/probes/index.ts": PROBES }, async (service) => {
+    await withService({ "quickservicets.config.ts": CONFIG('{ ip: { allow: ["10.0.0.0/8"] } }', "probes: {}"), "features/probes/index.ts": PROBES }, async (service) => {
       expect(await statusOf(service, "/health/live", "203.0.113.5")).toBe(200);
       expect(await statusOf(service, "/posts", "203.0.113.5")).toBe(403);
     });

@@ -1,20 +1,20 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { createApp, resolveConfig } from "@quickservice/core";
+import { createApp, resolveConfig } from "@quickservicets/core";
 import { parseEntities } from "../entities/parse-entities.ts";
 import { createLinkedProject, MEMORY_CONFIG } from "../testing/project.ts";
 import { run } from "../run.ts";
 import { build } from "./build.ts";
 import { generateEntityType } from "./generate-types.ts";
 
-const preHook = `import { definePreHook } from "@quickservice/core";
+const preHook = `import { definePreHook } from "@quickservicets/core";
 export default definePreHook((_, req) => { req.context.audited = true; });
 `;
 
 const project = (files: Record<string, string> = {}) =>
   createLinkedProject({
-    "quickservice.config.ts": MEMORY_CONFIG,
+    "quickservicets.config.ts": MEMORY_CONFIG,
     "entities/Organization.ts": "export type Organization = { name: string }",
     "entities/User.ts": `import type { Organization } from "./Organization";
 /** @audit:create */
@@ -109,7 +109,7 @@ test("end-to-end build and request through the generated app", async () => {
   await build(root);
   const { models } = await import(join(root, ".generated/models.ts"));
   const { crudRoutes, endpoints, hooks } = await import(join(root, ".generated/routes.ts"));
-  const projectConfig = (await import(join(root, "quickservice.config.ts"))).default;
+  const projectConfig = (await import(join(root, "quickservicets.config.ts"))).default;
   const config = resolveConfig(projectConfig, {});
   await config.database.connect(models);
   const { server } = createApp({ models, crudRoutes, endpoints, hooks, config });

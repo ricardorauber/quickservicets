@@ -23,9 +23,9 @@ The benchmark API ([`../../CONTRACT.md`](../../CONTRACT.md)) on Node.js with Fas
 - Every query is a named (prepared) statement. Each distinct SQL text gets a name, capped at 500 texts per process.
 - Uploads: `@fastify/multipart` with a 1 MiB `fileSize` limit and `throwFileSizeLimit: false`, so the type check (magic bytes) still runs before the size check, as the contract orders them. Non-multipart requests to `POST /media` are rejected in a `preParsing` hook before any body parser runs.
 
-## Known differences from QuickService (not tested)
+## Known differences from QuickService.ts (not tested)
 
-- A file part without a `Content-Type` header is treated as `text/plain` (busboy follows RFC 7578), whereas QuickService treats it as having no declared type. Clients such as browsers, Bun and k6 always send a type for files.
+- A file part without a `Content-Type` header is treated as `text/plain` (busboy follows RFC 7578), whereas QuickService.ts treats it as having no declared type. Clients such as browsers, Bun and k6 always send a type for files.
 - A JSON body containing `__proto__` is rejected as `Invalid JSON body`, by Fastify's default prototype-poisoning protection.
 - Only the filters the contract requires are supported (`email`, `role`, `age` on users and `slug` on organizations, with `eq`/`ne`/`in`/`nin`, plus `gt`/`gte`/`lt`/`lte` on `age`). Other operators get `Operator "..." is not allowed for this field`.
 

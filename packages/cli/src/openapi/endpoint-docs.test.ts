@@ -16,7 +16,7 @@ const entities = {
 };
 
 const endpoint = (body: string, imports = "") =>
-  `import type { Endpoint } from "@quickservice/core";\n${imports}\n${body}\n`;
+  `import type { Endpoint } from "@quickservicets/core";\n${imports}\n${body}\n`;
 
 function documentFor(files: Record<string, string>) {
   const root = createLinkedProject({ ...entities, ...files });
@@ -54,8 +54,8 @@ describe("texts", () => {
 
   test("an endpoint with @summary and a hook builds with only that hook", async () => {
     const root = createLinkedProject({
-      "quickservice.config.ts": MEMORY_CONFIG,
-      "hooks/authorized.ts": 'import { definePreHook } from "@quickservice/core";\nexport default definePreHook(() => {});',
+      "quickservicets.config.ts": MEMORY_CONFIG,
+      "hooks/authorized.ts": 'import { definePreHook } from "@quickservicets/core";\nexport default definePreHook(() => {});',
       "endpoints/stats/get.ts": "/** @summary Stats @authorized */\nexport default () => ({});",
     });
     await build(root);
@@ -89,7 +89,7 @@ describe("generics", () => {
 interface Report { title: string; count: number; done: boolean; tags: string[]; ranges: Array<Range>; status: "draft" | "final"; owner: User; members: User[]; logo?: Media }
 const h: Endpoint<{ range: Range; kind?: "a" | "b" }, Report> = async () => ({}) as never;
 export default h;`,
-        'import type { Media } from "@quickservice/core";\nimport type { User } from "../../entities/User.ts";',
+        'import type { Media } from "@quickservicets/core";\nimport type { User } from "../../entities/User.ts";',
       ),
     });
     expect(warnings).toEqual([]);
@@ -128,7 +128,7 @@ export default h;`,
 
   test("the build prints the warning and does not fail", async () => {
     const root = createLinkedProject({
-      "quickservice.config.ts": MEMORY_CONFIG,
+      "quickservicets.config.ts": MEMORY_CONFIG,
       "endpoints/stats/get.ts": endpoint("const h: Endpoint<unknown, Map<string, number>> = async () => new Map() as never;\nexport default h;"),
     });
     const summary = await build(root);
@@ -246,7 +246,7 @@ describe("generated types", () => {
 
   test("the build documents generated types without the fallback warning", async () => {
     const root = createLinkedProject({
-      "quickservice.config.ts": MEMORY_CONFIG,
+      "quickservicets.config.ts": MEMORY_CONFIG,
       ...entities,
       "endpoints/invites/post.ts": endpoint(
         "const h: Endpoint<UserCreate, { users: User[] }> = async () => ({ users: [] });\nexport default h;",

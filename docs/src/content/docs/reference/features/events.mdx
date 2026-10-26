@@ -9,7 +9,7 @@ Write events for every entity, delivered to listeners inside the write's transac
 
 ## Enabling
 
-Turn it on in `quickservice.config.ts`:
+Turn it on in `quickservicets.config.ts`:
 
 ```ts
 events: {}
@@ -60,7 +60,7 @@ export type Session = { token: string };
 Prints, per durable consumer, how many deliveries are pending, delivering, delivered and failed, and the age of the oldest pending one.
 
 ```bash
-quickservice events outbox
+quickservicets events outbox
 ```
 
 ### `events retry`
@@ -68,7 +68,7 @@ quickservice events outbox
 Resets failed deliveries to pending with attempt 0, one by id or every failed one of a consumer, and prints how many.
 
 ```bash
-quickservice events retry <delivery id> | quickservice events retry --consumer <name> --failed
+quickservicets events retry <delivery id> | quickservicets events retry --consumer <name> --failed
 ```
 
 **Arguments:**

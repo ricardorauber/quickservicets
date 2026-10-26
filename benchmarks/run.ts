@@ -3,8 +3,8 @@
  * Benchmark runner. For each stack: build its image, start it next to PostgreSQL, measure startup, check
  * conformance, run every k6 scenario, sample memory and CPU, and write benchmarks/results/<stack>.json.
  *
- *   bun benchmarks/run.ts quickservice
- *   bun benchmarks/run.ts quickservice express --scenarios crud,query
+ *   bun benchmarks/run.ts quickservicets
+ *   bun benchmarks/run.ts quickservicets express --scenarios crud,query
  *   bun benchmarks/run.ts all
  *
  * Options:
@@ -15,7 +15,7 @@
  *   --startup-runs 3    cold starts used for the startup measurement
  *   --skip-build        reuse the existing qsbench-<stack> image
  *   --keep-going        run the load scenarios even when conformance fails (the default stops the stack)
- *   --features a=on,b=off  switch native features of the quickservice stacks with QS_<KEY>_ENABLED; the result goes
+ *   --features a=on,b=off  switch native features of the quickservicets stacks with QS_<KEY>_ENABLED; the result goes
  *                       to benchmarks/results/features/<label>.json (compare it with compare-features.ts)
  */
 import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
@@ -82,7 +82,7 @@ for (const name of scenarioNames) if (!SCENARIOS[name]) fail(`Unknown scenario "
 function availableStacks(): string[] {
   const dir = join(BENCH, "stacks");
   const others = existsSync(dir) ? readdirSync(dir).filter((name) => existsSync(join(dir, name, "Dockerfile"))).sort() : [];
-  return ["quickservice", "quickservice-workers", ...others];
+  return ["quickservicets", "quickservicets-workers", ...others];
 }
 const known = availableStacks();
 const stacks = positional.length === 0 || positional.includes("all") ? known : positional;
@@ -96,7 +96,7 @@ if (flags.has("--features")) {
   } catch (error) {
     fail((error as Error).message);
   }
-  if (stacks.some((stack) => !stack.startsWith("quickservice"))) fail("--features applies to the quickservice stacks only");
+  if (stacks.some((stack) => !stack.startsWith("quickservicets"))) fail("--features applies to the quickservicets stacks only");
 }
 
 function fail(message: string): never {
@@ -137,10 +137,10 @@ async function seed() {
 async function buildImage(stack: string): Promise<{ image: string; buildSeconds: number | null }> {
   const image = `qsbench-${stack}`;
   if (flags.get("--skip-build")) return { image, buildSeconds: null };
-  // QuickService variants build from the repository root; "quickservice-workers" runs two worker processes (quickservice/Dockerfile.workers).
-  const isQuickService = stack.startsWith("quickservice");
+  // QuickService.ts variants build from the repository root; "quickservicets-workers" runs two worker processes (quickservicets/Dockerfile.workers).
+  const isQuickService = stack.startsWith("quickservicets");
   const dockerfile = isQuickService
-    ? join(BENCH, "quickservice", stack === "quickservice" ? "Dockerfile" : `Dockerfile.${stack.slice("quickservice-".length)}`)
+    ? join(BENCH, "quickservicets", stack === "quickservicets" ? "Dockerfile" : `Dockerfile.${stack.slice("quickservicets-".length)}`)
     : join(BENCH, "stacks", stack, "Dockerfile");
   const context = isQuickService ? ROOT : join(BENCH, "stacks", stack);
   log(`Building ${image}`);
@@ -339,8 +339,8 @@ async function runStack(stack: string) {
   await seed();
 
   const volume = `qsbench-uploads-${stack}`;
-  // QuickService runs switch features through QS_* variables only; the service's config has no feature keys.
-  const variables = stack.startsWith("quickservice") ? quickServiceVariables(features) : {};
+  // QuickService.ts runs switch features through QS_* variables only; the service's config has no feature keys.
+  const variables = stack.startsWith("quickservicets") ? quickServiceVariables(features) : {};
   await removeApp();
   await sh(["docker", "volume", "rm", "-f", volume], { allowFailure: true });
   await sh(["docker", "volume", "create", volume]);

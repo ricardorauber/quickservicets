@@ -9,14 +9,14 @@ import { createLinkedProject } from "../testing/project.ts";
 import { startTestService } from "../testing/service.ts";
 import { build } from "./build.ts";
 
-const config = (flags: string, adapter = "memoryAdapter()") => `import { defineConfig, memoryAdapter, sqliteAdapter, postgresAdapter } from "@quickservice/core";
+const config = (flags: string, adapter = "memoryAdapter()") => `import { defineConfig, memoryAdapter, sqliteAdapter, postgresAdapter } from "@quickservicets/core";
 export default defineConfig({ database: ${adapter}, flags: ${flags}, logger: { info() {}, warn() {}, error() {} } });
 `;
 const DATABASE = '{ source: "database", rules: { "checkout-v2": true, "dark-mode": true } }';
 const FILES = {
-  "quickservice.config.ts": config(DATABASE),
-  "endpoints/settings/get.ts": 'import type { Repositories, ServiceRequest } from "@quickservice/core";\nexport default (_repos: Repositories, req: ServiceRequest) => req.flags!.all();\n',
-  "endpoints/toggle/post.ts": `import type { Repositories } from "@quickservice/core";
+  "quickservicets.config.ts": config(DATABASE),
+  "endpoints/settings/get.ts": 'import type { Repositories, ServiceRequest } from "@quickservicets/core";\nexport default (_repos: Repositories, req: ServiceRequest) => req.flags!.all();\n',
+  "endpoints/toggle/post.ts": `import type { Repositories } from "@quickservicets/core";
 export default async (repos: Repositories) => {
   const existing = await repos.featureFlags.where((flag) => flag.name.eq("checkout-v2")).firstOrDefault();
   if (existing) await repos.featureFlags.update(existing.id, { enabled: !existing.enabled });
@@ -29,7 +29,7 @@ export default async (repos: Repositories) => {
 describe("the FeatureFlag table", () => {
   for (const [name, adapter] of Object.entries({ sqlite: 'sqliteAdapter({ path: ":memory:" })', postgres: 'postgresAdapter({ url: "postgres://localhost/none" })' })) {
     test(`${name}: migration add creates feature_flags`, async () => {
-      const root = createLinkedProject({ ...FILES, "quickservice.config.ts": config(DATABASE, adapter) });
+      const root = createLinkedProject({ ...FILES, "quickservicets.config.ts": config(DATABASE, adapter) });
       const created = readFileSync(join(root, (await addMigration(root, "Flags", new Date(Date.UTC(2026, 0, 1)))).file), "utf8");
       expect(created).toMatch(/CREATE TABLE \\?[`"](\{\{default_schema\}\})?feature_flags/);
     });
@@ -39,7 +39,7 @@ describe("the FeatureFlag table", () => {
     const root = createLinkedProject(FILES);
     await build(root);
     const check = join(root, "check.ts");
-    writeFileSync(check, 'import type { Repositories } from "@quickservice/core";\nexport const add = (repos: Repositories) => repos.featureFlags.create({ name: "beta", users: ["u1"] });\n');
+    writeFileSync(check, 'import type { Repositories } from "@quickservicets/core";\nexport const add = (repos: Repositories) => repos.featureFlags.create({ name: "beta", users: ["u1"] });\n');
     const program = ts.createProgram([check, join(root, ".generated/types.ts")], { strict: true, noEmit: true, skipLibCheck: true, lib: ["lib.esnext.d.ts", "lib.dom.d.ts"], types: [], target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, allowImportingTsExtensions: true });
     expect(ts.getPreEmitDiagnostics(program, program.getSourceFile(check)).map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, " "))).toEqual([]);
     const service = await startTestService({ files: FILES });
@@ -57,8 +57,8 @@ describe("the FeatureFlag table", () => {
 
 describe("commands", () => {
   async function sqliteProject(flags: string) {
-    const root = createLinkedProject({ "quickservice.config.ts": "" });
-    writeFileSync(join(root, "quickservice.config.ts"), config(flags, `sqliteAdapter({ path: ${JSON.stringify(join(root, "data.db"))} })`));
+    const root = createLinkedProject({ "quickservicets.config.ts": "" });
+    writeFileSync(join(root, "quickservicets.config.ts"), config(flags, `sqliteAdapter({ path: ${JSON.stringify(join(root, "data.db"))} })`));
     await build(root);
     if (flags.includes("database")) {
       await addMigration(root, "Flags", new Date(Date.UTC(2026, 9, 15, 12)));

@@ -27,7 +27,7 @@ Add a `test` script to `package.json` that builds before testing, so the tests a
 ```json
 {
   "scripts": {
-    "test": "quickservice build && bun test"
+    "test": "quickservicets build && bun test"
   }
 }
 ```
@@ -41,7 +41,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createApp, localStorage, memoryAdapter, resolveConfig, type Server } from "@quickservice/core";
+import { createApp, localStorage, memoryAdapter, resolveConfig, type Server } from "@quickservicets/core";
 import { models } from "../.generated/models.ts";
 import { crudRoutes, endpoints, hooks } from "../.generated/routes.ts";
 
@@ -140,7 +140,7 @@ describe("books", () => {
 
 What each part does:
 
-- **`.generated/models.ts` and `.generated/routes.ts`** are what `quickservice build` writes: the entity models, the generated CRUD routes with their hooks, your custom endpoints and the hook definitions. Importing them gives the test exactly the app that `bun run dev` serves.
+- **`.generated/models.ts` and `.generated/routes.ts`** are what `quickservicets build` writes: the entity models, the generated CRUD routes with their hooks, your custom endpoints and the hook definitions. Importing them gives the test exactly the app that `bun run dev` serves.
 - **`memoryAdapter()`** keeps records in the test process, so there is nothing to migrate and every run starts empty. `connect(models)` prepares it, as the server does at startup.
 - **`resolveConfig(config, {})`** fills in every default. The second argument is the environment; passing `{}` keeps variables from your shell, like `DATABASE_SCHEMA`, `PORT` or `NODE_ENV`, out of the tests.
 - **`localStorage` in a temporary folder** keeps uploads out of the project's `uploads/` folder. Without it, the default storage writes there.
@@ -154,13 +154,13 @@ What each part does:
 The build writes the full models and routes; these are the exports the test uses:
 
 ```ts check title=".generated/models.ts"
-import type { EntityModel } from "@quickservice/core";
+import type { EntityModel } from "@quickservicets/core";
 
 export declare const models: EntityModel[];
 ```
 
 ```ts check title=".generated/routes.ts"
-import type { AppEndpoint, CrudRouteEntry, HookDefinition } from "@quickservice/core";
+import type { AppEndpoint, CrudRouteEntry, HookDefinition } from "@quickservicets/core";
 
 export declare const crudRoutes: CrudRouteEntry[];
 export declare const endpoints: AppEndpoint[];
@@ -176,7 +176,7 @@ bun run test
 ```
 
 ```
-$ quickservice build && bun test
+$ quickservicets build && bun test
 Built 3 entities, 0 custom endpoints and 0 hooks.
 bun test v1.4.2
 
@@ -219,7 +219,7 @@ When tests must not see each other's records, build the app in `beforeEach` inst
 
 ```ts check title="tests/fresh.test.ts"
 import { beforeEach, expect, test } from "bun:test";
-import { createApp, memoryAdapter, resolveConfig, type Server } from "@quickservice/core";
+import { createApp, memoryAdapter, resolveConfig, type Server } from "@quickservicets/core";
 import { models } from "../.generated/models.ts";
 import { crudRoutes, endpoints, hooks } from "../.generated/routes.ts";
 
@@ -243,7 +243,7 @@ test("starts empty", async () => {
 Hooks often read headers, and file fields take `multipart/form-data`. Let `call` accept headers and a `FormData` body; leave out the `content-type` for `FormData`, so the boundary is set for you:
 
 ```ts check title="tests/call.ts"
-import type { Server } from "@quickservice/core";
+import type { Server } from "@quickservicets/core";
 
 declare const server: Server;
 

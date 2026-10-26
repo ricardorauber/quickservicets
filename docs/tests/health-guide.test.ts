@@ -16,7 +16,7 @@ function titledSamples(markdown: string): Map<string, string> {
 describe("the health guide", () => {
   test("its file samples are the example project's files", () => {
     const samples = titledSamples(guide);
-    expect([...samples.keys()].sort()).toEqual(["features/mail/index.ts", "quickservice.config.ts"]);
+    expect([...samples.keys()].sort()).toEqual(["features/mail/index.ts", "quickservicets.config.ts"]);
     for (const [path, code] of samples) expect(code).toBe(readFileSync(join(example, path), "utf8"));
   });
 

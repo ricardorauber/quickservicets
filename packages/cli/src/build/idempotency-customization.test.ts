@@ -1,19 +1,19 @@
 import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { EntityModel } from "@quickservice/core";
+import type { EntityModel } from "@quickservicets/core";
 import { startTestService, type TestService } from "../testing/service.ts";
 
 afterEach(() => setSystemTime());
 
 const HOUR = 3_600_000;
-const config = (idempotency = "{}") => `import { defineConfig, memoryAdapter } from "@quickservice/core";
+const config = (idempotency = "{}") => `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 import { memoryIdempotencyStore } from "./memory-store.ts";
 export default defineConfig({ database: memoryAdapter(), idempotency: ${idempotency}, users: {} });
 void memoryIdempotencyStore;
 `;
-const USERS = `import { defineFeature } from "@quickservice/core";
-declare module "@quickservice/core" {
+const USERS = `import { defineFeature } from "@quickservicets/core";
+declare module "@quickservicets/core" {
   interface RequestUser { id: string; tenant?: string }
 }
 export default defineFeature({
@@ -26,7 +26,7 @@ export default defineFeature({
 });
 `;
 /** A store of the test project keeping keys in a Map, with the rules of the database store. */
-const MEMORY_STORE = `import type { IdempotencyRecord, IdempotencyStore } from "@quickservice/core";
+const MEMORY_STORE = `import type { IdempotencyRecord, IdempotencyStore } from "@quickservicets/core";
 export function memoryIdempotencyStore(): IdempotencyStore {
   const records = new Map<string, IdempotencyRecord>();
   return {
@@ -55,7 +55,7 @@ export function memoryIdempotencyStore(): IdempotencyStore {
 `;
 const counter = (name: string) => `((globalThis as { runs?: Record<string, number> }).runs ??= {})[${JSON.stringify(name)}] = ((globalThis as { runs?: Record<string, number> }).runs![${JSON.stringify(name)}] ?? 0) + 1;`;
 const files = (idempotency = "{}") => ({
-  "quickservice.config.ts": config(idempotency),
+  "quickservicets.config.ts": config(idempotency),
   "memory-store.ts": MEMORY_STORE,
   "features/users/index.ts": USERS,
   "entities/Order.ts": "/** @idempotent ttl=7d */\nexport type Order = { item: string };\n",

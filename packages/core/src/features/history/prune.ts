@@ -160,6 +160,6 @@ export function setRunningPrune(value: typeof running): void {
 
 /** Runs the pruning of the running service; fails when the native's setup did not run in this process. */
 export function pruneRunningService(signal?: AbortSignal): Promise<Record<string, number>> {
-  if (!running) return Promise.reject(new Error("history is not running in this process; use quickservice history prune"));
+  if (!running) return Promise.reject(new Error("history is not running in this process; use quickservicets history prune"));
   return pruneHistory({ ...running, ...(signal ? { signal } : {}) });
 }

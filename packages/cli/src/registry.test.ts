@@ -1,17 +1,18 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { boolean, defineCommand, defineFeature, integer, object, registerNative, registerProjectFeatures, type CommandDefinition } from "@quickservice/core";
+import { boolean, defineCommand, defineFeature, integer, object, registerNative, registerProjectFeatures, type CommandDefinition } from "@quickservicets/core";
 import { unregisterNative } from "../../core/src/features.ts";
 import { cliPage } from "../../../docs/scripts/reference.ts";
 import { build } from "./build/build.ts";
 import { BUILT_IN_COMMANDS, COMMANDS } from "./commands.ts";
 import { loadFeatureCommands, resolveCommand } from "./registry.ts";
 import { run } from "./run.ts";
+import { version } from "./version.ts";
 import { createLinkedProject } from "./testing/project.ts";
 
-const config = (keys = "") => `import { defineConfig, memoryAdapter } from "@quickservice/core";
+const config = (keys = "") => `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter()${keys ? `, ${keys}` : ""} });
 `;
-const project = (keys = "example: {}", files: Record<string, string> = {}) => createLinkedProject({ "quickservice.config.ts": config(keys), ...files });
+const project = (keys = "example: {}", files: Record<string, string> = {}) => createLinkedProject({ "quickservicets.config.ts": config(keys), ...files });
 const capture = async (args: string[], root: string, loader?: Parameters<typeof run>[3]) => {
   const out: string[] = [];
   const err: string[] = [];
@@ -21,7 +22,7 @@ const capture = async (args: string[], root: string, loader?: Parameters<typeof 
 
 const hello = defineCommand({
   name: "example hello",
-  usage: "quickservice example hello <name> [--loud] [--count n]",
+  usage: "quickservicets example hello <name> [--loud] [--count n]",
   description: "Greets someone.",
   args: [{ name: "name", required: true, description: "Who to greet." }],
   flags: object({ loud: boolean().default(false).describe("Shouts the greeting."), count: integer().optional() }),
@@ -69,7 +70,7 @@ describe("dispatch", () => {
   test("built-in commands never load the config to be found; feature commands match the longest name", async () => {
     let loads = 0;
     const loader = async (cwd: string) => (loads++, loadFeatureCommands(cwd));
-    native("example", [hello, defineCommand({ name: "example", usage: "quickservice example", description: "The short one.", run: ({ output }) => output.log("short") })]);
+    native("example", [hello, defineCommand({ name: "example", usage: "quickservicets example", description: "The short one.", run: ({ output }) => output.log("short") })]);
     const root = project();
     expect((await capture(["build"], root, loader)).code).toBe(0);
     expect(loads).toBe(0);
@@ -105,7 +106,7 @@ describe("arguments and flags", () => {
   test("unknown flags, missing arguments and invalid values print the error and the usage", async () => {
     native("example", [hello]);
     const root = project();
-    const usage = "Usage: quickservice example hello <name> [--loud] [--count n]";
+    const usage = "Usage: quickservicets example hello <name> [--loud] [--count n]";
     expect(await capture(["example", "hello", "Ana", "--shout"], root)).toEqual({ code: 1, out: [], err: ["Unknown flag --shout", usage] });
     expect(await capture(["example", "hello", "Ana", "--lowd"], root)).toEqual({ code: 1, out: [], err: ["Unknown flag --lowd (did you mean --loud?)", usage] });
     expect(await capture(["example", "hello"], root)).toEqual({ code: 1, out: [], err: ["Missing argument <name>", usage] });
@@ -114,7 +115,7 @@ describe("arguments and flags", () => {
   });
 
   test("an error thrown by run prints its message and exits 1", async () => {
-    native("example", [defineCommand({ name: "example fail", usage: "quickservice example fail", description: "Fails.", run: () => { throw new Error("broker unreachable"); } })]);
+    native("example", [defineCommand({ name: "example fail", usage: "quickservicets example fail", description: "Fails.", run: () => { throw new Error("broker unreachable"); } })]);
     expect(await capture(["example", "fail"], project())).toEqual({ code: 1, out: [], err: ["broker unreachable"] });
   });
 });
@@ -126,7 +127,8 @@ describe("help", () => {
     for (const args of [["help"], ["--help"]]) {
       const { code, out } = await capture(args, root);
       expect(code).toBe(0);
-      expect(out[0]).toBe("Usage: quickservice <command> [arguments] [flags]");
+      expect(out[0]).toBe(`QuickService.ts ${version}`);
+      expect(out[2]).toBe("Usage: quickservicets <command> [arguments] [flags]");
       expect(out.findIndex((line) => line.startsWith("  build "))).toBeGreaterThan(0);
       const group = out.indexOf("example:");
       expect(group).toBeGreaterThan(out.findIndex((line) => line.startsWith("  env check")));
@@ -139,7 +141,7 @@ describe("help", () => {
     const { code, out } = await capture(["example", "hello", "--help"], project());
     expect(code).toBe(0);
     expect(out).toEqual([
-      "Usage: quickservice example hello <name> [--loud] [--count n]",
+      "Usage: quickservicets example hello <name> [--loud] [--count n]",
       "",
       "Greets someone.",
       "",
@@ -167,7 +169,7 @@ describe("connect", () => {
     native("example", [
       defineCommand({
         name: "example seed",
-        usage: "quickservice example seed",
+        usage: "quickservicets example seed",
         description: "Seeds a post.",
         async run({ connect, config, output }) {
           const database = config.database as { disconnect(): Promise<void> };
@@ -192,7 +194,7 @@ describe("reference", () => {
     native("example", [hello]);
     const page = cliPage();
     const section = page.slice(page.indexOf("## Commands of native features"));
-    expect(section).toContain("### `example`\n\n#### `example hello`\n\nGreets someone.\n\n```bash\nquickservice example hello <name> [--loud] [--count n]\n```");
+    expect(section).toContain("### `example`\n\n#### `example hello`\n\nGreets someone.\n\n```bash\nquickservicets example hello <name> [--loud] [--count n]\n```");
     expect(section).toContain("- `<name>` (required): Who to greet.");
     expect(section).toContain("- `--loud` (`boolean`, default `false`): Shouts the greeting.");
   });

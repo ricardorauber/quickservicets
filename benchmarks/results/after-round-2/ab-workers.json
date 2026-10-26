@@ -1,5 +1,5 @@
 {
-  "description": "Alternated A/B runs of QuickService with server.workers: 2 (15 s measured, 5 s warmup, 64 VUs), previous = commit 40f46d4 (before specs 0129-0131), new = commit 81664d7. Requests per second per run, in run order.",
+  "description": "Alternated A/B runs of QuickService.ts with server.workers: 2 (15 s measured, 5 s warmup, 64 VUs), previous = commit 40f46d4 (before specs 0129-0131), new = commit 81664d7. Requests per second per run, in run order.",
   "prev": {
     "get_user": [
       34365,

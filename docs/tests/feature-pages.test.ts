@@ -18,7 +18,7 @@ const audit = (level = 1, extra: Record<string, unknown> = {}) =>
       afterWrite: hook().describe("Runs after an entry is written."),
     }),
     tags: { audit: { on: ["entity"], shorthand: "level", options: ["level"], description: "Sets the level of one entity.", example: "/** @audit 2 */" } },
-    commands: [defineCommand({ name: "audit trail", description: "Prints the trail.", usage: "quickservice audit trail", run: () => 0 })],
+    commands: [defineCommand({ name: "audit trail", description: "Prints the trail.", usage: "quickservicets audit trail", run: () => 0 })],
     ...extra,
   });
 
@@ -64,7 +64,7 @@ describe("feature pages", () => {
     expect(page).toContain("### `@audit`");
     expect(page).toContain("**Syntax:** `@audit <level>` or `@audit off`");
     expect(page).toContain("**Options:** `audit.level`");
-    expect(page).toContain("### `audit trail`\n\nPrints the trail.\n\n```bash\nquickservice audit trail\n```");
+    expect(page).toContain("### `audit trail`\n\nPrints the trail.\n\n```bash\nquickservicets audit trail\n```");
     expect(page).toContain("| `audit.beforeWrite` | before | Runs before an entry is written. |");
     expect(page).toContain("| `audit.afterWrite` | after | Runs after an entry is written. |");
   });

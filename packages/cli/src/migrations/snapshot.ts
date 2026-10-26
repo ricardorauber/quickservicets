@@ -1,4 +1,4 @@
-import { buildDrizzleSchema, SQLITE_DEFAULT_SCHEMA_TOKEN, type EntityModel, type MongoIndexSpec, type SqlDialect } from "@quickservice/core";
+import { buildDrizzleSchema, SQLITE_DEFAULT_SCHEMA_TOKEN, type EntityModel, type MongoIndexSpec, type SqlDialect } from "@quickservicets/core";
 import { generateDrizzleJson, generateSQLiteDrizzleJson } from "drizzle-kit/api";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";

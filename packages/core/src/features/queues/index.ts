@@ -145,7 +145,7 @@ const queuesFeature = defineFeature({
   setup(ctx) {
     lifecycle.teardown?.();
     const model = ctx.models.find((candidate) => candidate.key === "QueueMessage" && candidate.system);
-    if (!model) throw new Error("The queues native needs the QueueMessage entity; run quickservice build after enabling it");
+    if (!model) throw new Error("The queues native needs the QueueMessage entity; run quickservicets build after enabling it");
     const declared = new Map<string, QueueDefinition>();
     for (const [name, file] of ctx.folders.queues ?? []) if (isQueueDefinition(file)) declared.set(name, file);
     const names = new Set(declared.keys());
@@ -344,7 +344,7 @@ function publishWrites(
 ): void {
   if (!ctx.config.features.some((feature) => feature.key === "events")) {
     const names = publishing.map(({ entity }) => entity.entityName).join(", ");
-    throw new Error(`queues requires events; add events: {} to quickservice.config.ts (@publish on ${names} sends write events)`);
+    throw new Error(`queues requires events; add events: {} to quickservicets.config.ts (@publish on ${names} sends write events)`);
   }
   for (const { entity, settings } of publishing) {
     const payloadOf = publishedPayload(entity, settings);

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { createFeatureLifecycle, memoryAdapter, memoryRateLimitStore, resolveConfig, type LogEntry, type ServiceConfig } from "@quickservice/core";
+import { createFeatureLifecycle, memoryAdapter, memoryRateLimitStore, resolveConfig, type LogEntry, type ServiceConfig } from "@quickservicets/core";
 import { SECURITY_ITEMS } from "../../../core/src/features/security/pipeline.ts";
 import { eject } from "../eject/eject.ts";
 import { createLinkedProject } from "../testing/project.ts";
@@ -14,14 +14,14 @@ afterEach(() => {
   delete (globalThis as Record<string, unknown>)[SINK];
 });
 
-const CONFIG = (keys = "") => `import { defineConfig, memoryAdapter } from "@quickservice/core";
+const CONFIG = (keys = "") => `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 const sink = ((globalThis as Record<string, unknown>).${SINK} ??= { logs: [], limited: [], hits: [] }) as { logs: unknown[]; limited: unknown[]; hits: string[] };
 const write = (entry: unknown) => void sink.logs.push(entry);
 export default defineConfig({ database: memoryAdapter(), logger: { info: write, warn: write, error: write }${keys ? `, ${keys}` : ""} });
 `;
 const POST = { "entities/Post.ts": "export type Post = { title: string };\n" };
-const endpoint = (tag = "") => `import type { Endpoint } from "@quickservice/core";\n${tag ? `/** ${tag} */\n` : ""}const handler: Endpoint = async (_repos, req) => ({ size: JSON.stringify(await req.json()).length });\nexport default handler;\n`;
-const STORE_FEATURE = (key: string) => `import { defineFeature, memoryRateLimitStore } from "@quickservice/core";
+const endpoint = (tag = "") => `import type { Endpoint } from "@quickservicets/core";\n${tag ? `/** ${tag} */\n` : ""}const handler: Endpoint = async (_repos, req) => ({ size: JSON.stringify(await req.json()).length });\nexport default handler;\n`;
+const STORE_FEATURE = (key: string) => `import { defineFeature, memoryRateLimitStore } from "@quickservicets/core";
 export default defineFeature({
   key: "${key}",
   after: ["security"],
@@ -54,7 +54,7 @@ describe("environment variables", () => {
     const config = CONFIG('security: { rateLimit: { limit: "100/min" }, cors: { origins: ["https://c.example"] }, headers: { referrerPolicy: "same-origin" } }');
     const env = { QS_SECURITY_RATE_LIMIT_LIMIT: "2/min", QS_SECURITY_CORS_ORIGINS: "https://a.example,https://b.example", QS_SECURITY_HEADERS_ENABLED: "false" };
     await withService(
-      { "quickservice.config.ts": config },
+      { "quickservicets.config.ts": config },
       async (service) => {
         const first = await service.fetch("/posts", { peer: "203.0.113.5" });
         expect(first.headers.get("ratelimit-limit")).toBe("2");
@@ -94,7 +94,7 @@ describe("environment variables", () => {
 describe("@limits", () => {
   test("a route's body limit, with the global one elsewhere, and the server body size", async () => {
     const big = JSON.stringify({ data: "x".repeat(10 * 1024 * 1024) });
-    const files = { "quickservice.config.ts": CONFIG(), "endpoints/imports/post.ts": endpoint("@limits body=20MB"), "endpoints/notes/post.ts": endpoint() };
+    const files = { "quickservicets.config.ts": CONFIG(), "endpoints/imports/post.ts": endpoint("@limits body=20MB"), "endpoints/notes/post.ts": endpoint() };
     await withService(files, async (service) => {
       const json = { method: "POST", headers: { "content-type": "application/json", "content-length": String(big.length) }, body: big };
       expect((await service.fetch("/imports", json)).status).toBe(200);
@@ -116,7 +116,7 @@ describe("@limits", () => {
 describe("per-request origins", () => {
   test("a function of the request decides the allowed origins", async () => {
     const config = CONFIG('security: { cors: { origins: ({ req }) => (req?.headers.get("x-tenant") === "acme" ? ["https://acme.example"] : []) } }');
-    await withService({ "quickservice.config.ts": config }, async (service) => {
+    await withService({ "quickservicets.config.ts": config }, async (service) => {
       expect((await preflight(service, "https://acme.example", { "x-tenant": "acme" })).status).toBe(204);
       expect((await preflight(service, "https://acme.example", { "x-tenant": "other" })).status).toBe(403);
       const read = await service.fetch("/posts", { headers: { origin: "https://acme.example", "x-tenant": "acme" } });
@@ -131,7 +131,7 @@ describe("hooks", () => {
       rateLimit: { limit: "1/min", onLimited: (refusal) => void sink.limited.push({ key: refusal.key, limit: refusal.limit, item: refusal.item, reason: refusal.reason, route: refusal.route, ip: refusal.ip }) },
       ip: { deny: ["198.51.100.0/24"], onBlocked: () => { throw new Error("hook broke"); } },
     }`);
-    await withService({ "quickservice.config.ts": config }, async (service) => {
+    await withService({ "quickservicets.config.ts": config }, async (service) => {
       expect((await service.fetch("/posts", { peer: "203.0.113.5" })).status).toBe(200);
       expect((await service.fetch("/posts", { peer: "203.0.113.5" })).status).toBe(429);
       expect(sink().limited).toEqual([{ key: "203.0.113.5", limit: "1/min", item: "rateLimit", reason: "Too many requests", route: "GET /posts", ip: "203.0.113.5" }]);
@@ -146,20 +146,20 @@ describe("hooks", () => {
 describe("providers", () => {
   test("a store in the config receives every hit; a feature's store replaces the memory store; both fail startup", async () => {
     const config = CONFIG(`security: { rateLimit: { store: { hit: (key, hit) => (sink.hits.push("config:" + key), { allowed: true, limit: hit.limit, remaining: hit.limit, resetMs: 1000, retryAfterMs: 0 }), reset() {} } } }`);
-    await withService({ "quickservice.config.ts": config }, async (service) => {
+    await withService({ "quickservicets.config.ts": config }, async (service) => {
       await service.fetch("/posts", { peer: "203.0.113.5" });
       await service.fetch("/posts", { peer: "203.0.113.6" });
       expect(sink().hits).toEqual(["config:203.0.113.5", "config:203.0.113.6"]);
     });
     sink().hits.length = 0;
-    await withService({ "quickservice.config.ts": CONFIG("redisish: {}"), "features/redisish/index.ts": STORE_FEATURE("redisish") }, async (service) => {
+    await withService({ "quickservicets.config.ts": CONFIG("redisish: {}"), "features/redisish/index.ts": STORE_FEATURE("redisish") }, async (service) => {
       await service.fetch("/posts", { peer: "203.0.113.5" });
       expect(sink().hits).toEqual(["redisish:203.0.113.5"]);
     });
-    expect(await startupError({ "quickservice.config.ts": config.replace("logger:", "redisish: {}, logger:"), "features/redisish/index.ts": STORE_FEATURE("redisish") })).toContain(
+    expect(await startupError({ "quickservicets.config.ts": config.replace("logger:", "redisish: {}, logger:"), "features/redisish/index.ts": STORE_FEATURE("redisish") })).toContain(
       "security.rateLimit.store is set by both the config and redisish",
     );
-    expect(await startupError({ "quickservice.config.ts": CONFIG("one: {}, two: {}"), "features/one/index.ts": STORE_FEATURE("one"), "features/two/index.ts": STORE_FEATURE("two") })).toContain(
+    expect(await startupError({ "quickservicets.config.ts": CONFIG("one: {}, two: {}"), "features/one/index.ts": STORE_FEATURE("one"), "features/two/index.ts": STORE_FEATURE("two") })).toContain(
       "security.rateLimit.store is set by both one and two",
     );
     expect(memoryRateLimitStore).toBeDefined();
@@ -167,8 +167,8 @@ describe("providers", () => {
 
   test("a resolver reading cf-connecting-ip sets req.ip, normalized", async () => {
     const config = CONFIG('security: { proxy: { resolver: { resolve: ({ request, peer }) => request.headers.get("cf-connecting-ip") ?? peer } } }');
-    const ip = `import type { Endpoint } from "@quickservice/core";\nconst handler: Endpoint = (_repos, req) => ({ ip: req.ip });\nexport default handler;\n`;
-    await withService({ "quickservice.config.ts": config, "endpoints/ip/get.ts": ip }, async (service) => {
+    const ip = `import type { Endpoint } from "@quickservicets/core";\nconst handler: Endpoint = (_repos, req) => ({ ip: req.ip });\nexport default handler;\n`;
+    await withService({ "quickservicets.config.ts": config, "endpoints/ip/get.ts": ip }, async (service) => {
       expect(await (await service.fetch("/ip", { peer: "10.0.0.1", headers: { "cf-connecting-ip": "::ffff:198.51.100.23" } })).json()).toEqual({ ip: "198.51.100.23" });
       expect(await (await service.fetch("/ip", { peer: "10.0.0.1" })).json()).toEqual({ ip: "10.0.0.1" });
     });
@@ -198,14 +198,14 @@ describe("eject", () => {
 
   test("a dry run lists features/security/ without changing the config, and the ejected feature keeps every behavior", async () => {
     const config = CONFIG('security: { rateLimit: { limit: "2/min" }, cors: { origins: ["https://app.example"] } }');
-    const root = createLinkedProject({ "quickservice.config.ts": config, ...POST });
+    const root = createLinkedProject({ "quickservicets.config.ts": config, ...POST });
     const planned = await eject(root, "security", { dryRun: true });
     expect(planned).toContain("Would write features/security/index.ts");
     expect(planned.every((line) => line.startsWith("Would write features/security/"))).toBe(true);
     expect(existsSync(join(root, "features/security"))).toBe(false);
-    expect(readFileSync(join(root, "quickservice.config.ts"), "utf8")).toBe(config);
+    expect(readFileSync(join(root, "quickservicets.config.ts"), "utf8")).toBe(config);
     await eject(root, "security");
-    expect(readFileSync(join(root, "features/security/index.ts"), "utf8")).toContain('from "@quickservice/core"');
+    expect(readFileSync(join(root, "features/security/index.ts"), "utf8")).toContain('from "@quickservicets/core"');
     await withService(filesOf(root), async (service) => {
       const first = await service.fetch("/posts", { peer: "203.0.113.5" });
       expect(first.headers.get("x-content-type-options")).toBe("nosniff");

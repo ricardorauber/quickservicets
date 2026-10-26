@@ -19,7 +19,7 @@ import {
   type NestedFieldModel,
   type OnDeleteAction,
   type TypeDescriptor,
-} from "@quickservice/core";
+} from "@quickservicets/core";
 import { hasJobFiles } from "../build/feature-files.ts";
 import { EntityParseError } from "./errors.ts";
 import { withContributedEntities } from "./feature-entities.ts";
@@ -156,7 +156,7 @@ function parseSourcesWithTags(projectRoot: string, features: readonly ResolvedFe
 export function featureFileName(projectRoot: string, file: string): string {
   const inNative = relative(NATIVE_FEATURES_DIR, file);
   if (!inNative.startsWith("..") && !inNative.startsWith(sep) && !/^[A-Za-z]:/.test(inNative)) {
-    return `@quickservice/core/features/${inNative.split(sep).join("/")}`;
+    return `@quickservicets/core/features/${inNative.split(sep).join("/")}`;
   }
   return relative(projectRoot, file).split(sep).join("/");
 }
@@ -385,11 +385,11 @@ function findEntityDeclaration(sourceFile: ts.SourceFile, source: EntitySource):
 
 type FileBaseKind = "file" | "media";
 
-/** Whether `name` refers to `File` or `Media` imported from @quickservice/core in this file. */
+/** Whether `name` refers to `File` or `Media` imported from @quickservicets/core in this file. */
 function coreFileBase(name: string, sourceFile: ts.SourceFile): FileBaseKind | undefined {
   for (const statement of sourceFile.statements) {
     if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
-    if (statement.moduleSpecifier.text !== "@quickservice/core") continue;
+    if (statement.moduleSpecifier.text !== "@quickservicets/core") continue;
     const bindings = statement.importClause?.namedBindings;
     if (!bindings || !ts.isNamedImports(bindings)) continue;
     for (const element of bindings.elements) {

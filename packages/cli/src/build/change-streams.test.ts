@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { events } from "@quickservice/core";
+import { events } from "@quickservicets/core";
 import { startTestService, type TestService } from "../testing/service.ts";
 
-const config = (keys = "events: {}, realtime: {}") => `import { defineConfig, memoryAdapter } from "@quickservice/core";
+const config = (keys = "events: {}, realtime: {}") => `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter(), ${keys}, logger: { info() {}, warn() {}, error() {} } });
 `;
 const FILES = {
-  "quickservice.config.ts": config(),
+  "quickservicets.config.ts": config(),
   "entities/Task.ts": `/**
  * @changes
  * @signedIn:list
@@ -21,7 +21,7 @@ export type Task = {
 };
 `,
   "entities/Note.ts": "export type Note = { text: string };\n",
-  "hooks/signedIn.ts": `import { definePreHook, HttpError } from "@quickservice/core";
+  "hooks/signedIn.ts": `import { definePreHook, HttpError } from "@quickservicets/core";
 export default definePreHook((_repos, req) => {
   if (req.headers.get("x-anonymous")) throw new HttpError(401, "Sign in first");
 });
@@ -139,7 +139,7 @@ describe("change streams", () => {
       return original(pattern, listener, options);
     }) as typeof events.on;
     // With the outbox, the streams read the log and register no listener; the log is polled only while one is open.
-    const service = await startTestService({ files: { ...FILES, "quickservice.config.ts": config("events: { outbox: true }, realtime: { sse: { pollInterval: \"1s\" } }") } });
+    const service = await startTestService({ files: { ...FILES, "quickservicets.config.ts": config("events: { outbox: true }, realtime: { sse: { pollInterval: \"1s\" } }") } });
     try {
       await create(service, { title: "a", status: "open" });
       const stream = follow(await service.fetch("/tasks/changes"));
@@ -152,7 +152,7 @@ describe("change streams", () => {
       await service.stop();
     }
     const all = await startTestService({
-      files: { ...FILES, "quickservice.config.ts": config('events: {}, realtime: { sse: { changes: "all" } }'), "entities/Task.ts": "/** @changes off */\nexport type Task = { title: string };\n" },
+      files: { ...FILES, "quickservicets.config.ts": config('events: {}, realtime: { sse: { changes: "all" } }'), "entities/Task.ts": "/** @changes off */\nexport type Task = { title: string };\n" },
     });
     try {
       expect((await all.fetch("/notes/changes")).status).toBe(200);
@@ -160,8 +160,8 @@ describe("change streams", () => {
     } finally {
       await all.stop();
     }
-    await expect(startTestService({ files: { ...FILES, "quickservice.config.ts": config("realtime: {}") } })).rejects.toThrow(
-      "realtime change streams require events; add events: {} to quickservice.config.ts",
+    await expect(startTestService({ files: { ...FILES, "quickservicets.config.ts": config("realtime: {}") } })).rejects.toThrow(
+      "realtime change streams require events; add events: {} to quickservicets.config.ts",
     );
   });
 

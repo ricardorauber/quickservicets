@@ -1,4 +1,4 @@
-import { listen } from "@quickservice/core";
+import { listen } from "@quickservicets/core";
 
 /** Keeps `commentCount` of a post in step with its comments, after each committed comment change. */
 export default listen("comment.written", async (event, { repos }) => {

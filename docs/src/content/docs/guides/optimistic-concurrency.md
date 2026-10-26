@@ -13,8 +13,8 @@ The samples come from the example project `examples/minimal/etag`: a `Document` 
 
 With `etag: {}`, the generated read, create, update and replace routes answer with an `ETag` header: a strong tag computed by `etagOf(record)` from the record's id and `updatedAt`, which changes on every write and reveals neither. Field selection (`?fields=title`) does not change it, and reads also get `Cache-Control: private, no-cache` unless a hook or the handler set one.
 
-```ts title="quickservice.config.ts"
-import { defineConfig, memoryAdapter } from "@quickservice/core";
+```ts title="quickservicets.config.ts"
+import { defineConfig, memoryAdapter } from "@quickservicets/core";
 
 export default defineConfig({
   database: memoryAdapter(),
@@ -81,7 +81,7 @@ etag: { onPreconditionFailed: async ({ current }) => Response.json({ error: "sta
 `tagger` replaces `etagOf` for the native's routes: its `tag(record, entity)` returns a strong tag, quoted when it is not. Conditional writes compare the tagger's value read inside the transaction and keep the `updatedAt` condition, so they stay atomic:
 
 ```ts title="tagger.ts"
-import type { EntityTagger } from "@quickservice/core";
+import type { EntityTagger } from "@quickservicets/core";
 
 /** Tags a document with its version, like `"v3"`, in place of the default hash of its id and `updatedAt`. */
 export const versionTagger: EntityTagger = {

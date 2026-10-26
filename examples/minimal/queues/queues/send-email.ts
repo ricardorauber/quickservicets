@@ -1,4 +1,4 @@
-import { queue } from "@quickservice/core";
+import { queue } from "@quickservicets/core";
 
 /** Sends the welcome email of a user and records it; addresses at fail.test bounce. */
 export default queue<{ userId: string }>(

@@ -4,7 +4,7 @@ WT=${WT:?set WT to the repository root}
 NET=qsbench-p2-net
 PG=qsbench-p2-postgres
 APP=qsbench-p2-app
-IMG=${IMG:-qsbench-p2-quickservice}
+IMG=${IMG:-qsbench-p2-quickservicets}
 reseed() { docker exec -i $PG psql -q -U bench -d bench -v ON_ERROR_STOP=1 < $S/seed.sql >/dev/null; }
 # start_app [extra docker args...] -- [command...]
 start_app() {
@@ -34,7 +34,7 @@ script_of() { case $1 in upload) echo upload.js;; custom) echo custom.js;; *) ec
 # measure SCENARIO [warm] [dur]: warmup then measured run
 measure() { local sc=$1 w=${2:-5s} d=${3:-10s}; reseed; k6run $(script_of $sc) $sc $w >/dev/null; k6run $(script_of $sc) $sc $d; }
 # start_wif SWITCHES [extra docker args...]: the what-if core and stats endpoint mounted, QS_WHATIF set
-start_wif() { local v=$1; shift; start_app -v $S/core-whatif:/app/packages/core/src:ro -v "$S/whatif-endpoint/get.ts:/app/benchmarks/quickservice/endpoints/organizations/[orgId]/stats/get.ts:ro" -e QS_WHATIF=$v "$@" --; }
+start_wif() { local v=$1; shift; start_app -v $S/core-whatif:/app/packages/core/src:ro -v "$S/whatif-endpoint/get.ts:/app/benchmarks/quickservicets/endpoints/organizations/[orgId]/stats/get.ts:ro" -e QS_WHATIF=$v "$@" --; }
 conform() { reseed; (cd $WT && BASE_URL=http://127.0.0.1:18180 bun test ./benchmarks/conformance/conformance.ts 2>&1 | grep -E "pass|fail|Ran" | tail -4); }
 ALL=tagged,insfast,nomkdir,directwrite,bufferbody,headdetect,nocopy,nofile,aggcache,fastresp,nourl,logfast
 # exp SCENARIO LABEL SWITCHES [extra docker args]: one measured run; SWITCHES "base" = the shipped core

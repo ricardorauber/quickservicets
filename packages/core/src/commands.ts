@@ -38,7 +38,7 @@ export interface CommandContext<F = Record<string, unknown>, O = Record<string, 
 export interface CommandInput<S extends AnyOptionSchema = ObjectOptionSchema<{}>> {
   /** One or more space-separated words, like `history prune`. */
   name: string;
-  /** How to call it, like `quickservice history prune <entity> [--before <date>]`. */
+  /** How to call it, like `quickservicets history prune <entity> [--before <date>]`. */
   usage: string;
   description: string;
   args?: readonly CommandArg[];
@@ -60,7 +60,7 @@ export interface CommandDefinition<S extends AnyOptionSchema = AnyOptionSchema> 
 
 const WORD = /^[a-z][a-z0-9-]*$/;
 
-/** Defines a `quickservice <name>` command; built-in commands and features' `commands` use it. */
+/** Defines a `quickservicets <name>` command; built-in commands and features' `commands` use it. */
 export function defineCommand<S extends AnyOptionSchema = ObjectOptionSchema<{}>>(input: CommandInput<S>): CommandDefinition<S> {
   const invalid = (reason: string) => new Error(`Invalid command ${String(input?.name)}: ${reason}`);
   if (typeof input?.name !== "string") throw invalid("the name must be one or more words");

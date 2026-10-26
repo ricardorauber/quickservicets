@@ -31,7 +31,7 @@ export function pruneStores(adapter: DatabaseAdapter, models: readonly EntityMod
 
 const prune = defineCommand({
   name: "history prune",
-  usage: "quickservice history prune [--entity <Name>] [--dry-run]",
+  usage: "quickservicets history prune [--entity <Name>] [--dry-run]",
   description: "Deletes the versions older than their entity's retention, keeping the current version of every live record, and prints the count per entity.",
   flags: object({
     entity: string().optional().describe("Prunes only this entity."),

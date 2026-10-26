@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createRepositories, HttpError, memoryAdapter, type Repository } from "@quickservice/core";
+import { createRepositories, HttpError, memoryAdapter, type Repository } from "@quickservicets/core";
 import { generateTypesFile } from "../build/generate-types.ts";
 import { createProject } from "../testing/project.ts";
 import { parseEntities } from "./parse-entities.ts";

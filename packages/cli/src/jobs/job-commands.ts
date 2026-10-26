@@ -11,7 +11,7 @@ import {
   type JobRun,
   type JobSchedule,
   type ResolvedConfig,
-} from "@quickservice/core";
+} from "@quickservicets/core";
 import { join } from "node:path";
 import { parseProjectEntities } from "../entities/parse-entities.ts";
 import { scanProjectJobs } from "../build/feature-files.ts";
@@ -61,7 +61,7 @@ async function withJobApp<T>(
 
 const eq = (field: string, value: unknown) => ({ field, op: "eq" as const, value });
 
-/** `quickservice job run <name> [--force]`: runs the job in this process as a `manual` run and reports its final outcome. */
+/** `quickservicets job run <name> [--force]`: runs the job in this process as a `manual` run and reports its final outcome. */
 export async function runJobCommand(projectRoot: string, name: string | undefined, options: { force?: boolean } = {}): Promise<JobCommandResult> {
   const config = await loadConfig(projectRoot);
   const jobs = await loadJobRegistry(projectRoot, config.features);
@@ -103,7 +103,7 @@ function table(rows: string[][]): string[] {
   return rows.map((row) => row.map((cell, column) => (column === row.length - 1 ? cell : cell.padEnd(widths[column]!))).join("  "));
 }
 
-/** `quickservice job list`: every job with its schedule, time zone and next run time. */
+/** `quickservicets job list`: every job with its schedule, time zone and next run time. */
 export async function listJobsCommand(projectRoot: string, now: Date = new Date()): Promise<JobCommandResult> {
   const config = await loadConfig(projectRoot);
   const jobs = await loadJobRegistry(projectRoot, config.features);
@@ -117,7 +117,7 @@ export async function listJobsCommand(projectRoot: string, now: Date = new Date(
   return { code: 0, lines: table(rows), errors: [] };
 }
 
-/** `quickservice job runs <name> [--limit n]`: the latest runs of the job, newest first. */
+/** `quickservicets job runs <name> [--limit n]`: the latest runs of the job, newest first. */
 export async function listJobRunsCommand(projectRoot: string, name: string | undefined, options: { limit?: string } = {}): Promise<JobCommandResult> {
   const limit = options.limit === undefined ? DEFAULT_RUNS_LIMIT : Number(options.limit);
   if (!Number.isInteger(limit) || limit < 1) throw new Error("--limit must be a positive integer");

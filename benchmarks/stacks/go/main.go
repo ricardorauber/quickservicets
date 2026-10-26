@@ -1,4 +1,4 @@
-// Command server is the Go stack of the QuickService benchmark: the API of benchmarks/CONTRACT.md on the
+// Command server is the Go stack of the QuickService.ts benchmark: the API of benchmarks/CONTRACT.md on the
 // standard library's net/http (ServeMux method and path patterns) and pgx/v5's connection pool.
 package main
 

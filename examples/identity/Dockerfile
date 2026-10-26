@@ -4,7 +4,7 @@
 # Each start applies the pending migrations, then starts the server in production mode:
 #   docker run --rm -p 3000:3000 -e DATABASE_URL=postgres://postgres:postgres@host.docker.internal:5432/postgres identity
 
-# 1. Install the example's dependencies (the CLI included: it applies the migrations) and run `quickservice build`.
+# 1. Install the example's dependencies (the CLI included: it applies the migrations) and run `quickservicets build`.
 FROM oven/bun:1.4.2-alpine AS build
 WORKDIR /app
 COPY package.json bun.lock ./

@@ -1,4 +1,4 @@
-import type { Media } from "@quickservice/core"
+import type { Media } from "@quickservicets/core"
 import { Membership } from "./Membership"
 import { Module } from "./Module"
 

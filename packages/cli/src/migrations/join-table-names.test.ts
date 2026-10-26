@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { SQL } from "bun";
-import { buildDrizzleSchema, createRepositories, mongodbAdapter, type Repository } from "@quickservice/core";
+import { buildDrizzleSchema, createRepositories, mongodbAdapter, type Repository } from "@quickservicets/core";
 import { getTableConfig } from "drizzle-orm/sqlite-core";
 import { joinTableWarnings } from "../build/build.ts";
 import { parseEntities } from "../entities/parse-entities.ts";
@@ -96,7 +96,7 @@ describe("renames in migrations", () => {
     const path = join(createProject({}), "app.db");
     const root = createLinkedProject({
       ...nn("/** @joinTable memberships */ users?: User[]"),
-      "quickservice.config.ts": `import { defineConfig, sqliteAdapter } from "@quickservice/core";\nexport default defineConfig({ database: sqliteAdapter({ path: ${JSON.stringify(path)} }) });\n`,
+      "quickservicets.config.ts": `import { defineConfig, sqliteAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: sqliteAdapter({ path: ${JSON.stringify(path)} }) });\n`,
     });
     await addMigration(root, "Initial", at(0));
     await migrate(root);
@@ -132,7 +132,7 @@ if (postgresUrl) {
     const root = createLinkedProject({
       "entities/auth/Organization.ts": 'import type { User } from "./User";\nexport type Organization = { name: string; /** @joinTable memberships */ users?: User[] }',
       "entities/auth/User.ts": 'import type { Organization } from "./Organization";\nexport type User = { name: string; organizations?: Organization[] }',
-      "quickservice.config.ts": `import { defineConfig, postgresAdapter } from "@quickservice/core";\nexport default defineConfig({ database: postgresAdapter({ url: ${JSON.stringify(postgresUrl)} }) });\n`,
+      "quickservicets.config.ts": `import { defineConfig, postgresAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: postgresAdapter({ url: ${JSON.stringify(postgresUrl)} }) });\n`,
     });
     await addMigration(root, "Initial", at(0));
     await migrate(root);
@@ -148,7 +148,7 @@ if (postgresUrl) {
 test("MongoDB migrations rename the join collection both ways", async () => {
   const root = createLinkedProject({
     ...nn("/** @joinTable memberships */ users?: User[]"),
-    "quickservice.config.ts": 'import { defineConfig, mongodbAdapter } from "@quickservice/core";\nexport default defineConfig({ database: mongodbAdapter({ url: "mongodb://127.0.0.1:1", database: "x" }) });\n',
+    "quickservicets.config.ts": 'import { defineConfig, mongodbAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: mongodbAdapter({ url: "mongodb://127.0.0.1:1", database: "x" }) });\n',
   });
   await addMigration(root, "Initial", at(0));
   writeFileSync(join(root, "entities/Organization.ts"), 'import type { User } from "./User";\nexport type Organization = { name: string; /** @joinTable organization_users */ users?: User[] }');

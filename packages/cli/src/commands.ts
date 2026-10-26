@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
-import { boolean, defineCommand, object, string, type CommandDefinition, type CommandOutput } from "@quickservice/core";
+import { boolean, defineCommand, MIGRATIONS_TABLE_RENAMED, object, string, type CommandDefinition, type CommandOutput } from "@quickservicets/core";
 
-/** The commands of the `quickservice` CLI, for help texts and the reference documentation. */
+/** The commands of the `quickservicets` CLI, for help texts and the reference documentation. */
 export interface CommandDoc {
   name: string;
   usage: string;
@@ -19,8 +19,8 @@ const print = (output: CommandOutput, result: { code: number; lines: string[]; e
 export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
   defineCommand({
     name: "init",
-    usage: "quickservice init [directory] [--db postgres|mongodb|sqlite|memory]",
-    description: "Creates a project; inside the QuickService monorepo it also links the workspace packages and installs them.",
+    usage: "quickservicets init [directory] [--db postgres|mongodb|sqlite|memory]",
+    description: "Creates a project; inside the QuickService.ts monorepo it also links the workspace packages and installs them.",
     args: [{ name: "directory" }],
     flags: object({ db: string().optional().describe("The database: postgres, mongodb, sqlite or memory (asked when left out).") }),
     async run({ args, flags, cwd, output }) {
@@ -32,7 +32,7 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
   }),
   defineCommand({
     name: "dev",
-    usage: "quickservice dev",
+    usage: "quickservicets dev",
     description:
       "Builds and serves the project, rebuilding and restarting when entities, endpoints, hooks, jobs, features, the config, the `.env` files, or a folder or `watch` path of an enabled feature change.",
     async run({ cwd, output }) {
@@ -44,7 +44,7 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
   }),
   defineCommand({
     name: "build",
-    usage: "quickservice build",
+    usage: "quickservicets build",
     description: "Generates `.generated/`: models, routes, types, the OpenAPI document and the server entry.",
     async run({ cwd, output }) {
       const { build } = await import("./build/build.ts");
@@ -71,7 +71,7 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
   }),
   defineCommand({
     name: "migrate",
-    usage: "quickservice migrate [target] [--force]",
+    usage: "quickservicets migrate [target] [--force]",
     description: "Applies pending migrations, or migrates up or down to the target migration.",
     args: [{ name: "target", description: "The migration to migrate up or down to, or 0 to revert every migration." }],
     flags: object({ force: boolean().default(false).describe("Reverts migrations in production.") }),
@@ -85,17 +85,20 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
         throw error;
       });
       printWarnings(result.warnings);
+      for (const table of result.renamed) {
+        output.log(JSON.stringify({ timestamp: new Date().toISOString(), message: MIGRATIONS_TABLE_RENAMED, from: table.from, to: table.to }));
+      }
       for (const message of result.messages) output.log(message);
       return 0;
     },
   }),
   defineCommand({
     name: "migration add",
-    usage: "quickservice migration add <Name>",
+    usage: "quickservicets migration add <Name>",
     description: "Creates a migration from the model changes since the last one.",
     args: [{ name: "Name" }],
     async run({ args, cwd, output }) {
-      if (!args.Name) throw new Error("Usage: quickservice migration add <Name>");
+      if (!args.Name) throw new Error("Usage: quickservicets migration add <Name>");
       const { addMigration } = await import("./migrations/add.ts");
       const created = await addMigration(cwd, args.Name);
       output.log(`Created ${created.file}`);
@@ -104,7 +107,7 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
   }),
   defineCommand({
     name: "migration list",
-    usage: "quickservice migration list",
+    usage: "quickservicets migration list",
     description: "Lists the migrations and whether each one is applied.",
     async run({ cwd, output }) {
       const { formatSchemaCounts, listMigrationStatus } = await import("./migrations/list-remove.ts");
@@ -119,7 +122,7 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
   }),
   defineCommand({
     name: "migration remove",
-    usage: "quickservice migration remove",
+    usage: "quickservicets migration remove",
     description: "Removes the latest migration when it is not applied.",
     async run({ cwd, output }) {
       const { removeLatestMigration } = await import("./migrations/list-remove.ts");
@@ -129,7 +132,7 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
   }),
   defineCommand({
     name: "migration script",
-    usage: "quickservice migration script [from] [to] [--output <file>]",
+    usage: "quickservicets migration script [from] [to] [--output <file>]",
     description: "Prints, or writes to a file, the SQL of the migrations between two points.",
     args: [{ name: "from" }, { name: "to" }],
     flags: object({ output: string().optional().describe("Writes the script to this file instead of printing it.") }),
@@ -143,7 +146,7 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
   }),
   defineCommand({
     name: "job run",
-    usage: "quickservice job run <name> [--force]",
+    usage: "quickservicets job run <name> [--force]",
     description:
       "Runs a job now in the CLI process as a `manual` run, printing its status, duration and result or error; exits with 1 unless it succeeds. `--force` runs it even while another run of the job is running.",
     args: [{ name: "name" }],
@@ -155,7 +158,7 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
   }),
   defineCommand({
     name: "job list",
-    usage: "quickservice job list",
+    usage: "quickservicets job list",
     description: "Lists every job with its schedule, time zone and next run time.",
     async run({ cwd, output }) {
       const { listJobsCommand } = await import("./jobs/job-commands.ts");
@@ -164,7 +167,7 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
   }),
   defineCommand({
     name: "job runs",
-    usage: "quickservice job runs <name> [--limit n]",
+    usage: "quickservicets job runs <name> [--limit n]",
     description: "Lists the latest runs of a job (20 by default) with their attempt, trigger, status, start and duration.",
     args: [{ name: "name" }],
     flags: object({ limit: string().optional().describe("How many runs to list (default 20).") }),
@@ -175,9 +178,9 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
   }),
   defineCommand({
     name: "eject",
-    usage: "quickservice eject <key> [--file <path>] [--dry-run] [--force]",
+    usage: "quickservicets eject <key> [--file <path>] [--dry-run] [--force]",
     description:
-      "Copies an enabled native feature into `features/<key>/` as a project feature that replaces it, or with `--file` one of its entity, endpoint, hook, job or folder files into the matching project folder, where it replaces the native's file; imports of the core are rewritten to `@quickservice/core`.",
+      "Copies an enabled native feature into `features/<key>/` as a project feature that replaces it, or with `--file` one of its entity, endpoint, hook, job or folder files into the matching project folder, where it replaces the native's file; imports of the core are rewritten to `@quickservicets/core`.",
     args: [{ name: "key", required: true, description: "The key of an enabled native feature." }],
     flags: object({
       file: string().optional().describe("Copies only this file of the native, relative to its folder (like `jobs/prune.ts`)."),
@@ -192,7 +195,7 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
   }),
   defineCommand({
     name: "env check",
-    usage: "quickservice env check",
+    usage: "quickservicets env check",
     description:
       "Checks the environment the service would start with (the process and its `.env` files): one line per declared variable with `ok`, `default`, `missing` or `invalid`, and its value unless it is a secret, then the `QS_*` overrides that are set and warnings for unknown ones. Exits with 1 when a variable is missing or invalid.",
     async run({ cwd, output }) {
@@ -204,5 +207,5 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
 
 export const COMMANDS: CommandDoc[] = [
   ...BUILT_IN_COMMANDS.map(({ name, usage, description }) => ({ name, usage, description })),
-  { name: "--version", usage: "quickservice --version", description: "Prints the CLI version." },
+  { name: "--version", usage: "quickservicets --version", description: "Prints the CLI version." },
 ];

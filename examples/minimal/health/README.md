@@ -77,5 +77,5 @@ health: { prober: { run: async ({ checks }) => ({ status: "ok", checks: Object.f
 Copy the native into the project as a `features/health/` project feature that replaces it:
 
 ```bash
-quickservice eject health
+quickservicets eject health
 ```

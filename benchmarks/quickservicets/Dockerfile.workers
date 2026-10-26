@@ -1,0 +1,45 @@
+# syntax=docker/dockerfile:1
+# QuickService.ts benchmark service. Build from the repository root:
+#   docker build -f benchmarks/quickservicets/Dockerfile.workers -t qsbench-quickservicets-workers .
+# The same service as Dockerfile, run with two worker processes (server.workers through QS_WORKERS).
+
+# 1. Install every dependency and run `quickservicets build`, which writes .generated/.
+FROM oven/bun:1.4.2-alpine AS build
+WORKDIR /app
+COPY package.json bun.lock ./
+COPY docs/package.json docs/
+COPY packages/core packages/core
+COPY packages/cli packages/cli
+COPY benchmarks/quickservicets benchmarks/quickservicets
+RUN bun install --frozen-lockfile --filter quickservicets-benchmark
+RUN cd benchmarks/quickservicets && bun run build
+
+# 2. Production dependencies of the service only: the CLI is a build tool and stays out of the image.
+FROM oven/bun:1.4.2-alpine AS deps
+WORKDIR /app
+COPY package.json bun.lock ./
+COPY packages/core/package.json packages/core/
+COPY packages/cli/package.json packages/cli/
+COPY docs/package.json docs/
+COPY benchmarks/quickservicets/package.json benchmarks/quickservicets/
+RUN sed -i '/"@quickservicets\/cli"/d; s/"@quickservicets\/core": "workspace:\*",/"@quickservicets\/core": "workspace:*"/' benchmarks/quickservicets/package.json \
+  && bun install --production --filter quickservicets-benchmark
+
+# 3. Runtime: Bun, the core package, the production dependencies and the built project.
+FROM oven/bun:1.4.2-alpine
+ENV NODE_ENV=production PORT=8080 UPLOAD_DIR=/data/uploads QS_WORKERS=2
+WORKDIR /app
+COPY --from=deps /app/node_modules node_modules
+COPY --from=deps /app/benchmarks/quickservicets/node_modules benchmarks/quickservicets/node_modules
+COPY --from=deps /app/packages/core/node_modules packages/core/node_modules
+COPY package.json ./
+COPY packages/core/package.json packages/core/
+COPY packages/core/src packages/core/src
+COPY --from=build /app/benchmarks/quickservicets/package.json /app/benchmarks/quickservicets/quickservicets.config.ts benchmarks/quickservicets/
+COPY --from=build /app/benchmarks/quickservicets/.generated benchmarks/quickservicets/.generated
+COPY --from=build /app/benchmarks/quickservicets/endpoints benchmarks/quickservicets/endpoints
+RUN mkdir -p /data/uploads && chown -R bun:bun /data
+USER bun
+WORKDIR /app/benchmarks/quickservicets
+EXPOSE 8080
+CMD ["bun", ".generated/server.ts"]

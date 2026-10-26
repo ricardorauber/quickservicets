@@ -14,7 +14,7 @@ import {
   type AnyOptionSchema,
   type DeclaredVariable,
   type ServiceConfig,
-} from "@quickservice/core";
+} from "@quickservicets/core";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -83,7 +83,7 @@ function statusLine({ name, schema }: DeclaredVariable, raw: string | undefined)
 }
 
 /**
- * `quickservice env check`: the status of every declared variable, the `QS_*` overrides that are set and the unknown
+ * `quickservicets env check`: the status of every declared variable, the `QS_*` overrides that are set and the unknown
  * ones, read from the environment the service would start with. Exits 1 when a variable is missing or invalid.
  */
 export async function envCheck(projectRoot: string, processEnv: Record<string, string | undefined> = process.env): Promise<EnvCheckResult> {

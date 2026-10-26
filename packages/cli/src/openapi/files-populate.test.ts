@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { validate } from "@scalar/openapi-parser";
-import { localStorage, resolveConfig, memoryAdapter } from "@quickservice/core";
+import { localStorage, resolveConfig, memoryAdapter } from "@quickservicets/core";
 import { crudTable } from "../build/build.ts";
 import { parseProjectEntities } from "../entities/parse-entities.ts";
 import { createProject } from "../testing/project.ts";
 import { generateOpenApi } from "./generate-openapi.ts";
 
 const entities = {
-  "entities/Organization.ts": `import type { Media } from "@quickservice/core";
+  "entities/Organization.ts": `import type { Media } from "@quickservicets/core";
 export type Organization = {
   name: string;
   /** @maxSize 1MB @accept image/png,image/webp */
@@ -16,8 +16,8 @@ export type Organization = {
   gallery?: Media[];
 };`,
   "entities/User.ts": 'import type { Organization } from "./Organization.ts";\nexport type User = { email: string; organization?: Organization; /** @hidden */ secret?: Organization }',
-  "entities/Document.ts": 'import type { File } from "@quickservice/core";\n/** @access proxy */\nexport type Document = File & { title?: string }',
-  "entities/Contract.ts": 'import type { File } from "@quickservice/core";\n/** @access signed 60 */\nexport type Contract = File & { party: string }',
+  "entities/Document.ts": 'import type { File } from "@quickservicets/core";\n/** @access proxy */\nexport type Document = File & { title?: string }',
+  "entities/Contract.ts": 'import type { File } from "@quickservicets/core";\n/** @access signed 60 */\nexport type Contract = File & { party: string }',
   "entities/Tag.ts": "export type Tag = { label: string }",
 };
 

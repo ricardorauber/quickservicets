@@ -157,7 +157,7 @@ export function memoryEventBus(): MemoryEventBus {
 shared.memory ??= memoryEventBus();
 
 const enabledCheck = () => {
-  if (!shared.enabled) throw new Error("events is not enabled; add events: {} to quickservice.config.ts");
+  if (!shared.enabled) throw new Error("events is not enabled; add events: {} to quickservicets.config.ts");
 };
 
 /** The bus of the `events` feature: write events and custom events, delivered to listeners by pattern. */

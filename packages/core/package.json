@@ -1,6 +1,15 @@
 {
-  "name": "@quickservice/core",
+  "name": "@quickservicets/core",
   "version": "0.1.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ricardorauber/quickservicets.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/ricardorauber/quickservicets#readme",
+  "bugs": {
+    "url": "https://github.com/ricardorauber/quickservicets/issues"
+  },
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",

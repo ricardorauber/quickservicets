@@ -40,8 +40,8 @@ Readiness runs every check at once, each limited by `timeout` (default `2s`); a 
 
 The project adds checks by name in the config; each resolves (healthy, optionally with extra fields for its entry) or throws, and is critical unless written as `{ check, critical: false }`:
 
-```ts title="quickservice.config.ts"
-import { defineConfig, memoryAdapter } from "@quickservice/core";
+```ts title="quickservicets.config.ts"
+import { defineConfig, memoryAdapter } from "@quickservicets/core";
 
 export default defineConfig({
   database: memoryAdapter(),
@@ -55,7 +55,7 @@ export default defineConfig({
 A feature adds its own from its setup with `ctx.feature("health").check(name, fn, options?)`, listing `health` in `after`; its checks are named `<key>.<name>`. A check receives a `signal` aborted at its timeout, to pass to `fetch` and other calls:
 
 ```ts title="features/mail/index.ts"
-import { boolean, defineFeature, object } from "@quickservice/core";
+import { boolean, defineFeature, object } from "@quickservicets/core";
 
 /** A small feature that adds a readiness check for its mail server. */
 export default defineFeature({
@@ -124,7 +124,7 @@ Point the load balancer's health check at `/health/ready` with an interval of a 
 | Hooks and events | `beforeCheck` (returning `false` skips a check, reported as `skipped`), `afterCheck`, `onStatusChange`; with `events: {}`, `health.status.changed` with `from`, `to` and the failing checks |
 | Override files | A project endpoint at a health route's path, like `endpoints/health/ready/get.ts`, replaces it; `runHealthChecks()` runs the checks for it |
 | Replace the implementation | `prober`: its `run` gets the registered checks and returns the ready response |
-| Eject | `quickservice eject health` |
+| Eject | `quickservicets eject health` |
 
 ## See also
 

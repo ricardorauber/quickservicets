@@ -16,9 +16,9 @@ const entities = {
   "entities/Account.ts": "/** @schema billing */\nexport type Account = { /** @unique */ name: string }",
 };
 const sqliteConfig = (path: string) =>
-  `import { defineConfig, sqliteAdapter } from "@quickservice/core";\nexport default defineConfig({ database: sqliteAdapter({ path: ${JSON.stringify(path)} }) });\n`;
+  `import { defineConfig, sqliteAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: sqliteAdapter({ path: ${JSON.stringify(path)} }) });\n`;
 const postgresConfig = (url: string) =>
-  `import { defineConfig, postgresAdapter } from "@quickservice/core";\nexport default defineConfig({ database: postgresAdapter({ url: ${JSON.stringify(url)} }) });\n`;
+  `import { defineConfig, postgresAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: postgresAdapter({ url: ${JSON.stringify(url)} }) });\n`;
 
 async function asTenant<T>(schema: string, work: () => Promise<T>): Promise<T> {
   process.env.DATABASE_SCHEMA = schema;
@@ -37,14 +37,14 @@ const failingDown = (create: string, drop: string) =>
 
 describe("generated down statements", () => {
   test("SQLite marks drops of explicit-schema tables", async () => {
-    const root = createLinkedProject({ ...entities, "quickservice.config.ts": sqliteConfig(":memory:") });
+    const root = createLinkedProject({ ...entities, "quickservicets.config.ts": sqliteConfig(":memory:") });
     const down = downOf(readFileSync(join(root, (await addMigration(root, "Initial", at(0))).file), "utf8"));
     expect(line(down, "DROP TABLE `billing__accounts`")).toContain('{ schema: "billing" }');
     expect(line(down, "DROP TABLE `{{default_schema}}users`")).not.toContain("{ schema:");
   });
 
   test("PostgreSQL marks drops of explicit-schema tables and of the schema", async () => {
-    const root = createLinkedProject({ ...entities, "quickservice.config.ts": postgresConfig("postgres://localhost/none") });
+    const root = createLinkedProject({ ...entities, "quickservicets.config.ts": postgresConfig("postgres://localhost/none") });
     const down = downOf(readFileSync(join(root, (await addMigration(root, "Initial", at(0))).file), "utf8"));
     expect(line(down, 'DROP TABLE \\"billing\\".\\"accounts\\"')).toContain('{ schema: "billing" }');
     expect(line(down, 'DROP SCHEMA \\"billing\\"')).toContain('{ schema: "billing" }');
@@ -65,7 +65,7 @@ const listLines = async (root: string, tenant: string) => {
 describe("reverting with two tenants on SQLite", () => {
   const setup = async () => {
     const path = join(createProject({}), "app.db");
-    const root = createLinkedProject({ ...entities, "quickservice.config.ts": sqliteConfig(path) });
+    const root = createLinkedProject({ ...entities, "quickservicets.config.ts": sqliteConfig(path) });
     await addMigration(root, "Initial", at(0));
     await asTenant("tenant-a", () => migrate(root));
     await asTenant("tenant-b", () => migrate(root));
@@ -101,7 +101,7 @@ describe("reverting with two tenants on SQLite", () => {
 
   test("a failing down leaves both histories unchanged", async () => {
     const path = join(createProject({}), "app.db");
-    const root = createLinkedProject({ ...entities, "quickservice.config.ts": sqliteConfig(path) });
+    const root = createLinkedProject({ ...entities, "quickservicets.config.ts": sqliteConfig(path) });
     await addMigration(root, "Initial", at(0));
     writeFileSync(
       join(root, "migrations/20261015120001_Extra.ts"),
@@ -135,7 +135,7 @@ if (postgresUrl) {
     const query = async <T>(text: string) => {
       const admin = new SQL(postgresUrl);
       try {
-        // quickservice-allow-unsafe: runs the literal queries this test file passes to it
+        // quickservicets-allow-unsafe: runs the literal queries this test file passes to it
         return (await admin.unsafe(text)) as T[];
       } finally {
         await admin.close();
@@ -147,7 +147,7 @@ if (postgresUrl) {
       );
     const project = async () => {
       await reset();
-      const root = createLinkedProject({ ...entities, "quickservice.config.ts": postgresConfig(postgresUrl) });
+      const root = createLinkedProject({ ...entities, "quickservicets.config.ts": postgresConfig(postgresUrl) });
       await addMigration(root, "Initial", at(0));
       return root;
     };

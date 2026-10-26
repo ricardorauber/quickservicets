@@ -106,5 +106,5 @@ export default defineFeature({
 Copy the native into the project as `features/security/`, which then replaces it with the same behavior:
 
 ```bash
-bun run quickservice eject security
+bun run quickservicets eject security
 ```

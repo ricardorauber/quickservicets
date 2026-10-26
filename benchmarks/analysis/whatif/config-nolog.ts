@@ -1,5 +1,5 @@
 // WHAT-IF: request logging disabled through the documented `logger` option.
-import { defineConfig, localStorage, postgresAdapter } from "@quickservice/core";
+import { defineConfig, localStorage, postgresAdapter } from "@quickservicets/core";
 
 const silent = { info() {}, warn() {}, error() {} };
 

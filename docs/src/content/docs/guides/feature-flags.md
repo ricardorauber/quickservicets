@@ -11,8 +11,8 @@ The samples come from the example project `examples/minimal/flags`.
 
 ## Enabling flags
 
-```ts title="quickservice.config.ts"
-import { defineConfig, memoryAdapter } from "@quickservice/core";
+```ts title="quickservicets.config.ts"
+import { defineConfig, memoryAdapter } from "@quickservicets/core";
 
 export default defineConfig({
   database: memoryAdapter(),
@@ -45,7 +45,7 @@ The percentage bucket is the first four bytes of SHA-256 of `<flag>:<user id>` (
 ## `req.flags`
 
 ```ts title="endpoints/settings/get.ts"
-import type { Repositories, ServiceRequest } from "@quickservice/core";
+import type { Repositories, ServiceRequest } from "@quickservicets/core";
 
 /** The flags of the caller, for the client to show or hide features. */
 export default (_repos: Repositories, req: ServiceRequest) => req.flags!.all();
@@ -54,7 +54,7 @@ export default (_repos: Repositories, req: ServiceRequest) => req.flags!.all();
 `req.flags.on(name)`, `off(name)` and `all()` answer synchronously, from memory, with the user and tenant the request has when they are called; each name is evaluated once per request. With rules in the config, `on` accepts only their names, checked by TypeScript; an unknown name is off and logs one `flags.unknown` warning per process. `req.user` must be set before the flags are read: here a stand-in feature does it, as an authentication feature would.
 
 ```ts title="features/demo-user/index.ts"
-import { defineFeature } from "@quickservice/core";
+import { defineFeature } from "@quickservicets/core";
 
 /**
  * A stand-in for authentication, for this demo only: it trusts the `x-user-id` header and runs before the flags are
@@ -91,7 +91,7 @@ While the flag is off for the caller, the route answers `404 Route not found`, e
 ## Flags in jobs and queue consumers
 
 ```ts title="jobs/flag-report.ts"
-import { job } from "@quickservice/core";
+import { job } from "@quickservicets/core";
 
 /** Reads flags outside a request: for a given user, and anonymously. */
 export default job("@daily", (ctx) => ({
@@ -104,12 +104,12 @@ Jobs and queue consumers get `ctx.flags` with the same rules, for the user and t
 
 ## The database source
 
-`source: "database"` adds the internal `FeatureFlag` table (run `quickservice migration add`). A row replaces the config rule of its name, so the config holds the defaults and the table the changes made at runtime. Each worker loads the rows at startup and every `refresh` (default `30s`); writes through the process's repositories apply as soon as they commit, and a failed reload keeps the last values. The commands manage rows:
+`source: "database"` adds the internal `FeatureFlag` table (run `quickservicets migration add`). A row replaces the config rule of its name, so the config holds the defaults and the table the changes made at runtime. Each worker loads the rows at startup and every `refresh` (default `30s`); writes through the process's repositories apply as soon as they commit, and a failed reload keeps the last values. The commands manage rows:
 
 ```bash
-quickservice flags set checkout-v2 --percentage 20 --users u1,u2
-quickservice flags list
-quickservice flags remove checkout-v2
+quickservicets flags set checkout-v2 --percentage 20 --users u1,u2
+quickservicets flags list
+quickservicets flags remove checkout-v2
 ```
 
 `flags list` shows each flag's origin: `config`, `database` or `both`.
@@ -136,7 +136,7 @@ flags: { rules: { "pro-reports": ({ tenant }) => (tenant as { plan?: string } | 
 
 ## Eject
 
-`quickservice eject flags` copies the native into `features/flags/` as a project feature that replaces it, with the same behavior.
+`quickservicets eject flags` copies the native into `features/flags/` as a project feature that replaces it, with the same behavior.
 
 ## See also
 

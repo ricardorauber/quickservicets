@@ -12,7 +12,7 @@ sidebar:
 ## The entity
 
 ```ts check title="entities/Organization.ts"
-import type { Media } from "@quickservice/core";
+import type { Media } from "@quickservicets/core";
 
 export type Organization = {
   name: string;

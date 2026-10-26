@@ -11,7 +11,7 @@ import {
   type Repository,
   type WriteChange,
   type WriteEvent,
-} from "@quickservice/core";
+} from "@quickservicets/core";
 import { createSqliteTables } from "../../../core/src/testing/sql.ts";
 import { resetPostgresTables } from "../../../core/src/testing/postgres.ts";
 import { createProject } from "../testing/project.ts";
@@ -162,7 +162,7 @@ describe("the events native", () => {
   test("a cascade delete over HTTP emits one event per record with the same request and actor", async () => {
     const service = await startTestService({
       files: {
-        "quickservice.config.ts": 'import { defineConfig, memoryAdapter } from "@quickservice/core";\nexport default defineConfig({ database: memoryAdapter(), events: {} });\n',
+        "quickservicets.config.ts": 'import { defineConfig, memoryAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: memoryAdapter(), events: {} });\n',
         "entities/Organization.ts": "export type Organization = { name: string };\n",
         "entities/User.ts": 'import type { Organization } from "./Organization";\nexport type User = { name: string; /** @onDelete cascade */ organization: Organization };\n',
       },

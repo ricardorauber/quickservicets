@@ -209,7 +209,7 @@ const realtimeFeature = defineFeature({
     }
     const covered = changeEntities(ctx.models, sse.changes as ChangeCoverage);
     if (covered.length > 0) {
-      if (!ctx.config.features.some((feature) => feature.key === "events")) throw new Error("realtime change streams require events; add events: {} to quickservice.config.ts");
+      if (!ctx.config.features.some((feature) => feature.key === "events")) throw new Error("realtime change streams require events; add events: {} to quickservicets.config.ts");
       const source = withPublish(changeSource(ctx, covered));
       published = source;
       const { beforeDeliver, beforeSend } = sse;

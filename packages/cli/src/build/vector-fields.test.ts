@@ -14,7 +14,7 @@ import {
   type DatabaseAdapter,
   type EntityModel,
   type Repository,
-} from "@quickservice/core";
+} from "@quickservicets/core";
 import { postgresDdl } from "../../../core/src/testing/postgres.ts";
 import { createSqliteTables } from "../../../core/src/testing/sql.ts";
 import { parseEntities } from "../entities/parse-entities.ts";
@@ -125,8 +125,8 @@ describe("storage", () => {
 
   test("migration add creates the extension in the first migration with a vector column", async () => {
     const root = createLinkedProject({
-      "quickservice.config.ts":
-        'import { defineConfig, postgresAdapter } from "@quickservice/core";\nexport default defineConfig({ database: postgresAdapter({ url: "postgres://localhost/none" }) });\n',
+      "quickservicets.config.ts":
+        'import { defineConfig, postgresAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: postgresAdapter({ url: "postgres://localhost/none" }) });\n',
       "entities/Chunk.ts": "export type Chunk = { text: string };\n",
     });
     const at = (seconds: number) => new Date(Date.UTC(2026, 9, 25, 12, 0, seconds));
@@ -172,7 +172,7 @@ describe("storage", () => {
   });
 
   test("the build prints the warning", async () => {
-    const root = createLinkedProject({ "quickservice.config.ts": MEMORY_CONFIG, "entities/Chunk.ts": chunk("@vector 3 index=hnsw") });
+    const root = createLinkedProject({ "quickservicets.config.ts": MEMORY_CONFIG, "entities/Chunk.ts": chunk("@vector 3 index=hnsw") });
     expect((await build(root)).warnings).toContain("@vector index=hnsw is used only on PostgreSQL");
   });
 });
@@ -196,7 +196,7 @@ if (pgvector) {
     const client = database.client!;
     await client.unsafe("drop schema if exists public cascade; create schema public; create extension if not exists vector;");
     for (const statement of await postgresDdl(models)) {
-      // quickservice-allow-unsafe: runs the DDL drizzle-kit generates from the models
+      // quickservicets-allow-unsafe: runs the DDL drizzle-kit generates from the models
       await client.unsafe(statement);
     }
     try {

@@ -13,8 +13,8 @@ The samples come from the example project `examples/minimal/idempotency`: an `Or
 
 With `idempotency: {}`, every `POST` route honors the header (`methods` adds `PUT`, `PATCH` or `DELETE`). The key is 1 to 255 visible ASCII characters, usually a UUID the client generates for one operation; anything else is `400 Invalid Idempotency-Key header`. A request without the header runs normally, unless `required` applies, which answers `400 Idempotency-Key header is required`.
 
-```ts title="quickservice.config.ts"
-import { defineConfig, memoryAdapter } from "@quickservice/core";
+```ts title="quickservicets.config.ts"
+import { defineConfig, memoryAdapter } from "@quickservicets/core";
 
 export default defineConfig({
   database: memoryAdapter(),
@@ -34,7 +34,7 @@ A key is scoped to the method, the route pattern and the user (`req.user?.id`, o
 The first request of a scope stores a `running` record through a unique index before the handler runs, so two concurrent requests can never both run it. When the handler finishes, its response is stored, and a repeat with the same fingerprint gets the same status, body and `content-type`, `location` and `etag` headers, plus `Idempotent-Replayed: true`:
 
 ```ts title="endpoints/payments/post.ts"
-import type { ServiceRequest, ServiceResponse } from "@quickservice/core";
+import type { ServiceRequest, ServiceResponse } from "@quickservicets/core";
 
 /** Charges a card; a retried request with the same Idempotency-Key gets the first charge back instead of a second one. */
 export default async (_repos: unknown, req: ServiceRequest, res: ServiceResponse) => {

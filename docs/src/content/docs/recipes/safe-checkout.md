@@ -13,8 +13,8 @@ sidebar:
 
 Turn the native on and require a key on the checkout endpoint:
 
-```ts title="quickservice.config.ts"
-import { defineConfig, sqliteAdapter } from "@quickservice/core";
+```ts title="quickservicets.config.ts"
+import { defineConfig, sqliteAdapter } from "@quickservicets/core";
 
 export default defineConfig({
   database: sqliteAdapter({ path: "data.db" }),
@@ -23,7 +23,7 @@ export default defineConfig({
 ```
 
 ```ts title="endpoints/checkout/post.ts"
-import type { Repositories, ServiceRequest, ServiceResponse } from "@quickservice/core";
+import type { Repositories, ServiceRequest, ServiceResponse } from "@quickservicets/core";
 import { charge } from "../../payments.ts";
 
 /** @idempotent required=true ttl=48h */
@@ -38,8 +38,8 @@ export default async (repos: Repositories, req: ServiceRequest, res: ServiceResp
 ```
 
 ```bash
-bun run quickservice migration add IdempotencyKeys
-bun run quickservice migrate
+bun run quickservicets migration add IdempotencyKeys
+bun run quickservicets migrate
 ```
 
 ## The client

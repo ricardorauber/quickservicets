@@ -9,7 +9,7 @@ Background queues stored in the project's database, with consumers declared as f
 
 ## Enabling
 
-Turn it on in `quickservice.config.ts`:
+Turn it on in `quickservicets.config.ts`:
 
 ```ts
 queues: {}
@@ -74,7 +74,7 @@ export type User = { email: string };
 Prints each queue with its number of waiting, active, completed and dead messages, and the age of its oldest waiting message.
 
 ```bash
-quickservice queue list
+quickservicets queue list
 ```
 
 ### `queue dead`
@@ -82,7 +82,7 @@ quickservice queue list
 Prints the latest dead messages of a queue with their id, attempts, finish time and error message.
 
 ```bash
-quickservice queue dead <queue> [--limit <n>]
+quickservicets queue dead <queue> [--limit <n>]
 ```
 
 **Arguments:**
@@ -98,7 +98,7 @@ quickservice queue dead <queue> [--limit <n>]
 Moves dead messages back to waiting with attempt 0, one by id or every dead one of a queue, and prints how many.
 
 ```bash
-quickservice queue retry <message id> | quickservice queue retry --queue <name> --dead
+quickservicets queue retry <message id> | quickservicets queue retry --queue <name> --dead
 ```
 
 **Arguments:**

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { validate } from "@scalar/openapi-parser";
-import { definePostHook, definePreHook, resolveRouteHooks } from "@quickservice/core";
+import { definePostHook, definePreHook, resolveRouteHooks } from "@quickservicets/core";
 import { crudTable } from "../build/build.ts";
 import { scanEndpoints } from "../endpoints/scan-endpoints.ts";
 import { parseProjectEntities } from "../entities/parse-entities.ts";
@@ -14,9 +14,9 @@ import { generateOpenApi } from "./generate-openapi.ts";
 
 const hookFiles = {
   "hooks/authorized.ts":
-    'import { definePreHook } from "@quickservice/core";\nexport default definePreHook(() => {}, { docs: { responses: [401, 403], security: "bearer" } });',
-  "hooks/audited.ts": 'import { definePreHook } from "@quickservice/core";\nexport default definePreHook(() => {}, { docs: { responses: [400, 429] } });',
-  "hooks/sanitize.ts": 'import { definePostHook } from "@quickservice/core";\nexport default definePostHook((data) => data);',
+    'import { definePreHook } from "@quickservicets/core";\nexport default definePreHook(() => {}, { docs: { responses: [401, 403], security: "bearer" } });',
+  "hooks/audited.ts": 'import { definePreHook } from "@quickservicets/core";\nexport default definePreHook(() => {}, { docs: { responses: [400, 429] } });',
+  "hooks/sanitize.ts": 'import { definePostHook } from "@quickservicets/core";\nexport default definePostHook((data) => data);',
 };
 
 async function documentFor(files: Record<string, string>) {

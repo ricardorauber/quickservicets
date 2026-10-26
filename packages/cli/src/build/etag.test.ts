@@ -1,23 +1,23 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { etagOf } from "@quickservice/core";
+import { etagOf } from "@quickservicets/core";
 import { listedTags, noneMatch } from "../../../core/src/features/etag/tags.ts";
 import { startTestService, type TestService } from "../testing/service.ts";
 
-const config = (etag = "etag: {}") => `import { defineConfig, memoryAdapter } from "@quickservice/core";
+const config = (etag = "etag: {}") => `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter()${etag ? `, ${etag}` : ""} });
 `;
 const FILES = {
-  "quickservice.config.ts": config(),
+  "quickservicets.config.ts": config(),
   "entities/User.ts": "export type User = { name: string; email: string };\n",
   "entities/Secret.ts": "/** @guarded:read */\nexport type Secret = { value: string };\n",
-  "hooks/guarded.ts": `import { definePreHook, HttpError } from "@quickservice/core";
+  "hooks/guarded.ts": `import { definePreHook, HttpError } from "@quickservicets/core";
 export default definePreHook((_repos, req) => {
   if (req.headers.get("x-role") !== "admin") throw new HttpError(403, "Forbidden");
 });
 `,
-  "endpoints/profiles/[id]/get.ts": `import type { Repositories, ServiceRequest, ServiceResponse } from "@quickservice/core";
+  "endpoints/profiles/[id]/get.ts": `import type { Repositories, ServiceRequest, ServiceResponse } from "@quickservicets/core";
 export default async (repos: Repositories, req: ServiceRequest, res: ServiceResponse) => {
   const user = await (repos as unknown as { users: { findById(id: string): Promise<{ id: string; name: string } | null> } }).users.findById(req.params.id!);
   res.etag(user!);
@@ -110,14 +110,14 @@ describe("custom endpoints", () => {
     } finally {
       await service.stop();
     }
-    const without = await startTestService({ files: { ...FILES, "quickservice.config.ts": config("") } });
+    const without = await startTestService({ files: { ...FILES, "quickservicets.config.ts": config("") } });
     try {
       const user = (await (await create(without)).json()) as { id: string };
       const read = await without.fetch(`/users/${user.id}`);
       expect(read.headers.get("etag")).toBeNull();
       const failed = await without.fetch(`/profiles/${user.id}`);
       expect(failed.status).toBe(500);
-      expect(JSON.stringify(await failed.json())).toContain("etag is not enabled; add etag: {} to quickservice.config.ts");
+      expect(JSON.stringify(await failed.json())).toContain("etag is not enabled; add etag: {} to quickservicets.config.ts");
     } finally {
       await without.stop();
     }

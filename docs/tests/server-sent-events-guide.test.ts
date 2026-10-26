@@ -16,7 +16,7 @@ function titledSamples(markdown: string): Map<string, string> {
 describe("the Server-Sent Events guide", () => {
   test("its file samples are the example project's files", () => {
     const samples = titledSamples(guide);
-    expect([...samples.keys()].sort()).toEqual(["endpoints/clock/sse.ts", "entities/Task.ts", "quickservice.config.ts"]);
+    expect([...samples.keys()].sort()).toEqual(["endpoints/clock/sse.ts", "entities/Task.ts", "quickservicets.config.ts"]);
     for (const [path, code] of samples) expect(code).toBe(readFileSync(join(example, path), "utf8"));
   });
 
@@ -37,7 +37,7 @@ describe("the Server-Sent Events guide", () => {
       "beforeDeliver",
       "beforeSend",
       "changeSource",
-      "quickservice eject realtime",
+      "quickservicets eject realtime",
       "new EventSource(",
     ]) {
       expect(guide).toContain(topic);

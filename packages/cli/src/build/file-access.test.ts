@@ -12,15 +12,15 @@ import {
   s3Storage,
   type ServiceConfig,
   type StorageAdapter,
-} from "@quickservice/core";
+} from "@quickservicets/core";
 import { parseEntities, parseProjectEntities } from "../entities/parse-entities.ts";
 import { createLinkedProject, createProject } from "../testing/project.ts";
 import { build } from "./build.ts";
 
 const entities = {
-  "entities/Document.ts": 'import type { File } from "@quickservice/core";\n/** @access proxy */\nexport type Document = File & { title?: string }',
-  "entities/Contract.ts": 'import type { File } from "@quickservice/core";\n/** @access signed 60 */\nexport type Contract = File & { party?: string }',
-  "entities/Post.ts": 'import type { Media } from "@quickservice/core";\nexport type Post = { title: string; cover?: Media }',
+  "entities/Document.ts": 'import type { File } from "@quickservicets/core";\n/** @access proxy */\nexport type Document = File & { title?: string }',
+  "entities/Contract.ts": 'import type { File } from "@quickservicets/core";\n/** @access signed 60 */\nexport type Contract = File & { party?: string }',
+  "entities/Post.ts": 'import type { Media } from "@quickservicets/core";\nexport type Post = { title: string; cover?: Media }',
 };
 
 interface SetupOptions {
@@ -31,7 +31,7 @@ interface SetupOptions {
 
 async function setup(options: SetupOptions = {}) {
   const models = parseProjectEntities(createProject(entities));
-  const dir = mkdtempSync(join(tmpdir(), "quickservice-access-"));
+  const dir = mkdtempSync(join(tmpdir(), "quickservicets-access-"));
   const database = memoryAdapter();
   let clock = Date.now();
   const config = resolveConfig(
@@ -87,7 +87,7 @@ async function withSetup(options: SetupOptions, run: (context: Awaited<ReturnTyp
   }
 }
 
-const cdn = (dir = mkdtempSync(join(tmpdir(), "quickservice-cdn-"))) => localStorage({ dir, publicBaseUrl: "https://cdn.x" });
+const cdn = (dir = mkdtempSync(join(tmpdir(), "quickservicets-cdn-"))) => localStorage({ dir, publicBaseUrl: "https://cdn.x" });
 
 describe("direct access", () => {
   test("the url is the storage's public URL, and there is no file route", () =>
@@ -229,7 +229,7 @@ describe("tags", () => {
 
   test("an unknown mode or a ttl outside signed mode fails", () => {
     const parse = (tag: string) =>
-      parseEntities(createProject({ "entities/Doc.ts": `import type { File } from "@quickservice/core";\n/** @access ${tag} */\nexport type Doc = File & { pages?: number }` }));
+      parseEntities(createProject({ "entities/Doc.ts": `import type { File } from "@quickservicets/core";\n/** @access ${tag} */\nexport type Doc = File & { pages?: number }` }));
     expect(() => parse("public")).toThrow("expects direct, proxy or signed [ttlSeconds]");
     expect(() => parse("proxy 60")).toThrow("takes a ttl in seconds only in signed mode");
     expect(() => parse("signed 0")).toThrow("takes a ttl in seconds only in signed mode");
@@ -238,23 +238,23 @@ describe("tags", () => {
 
 describe("build errors", () => {
   const config = (files: string) =>
-    `import { defineConfig, localStorage, memoryAdapter } from "@quickservice/core";\nexport default defineConfig({ database: memoryAdapter(), storage: { default: localStorage({ dir: "uploads" }) }, files: ${files} });\n`;
+    `import { defineConfig, localStorage, memoryAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: memoryAdapter(), storage: { default: localStorage({ dir: "uploads" }) }, files: ${files} });\n`;
 
   test("direct mode on a storage without public URLs names entity and storage", async () => {
-    const root = createLinkedProject({ "quickservice.config.ts": config('{ access: "direct" }') });
+    const root = createLinkedProject({ "quickservicets.config.ts": config('{ access: "direct" }') });
     await expect(build(root)).rejects.toThrow('entity File uses direct file access, but storage "default" has no publicUrl');
   });
 
   test("signed mode without native signing needs a secret", async () => {
     const root = createLinkedProject({
-      "quickservice.config.ts": config("{}"),
+      "quickservicets.config.ts": config("{}"),
       "entities/Contract.ts": entities["entities/Contract.ts"],
     });
     await expect(build(root)).rejects.toThrow("entity Contract uses signed file access");
   });
 
   test("the default config builds", async () => {
-    const root = createLinkedProject({ "quickservice.config.ts": config("{}") });
+    const root = createLinkedProject({ "quickservicets.config.ts": config("{}") });
     await build(root);
   });
 });

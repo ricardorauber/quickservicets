@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createApp, definePostHook, memoryAdapter, resolveConfig } from "@quickservice/core";
+import { createApp, definePostHook, memoryAdapter, resolveConfig } from "@quickservicets/core";
 import { parseEntities } from "../entities/parse-entities.ts";
 import { createProject } from "../testing/project.ts";
 

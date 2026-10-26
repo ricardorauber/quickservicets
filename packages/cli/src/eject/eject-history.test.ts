@@ -20,7 +20,7 @@ function filesOf(root: string): Record<string, string> {
 
 const send = (method: string, body?: unknown) => ({ method, headers: { "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 
-test("quickservice eject history turns the native into features/history/, and versions, routes and the job keep working", async () => {
+test("quickservicets eject history turns the native into features/history/, and versions, routes and the job keep working", async () => {
   const root = createLinkedProject(filesOf(example));
   const lines = await eject(root, "history");
   expect(lines).toContain("features/history/ now replaces the history native.");

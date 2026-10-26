@@ -108,7 +108,7 @@ test("unsortable fields throw at runtime", () => {
 });
 
 test("types reject unsortable and unknown fields", () => {
-  const dir = mkdtempSync(join(tmpdir(), "quickservice-order-"));
+  const dir = mkdtempSync(join(tmpdir(), "quickservicets-order-"));
   const file = join(dir, "check.ts");
   writeFileSync(
     file,

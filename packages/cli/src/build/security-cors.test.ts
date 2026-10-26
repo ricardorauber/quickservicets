@@ -1,13 +1,13 @@
 import { describe, expect, spyOn, test } from "bun:test";
-import { startTestService, type TestService } from "@quickservice/cli/testing";
-import { memoryAdapter, resolveConfig } from "@quickservice/core";
+import { startTestService, type TestService } from "@quickservicets/cli/testing";
+import { memoryAdapter, resolveConfig } from "@quickservicets/core";
 import { OriginMatcher } from "../../../core/src/features/security/cors.ts";
 
-const CONFIG = (security = "") => `import { defineConfig, memoryAdapter } from "@quickservice/core";
+const CONFIG = (security = "") => `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter()${security ? `, security: ${security}` : ""} });
 `;
 const POST = "export type Post = { title: string };\n";
-const endpoint = (tag = "", body = "({ ok: true })") => `import type { Endpoint } from "@quickservice/core";\n${tag ? `/** ${tag} */\n` : ""}const handler: Endpoint = () => ${body};\nexport default handler;\n`;
+const endpoint = (tag = "", body = "({ ok: true })") => `import type { Endpoint } from "@quickservicets/core";\n${tag ? `/** ${tag} */\n` : ""}const handler: Endpoint = () => ${body};\nexport default handler;\n`;
 
 async function withService(files: Record<string, string>, run: (service: TestService) => Promise<void>, env?: Record<string, string>): Promise<void> {
   const service = await startTestService({ files: { "entities/Post.ts": POST, ...files }, ...(env ? { env } : {}) });
@@ -59,7 +59,7 @@ describe("configuration errors", () => {
 
 describe("preflights", () => {
   test("defaults refuse every origin; a GET from it proceeds without CORS headers", async () => {
-    await withService({ "quickservice.config.ts": CONFIG() }, async (service) => {
+    await withService({ "quickservicets.config.ts": CONFIG() }, async (service) => {
       const refused = await preflight(service, "/posts", "https://evil.example", "GET");
       expect(refused.status).toBe(403);
       expect(await errorOf(refused)).toEqual({ code: "FORBIDDEN", message: "Origin not allowed" });
@@ -70,7 +70,7 @@ describe("preflights", () => {
   });
 
   test("an allowed origin gets 204 with the preflight headers, and its requests get the CORS headers", async () => {
-    await withService({ "quickservice.config.ts": CONFIG('{ cors: { origins: ["https://app.example.com"] } }') }, async (service) => {
+    await withService({ "quickservicets.config.ts": CONFIG('{ cors: { origins: ["https://app.example.com"] } }') }, async (service) => {
       const answer = await preflight(service, "/posts/123", "https://app.example.com", "PATCH", "Content-Type");
       expect(answer.status).toBe(204);
       expect(Object.fromEntries(["access-control-allow-origin", "access-control-allow-methods", "access-control-allow-headers", "access-control-max-age", "access-control-allow-credentials", "vary"].map((name) => [name, answer.headers.get(name)]))).toEqual({
@@ -89,7 +89,7 @@ describe("preflights", () => {
   });
 
   test("a header or a method outside the lists is refused", async () => {
-    await withService({ "quickservice.config.ts": CONFIG('{ cors: { origins: ["https://app.example.com"], credentials: true } }') }, async (service) => {
+    await withService({ "quickservicets.config.ts": CONFIG('{ cors: { origins: ["https://app.example.com"], credentials: true } }') }, async (service) => {
       const header = await preflight(service, "/posts", "https://app.example.com", "POST", "content-type, X-Secret");
       expect(header.status).toBe(403);
       expect((await errorOf(header)).message).toBe("Header not allowed by CORS: x-secret");
@@ -104,7 +104,7 @@ describe("preflights", () => {
   test("cors: false and QS_SECURITY_CORS_ENABLED=false leave preflights to routing while the other items act", async () => {
     for (const [security, env] of [["{ cors: false }", undefined], ["", { QS_SECURITY_CORS_ENABLED: "false" }]] as const) {
       await withService(
-        { "quickservice.config.ts": CONFIG(security) },
+        { "quickservicets.config.ts": CONFIG(security) },
         async (service) => {
           const response = await preflight(service, "/posts", "https://evil.example", "GET");
           expect(response.status).toBe(405);
@@ -119,7 +119,7 @@ describe("preflights", () => {
 
 describe("requests", () => {
   test("Vary keeps the handler's value, and a request without Origin never reaches the matcher", async () => {
-    const files = { "quickservice.config.ts": CONFIG('{ cors: { origins: ["https://app.example.com"] } }'), "endpoints/varied/get.ts": endpoint("", 'new Response("{}", { headers: { vary: "Accept" } })') };
+    const files = { "quickservicets.config.ts": CONFIG('{ cors: { origins: ["https://app.example.com"] } }'), "endpoints/varied/get.ts": endpoint("", 'new Response("{}", { headers: { vary: "Accept" } })') };
     await withService(files, async (service) => {
       const varied = await service.fetch("/varied", { headers: { origin: "https://app.example.com" } });
       expect(varied.headers.get("vary")).toBe("Accept, Origin");
@@ -141,7 +141,7 @@ describe("requests", () => {
 describe("route tags and own OPTIONS endpoints", () => {
   test("@cors allows its origin on that route only, @cors off turns it off, and options.ts answers its own preflight", async () => {
     const files = {
-      "quickservice.config.ts": CONFIG(),
+      "quickservicets.config.ts": CONFIG(),
       "endpoints/partner/orders/get.ts": endpoint("@cors origins=https://partner.example credentials=true"),
       "endpoints/internal/get.ts": endpoint("@cors off"),
       "endpoints/x/get.ts": endpoint(),
@@ -164,7 +164,7 @@ describe("route tags and own OPTIONS endpoints", () => {
   });
 
   test("a tag with credentials and * fails startup", async () => {
-    const files = { "quickservice.config.ts": CONFIG(), "endpoints/open/get.ts": endpoint('@cors origins=* credentials=true') };
+    const files = { "quickservicets.config.ts": CONFIG(), "endpoints/open/get.ts": endpoint('@cors origins=* credentials=true') };
     const error = await startTestService({ files: { "entities/Post.ts": POST, ...files } }).then(
       (service) => service.stop().then(() => "started"),
       (failure: Error) => failure.message,

@@ -3,11 +3,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { startTestService, type TestService } from "../testing/service.ts";
 
-const config = (etag = "{}") => `import { defineConfig, memoryAdapter } from "@quickservice/core";
+const config = (etag = "{}") => `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter(), etag: ${etag} });
 `;
 const files = (etag = "{}") => ({
-  "quickservice.config.ts": config(etag),
+  "quickservicets.config.ts": config(etag),
   "entities/Organization.ts": "export type Organization = { name: string };\n",
   "entities/User.ts": 'import type { Organization } from "./Organization.ts";\nexport type User = {\n  name: string;\n  /** @onDelete cascade */\n  organization?: Organization;\n};\n',
   "entities/Invoice.ts": "/** @etag required=true */\nexport type Invoice = { total: number };\n",
@@ -80,7 +80,7 @@ describe("repositories", () => {
     const service = await startTestService({
       files: {
         ...files(),
-        "jobs/stale.ts": `import { HttpError, job } from "@quickservice/core";
+        "jobs/stale.ts": `import { HttpError, job } from "@quickservicets/core";
 export default job({ every: "1h" }, async (ctx) => {
   const [user] = await (ctx.repos as unknown as { users: { query(): { all(): Promise<{ id: string }[]> } } }).users.query().all();
   try {
@@ -91,7 +91,7 @@ export default job({ every: "1h" }, async (ctx) => {
   }
 });
 `,
-        "endpoints/run/post.ts": 'import type { ServiceRequest } from "@quickservice/core";\nexport default async (_repos: unknown, req: ServiceRequest) => req.jobs.run("stale");\n',
+        "endpoints/run/post.ts": 'import type { ServiceRequest } from "@quickservicets/core";\nexport default async (_repos: unknown, req: ServiceRequest) => req.jobs.run("stale");\n',
       },
     });
     try {

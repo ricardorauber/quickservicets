@@ -1,15 +1,15 @@
 import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { events, readOutbox, type AnyEvent } from "@quickservice/core";
-import { startTestService } from "@quickservice/cli/testing";
+import { events, readOutbox, type AnyEvent } from "@quickservicets/core";
+import { startTestService } from "@quickservicets/cli/testing";
 
 const root = join(import.meta.dir, "..");
 
 /** The example's own files, as `startTestService` takes them. */
 function exampleFiles(): Record<string, string> {
   const files: Record<string, string> = {};
-  for (const file of ["quickservice.config.ts", "event-map.ts"]) files[file] = readFileSync(join(root, file), "utf8");
+  for (const file of ["quickservicets.config.ts", "event-map.ts"]) files[file] = readFileSync(join(root, file), "utf8");
   for (const dir of ["entities", "endpoints", "events", "features"]) {
     for (const entry of readdirSync(join(root, dir), { recursive: true, withFileTypes: true })) {
       if (entry.isFile()) files[relative(root, join(entry.parentPath, entry.name))] = readFileSync(join(entry.parentPath, entry.name), "utf8");
@@ -89,7 +89,7 @@ test("with the outbox on, events are stored and the notify/email consumer gets i
 });
 
 test("a project events/notify.ts replaces the notify feature's file", async () => {
-  const replacement = `import { listen } from "@quickservice/core";
+  const replacement = `import { listen } from "@quickservicets/core";
 export default listen("post.published", async (event, { repos }) => {
   await repos.notifications.create({ channel: "project", postId: event.payload.postId });
 });

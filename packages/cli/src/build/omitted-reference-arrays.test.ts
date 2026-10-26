@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { createApp, memoryAdapter, resolveConfig, validateBody } from "@quickservice/core";
+import { createApp, memoryAdapter, resolveConfig, validateBody } from "@quickservicets/core";
 import ts from "typescript";
 import { crudTable, build } from "./build.ts";
 import { generateOpenApi } from "../openapi/generate-openapi.ts";
@@ -56,7 +56,7 @@ test("OpenAPI Create and Replace do not require reference arrays", () => {
 });
 
 test("generated Create types make reference arrays omittable", async () => {
-  const root = createLinkedProject({ "quickservice.config.ts": MEMORY_CONFIG, ...entities });
+  const root = createLinkedProject({ "quickservicets.config.ts": MEMORY_CONFIG, ...entities });
   await build(root);
   const types = await Bun.file(join(root, ".generated/types.ts")).text();
   expect(types).toMatch(/export type OrganizationCreate = \{[^}]*members\?: Array<string>;/);

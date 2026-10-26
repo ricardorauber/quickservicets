@@ -1,4 +1,4 @@
-import { defineFeature } from "@quickservice/core";
+import { defineFeature } from "@quickservicets/core";
 
 /** A small project feature that ships the queue `digest/notify`. */
 export default defineFeature({

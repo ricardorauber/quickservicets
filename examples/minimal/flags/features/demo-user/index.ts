@@ -1,4 +1,4 @@
-import { defineFeature } from "@quickservice/core";
+import { defineFeature } from "@quickservicets/core";
 
 /**
  * A stand-in for authentication, for this demo only: it trusts the `x-user-id` header and runs before the flags are

@@ -2,16 +2,16 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { validate } from "@scalar/openapi-parser";
-import { addOperation, addSchema, addSecurityScheme, defineFeature, registerNative, registerProjectFeatures, type OpenApiDoc } from "@quickservice/core";
+import { addOperation, addSchema, addSecurityScheme, defineFeature, registerNative, registerProjectFeatures, type OpenApiDoc } from "@quickservicets/core";
 import { unregisterNative } from "../../../core/src/features.ts";
 import { build } from "../build/build.ts";
 import { createLinkedProject } from "../testing/project.ts";
 
-const config = (keys = "", docs = "") => `import { defineConfig, memoryAdapter, requireSecurity } from "@quickservice/core";
+const config = (keys = "", docs = "") => `import { defineConfig, memoryAdapter, requireSecurity } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter()${keys ? `, ${keys}` : ""}${docs ? `, docs: { ${docs} }` : ""} });
 `;
 const project = (keys = "", docs = "", files: Record<string, string> = {}) =>
-  createLinkedProject({ "quickservice.config.ts": config(keys, docs), "entities/User.ts": "export type User = { email: string };\n", ...files });
+  createLinkedProject({ "quickservicets.config.ts": config(keys, docs), "entities/User.ts": "export type User = { email: string };\n", ...files });
 const documentOf = (root: string) => JSON.parse(readFileSync(join(root, ".generated/openapi.json"), "utf8")) as OpenApiDoc;
 const failure = async (work: () => Promise<unknown>): Promise<Error> => {
   try {
@@ -95,7 +95,7 @@ describe("feature and project functions", () => {
 
 describe("unchanged projects", () => {
   test("without functions the document is the generated one, bearerAuth included", async () => {
-    const hook = 'import { definePreHook } from "@quickservice/core";\nexport default definePreHook(() => {}, { docs: { security: "bearer", responses: [401] } });\n';
+    const hook = 'import { definePreHook } from "@quickservicets/core";\nexport default definePreHook(() => {}, { docs: { security: "bearer", responses: [401] } });\n';
     const root = project("", "", { "hooks/auth.ts": hook, "entities/User.ts": "/** @auth */\nexport type User = { email: string };\n" });
     await build(root);
     const doc = documentOf(root);

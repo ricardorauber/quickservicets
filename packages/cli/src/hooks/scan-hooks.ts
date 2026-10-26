@@ -1,4 +1,4 @@
-import { isHookDefinition, type HookDocs, type HookPhase } from "@quickservice/core";
+import { isHookDefinition, type HookDocs, type HookPhase } from "@quickservicets/core";
 import { readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import { isBuiltInEntityTag } from "../entities/entity-tags.ts";
@@ -9,7 +9,7 @@ import { isBuiltInEndpointTag } from "./endpoint-tags.ts";
 export interface HookEntry {
   name: string;
   phase: HookPhase;
-  /** File path relative to the project root, or `@quickservice/core/features/...` for a native's file. */
+  /** File path relative to the project root, or `@quickservicets/core/features/...` for a native's file. */
   file: string;
   /** The key of the feature whose folder holds the file. */
   feature?: string;

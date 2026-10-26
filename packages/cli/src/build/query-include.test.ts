@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { createRepositories, HttpError, memoryAdapter, type Repository } from "@quickservice/core";
+import { createRepositories, HttpError, memoryAdapter, type Repository } from "@quickservicets/core";
 import ts from "typescript";
 import { parseProjectEntities } from "../entities/parse-entities.ts";
 import { createLinkedProject } from "../testing/project.ts";
@@ -15,10 +15,10 @@ const entities = {
 };
 
 const config = (maxDepth?: number) =>
-  `import { defineConfig, memoryAdapter } from "@quickservice/core";\nexport default defineConfig({ database: memoryAdapter()${maxDepth ? `, populate: { maxDepth: ${maxDepth} }` : ""} });\n`;
+  `import { defineConfig, memoryAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: memoryAdapter()${maxDepth ? `, populate: { maxDepth: ${maxDepth} }` : ""} });\n`;
 
 async function setup(maxDepth?: number) {
-  const root = createLinkedProject({ "quickservice.config.ts": config(maxDepth), ...entities });
+  const root = createLinkedProject({ "quickservicets.config.ts": config(maxDepth), ...entities });
   const models = parseProjectEntities(root);
   const adapter = memoryAdapter();
   await adapter.connect(models);

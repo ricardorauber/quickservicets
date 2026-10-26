@@ -1,15 +1,15 @@
 import { afterEach, expect, setSystemTime, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { queues } from "@quickservice/core";
-import { startTestService, type TestService } from "@quickservice/cli/testing";
+import { queues } from "@quickservicets/core";
+import { startTestService, type TestService } from "@quickservicets/cli/testing";
 
 const root = join(import.meta.dir, "..");
 
 /** The example's own files, as `startTestService` takes them. */
 function exampleFiles(): Record<string, string> {
   const files: Record<string, string> = {};
-  for (const file of ["quickservice.config.ts", "memory-broker.ts"]) files[file] = readFileSync(join(root, file), "utf8");
+  for (const file of ["quickservicets.config.ts", "memory-broker.ts"]) files[file] = readFileSync(join(root, file), "utf8");
   for (const dir of ["entities", "endpoints", "queues", "features"]) {
     for (const entry of readdirSync(join(root, dir), { recursive: true, withFileTypes: true })) {
       if (entry.isFile()) files[relative(root, join(entry.parentPath, entry.name))] = readFileSync(join(entry.parentPath, entry.name), "utf8");
@@ -97,8 +97,8 @@ test("the project's queues/digest/notify.ts replaces the digest feature's queue"
 
 test("the memory broker replaces the database broker", async () => {
   const files = exampleFiles();
-  files["quickservice.config.ts"] = files["quickservice.config.ts"]!
-    .replace('import { defineConfig, memoryAdapter } from "@quickservice/core";', 'import { defineConfig, memoryAdapter } from "@quickservice/core";\nimport { memoryBroker } from "./memory-broker.ts";')
+  files["quickservicets.config.ts"] = files["quickservicets.config.ts"]!
+    .replace('import { defineConfig, memoryAdapter } from "@quickservicets/core";', 'import { defineConfig, memoryAdapter } from "@quickservicets/core";\nimport { memoryBroker } from "./memory-broker.ts";')
     .replace("queues: {", "queues: {\n    broker: memoryBroker(),");
   const service = await startTestService({ files });
   try {

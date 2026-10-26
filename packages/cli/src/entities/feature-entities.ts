@@ -1,4 +1,4 @@
-import { isValidCollectionName, populatePathErrors, SYSTEM_FIELDS, type EntityModel, type ResolvedFeature } from "@quickservice/core";
+import { isValidCollectionName, populatePathErrors, SYSTEM_FIELDS, type EntityModel, type ResolvedFeature } from "@quickservicets/core";
 import { EntityParseError } from "./errors.ts";
 import { entityOverrideLine, withBuiltInEntities } from "./parse-entities.ts";
 

@@ -2,17 +2,17 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import ts from "typescript";
-import { registerProjectFeatures, type EntityModel } from "@quickservice/core";
+import { registerProjectFeatures, type EntityModel } from "@quickservicets/core";
 import { createLinkedProject } from "../testing/project.ts";
 import { startTestService, type TestService } from "../testing/service.ts";
 import { build } from "./build.ts";
 
 afterEach(() => registerProjectFeatures([]));
 
-const config = (keys = "events: {}, queues: { consume: false }") => `import { defineConfig, memoryAdapter } from "@quickservice/core";
+const config = (keys = "events: {}, queues: { consume: false }") => `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter(), ${keys} });
 `;
-const EVENTS_QUEUE = `import { queue, type QueuePayloads } from "@quickservice/core";
+const EVENTS_QUEUE = `import { queue, type QueuePayloads } from "@quickservicets/core";
 export default queue<QueuePayloads["events"]>(({ payload }) => payload.type);
 `;
 const send = (method: string, body: unknown = {}) => ({ method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -24,7 +24,7 @@ describe("the @publish tag", () => {
   test("@publish created,updated sends creates and updates to the events queue, not deletes; @publish off sends nothing", async () => {
     const service = await startTestService({
       files: {
-        "quickservice.config.ts": config(),
+        "quickservicets.config.ts": config(),
         "entities/User.ts": "/** @publish created,updated */\nexport type User = { email: string };\n",
         "entities/Note.ts": "/** @publish off */\nexport type Note = { text: string };\n",
         "queues/events.ts": EVENTS_QUEUE,
@@ -50,9 +50,9 @@ describe("the @publish tag", () => {
   test("the consumer of the events queue receives the published events", async () => {
     const service = await startTestService({
       files: {
-        "quickservice.config.ts": config("events: {}, queues: {}"),
+        "quickservicets.config.ts": config("events: {}, queues: {}"),
         "entities/User.ts": "/** @publish */\nexport type User = { email: string };\n",
-        "queues/events.ts": `import { queue, type QueuePayloads } from "@quickservice/core";
+        "queues/events.ts": `import { queue, type QueuePayloads } from "@quickservicets/core";
 const received = ((globalThis as { received?: string[] }).received = []);
 export default queue<QueuePayloads["events"]>(({ payload }) => void received.push(payload.type));
 `,
@@ -72,9 +72,9 @@ export default queue<QueuePayloads["events"]>(({ payload }) => void received.pus
   test("queue=crm-sync sends to that queue", async () => {
     const service = await startTestService({
       files: {
-        "quickservice.config.ts": config(),
+        "quickservicets.config.ts": config(),
         "entities/User.ts": "/** @publish queue=crm-sync */\nexport type User = { email: string };\n",
-        "queues/crm-sync.ts": 'import { queue } from "@quickservice/core";\nexport default queue(() => {});\n',
+        "queues/crm-sync.ts": 'import { queue } from "@quickservicets/core";\nexport default queue(() => {});\n',
       },
     });
     try {
@@ -89,14 +89,14 @@ export default queue<QueuePayloads["events"]>(({ payload }) => void received.pus
 describe("requirements and build checks", () => {
   test("without events, startup fails naming @publish", async () => {
     await expect(
-      startTestService({ files: { "quickservice.config.ts": config("queues: {}"), "entities/User.ts": "/** @publish */\nexport type User = { email: string };\n" } }),
-    ).rejects.toThrow("queues requires events; add events: {} to quickservice.config.ts (@publish on User sends write events)");
+      startTestService({ files: { "quickservicets.config.ts": config("queues: {}"), "entities/User.ts": "/** @publish */\nexport type User = { email: string };\n" } }),
+    ).rejects.toThrow("queues requires events; add events: {} to quickservicets.config.ts (@publish on User sends write events)");
   });
 
   test("an unknown field fails the build; a target queue without a consumer is a warning", async () => {
-    const broken = createLinkedProject({ "quickservice.config.ts": config(), "entities/User.ts": "/** @publish fields=nope */\nexport type User = { email: string };\n" });
+    const broken = createLinkedProject({ "quickservicets.config.ts": config(), "entities/User.ts": "/** @publish fields=nope */\nexport type User = { email: string };\n" });
     await expect(build(broken)).rejects.toThrow("entities/User.ts: invalid @publish: unknown field nope");
-    const unconsumed = createLinkedProject({ "quickservice.config.ts": config(), "entities/User.ts": "/** @publish queue=crm-sync */\nexport type User = { email: string };\n" });
+    const unconsumed = createLinkedProject({ "quickservicets.config.ts": config(), "entities/User.ts": "/** @publish queue=crm-sync */\nexport type User = { email: string };\n" });
     const summary = await build(unconsumed);
     expect(summary.warnings).toContain("@publish on User sends to queue crm-sync, which has no consumer in queues/ and no broker");
   });
@@ -106,11 +106,11 @@ describe("transactions and cascades", () => {
   test("a write rolled back after the listener ran leaves no message; a cascade publishes each deleted user", async () => {
     const service = await startTestService({
       files: {
-        "quickservice.config.ts": config(),
+        "quickservicets.config.ts": config(),
         "entities/Organization.ts": "export type Organization = { name: string };\n",
         "entities/User.ts": 'import type { Organization } from "./Organization.ts";\n/** @publish */\nexport type User = {\n  email: string;\n  /** @onDelete cascade */\n  organization?: Organization;\n};\n',
         "queues/events.ts": EVENTS_QUEUE,
-        "endpoints/failing/post.ts": `import type { Repositories } from "@quickservice/core";
+        "endpoints/failing/post.ts": `import type { Repositories } from "@quickservicets/core";
 export default async (repos: Repositories) => {
   try {
     await repos.transaction(async () => {
@@ -142,7 +142,7 @@ describe("payloads", () => {
   test("hidden fields are left out, fields keeps only the listed ones and id, and the dedupe key is the event id", async () => {
     const service = await startTestService({
       files: {
-        "quickservice.config.ts": config(),
+        "quickservicets.config.ts": config(),
         "entities/User.ts": "/** @publish */\nexport type User = {\n  email: string;\n  /** @hidden */\n  passwordHash: string;\n  name: string;\n};\n",
         "entities/Contact.ts": "/** @publish fields=email */\nexport type Contact = { email: string; phone: string };\n",
         "queues/events.ts": EVENTS_QUEUE,
@@ -164,10 +164,10 @@ describe("payloads", () => {
 
   test("a project without @publish registers no write listener", async () => {
     const service = await startTestService({
-      files: { "quickservice.config.ts": config(), "entities/User.ts": "export type User = { email: string };\n", "queues/events.ts": 'import { queue } from "@quickservice/core";\nexport default queue(() => {});\n' },
+      files: { "quickservicets.config.ts": config(), "entities/User.ts": "export type User = { email: string };\n", "queues/events.ts": 'import { queue } from "@quickservicets/core";\nexport default queue(() => {});\n' },
     });
     try {
-      const state = (globalThis as unknown as Record<symbol, { bus: { inTransaction: unknown[] } }>)[Symbol.for("quickservice.events.state")]!;
+      const state = (globalThis as unknown as Record<symbol, { bus: { inTransaction: unknown[] } }>)[Symbol.for("quickservicets.events.state")]!;
       expect(state.bus.inTransaction).toEqual([]);
       await service.fetch("/users", send("POST", { email: "a@b.c" }));
       expect(await messages(service)).toEqual([]);
@@ -197,14 +197,14 @@ function typeErrors(root: string, source: string): string[] {
 describe("payload types", () => {
   test("QueuePayloads types a publish target with the write events of the entities publishing to it", async () => {
     const root = createLinkedProject({
-      "quickservice.config.ts": config(),
+      "quickservicets.config.ts": config(),
       "entities/User.ts": "/** @publish created,updated */\nexport type User = { email: string };\n",
       "queues/events.ts": EVENTS_QUEUE,
     });
     await build(root);
     expect(readFileSync(join(root, ".generated/types.ts"), "utf8")).toContain('"events": EventMap["user.created"] | EventMap["user.updated"];');
     const source = `import "./.generated/types.ts";
-import { queue, type QueuePayloads } from "@quickservice/core";
+import { queue, type QueuePayloads } from "@quickservicets/core";
 export default queue<QueuePayloads["events"]>(({ payload }) => {
   const email: string = payload.after.email;
   // @ts-expect-error User has no name

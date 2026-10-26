@@ -1,4 +1,4 @@
-import { CRUD_OPERATIONS, parseSize, type CrudOperation, type EntityModel, type HookReference } from "@quickservice/core";
+import { CRUD_OPERATIONS, parseSize, type CrudOperation, type EntityModel, type HookReference } from "@quickservicets/core";
 import { tagDocRegistry } from "../tag-docs.ts";
 import { EntityParseError } from "./errors.ts";
 import type { DocTag } from "./jsdoc.ts";

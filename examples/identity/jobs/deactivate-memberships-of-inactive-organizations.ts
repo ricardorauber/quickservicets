@@ -1,4 +1,4 @@
-import { job } from "@quickservice/core"
+import { job } from "@quickservicets/core"
 
 /** Every night at 03:00 UTC, deactivates the active memberships of inactive organizations and returns how many. */
 export default job(

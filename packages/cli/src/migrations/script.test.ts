@@ -10,8 +10,8 @@ const at = (seconds: number) => new Date(Date.UTC(2026, 9, 15, 12, 0, seconds));
 
 async function project() {
   const root = createLinkedProject({
-    "quickservice.config.ts":
-      'import { defineConfig, sqliteAdapter } from "@quickservice/core";\nexport default defineConfig({ database: sqliteAdapter({ path: ":memory:" }) });\n',
+    "quickservicets.config.ts":
+      'import { defineConfig, sqliteAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: sqliteAdapter({ path: ":memory:" }) });\n',
     "entities/User.ts": "export type User = { email: string }",
   });
   await addMigration(root, "Initial", at(0));
@@ -25,14 +25,14 @@ describe("ranges", () => {
     const script = await migrationScript(await project());
     expect(script).toContain("-- 20261015120000_Initial (up)\nCREATE TABLE `users`");
     expect(script).toContain("-- 20261015120001_AddAge (up)\nALTER TABLE `users` ADD `age` real;");
-    expect(script).toContain("insert into __quickservice_migrations (id, name, applied_at) values ('20261015120001_AddAge', 'AddAge'");
+    expect(script).toContain("insert into __quickservicets_migrations (id, name, applied_at) values ('20261015120001_AddAge', 'AddAge'");
     expect(script.indexOf("Initial (up)")).toBeLessThan(script.indexOf("AddAge (up)"));
   });
   test("backwards ranges use down newest first with history deletes", async () => {
     const script = await migrationScript(await project(), { from: "AddAge", to: "0" });
     expect(script.indexOf("AddAge (down)")).toBeLessThan(script.indexOf("Initial (down)"));
     expect(script).toContain("ALTER TABLE `users` DROP COLUMN `age`;");
-    expect(script).toContain("delete from __quickservice_migrations where id = '20261015120001_AddAge';");
+    expect(script).toContain("delete from __quickservicets_migrations where id = '20261015120001_AddAge';");
   });
   test("a range between two migrations", async () => {
     const script = await migrationScript(await project(), { from: "Initial", to: "20261015120001_AddAge" });

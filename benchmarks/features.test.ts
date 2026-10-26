@@ -21,7 +21,7 @@ describe("--features", () => {
     expect(parsed.variables).toEqual({ QS_EVENTS_ENABLED: "true", QS_SECURITY_ENABLED: "false" });
     expect(parsed.label).toBe("events-on+security-off");
     expect(parsed.defaults).toEqual({ security: "on", events: "off" });
-    expect(resultFile("/r", "quickservice", parsed)).toBe(join("/r", "features", "events-on+security-off.json"));
+    expect(resultFile("/r", "quickservicets", parsed)).toBe(join("/r", "features", "events-on+security-off.json"));
   });
 
   test("unknown keys and malformed items stop the run", () => {
@@ -29,8 +29,8 @@ describe("--features", () => {
     expect(() => parseFeatures("events", natives)).toThrow('Invalid --features item "events"');
   });
 
-  test("without switches the result file is unchanged, and every QuickService run turns the rate limit off", () => {
-    expect(resultFile("/r", "quickservice")).toBe(join("/r", "quickservice.json"));
+  test("without switches the result file is unchanged, and every QuickService.ts run turns the rate limit off", () => {
+    expect(resultFile("/r", "quickservicets")).toBe(join("/r", "quickservicets.json"));
     expect(quickServiceVariables()).toEqual({ QS_SECURITY_RATE_LIMIT_ENABLED: "false" });
     expect(quickServiceVariables(parseFeatures("events=on", natives))).toEqual({ QS_SECURITY_RATE_LIMIT_ENABLED: "false", QS_EVENTS_ENABLED: "true" });
     expect(quickServiceVariables(parseFeatures("security=on", natives))).toEqual({ QS_SECURITY_ENABLED: "true" });

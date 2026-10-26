@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { createApp, loadConfig, memoryAdapter, resolveConfig, SCALAR_URL } from "@quickservice/core";
+import { createApp, loadConfig, memoryAdapter, resolveConfig, SCALAR_URL } from "@quickservicets/core";
 import { createLinkedProject, MEMORY_CONFIG } from "../testing/project.ts";
 import { build } from "./build.ts";
 
 const project = (files: Record<string, string> = {}) =>
   createLinkedProject({
-    "quickservice.config.ts": MEMORY_CONFIG,
+    "quickservicets.config.ts": MEMORY_CONFIG,
     "package.json": JSON.stringify({ name: "acme-api", version: "2.0.0" }),
     "entities/User.ts": "export type User = { email: string }",
     ...files,
@@ -70,7 +70,7 @@ describe("routes", () => {
   test("are not in the document and run no hooks", async () => {
     const root = project({
       "hooks/blocked.ts":
-        'import { definePreHook, HttpError } from "@quickservice/core";\nexport default definePreHook(() => { throw new HttpError(403, "Blocked"); });',
+        'import { definePreHook, HttpError } from "@quickservicets/core";\nexport default definePreHook(() => { throw new HttpError(403, "Blocked"); });',
       "entities/User.ts": "/** @blocked */\nexport type User = { email: string }",
     });
     const { server, openApi } = await serve(root);
@@ -120,8 +120,8 @@ describe("config", () => {
 
 test("the built document documents file routes of the configured access mode", async () => {
   const root = createLinkedProject({
-    "quickservice.config.ts": MEMORY_CONFIG,
-    "entities/Document.ts": 'import type { File } from "@quickservice/core";\n/** @access proxy */\nexport type Document = File & { title?: string }',
+    "quickservicets.config.ts": MEMORY_CONFIG,
+    "entities/Document.ts": 'import type { File } from "@quickservicets/core";\n/** @access proxy */\nexport type Document = File & { title?: string }',
   });
   await build(root);
   const document = JSON.parse(readFileSync(join(root, ".generated/openapi.json"), "utf8"));

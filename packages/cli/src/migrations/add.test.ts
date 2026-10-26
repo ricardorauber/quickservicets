@@ -10,12 +10,12 @@ import { suggestMigrationName } from "./naming.ts";
 
 const config = (adapter: "sqlite" | "postgres") =>
   adapter === "sqlite"
-    ? 'import { defineConfig, sqliteAdapter } from "@quickservice/core";\nexport default defineConfig({ database: sqliteAdapter({ path: ":memory:" }) });\n'
-    : 'import { defineConfig, postgresAdapter } from "@quickservice/core";\nexport default defineConfig({ database: postgresAdapter({ url: "postgres://localhost/none" }) });\n';
+    ? 'import { defineConfig, sqliteAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: sqliteAdapter({ path: ":memory:" }) });\n'
+    : 'import { defineConfig, postgresAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: postgresAdapter({ url: "postgres://localhost/none" }) });\n';
 
 const project = (adapter: "sqlite" | "postgres" = "sqlite") =>
   createLinkedProject({
-    "quickservice.config.ts": config(adapter),
+    "quickservicets.config.ts": config(adapter),
     "entities/User.ts": "export type User = { email: string }",
   });
 const at = (seconds: number) => new Date(Date.UTC(2026, 9, 15, 12, 0, seconds));
@@ -134,7 +134,7 @@ describe("name suggestions and pending changes", () => {
     const root = project();
     const errors: string[] = [];
     expect(await run(["build"], { log: () => {}, error: (line) => errors.push(line) }, root)).toBe(0);
-    expect(errors).toEqual(['Warning: Model has changes without a migration. Run "quickservice migration add <Name>"']);
+    expect(errors).toEqual(['Warning: Model has changes without a migration. Run "quickservicets migration add <Name>"']);
     expect(existsSync(join(root, "migrations"))).toBe(false);
     await addMigration(root, "Initial", at(0));
     expect((await build(root)).warnings).toEqual([]);
@@ -142,7 +142,7 @@ describe("name suggestions and pending changes", () => {
 });
 
 test("the memory adapter has no migrations", async () => {
-  const root = createLinkedProject({ "quickservice.config.ts": MEMORY_CONFIG, "entities/User.ts": "export type User = { email: string }" });
+  const root = createLinkedProject({ "quickservicets.config.ts": MEMORY_CONFIG, "entities/User.ts": "export type User = { email: string }" });
   const errors: string[] = [];
   expect(await run(["migration", "add", "Initial"], { log: () => {}, error: (line) => errors.push(line) }, root)).toBe(1);
   expect(errors).toEqual(["Migrations are not used with the memory adapter"]);

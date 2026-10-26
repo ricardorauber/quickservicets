@@ -13,12 +13,12 @@ import {
   type LifecyclePhase,
   type Repositories,
   type ServiceConfig,
-} from "@quickservice/core";
+} from "@quickservicets/core";
 import { build } from "../build/build.ts";
 
 /** What `startTestService` takes: the project's files and the environment it starts with. */
 export interface TestServiceOptions {
-  /** The project's files by project-relative path, like `quickservice.config.ts` and `entities/Post.ts`. */
+  /** The project's files by project-relative path, like `quickservicets.config.ts` and `entities/Post.ts`. */
   files: Record<string, string>;
   /** The environment variables of the build and the service (default: none). */
   env?: Record<string, string>;
@@ -90,14 +90,14 @@ function uninstallTimerTracking(tracker: Map<unknown, TimerOwner>): void {
 
 /** Writes a temporary project linked to this repository's packages. */
 function writeProject(files: Record<string, string>): string {
-  const root = mkdtempSync(join(tmpdir(), "quickservice-test-"));
+  const root = mkdtempSync(join(tmpdir(), "quickservicets-test-"));
   for (const [path, content] of Object.entries(files)) {
     mkdirSync(dirname(join(root, path)), { recursive: true });
     writeFileSync(join(root, path), content);
   }
-  mkdirSync(join(root, "node_modules/@quickservice"), { recursive: true });
-  symlinkSync(join(WORKSPACE, "packages/core"), join(root, "node_modules/@quickservice/core"), "dir");
-  symlinkSync(join(WORKSPACE, "packages/cli"), join(root, "node_modules/@quickservice/cli"), "dir");
+  mkdirSync(join(root, "node_modules/@quickservicets"), { recursive: true });
+  symlinkSync(join(WORKSPACE, "packages/core"), join(root, "node_modules/@quickservicets/core"), "dir");
+  symlinkSync(join(WORKSPACE, "packages/cli"), join(root, "node_modules/@quickservicets/cli"), "dir");
   return root;
 }
 
@@ -117,7 +117,7 @@ export async function startTestService({ files, env = {} }: TestServiceOptions):
       throw new Error(`Build failed:\n${error instanceof Error ? error.message : String(error)}`);
     }
     const generated = join(root, ".generated");
-    const projectConfig = (await import(join(root, "quickservice.config.ts"))).default as ServiceConfig;
+    const projectConfig = (await import(join(root, "quickservicets.config.ts"))).default as ServiceConfig;
     const { models } = await import(join(generated, "models.ts"));
     const { crudRoutes, endpoints, hooks } = await import(join(generated, "routes.ts"));
     const { jobs } = await import(join(generated, "jobs.ts"));

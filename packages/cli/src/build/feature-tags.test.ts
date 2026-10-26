@@ -1,15 +1,15 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { defineFeature, duration, list, object, registerNative, registerProjectFeatures, string, type EntityModel } from "@quickservice/core";
+import { defineFeature, duration, list, object, registerNative, registerProjectFeatures, string, type EntityModel } from "@quickservicets/core";
 import { unregisterNative } from "../../../core/src/features.ts";
 import { createLinkedProject } from "../testing/project.ts";
 import { serveBuilt } from "../testing/serve.ts";
 import { build } from "./build.ts";
 
-const config = (keys = "") => `import { defineConfig, memoryAdapter } from "@quickservice/core";
+const config = (keys = "") => `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter()${keys ? `, ${keys}` : ""} });
 `;
-const project = (files: Record<string, string>, keys = "audit: {}") => createLinkedProject({ "quickservice.config.ts": config(keys), ...files });
+const project = (files: Record<string, string>, keys = "audit: {}") => createLinkedProject({ "quickservicets.config.ts": config(keys), ...files });
 const failure = async (work: () => Promise<unknown>): Promise<Error> => {
   try {
     await work();
@@ -120,20 +120,20 @@ describe("conflicts and unknown tags", () => {
     );
     unregisterNative("audit");
     register();
-    const hook = 'import { definePreHook } from "@quickservice/core";\nexport default definePreHook(() => {});\n';
+    const hook = 'import { definePreHook } from "@quickservicets/core";\nexport default definePreHook(() => {});\n';
     expect((await failure(() => build(project({ "entities/Post.ts": "export type Post = { a: string };\n", "hooks/audit.ts": hook })))).message).toBe(
       "Tag @audit of audit conflicts with the hook hooks/audit.ts",
     );
-    const other = `import { defineFeature } from "@quickservice/core";\nexport default defineFeature({ docs: { summary: "Test native." }, key: "other", tags: { audit: { on: ["entity"], description: "d", example: "e" } } });\n`;
+    const other = `import { defineFeature } from "@quickservicets/core";\nexport default defineFeature({ docs: { summary: "Test native." }, key: "other", tags: { audit: { on: ["entity"], description: "d", example: "e" } } });\n`;
     expect((await failure(() => build(project({ "features/other/index.ts": other }, "audit: {}, other: {}")))).message).toBe("Tag @audit of other conflicts with audit");
   });
 
   test("a disabled native's tag asks for the native, and an unknown tag says nothing defines it", async () => {
     register();
     const disabled = project({ "entities/Post.ts": POST }, "");
-    expect((await failure(() => build(disabled))).message).toBe("entities/Post.ts: @audit needs audit, which is not enabled; add audit: {} to quickservice.config.ts");
+    expect((await failure(() => build(disabled))).message).toBe("entities/Post.ts: @audit needs audit, which is not enabled; add audit: {} to quickservicets.config.ts");
     const endpoint = project({ "endpoints/stats/get.ts": "/** @audit off */\nexport default () => 1;\n" }, "");
-    expect((await failure(() => build(endpoint))).message).toBe("endpoints/stats/get.ts: @audit needs audit, which is not enabled; add audit: {} to quickservice.config.ts");
+    expect((await failure(() => build(endpoint))).message).toBe("endpoints/stats/get.ts: @audit needs audit, which is not enabled; add audit: {} to quickservicets.config.ts");
     const unknown = project({ "entities/Post.ts": "/** @nope */\nexport type Post = { a: string };\n" });
     expect((await failure(() => build(unknown))).message).toBe("entities/Post.ts: unknown tag @nope: no hook or feature defines it");
   });

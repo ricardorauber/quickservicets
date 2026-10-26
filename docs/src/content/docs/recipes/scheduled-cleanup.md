@@ -23,8 +23,8 @@ export type Session = {
 ```
 
 ```bash
-bun run quickservice migration add Initial
-bun run quickservice migrate
+bun run quickservicets migration add Initial
+bun run quickservicets migrate
 ```
 
 ```text
@@ -38,7 +38,7 @@ Applied 20261019154452_Initial
 The build writes these files for you; they are shown here so the snippets on this page type-check on their own.
 
 ```ts check title=".generated/types.ts"
-import type { ReadRepository, Repository } from "@quickservice/core";
+import type { ReadRepository, Repository } from "@quickservicets/core";
 
 export type Session = { id: string; createdAt: Date; updatedAt: Date; token: string; userEmail: string; expiresAt: Date };
 export type SessionCreate = { token: string; userEmail: string; expiresAt: Date };
@@ -67,13 +67,13 @@ export interface GeneratedRepositories {
   jobRuns: ReadRepository<JobRun>;
 }
 
-declare module "@quickservice/core" {
+declare module "@quickservicets/core" {
   interface Repositories extends GeneratedRepositories {}
 }
 ```
 
 ```ts check title=".generated/jobs.ts"
-declare module "@quickservice/core" {
+declare module "@quickservicets/core" {
   interface JobNames {
     "cleanup/expired-sessions": true;
   }
@@ -89,7 +89,7 @@ export {};
 The file `jobs/cleanup/expired-sessions.ts` declares the job `cleanup/expired-sessions`. It runs at 03:00 in São Paulo, deletes the sessions that had expired when it started, 100 at a time, and returns how many it deleted, which ends up in the run record:
 
 ```ts check title="jobs/cleanup/expired-sessions.ts"
-import { job } from "@quickservice/core";
+import { job } from "@quickservicets/core";
 
 const BATCH_SIZE = 100;
 
@@ -122,7 +122,7 @@ export default job(
 Both endpoints are for admins only. This pre-hook compares the bearer token with `ADMIN_TOKEN`; add `ADMIN_TOKEN=admin-secret` to `.env` for the requests below. A real service would check a user's role instead, as in [Permission checks](/recipes/permission-checks/).
 
 ```ts check title="hooks/admin.ts"
-import { definePreHook, HttpError } from "@quickservice/core";
+import { definePreHook, HttpError } from "@quickservicets/core";
 
 /** Lets through requests that send `Authorization: Bearer <ADMIN_TOKEN>`. */
 export default definePreHook(
@@ -139,7 +139,7 @@ export default definePreHook(
 `POST /admin/cleanup/expired-sessions` starts a run and answers `202 Accepted` with its id at once; the job keeps running in the background. `req.jobs.run` only accepts the names of the project's jobs, so a typo fails the type check. `?force=true` runs the cleanup even while another run of it is still going.
 
 ```ts check title="endpoints/admin/cleanup/expired-sessions/post.ts"
-import type { Endpoint } from "@quickservice/core";
+import type { Endpoint } from "@quickservicets/core";
 
 type Query = {
   /**
@@ -165,7 +165,7 @@ export default handler;
 Run records have no HTTP routes of their own. `repos.jobRuns` reads them, so a small endpoint lets an admin follow the run they started:
 
 ```ts check title="endpoints/admin/job-runs/[runId]/get.ts"
-import { HttpError, type Endpoint } from "@quickservice/core";
+import { HttpError, type Endpoint } from "@quickservicets/core";
 import type { JobRun } from "../../../../.generated/types.ts";
 
 /**
@@ -186,19 +186,19 @@ export default handler;
 The first job adds the built-in `JobRun` entity to the model, so the build asks for a migration:
 
 ```bash
-bun run quickservice build
+bun run quickservicets build
 ```
 
 ```text
 Built 4 entities, 2 custom endpoints and 1 hooks.
-Warning: Model has changes without a migration. Run "quickservice migration add <Name>"
+Warning: Model has changes without a migration. Run "quickservicets migration add <Name>"
 ```
 
 (The four entities are `Session`, `JobRun` and the built-in `File` and `Media`.) The migration creates the `job-runs` table:
 
 ```bash
-bun run quickservice migration add AddJobRuns
-bun run quickservice migrate
+bun run quickservicets migration add AddJobRuns
+bun run quickservicets migrate
 ```
 
 ```text
@@ -206,10 +206,10 @@ Created migrations/20261019154454_AddJobRuns.ts
 Applied 20261019154454_AddJobRuns
 ```
 
-`bun run quickservice job list` shows when the next scheduled run is, in UTC:
+`bun run quickservicets job list` shows when the next scheduled run is, in UTC:
 
 ```bash
-bun run quickservice job list
+bun run quickservicets job list
 ```
 
 ```text
@@ -302,7 +302,7 @@ HTTP/1.1 404 Not Found
 `job run` runs the cleanup in the CLI process, without the server, which suits a deploy script or a one-off fix. It prints the run's log lines, then the outcome, and exits with 0 only on success:
 
 ```bash
-bun run quickservice job run cleanup/expired-sessions
+bun run quickservicets job run cleanup/expired-sessions
 ```
 
 ```text
@@ -316,7 +316,7 @@ Result: {"deleted":1}
 `job runs` lists the latest runs, whatever started them:
 
 ```bash
-bun run quickservice job runs cleanup/expired-sessions
+bun run quickservicets job runs cleanup/expired-sessions
 ```
 
 ```text

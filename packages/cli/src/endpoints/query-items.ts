@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import type { QueryItem, QueryValueType } from "@quickservice/core";
+import type { QueryItem, QueryValueType } from "@quickservicets/core";
 import ts from "typescript";
 import { readTags, type DocTag } from "../entities/jsdoc.ts";
 import { BuildError } from "../errors.ts";

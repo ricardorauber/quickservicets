@@ -9,7 +9,7 @@ Every version of the records of chosen entities, kept in a history table written
 
 ## Enabling
 
-Turn it on in `quickservice.config.ts`:
+Turn it on in `quickservicets.config.ts`:
 
 ```ts
 history: {}
@@ -58,7 +58,7 @@ export type Contract = {
 Deletes the versions older than their entity's retention, keeping the current version of every live record, and prints the count per entity.
 
 ```bash
-quickservice history prune [--entity <Name>] [--dry-run]
+quickservicets history prune [--entity <Name>] [--dry-run]
 ```
 
 **Flags:**

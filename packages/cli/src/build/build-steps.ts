@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
-import { CORE_VERSION, generatedPath, type BuildFolderFile, type EntityModel, type FeatureBuildContext, type ResolvedConfig } from "@quickservice/core";
+import { CORE_VERSION, generatedPath, type BuildFolderFile, type EntityModel, type FeatureBuildContext, type ResolvedConfig } from "@quickservicets/core";
 import { BuildError } from "../errors.ts";
 import type { FolderFile } from "./feature-files.ts";
 

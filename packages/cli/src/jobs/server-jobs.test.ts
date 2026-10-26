@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { build } from "../build/build.ts";
 import { createLinkedProject, MEMORY_CONFIG } from "../testing/project.ts";
 
-const TICK = 'import { job } from "@quickservice/core";\nexport default job({ every: "1s" }, (ctx) => { ctx.log.info("tick"); return "ok"; });\n';
+const TICK = 'import { job } from "@quickservicets/core";\nexport default job({ every: "1s" }, (ctx) => { ctx.log.info("tick"); return "ok"; });\n';
 
 function freePort(): number {
   const probe = Bun.serve({ port: 0, fetch: () => new Response() });
@@ -39,13 +39,13 @@ async function serve(root: string, env: Record<string, string>, ms: number, unti
 }
 
 test("the generated server runs the scheduled jobs unless JOBS_ENABLED=false", async () => {
-  const root = createLinkedProject({ "quickservice.config.ts": MEMORY_CONFIG, "jobs/tick.ts": TICK });
+  const root = createLinkedProject({ "quickservicets.config.ts": MEMORY_CONFIG, "jobs/tick.ts": TICK });
   await build(root);
   const disabled = await serve(root, { JOBS_ENABLED: "false" }, 3000);
-  expect(disabled).toContain("quickservice listening on");
+  expect(disabled).toContain("QuickService.ts listening on");
   expect(disabled).not.toContain("job.started");
   const enabled = await serve(root, { JOBS_ENABLED: "true" }, 15000, /"message":"job\.finished"/);
-  expect(enabled).toContain("quickservice listening on");
+  expect(enabled).toContain("QuickService.ts listening on");
   expect(enabled).toMatch(/"message":"tick".*"job":"tick"/);
   expect(enabled).toMatch(/"message":"job\.finished","job":"tick","runId":"[^"]+","status":"success"/);
 }, 30000);

@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { events, type WriteEvent } from "@quickservice/core";
+import { events, type WriteEvent } from "@quickservicets/core";
 import { startTestService } from "../testing/service.ts";
 
-const config = (keys: string) => `import { defineConfig, memoryAdapter } from "@quickservice/core";
+const config = (keys: string) => `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter(), ${keys} });
 `;
 
 /** A project feature that records every event and refuses users named "veto" inside the write. */
-const RECORDER = `import { defineFeature, HttpError, type WriteEvent } from "@quickservice/core";
+const RECORDER = `import { defineFeature, HttpError, type WriteEvent } from "@quickservicets/core";
 export default defineFeature({
   key: "recorder",
   requires: ["events"],
@@ -23,7 +23,7 @@ export default defineFeature({
 `;
 
 const files = (keys = "events: {}, recorder: {}") => ({
-  "quickservice.config.ts": config(keys),
+  "quickservicets.config.ts": config(keys),
   "entities/User.ts": "export type User = { name: string };\n",
   "features/recorder/index.ts": RECORDER,
 });
@@ -65,10 +65,10 @@ describe("write events over HTTP", () => {
   });
 
   test("a feature using ctx.events without the native fails its setup", async () => {
-    const listener = `import { defineFeature } from "@quickservice/core";
+    const listener = `import { defineFeature } from "@quickservicets/core";
 export default defineFeature({ key: "listener", setup: (ctx) => void ctx.events.on("*", () => undefined) });
 `;
     const failed = startTestService({ files: { ...files("listener: {}"), "features/listener/index.ts": listener } });
-    await expect(failed).rejects.toThrow("events is not enabled; add events: {} to quickservice.config.ts");
+    await expect(failed).rejects.toThrow("events is not enabled; add events: {} to quickservicets.config.ts");
   });
 });

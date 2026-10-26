@@ -1,4 +1,4 @@
-import { listen } from "@quickservice/core";
+import { listen } from "@quickservicets/core";
 
 /** Writes an in-app notification once a post is published. */
 export default listen("post.published", async (event, { repos }) => {

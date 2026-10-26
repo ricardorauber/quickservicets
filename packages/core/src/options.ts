@@ -468,7 +468,7 @@ export function suggestion(key: string, declared: readonly string[]): string {
 }
 
 /** Marks a per-request function with the schema and path its results are checked against. */
-const CHECKED = Symbol("quickservice.option");
+const CHECKED = Symbol("quickservicets.option");
 type CheckedFunction = OptionFunction<unknown> & { [CHECKED]?: { schema: AnyOptionSchema; path: string } };
 
 /** Validates `value` against `schema`, collecting problems; returns the value with nested defaults applied. */

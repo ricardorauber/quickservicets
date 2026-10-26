@@ -1,4 +1,4 @@
-import type { Repositories } from "@quickservice/core"
+import type { Repositories } from "@quickservicets/core"
 
 /**
  * The permissions, as `<module slug>:<action>`, that a user holds in an organization. They come from the profiles of

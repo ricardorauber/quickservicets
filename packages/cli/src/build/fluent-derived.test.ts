@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createRepositories, memoryAdapter, type Repository } from "@quickservice/core";
+import { createRepositories, memoryAdapter, type Repository } from "@quickservicets/core";
 import { parseProjectEntities } from "../entities/parse-entities.ts";
 import { createProject } from "../testing/project.ts";
 

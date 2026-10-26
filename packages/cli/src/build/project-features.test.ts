@@ -1,22 +1,22 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { defineFeature, integer, loadConfig, object, registerNative, registerProjectFeatures, resolveConfig, memoryAdapter } from "@quickservice/core";
+import { defineFeature, integer, loadConfig, object, registerNative, registerProjectFeatures, resolveConfig, memoryAdapter } from "@quickservicets/core";
 import ts from "typescript";
 import { unregisterNative } from "../../../core/src/features.ts";
 import { run } from "../run.ts";
 import { createLinkedProject, MEMORY_CONFIG } from "../testing/project.ts";
 import { build } from "./build.ts";
 
-const GREETING = `import { defineFeature, object, string } from "@quickservice/core";
+const GREETING = `import { defineFeature, object, string } from "@quickservicets/core";
 export default defineFeature({ docs: { summary: "Test native." }, key: "greeting", options: object({ text: string().default("Hi") }) });
 `;
 // The default security native is off, so the feature lists hold only the features under test.
-const config = (keys = "") => `import { defineConfig, memoryAdapter } from "@quickservice/core";
+const config = (keys = "") => `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter(), security: false${keys ? `, ${keys}` : ""} });
 `;
 const project = (files: Record<string, string>, keys = "") =>
-  createLinkedProject({ "quickservice.config.ts": config(keys), "entities/User.ts": "export type User = { email: string };\n", ...files });
+  createLinkedProject({ "quickservicets.config.ts": config(keys), "entities/User.ts": "export type User = { email: string };\n", ...files });
 const failure = async (run: () => Promise<unknown>): Promise<Error> => {
   try {
     await run();
@@ -61,15 +61,15 @@ describe("discovery", () => {
   });
 
   test("project features follow the dependency rules of natives", async () => {
-    const trail = `import { defineFeature } from "@quickservice/core";\nexport default defineFeature({ docs: { summary: "Test native." }, key: "trail", requires: ["greeting"] });\n`;
+    const trail = `import { defineFeature } from "@quickservicets/core";\nexport default defineFeature({ docs: { summary: "Test native." }, key: "trail", requires: ["greeting"] });\n`;
     const root = project({ "features/greeting/index.ts": GREETING, "features/trail/index.ts": trail }, "trail: {}");
-    expect((await failure(() => loadConfig(root, {}))).message).toBe("trail requires greeting; add greeting: {} to quickservice.config.ts");
+    expect((await failure(() => loadConfig(root, {}))).message).toBe("trail requires greeting; add greeting: {} to quickservicets.config.ts");
   });
 });
 
 describe("replacing a native", () => {
   const audit = defineFeature({ docs: { summary: "Test native." }, key: "audit", options: object({ level: integer().default(1) }) });
-  const AUDIT = `import { defineFeature, object, string } from "@quickservice/core";
+  const AUDIT = `import { defineFeature, object, string } from "@quickservicets/core";
 export default defineFeature({ docs: { summary: "Test native." }, key: "audit", options: object({ sink: string().default("stdout") }) });
 `;
 
@@ -104,15 +104,15 @@ export default defineFeature({ docs: { summary: "Test native." }, key: "audit", 
 
 describe("imports", () => {
   test("files under features/ import the framework only from its public entries", async () => {
-    const helper = 'import { createRepository } from "@quickservice/core/src/repository.ts";\nexport const x = createRepository;\n';
+    const helper = 'import { createRepository } from "@quickservicets/core/src/repository.ts";\nexport const x = createRepository;\n';
     const root = project({ "features/greeting/index.ts": GREETING, "features/greeting/lib/helper.ts": helper });
     expect((await failure(() => build(root))).message).toBe(
-      "features/greeting/lib/helper.ts: imports @quickservice/core/src/repository.ts; project features import the framework only from @quickservice/core or @quickservice/core/testing",
+      "features/greeting/lib/helper.ts: imports @quickservicets/core/src/repository.ts; project features import the framework only from @quickservicets/core or @quickservicets/core/testing",
     );
   });
 
   test("the public entries and other packages are allowed", async () => {
-    const helper = 'import { runAttackSuite } from "@quickservice/core/testing";\nimport { join } from "node:path";\nexport const x = [runAttackSuite, join];\n';
+    const helper = 'import { runAttackSuite } from "@quickservicets/core/testing";\nimport { join } from "node:path";\nexport const x = [runAttackSuite, join];\n';
     expect((await build(project({ "features/greeting/index.ts": GREETING, "features/greeting/helper.ts": helper }))).features).toBe(1);
   });
 });
@@ -129,7 +129,7 @@ describe("generated files", () => {
     writeFileSync(
       check,
       `import "./.generated/types.ts";
-import { memoryAdapter, type ServiceConfig } from "@quickservice/core";
+import { memoryAdapter, type ServiceConfig } from "@quickservicets/core";
 export const ok: ServiceConfig = { database: memoryAdapter(), greeting: { text: "Hello" } };
 export const on: ServiceConfig = { database: memoryAdapter(), greeting: true };
 // @ts-expect-error text is a string option
@@ -167,7 +167,7 @@ export const wrong: ServiceConfig = { database: memoryAdapter(), greeting: { tex
     // startService registers the features it receives before it resolves the config.
     expect(server).toContain('import { featureFolders, features } from "./features.ts";');
     expect(server).toMatch(/startService\(\{[^}]*\bfeatures\b[^}]*\}\)/);
-    const child = Bun.spawn(["bun", "-e", `import("${join(root, ".generated/features.ts")}").then(async ({ features }) => { const core = await import("@quickservice/core"); core.registerProjectFeatures(features); const config = core.resolveConfig((await import("${join(root, "quickservice.config.ts")}")).default, {}); console.log(JSON.stringify(config.features.map((f) => [f.key, f.options, f.project]))); })`], { cwd: root, stdout: "pipe", stderr: "pipe" });
+    const child = Bun.spawn(["bun", "-e", `import("${join(root, ".generated/features.ts")}").then(async ({ features }) => { const core = await import("@quickservicets/core"); core.registerProjectFeatures(features); const config = core.resolveConfig((await import("${join(root, "quickservicets.config.ts")}")).default, {}); console.log(JSON.stringify(config.features.map((f) => [f.key, f.options, f.project]))); })`], { cwd: root, stdout: "pipe", stderr: "pipe" });
     const [stdout, stderr] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     expect(stderr).toBe("");
     expect(JSON.parse(stdout)).toEqual([["greeting", { text: "Hi", enabled: true }, true]]);

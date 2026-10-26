@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { sqliteAdapter, type EntityModel, type StoredRecord } from "@quickservice/core";
+import { sqliteAdapter, type EntityModel, type StoredRecord } from "@quickservicets/core";
 import { build } from "./build.ts";
 import { addMigration } from "../migrations/add.ts";
 import { migrate } from "../migrations/migrate.ts";
@@ -10,17 +10,17 @@ import { createLinkedProject } from "../testing/project.ts";
 
 const DAY = 86_400_000;
 const config = (path: string, history: string) =>
-  `import { defineConfig, sqliteAdapter } from "@quickservice/core";\nexport default defineConfig({ database: sqliteAdapter({ path: ${JSON.stringify(path)} }), events: {}, history: ${history}, logger: { info() {}, warn() {}, error() {} } });\n`;
+  `import { defineConfig, sqliteAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: sqliteAdapter({ path: ${JSON.stringify(path)} }), events: {}, history: ${history}, logger: { info() {}, warn() {}, error() {} } });\n`;
 
 /** A migrated SQLite project with two history entities, a way to store old versions and to run the CLI. */
 async function sqliteProject(history: string) {
   const root = createLinkedProject({
-    "quickservice.config.ts": "",
+    "quickservicets.config.ts": "",
     "entities/User.ts": "/** @history */\nexport type User = { name: string };\n",
     "entities/Session.ts": "/** @history */\nexport type Session = { token: string };\n",
   });
   const path = join(root, "data.db");
-  writeFileSync(join(root, "quickservice.config.ts"), config(path, history));
+  writeFileSync(join(root, "quickservicets.config.ts"), config(path, history));
   await build(root);
   await addMigration(root, "Initial", new Date(Date.UTC(2026, 9, 15, 12)));
   await migrate(root);
@@ -81,7 +81,7 @@ describe("history prune", () => {
     const help = (await cli("help")).out.join("\n");
     expect(help.slice(help.indexOf("history:"))).toContain("history prune");
     const page = readFileSync(join(import.meta.dir, "../../../../docs/src/content/docs/reference/features/history.mdx"), "utf8");
-    expect(page).toContain("quickservice history prune [--entity <Name>] [--dry-run]");
+    expect(page).toContain("quickservicets history prune [--entity <Name>] [--dry-run]");
     expect(page).toContain("history/prune");
   });
 });

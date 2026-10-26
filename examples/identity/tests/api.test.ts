@@ -8,7 +8,7 @@ import { SQL } from "bun";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createApp, localStorage, memoryAdapter, postgresAdapter, resolveConfig, schemaIdentifier, type App, type DatabaseAdapter, type EntityModel } from "@quickservice/core";
+import { createApp, localStorage, memoryAdapter, postgresAdapter, resolveConfig, schemaIdentifier, type App, type DatabaseAdapter, type EntityModel } from "@quickservicets/core";
 
 const root = join(import.meta.dir, "..");
 type Json = Record<string, any>;
@@ -28,7 +28,7 @@ async function postgresDatabase(models: EntityModel[]): Promise<TestDatabase> {
   const url = process.env.TEST_POSTGRES_URL!;
   const schema = `identity-test-${Date.now().toString(36)}`;
   const env = { ...process.env, DATABASE_URL: url, DATABASE_SCHEMA: schema };
-  const migrated = Bun.spawnSync(["bun", "run", "quickservice", "migrate"], { cwd: root, env, stdout: "pipe", stderr: "pipe" });
+  const migrated = Bun.spawnSync(["bun", "run", "quickservicets", "migrate"], { cwd: root, env, stdout: "pipe", stderr: "pipe" });
   if (migrated.exitCode !== 0) throw new Error(`migrate failed: ${migrated.stderr.toString()}${migrated.stdout.toString()}`);
   const database = postgresAdapter({ url });
   await database.connect(models, { defaultSchema: schema });
@@ -37,7 +37,7 @@ async function postgresDatabase(models: EntityModel[]): Promise<TestDatabase> {
     async close() {
       await database.disconnect();
       const admin = new SQL(url);
-      // quickservice-allow-unsafe: drops this test's schema, quoted by schemaIdentifier
+      // quickservicets-allow-unsafe: drops this test's schema, quoted by schemaIdentifier
       await admin.unsafe(`drop schema "${schemaIdentifier(schema)}" cascade`);
       await admin.close();
     },
@@ -54,7 +54,7 @@ let fetchApp: (request: Request) => Promise<Response>;
 let app: App;
 
 beforeAll(async () => {
-  const built = Bun.spawnSync(["bun", "run", "quickservice", "build"], { cwd: root, stdout: "pipe", stderr: "pipe" });
+  const built = Bun.spawnSync(["bun", "run", "quickservicets", "build"], { cwd: root, stdout: "pipe", stderr: "pipe" });
   if (built.exitCode !== 0) throw new Error(`build failed: ${built.stderr.toString()}${built.stdout.toString()}`);
   const { models } = await import(join(root, ".generated/models.ts"));
   const { crudRoutes, endpoints, hooks } = await import(join(root, ".generated/routes.ts"));
@@ -714,7 +714,7 @@ describe.each(databases)("on %s", (_name, open) => {
     });
 
     test("is scheduled daily at 03:00 UTC", () => {
-      const listed = Bun.spawnSync(["bun", "run", "quickservice", "job", "list"], { cwd: root, stdout: "pipe", stderr: "pipe" }).stdout.toString();
+      const listed = Bun.spawnSync(["bun", "run", "quickservicets", "job", "list"], { cwd: root, stdout: "pipe", stderr: "pipe" }).stdout.toString();
       expect(listed).toMatch(new RegExp(`${name}\\s+0 3 \\* \\* \\*\\s+UTC`));
     });
   });

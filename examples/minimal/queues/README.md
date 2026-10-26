@@ -13,7 +13,7 @@ The queues guide (`docs/src/content/docs/guides/queues.md`, on the site at `/gui
 Turn the native on and add a consumer file to `queues/`; its path names the queue (`send-email`), and `req.queue.add` adds messages to it:
 
 ```ts
-// quickservice.config.ts
+// quickservicets.config.ts
 export default defineConfig({ database: memoryAdapter(), queues: {} });
 
 // queues/send-email.ts
@@ -78,7 +78,7 @@ export default queue<{ userId: string }>(() => ({ sentBy: "project" }));
 
 ## Level 6: replace the implementation
 
-Messages live in the project's database through `databaseBroker()`; any object with the `QueueBroker` methods replaces it, like the in-memory broker of `memory-broker.ts`, and `runQueueBrokerContract` from `@quickservice/core/testing` checks a broker:
+Messages live in the project's database through `databaseBroker()`; any object with the `QueueBroker` methods replaces it, like the in-memory broker of `memory-broker.ts`, and `runQueueBrokerContract` from `@quickservicets/core/testing` checks a broker:
 
 ```ts
 queues: { broker: memoryBroker() }
@@ -89,5 +89,5 @@ queues: { broker: memoryBroker() }
 Copy the native into the project as a `features/queues/` project feature that replaces it:
 
 ```bash
-quickservice eject queues
+quickservicets eject queues
 ```

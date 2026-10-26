@@ -1,4 +1,4 @@
-import type { Endpoint } from "@quickservice/core";
+import type { Endpoint } from "@quickservicets/core";
 
 /**
  * Counts the records; only the private network and the machine itself may ask.

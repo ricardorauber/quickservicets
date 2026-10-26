@@ -1,6 +1,6 @@
 /**
  * Type-checks every TypeScript project of the repository with its own tsconfig: `bun run typecheck`.
- * Projects with a `quickservice.config.ts` are built first, because their code imports what the build generates.
+ * Projects with a `quickservicets.config.ts` are built first, because their code imports what the build generates.
  * Also reports `unsafe()` calls that receive built SQL text (see `unsafe-sql.ts`).
  * Prints the compiler output of each failing project and every SQL problem, and exits non-zero when there is any.
  */
@@ -20,7 +20,7 @@ export function projects(): string[] {
           .map((entry) => `${folder}/${entry.name}`)
       : [];
   const examples = [...workspaces("examples"), ...workspaces("examples/minimal")].sort();
-  return ["packages/core", "packages/cli", "docs/scripts", "docs/tests", "benchmarks/quickservice", ...examples];
+  return ["packages/core", "packages/cli", "docs/scripts", "docs/tests", "benchmarks/quickservicets", ...examples];
 }
 
 async function run(command: string[], cwd: string): Promise<{ ok: boolean; output: string }> {
@@ -33,9 +33,9 @@ async function run(command: string[], cwd: string): Promise<{ ok: boolean; outpu
 async function check(project: string): Promise<{ project: string; ok: boolean; output: string }> {
   const dir = join(root, project);
   if (!existsSync(join(dir, "tsconfig.json"))) return { project, ok: false, output: `${project}: missing tsconfig.json` };
-  if (existsSync(join(dir, "quickservice.config.ts"))) {
-    const built = await run(["bun", "run", "quickservice", "build"], dir);
-    if (!built.ok) return { project, ok: false, output: `${project}: quickservice build failed\n${built.output}` };
+  if (existsSync(join(dir, "quickservicets.config.ts"))) {
+    const built = await run(["bun", "run", "quickservicets", "build"], dir);
+    if (!built.ok) return { project, ok: false, output: `${project}: quickservicets build failed\n${built.output}` };
   }
   // Paths in the compiler output are relative to the repository root, so they name the file wherever the error is.
   const checked = await run(["bun", tsc, "--noEmit", "--pretty", "false", "-p", relative(root, dir)], root);

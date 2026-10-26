@@ -15,7 +15,7 @@ const url = process.env.TEST_MONGODB_URL;
 
 function project(database = `ss_mig_${Bun.randomUUIDv7().replaceAll("-", "")}`, mongoUrl = url ?? "mongodb://127.0.0.1:1") {
   const root = createLinkedProject({
-    "quickservice.config.ts": `import { defineConfig, mongodbAdapter } from "@quickservice/core";\nexport default defineConfig({ database: mongodbAdapter({ url: ${JSON.stringify(mongoUrl)}, database: ${JSON.stringify(database)} }) });\n`,
+    "quickservicets.config.ts": `import { defineConfig, mongodbAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: mongodbAdapter({ url: ${JSON.stringify(mongoUrl)}, database: ${JSON.stringify(database)} }) });\n`,
     "entities/User.ts": "export type User = { /** @unique */ email: string }",
   });
   return { root, database };

@@ -50,7 +50,7 @@ export type Profile = {
 Create `entities/User.ts`:
 
 ```ts check title="entities/User.ts"
-import type { Media } from "@quickservice/core"
+import type { Media } from "@quickservicets/core"
 import { Membership } from "./Membership"
 import { Team } from "./Team"
 
@@ -106,7 +106,7 @@ export type Membership = {
 Create `entities/Team.ts`:
 
 ```ts check title="entities/Team.ts"
-import { Media } from "@quickservice/core"
+import { Media } from "@quickservicets/core"
 import { Organization } from "./Organization"
 import { Profile } from "./Profile"
 import { User } from "./User"
@@ -131,7 +131,7 @@ The team's `name` takes 1 to 120 characters, its `picture?` follows the same ima
 Finally, give `Organization` its `members`. This is the finished `entities/Organization.ts`:
 
 ```ts check title="entities/Organization.ts"
-import type { Media } from "@quickservice/core"
+import type { Media } from "@quickservicets/core"
 import { Membership } from "./Membership"
 import { Module } from "./Module"
 
@@ -155,7 +155,7 @@ Your `entities/` folder now matches `examples/identity/entities`.
 
 ## How fields pair into relations
 
-When entity A has exactly one field pointing at entity B, and B has exactly one field pointing back at A, QuickService pairs the two fields into one relation. The kind depends on the two sides:
+When entity A has exactly one field pointing at entity B, and B has exactly one field pointing back at A, QuickService.ts pairs the two fields into one relation. The kind depends on the two sides:
 
 | Fields | Kind | Stored as | Derived side |
 | --- | --- | --- | --- |

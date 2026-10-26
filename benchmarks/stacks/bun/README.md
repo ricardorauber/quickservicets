@@ -1,10 +1,10 @@
 # Plain Bun
 
-The "ceiling" for QuickService on the same runtime: the same API written directly on Bun, with no framework.
+The "ceiling" for QuickService.ts on the same runtime: the same API written directly on Bun, with no framework.
 
 | | |
 | --- | --- |
-| Runtime | Bun 1.4.2 (`oven/bun:1.4.2-alpine`, the same image QuickService runs on) |
+| Runtime | Bun 1.4.2 (`oven/bun:1.4.2-alpine`, the same image QuickService.ts runs on) |
 | HTTP | `Bun.serve` with its `routes` table (static paths, `:param` segments, per-method handlers) |
 | Database | the built-in `Bun.sql` PostgreSQL client (prepared statements, connection pool) |
 | Dependencies | none |

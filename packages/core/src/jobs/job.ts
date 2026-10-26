@@ -67,7 +67,7 @@ export interface JobContext {
 
 export type JobFn = (ctx: JobContext) => unknown | Promise<unknown>;
 
-const JOB_MARKER = Symbol.for("quickservice.job");
+const JOB_MARKER = Symbol.for("quickservicets.job");
 
 /** A job declared with `job(...)`, default-exported by a file in `jobs/`. */
 export interface JobDefinition {

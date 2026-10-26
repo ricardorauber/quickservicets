@@ -82,5 +82,5 @@ etag: { tagger: versionTagger }
 Copy the native into the project as a `features/etag/` project feature that replaces it:
 
 ```bash
-quickservice eject etag
+quickservicets eject etag
 ```

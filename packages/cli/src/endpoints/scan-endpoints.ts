@@ -12,7 +12,7 @@ export interface EndpointRoute {
   /** Path with dynamic segments normalized to `:`, used to compare routes, e.g. `/organizations/:`. */
   pattern: string;
   params: string[];
-  /** File path relative to the project root, or `@quickservice/core/features/...` for a native's file. */
+  /** File path relative to the project root, or `@quickservicets/core/features/...` for a native's file. */
   file: string;
   /** Absolute path of the file (default: the file under the project root). */
   source?: string;

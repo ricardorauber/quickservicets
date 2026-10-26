@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { readOutbox, type WriteEvent } from "@quickservice/core";
+import { readOutbox, type WriteEvent } from "@quickservicets/core";
 import { outboxSource } from "../../../core/src/features/realtime/source.ts";
 import { startTestService, type TestService } from "../testing/service.ts";
 
-const config = (keys: string) => `import { defineConfig, memoryAdapter } from "@quickservice/core";
+const config = (keys: string) => `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter(), ${keys}, logger: { info() {}, warn() {}, error() {} } });
 `;
 const FILES = {
-  "quickservice.config.ts": config("events: {}, realtime: {}"),
+  "quickservicets.config.ts": config("events: {}, realtime: {}"),
   "entities/Task.ts": '/** @changes */\nexport type Task = { title: string; status: "open" | "done" };\n',
 };
 const send = (method: string, body?: unknown) => ({ method, headers: { "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
@@ -79,7 +79,7 @@ describe("resume", () => {
 
 describe("fan-out through the outbox", () => {
   test("a task created through one instance reaches a stream of another within two poll intervals, exactly once", async () => {
-    const service = await startTestService({ files: { ...FILES, "quickservice.config.ts": config('events: { outbox: true }, realtime: { sse: { pollInterval: "1s" } }') } });
+    const service = await startTestService({ files: { ...FILES, "quickservicets.config.ts": config('events: { outbox: true }, realtime: { sse: { pollInterval: "1s" } }') } });
     // A second instance reads the same log with its own source.
     const elsewhere: WriteEvent[] = [];
     const other = outboxSource({ pollMs: 1000, retentionMs: 86_400_000, onPollFailed: () => undefined, read: readOutbox });

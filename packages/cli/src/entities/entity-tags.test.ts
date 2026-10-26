@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { CRUD_OPERATIONS } from "@quickservice/core";
+import { CRUD_OPERATIONS } from "@quickservicets/core";
 import { createProject } from "../testing/project.ts";
 import { parseEntities } from "./parse-entities.ts";
 

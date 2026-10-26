@@ -368,7 +368,7 @@ void addCondition(const FieldDef &field,
     }
 }
 
-/** `/^-?\d+$/` then the range check, as QuickService's parseInteger. */
+/** `/^-?\d+$/` then the range check, as QuickService.ts's parseInteger. */
 bool parseInteger(const std::string &raw, double min, double max, int64_t &out)
 {
     size_t start = (!raw.empty() && raw[0] == '-') ? 1 : 0;

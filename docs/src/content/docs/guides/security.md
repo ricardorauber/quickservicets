@@ -48,8 +48,8 @@ ctx.feature("security").exempt("/health/*", ["rateLimit", "loadShedding", "ip"])
 
 CORS is closed until `cors.origins` lists origins: exact origins like `https://app.example.com`, `*`, subdomain patterns like `https://*.example.com`, or `null`. A preflight from an allowed origin gets `204` with the allowed methods and headers and `Access-Control-Max-Age` (10 minutes); from another origin, or asking for a method or header outside the lists, it gets `403`. Requests from allowed origins get `Access-Control-Allow-Origin` and `Vary: Origin`; others proceed without them, so the browser keeps the answer from the page. `credentials: true` with `origins: ["*"]` is a configuration error. `@cors origins=https://partner.example credentials=true` gives one route its own origins, `@cors off` turns CORS off there, and an `options.ts` endpoint answers the preflights of its path itself. The example opens CORS to its browser app:
 
-```ts title="quickservice.config.ts"
-import { defineConfig, memoryAdapter } from "@quickservice/core";
+```ts title="quickservicets.config.ts"
+import { defineConfig, memoryAdapter } from "@quickservicets/core";
 
 // The security native is on by default: only CORS is opened, for the browser app of the project.
 export default defineConfig({
@@ -74,7 +74,7 @@ export default defineConfig({
 `rateLimit` gives each client address `limit` requests per window (1000 a minute), with a sliding window over the current and previous minute. A refused request gets `429 Too many requests` with `Retry-After`, and every response of a limited request carries `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset`. `by` keys the global limit by `ip`, `route`, `user` or `tenant`; user and tenant keys fall back to the address for anonymous requests. `@rateLimit` adds a bucket for one route, always keyed by route, on top of the global limit:
 
 ```ts title="endpoints/login/post.ts"
-import type { Endpoint } from "@quickservice/core";
+import type { Endpoint } from "@quickservicets/core";
 
 /**
  * Signs a user in; five attempts a minute per address slow down password guessing.
@@ -96,14 +96,14 @@ Behind a load balancer, every request comes from the balancer's address, so a li
 
 ### Memory and database counters
 
-The memory store keeps the counters in each worker: with `server.workers: 4`, each worker counts on its own and startup logs `security.rateLimit uses per-worker memory counters`. `rateLimit.store: "database"` shares the counters across workers and replicas through the project's database (rebuild and run `quickservice migration add` for the `rate_limit_counters` table): each worker decides on its local counts and sends them every `syncInterval` (1 s) with one write per bucket, so a client can pass the limit by at most what the other workers accept within one interval, and a database outage keeps requests flowing on local counts. A store object in `rateLimit.store`, or one a feature sets with `ctx.feature("security").rateLimitStore(store)`, replaces both.
+The memory store keeps the counters in each worker: with `server.workers: 4`, each worker counts on its own and startup logs `security.rateLimit uses per-worker memory counters`. `rateLimit.store: "database"` shares the counters across workers and replicas through the project's database (rebuild and run `quickservicets migration add` for the `rate_limit_counters` table): each worker decides on its local counts and sends them every `syncInterval` (1 s) with one write per bucket, so a client can pass the limit by at most what the other workers accept within one interval, and a database outage keeps requests flowing on local counts. A store object in `rateLimit.store`, or one a feature sets with `ctx.feature("security").rateLimitStore(store)`, replaces both.
 
 ## IP lists
 
 `ip.allow` serves only the listed addresses, `ip.deny` refuses the listed ones (a deny match wins), both with `403 Address not allowed` and without saying which list matched; entries are addresses, CIDR blocks or `loopback`, `private` and `linklocal`. Route tags add to the global lists, so they can only narrow access:
 
 ```ts title="endpoints/admin/stats/get.ts"
-import type { Endpoint } from "@quickservice/core";
+import type { Endpoint } from "@quickservicets/core";
 
 /**
  * Counts the records; only the private network and the machine itself may ask.
@@ -132,7 +132,7 @@ export type Customer = {
 The example's `audit` feature logs every created customer, which shows the tax id as `[sensitive]`:
 
 ```ts title="features/audit/index.ts"
-import { defineFeature } from "@quickservice/core";
+import { defineFeature } from "@quickservicets/core";
 
 /** Logs every created customer; the security native shows its `@sensitive` tax id as `[sensitive]`. */
 export default defineFeature({
@@ -154,7 +154,7 @@ export default defineFeature({
 
 ## Customizing
 
-Every level of customization applies: each option has its `QS_SECURITY_*` variable (lists are comma-separated, like `QS_SECURITY_CORS_ORIGINS=https://a.example,https://b.example`); the tags `@rateLimit`, `@cors`, `@ipAllow`, `@ipDeny`, `@securityHeaders`, `@limits` and `@sensitive` tune single routes and fields; `rateLimit.limit` and `cors.origins` may be functions of the request; the hooks `rateLimit.onLimited`, `ip.onBlocked`, `cors.onRejected`, `loadShedding.onShed` and `limits.onRejected` observe refusals (their errors are logged and never change the response); `rateLimit.store` and `proxy.resolver` replace the implementations; and `quickservice eject security` copies the native into `features/security/`.
+Every level of customization applies: each option has its `QS_SECURITY_*` variable (lists are comma-separated, like `QS_SECURITY_CORS_ORIGINS=https://a.example,https://b.example`); the tags `@rateLimit`, `@cors`, `@ipAllow`, `@ipDeny`, `@securityHeaders`, `@limits` and `@sensitive` tune single routes and fields; `rateLimit.limit` and `cors.origins` may be functions of the request; the hooks `rateLimit.onLimited`, `ip.onBlocked`, `cors.onRejected`, `loadShedding.onShed` and `limits.onRejected` observe refusals (their errors are logged and never change the response); `rateLimit.store` and `proxy.resolver` replace the implementations; and `quickservicets eject security` copies the native into `features/security/`.
 
 ## What must be handled before the application
 
@@ -166,6 +166,6 @@ Some attacks never reach code that can stop them:
 
 ## Checks around the code
 
-- The attack suite (`runAttackSuite` from `@quickservice/core/testing`) sends SQL injection payloads, operator objects and malicious names to every route shape on each database and checks that nothing leaks or changes; it runs on the memory adapter and SQLite always, and on PostgreSQL and MongoDB when `TEST_POSTGRES_URL` and `TEST_MONGODB_URL` are set.
-- The `unsafe()` rule: outside the database adapters, `unsafe()` must receive literal SQL text; `bun run typecheck` fails on built text unless a `// quickservice-allow-unsafe: <reason>` comment above the call says why.
+- The attack suite (`runAttackSuite` from `@quickservicets/core/testing`) sends SQL injection payloads, operator objects and malicious names to every route shape on each database and checks that nothing leaks or changes; it runs on the memory adapter and SQLite always, and on PostgreSQL and MongoDB when `TEST_POSTGRES_URL` and `TEST_MONGODB_URL` are set.
+- The `unsafe()` rule: outside the database adapters, `unsafe()` must receive literal SQL text; `bun run typecheck` fails on built text unless a `// quickservicets-allow-unsafe: <reason>` comment above the call says why.
 - `bun run audit` audits the dependencies and fails on critical vulnerabilities, unless `scripts/audit-allow.json` allows one with a reason and an expiry date.

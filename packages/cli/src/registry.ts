@@ -16,8 +16,9 @@ import {
   type EntityModel,
   type Repositories,
   type ResolvedConfig,
-} from "@quickservice/core";
+} from "@quickservicets/core";
 import { BUILT_IN_COMMANDS } from "./commands.ts";
+import { versionHeader } from "./version.ts";
 
 /** Names handled before the registry, which no feature command may take. */
 export const RESERVED_COMMANDS = ["help"];
@@ -193,7 +194,7 @@ export async function runCommand(resolved: ResolvedCommand, rest: readonly strin
     async connect(): Promise<Repositories> {
       config ??= await loadConfig(cwd);
       const file = join(cwd, ".generated/models.ts");
-      if (!existsSync(file)) throw new Error('.generated/models.ts is missing; run "quickservice build" first');
+      if (!existsSync(file)) throw new Error('.generated/models.ts is missing; run "quickservicets build" first');
       const { models } = (await import(file)) as { models: EntityModel[] };
       if (!connected) {
         await config.database.connect(models, { defaultSchema: config.schema });
@@ -210,7 +211,7 @@ export async function runCommand(resolved: ResolvedCommand, rest: readonly strin
   }
 }
 
-/** The lines of `quickservice <command> --help`: usage, description, arguments and flags with their defaults. */
+/** The lines of `quickservicets <command> --help`: usage, description, arguments and flags with their defaults. */
 export function commandHelp(command: CommandDefinition): string[] {
   const shape = flagShape(command);
   const argLines = command.args.map((arg) => `  ${arg.name}${arg.required ? " (required)" : ""}${arg.description ? `  ${arg.description}` : ""}`);
@@ -229,20 +230,22 @@ export function commandHelp(command: CommandDefinition): string[] {
   ];
 }
 
-/** The lines of `quickservice help`: the built-in commands, then each enabled feature's commands under its key. */
+/** The lines of `quickservicets help`: the built-in commands, then each enabled feature's commands under its key. */
 export function generalHelp(features: readonly FeatureCommand[]): string[] {
   const all = [...BUILT_IN_COMMANDS, ...features.map((entry) => entry.command)];
   const width = Math.max(...all.map((command) => command.name.length));
   const line = (command: CommandDefinition) => `  ${command.name.padEnd(width)}  ${command.description}`;
   const keys = [...new Set(features.map((entry) => entry.key))];
   return [
-    "Usage: quickservice <command> [arguments] [flags]",
+    versionHeader,
+    "",
+    "Usage: quickservicets <command> [arguments] [flags]",
     "",
     "Commands:",
     ...BUILT_IN_COMMANDS.map(line),
     ...keys.flatMap((key) => ["", `${key}:`, ...features.filter((entry) => entry.key === key).map((entry) => line(entry.command))]),
     "",
-    "Run quickservice <command> --help for its arguments and flags, and quickservice --version for the version.",
+    "Run quickservicets <command> --help for its arguments and flags, and quickservicets --version for the version.",
   ];
 }
 

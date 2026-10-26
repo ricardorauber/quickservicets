@@ -1,4 +1,4 @@
-import { defineSse } from "@quickservice/core";
+import { defineSse } from "@quickservicets/core";
 
 /** Sends the server's time every second until the client disconnects. */
 export default defineSse((stream) => {

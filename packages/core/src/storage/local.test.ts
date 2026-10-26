@@ -8,7 +8,7 @@ import { runStorageContract } from "../testing/storage-contract.ts";
 import { localStorage } from "./local.ts";
 import { extensionOf, storageKeyFor } from "./storage.ts";
 
-const tempDir = () => mkdtempSync(join(tmpdir(), "quickservice-storage-"));
+const tempDir = () => mkdtempSync(join(tmpdir(), "quickservicets-storage-"));
 
 runStorageContract("local", () => localStorage({ dir: tempDir() }));
 

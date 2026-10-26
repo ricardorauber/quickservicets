@@ -1,11 +1,11 @@
-import { FEATURES_DIR } from "@quickservice/core";
+import { FEATURES_DIR } from "@quickservicets/core";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import ts from "typescript";
 import { BuildError } from "../errors.ts";
 
 /** The framework entries project features may import. */
-export const FEATURE_IMPORTS = ["@quickservice/core", "@quickservice/core/testing"];
+export const FEATURE_IMPORTS = ["@quickservicets/core", "@quickservicets/core/testing"];
 
 function sourceFiles(dir: string): string[] {
   if (!existsSync(dir)) return [];
@@ -17,7 +17,7 @@ function sourceFiles(dir: string): string[] {
 }
 
 /**
- * Fails the build naming the file when a file under `features/` imports a path inside `@quickservice/core` other than
+ * Fails the build naming the file when a file under `features/` imports a path inside `@quickservicets/core` other than
  * its public entries, so project features keep working when the core's internals change.
  */
 export function assertFeatureImports(projectRoot: string): void {
@@ -26,7 +26,7 @@ export function assertFeatureImports(projectRoot: string): void {
     const { importedFiles } = ts.preProcessFile(readFileSync(file, "utf8"), true, true);
     for (const { fileName } of importedFiles) {
       // Files a project feature copied from a native may import the native's other files through the package.
-      if (!fileName.startsWith("@quickservice/core/") || FEATURE_IMPORTS.includes(fileName) || fileName.startsWith("@quickservice/core/features/")) continue;
+      if (!fileName.startsWith("@quickservicets/core/") || FEATURE_IMPORTS.includes(fileName) || fileName.startsWith("@quickservicets/core/features/")) continue;
       const name = relative(projectRoot, file).split(sep).join("/");
       problems.push(`${name}: imports ${fileName}; project features import the framework only from ${FEATURE_IMPORTS.join(" or ")}`);
     }
@@ -63,7 +63,7 @@ export function generateFeaturesFile(header: string, keys: readonly string[], fo
   ]);
   return [
     header,
-    'import type { FeatureFolderRegistry, ProjectFeatureModule } from "@quickservice/core";',
+    'import type { FeatureFolderRegistry, ProjectFeatureModule } from "@quickservicets/core";',
     ...keys.map((key, index) => `import ${identifierOf(key, index)} from "../${FEATURES_DIR}/${key}/index.ts";`),
     ...folderFiles.map((entry, index) => `import folder${index} from ${JSON.stringify(entry.specifier)};`),
     "",
@@ -80,10 +80,10 @@ export function generateFeaturesFile(header: string, keys: readonly string[], fo
 export function featureTypeLines(keys: readonly string[]): string[] {
   if (keys.length === 0) return [];
   return [
-    'import type { FeatureConfig } from "@quickservice/core";',
+    'import type { FeatureConfig } from "@quickservicets/core";',
     ...keys.map((key, index) => `import type ${identifierOf(key, index)} from "../${FEATURES_DIR}/${key}/index.ts";`),
     "",
-    'declare module "@quickservice/core" {',
+    'declare module "@quickservicets/core" {',
     "  interface NativeFeatures {",
     ...keys.map((key, index) => `    ${/^[A-Za-z_$][\w$]*$/.test(key) ? key : JSON.stringify(key)}?: FeatureConfig<typeof ${identifierOf(key, index)}>;`),
     "  }",

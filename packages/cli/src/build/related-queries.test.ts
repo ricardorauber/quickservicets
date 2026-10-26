@@ -9,7 +9,7 @@ import {
   sqliteAdapter,
   type DatabaseAdapter,
   type Repository,
-} from "@quickservice/core";
+} from "@quickservicets/core";
 import ts from "typescript";
 import { resetPostgresTables } from "../../../core/src/testing/postgres.ts";
 import { createSqliteTables } from "../../../core/src/testing/sql.ts";
@@ -24,7 +24,7 @@ const entities = {
   "entities/User.ts": 'import type { Project } from "./Project";\nexport type User = { email: string; role: "admin" | "member"; age?: number; projects?: Project[] }',
   "entities/Project.ts": 'import type { User } from "./User";\nexport type Project = { name: string; lead?: User }',
 };
-const root = createLinkedProject({ "quickservice.config.ts": MEMORY_CONFIG, ...entities });
+const root = createLinkedProject({ "quickservicets.config.ts": MEMORY_CONFIG, ...entities });
 const models = parseProjectEntities(root);
 
 const factories: [string, () => DatabaseAdapter][] = [

@@ -72,5 +72,5 @@ errors: { reporter: [consoleReporter(), jsonLinesReporter("errors.jsonl")] }
 Copy the native into the project as a `features/errors/` project feature that replaces it:
 
 ```bash
-quickservice eject errors
+quickservicets eject errors
 ```

@@ -1,6 +1,6 @@
 # Benchmark API contract
 
-Every stack in this study implements the same HTTP API on the same PostgreSQL schema. The reference is the QuickService service in [`quickservice/`](quickservice/): this document describes what it actually returns, and [`conformance/conformance.ts`](conformance/conformance.ts) checks it against any base URL. A stack is valid only when the conformance test passes against it.
+Every stack in this study implements the same HTTP API on the same PostgreSQL schema. The reference is the QuickService.ts service in [`quickservicets/`](quickservicets/): this document describes what it actually returns, and [`conformance/conformance.ts`](conformance/conformance.ts) checks it against any base URL. A stack is valid only when the conformance test passes against it.
 
 Contents:
 
@@ -19,7 +19,7 @@ Contents:
 - **Location.** `benchmarks/stacks/<name>/` with a `Dockerfile`; the build context is that folder. Use a lowercase name (`express`, `fastify`, `bun`, `fastapi`, `go`, `rust`, `dotnet`, `java`, `php`, `cpp`). `bun benchmarks/run.ts <name>` builds and measures it.
 - **Production setup.** Build and run the way the framework's own documentation recommends for production: release/optimized builds, production mode flags (`NODE_ENV=production`, `ASPNETCORE_ENVIRONMENT=Production`, `GIN_MODE=release`, ...), the server and worker model the framework recommends (for example uvicorn workers for FastAPI, PHP-FPM or a production app server for PHP). Size worker counts for **2 CPUs**; the container gets `--cpus=2 --memory=1g`. Multi-stage images are encouraged; pin every base image to an exact version.
 - **Port.** Listen on `0.0.0.0:8080` (the `PORT` variable is also set to `8080`).
-- **Database.** PostgreSQL 17, reached through the variables below. Use the framework's idiomatic driver or ORM with a connection pool of exactly **`DB_POOL_SIZE` = 10 connections** per container (QuickService uses Bun.SQL's default pool of 10). If the stack runs several processes, the total across processes must still be 10. Do not create, migrate or alter tables: `run.ts` creates the schema from [`schema/schema.sql`](schema/schema.sql) and seeds it before the service starts.
+- **Database.** PostgreSQL 17, reached through the variables below. Use the framework's idiomatic driver or ORM with a connection pool of exactly **`DB_POOL_SIZE` = 10 connections** per container (QuickService.ts uses Bun.SQL's default pool of 10). If the stack runs several processes, the total across processes must still be 10. Do not create, migrate or alter tables: `run.ts` creates the schema from [`schema/schema.sql`](schema/schema.sql) and seeds it before the service starts.
 
   | Variable | Value in the run |
   | --- | --- |
@@ -31,7 +31,7 @@ Contents:
 
 - **No caching.** Every request reads from and writes to PostgreSQL. No response caches, no in-process record caches, no HTTP caching headers that let k6 skip requests. Prepared-statement caches and the connection pool are fine.
 - **Same work.** Validate everything this contract validates, with the same messages. Sort, filter and page in SQL (PostgreSQL's ordering and collation decide the order, see [Sorting](#sorting)). Any query strategy is allowed (joins, `IN` lists, aggregates in SQL): the goal is what an experienced developer would write by hand for this API.
-- **Logging.** QuickService writes one JSON line per request to stdout by default and that is part of what is measured. Other stacks keep their framework's production default; do not add debug logging.
+- **Logging.** QuickService.ts writes one JSON line per request to stdout by default and that is part of what is measured. Other stacks keep their framework's production default; do not add debug logging.
 - **Startup.** `GET /health` must answer `200 {"ok":true}` once the service can serve requests. Startup time is measured from `docker start` to the first `200` on `/health`, so do the work you need (pool warm-up, JIT) before or after as your framework normally does, but do not delay the listener artificially.
 - **Graceful stop.** Exit on `SIGTERM` within 10 seconds (`docker stop -t 10`).
 
@@ -44,7 +44,7 @@ Contents:
 - **Numbers.** `age` is serialized as a JSON integer (`30`, not `30.0`; parsers compare numerically, but prefer integers). `averageAge` is a full-precision double, not rounded. `size` is an integer.
 - **Nulls.** An optional field without a value is present with `null` (`"age": null`), never omitted.
 - **204** responses have no body.
-- **Extra headers** (such as QuickService's `x-request-id`) are allowed and ignored.
+- **Extra headers** (such as QuickService.ts's `x-request-id`) are allowed and ignored.
 
 ## 3. Records
 
@@ -119,7 +119,7 @@ Contents:
 | `GET /media/{id}/file` | `200` the stored bytes | `404 Media not found` |
 | any other path | | `404 {"error":{"code":"NOT_FOUND","message":"Route not found"}}` |
 
-Responses for a wrong method on a known path (QuickService answers `405 Method not allowed` with an `allow` header) are not tested.
+Responses for a wrong method on a known path (QuickService.ts answers `405 Method not allowed` with an `allow` header) are not tested.
 
 ### `GET /users/{id}` and `GET /organizations/{id}`
 
@@ -154,7 +154,7 @@ Deletes the user and removes it from every organization's `members`. In the same
 - `admins`: members whose `role` is `admin`;
 - `averageAge`: arithmetic mean of the members' non-null ages, as a double; `null` when no member has an age (or there are no members).
 
-An unknown `orgId` is `404 {"error":{"code":"NOT_FOUND","message":"Organization not found"}}`. QuickService computes this with one fluent `repos.organizations.related(orgId, "members").aggregate(...)` query (one SQL statement); other stacks may compute it in SQL.
+An unknown `orgId` is `404 {"error":{"code":"NOT_FOUND","message":"Organization not found"}}`. QuickService.ts computes this with one fluent `repos.organizations.related(orgId, "members").aggregate(...)` query (one SQL statement); other stacks may compute it in SQL.
 
 ### `GET /media/{id}/file`
 
@@ -216,7 +216,7 @@ The operators every stack must support (more are allowed):
 
 ### Field selection
 
-`fields` lists top-level field names, including `id`, `createdAt`, `updatedAt` and, on organizations, `members`. Each item of `data` (or the single record on read routes) then has exactly those fields. An unknown name is `400` with `Unknown field: <name>` on the `fields` parameter; an empty value is `Must list at least one field`. Nested paths such as `members.email` (QuickService supports them with `populate`) are optional and not tested.
+`fields` lists top-level field names, including `id`, `createdAt`, `updatedAt` and, on organizations, `members`. Each item of `data` (or the single record on read routes) then has exactly those fields. An unknown name is `400` with `Unknown field: <name>` on the `fields` parameter; an empty value is `Must list at least one field`. Nested paths such as `members.email` (QuickService.ts supports them with `populate`) are optional and not tested.
 
 ### Populate
 
@@ -227,7 +227,7 @@ The operators every stack must support (more are allowed):
 {"error":{"code":"VALIDATION_ERROR","message":"Cannot populate: email","details":[{"field":"populate","message":"Cannot populate: email"}]}}
 ```
 
-`GET /users?populate=<anything>` fails the same way (users have no references). QuickService loads the members of a whole page with one query; other stacks should avoid N+1 queries too.
+`GET /users?populate=<anything>` fails the same way (users have no references). QuickService.ts loads the members of a whole page with one query; other stacks should avoid N+1 queries too.
 
 ### Query errors
 
@@ -255,7 +255,7 @@ All problems found in the query are reported together, one entry per problem, un
 | `where[nope][eq]=1` | `where[nope][eq]` | `Field "nope" cannot be filtered` |
 | `fields=nope` | `fields` | `Unknown field: nope` |
 
-The conformance test compares `details` without regard to order; QuickService lists unknown parameters first, then the others in the order it checks them.
+The conformance test compares `details` without regard to order; QuickService.ts lists unknown parameters first, then the others in the order it checks them.
 
 ## 6. Validation of JSON bodies
 
@@ -300,7 +300,7 @@ Per field, the first failing rule wins, in this order:
 | system field | `Field is read-only` | `id`, `createdAt`, `updatedAt` |
 | anything else | `Unknown field` | any other key |
 
-QuickService lists the details in entity field order (`email`, `name`, `role`, `age`), then read-only and unknown keys in body order; the conformance test does not check the order. Validation errors are reported before the unique-email check, so a body with both problems is a `400`.
+QuickService.ts lists the details in entity field order (`email`, `name`, `role`, `age`), then read-only and unknown keys in body order; the conformance test does not check the order. Validation errors are reported before the unique-email check, so a body with both problems is a `400`.
 
 ## 7. Uploads
 
@@ -322,9 +322,9 @@ QuickService lists the details in entity field order (`email`, `name`, `role`, `
    {"error":{"code":"UNSUPPORTED_MEDIA_TYPE","message":"File content does not match its type","details":[{"field":"file","message":"Detected image/png, declared image/gif"}]}}
    ```
 
-   Stacks must recognize at least PNG (`89 50 4E 47 0D 0A 1A 0A`), JPEG (`FF D8 FF`), GIF (`GIF87a`/`GIF89a`), WebP (`RIFF....WEBP`) and PDF (`%PDF-`). QuickService also recognizes ZIP, DOCX, XLSX, MP4, WebM and MP3; supporting them is optional.
+   Stacks must recognize at least PNG (`89 50 4E 47 0D 0A 1A 0A`), JPEG (`FF D8 FF`), GIF (`GIF87a`/`GIF89a`), WebP (`RIFF....WEBP`) and PDF (`%PDF-`). QuickService.ts also recognizes ZIP, DOCX, XLSX, MP4, WebM and MP3; supporting them is optional.
 4. **Size**: larger than 1 MiB (1,048,576 bytes; exactly 1 MiB is accepted): `413 {"error":{"code":"PAYLOAD_TOO_LARGE","message":"File too large"}}` (no `details`).
-5. **Accepted types**: the type from step 3 must be `image/png` or `image/jpeg`, otherwise `400 Invalid body` with `{"field":"file","message":"File type not allowed"}`. Note that unrecognized bytes declared as `image/png` pass (QuickService stores them as `image/png`).
+5. **Accepted types**: the type from step 3 must be `image/png` or `image/jpeg`, otherwise `400 Invalid body` with `{"field":"file","message":"File type not allowed"}`. Note that unrecognized bytes declared as `image/png` pass (QuickService.ts stores them as `image/png`).
 6. **Other parts.** A part named `id`, `createdAt`, `updatedAt`, `filename`, `mimeType`, `size`, `storage` or `url`: `400 Invalid body` with `Field is read-only` for that name. Any other name: `Unknown field`.
 7. **Store, then insert.** Generate the record id (UUID v7) and an object id (another UUID v7), write the bytes to `${UPLOAD_DIR}/media/<id>/<objectId><ext>` (creating the folders), where `<ext>` is the lowercased extension of the file name including the dot (empty when the name has none), then insert the row with `storage_key` = `media/<id>/<objectId><ext>` and `storage` = `default`. If the insert fails, delete the written file. No `fsync` is required. During the load, `run.ts` deletes stored files that are a few seconds old to bound disk use, so never read them back in a request other than `GET /media/{id}/file`.
 
@@ -349,7 +349,7 @@ Not-found messages: `User not found`, `Organization not found`, `Media not found
 
 ## 9. Database schema
 
-[`schema/schema.sql`](schema/schema.sql) is the exact DDL the QuickService migration creates (generated with `quickservice migration script`; regenerate with `bun benchmarks/schema/generate.ts`). `run.ts` drops and recreates the `public` schema, applies it, and loads the seed before each stack. Stacks must use these tables and columns as they are:
+[`schema/schema.sql`](schema/schema.sql) is the exact DDL the QuickService.ts migration creates (generated with `quickservicets migration script`; regenerate with `bun benchmarks/schema/generate.ts`). `run.ts` drops and recreates the `public` schema, applies it, and loads the seed before each stack. Stacks must use these tables and columns as they are:
 
 ```sql
 CREATE TABLE "users" (

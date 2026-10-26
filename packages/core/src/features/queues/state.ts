@@ -1,7 +1,7 @@
 import type { ServiceRequest } from "../public.ts";
 import type { QueueAddOptions, QueueAddResult } from "./queue.ts";
 
-const STORE = Symbol.for("quickservice.queues.state");
+const STORE = Symbol.for("quickservicets.queues.state");
 
 /**
  * Process-wide state of the `queues` feature, by name. It lives on `globalThis`, so the native and a copy of it ejected
@@ -33,7 +33,7 @@ export interface RunningQueues {
 export const running = sharedState("running", () => ({ current: undefined as RunningQueues | undefined }));
 
 /** The error of every queue call while the native is not enabled. */
-export const NOT_ENABLED = "queues is not enabled; add queues: {} to quickservice.config.ts";
+export const NOT_ENABLED = "queues is not enabled; add queues: {} to quickservicets.config.ts";
 
 /** The running native; throws while it is not enabled. */
 export function runningQueues(): RunningQueues {

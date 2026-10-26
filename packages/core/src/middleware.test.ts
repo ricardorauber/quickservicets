@@ -37,12 +37,12 @@ describe("request stage", () => {
   test("a middleware adding a response header adds it to 404 responses too", async () => {
     const server = serve([], [{ stage: "request", run: async (ctx, next) => {
       const response = await next();
-      response.headers.set("x-served-by", `quickservice ${ctx.url.pathname} ${ctx.requestId.length > 0}`);
+      response.headers.set("x-served-by", `quickservicets ${ctx.url.pathname} ${ctx.requestId.length > 0}`);
       return response;
     } }]);
     const response = await call(server, "/missing");
     expect(response.status).toBe(404);
-    expect(response.headers.get("x-served-by")).toBe("quickservice /missing true");
+    expect(response.headers.get("x-served-by")).toBe("quickservicets /missing true");
   });
 });
 

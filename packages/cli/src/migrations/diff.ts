@@ -1,4 +1,4 @@
-import type { SqlDialect } from "@quickservice/core";
+import type { SqlDialect } from "@quickservicets/core";
 import { generateMigration, generateSQLiteMigration } from "drizzle-kit/api";
 import type { DrizzleSnapshot, TableSnapshot } from "./snapshot.ts";
 

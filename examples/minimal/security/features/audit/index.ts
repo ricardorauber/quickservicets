@@ -1,4 +1,4 @@
-import { defineFeature } from "@quickservice/core";
+import { defineFeature } from "@quickservicets/core";
 
 /** Logs every created customer; the security native shows its `@sensitive` tax id as `[sensitive]`. */
 export default defineFeature({

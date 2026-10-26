@@ -1,4 +1,4 @@
-import type { EntityModel } from "@quickservice/core";
+import type { EntityModel } from "@quickservicets/core";
 
 const pascal = (value: string) => value.replace(/(^|[-_])([a-z0-9])/g, (_, __, char: string) => char.toUpperCase()).replace(/^[a-z]/, (char) => char.toUpperCase());
 

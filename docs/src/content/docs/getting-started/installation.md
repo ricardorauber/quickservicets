@@ -1,6 +1,6 @@
 ---
 title: Installation and init
-description: Create a QuickService project with the init command.
+description: Create a QuickService.ts project with the init command.
 sidebar:
   order: 2
 ---
@@ -10,20 +10,20 @@ The `init` command creates an empty project, ready for your first entity. This p
 ## What you need
 
 - [Bun](https://bun.sh), which runs the framework, the CLI and your project.
-- A clone of the QuickService repository, with its dependencies installed:
+- A clone of the QuickService.ts repository, with its dependencies installed:
 
 ```bash
 bun install
 ```
 
 :::note
-The packages are not on npm yet, so your project lives inside the repository, under `examples/`. Run every command on this page from the repository root, where `bunx quickservice` runs the repository's own CLI.
+The packages are not on npm yet, so your project lives inside the repository, under `examples/`. Run every command on this page from the repository root, where `bunx quickservicets` runs the repository's own CLI.
 :::
 
 ## Create a project
 
 ```bash
-bunx quickservice init examples/my-api --db memory
+bunx quickservicets init examples/my-api --db memory
 ```
 
 It prints the next steps:
@@ -34,7 +34,7 @@ Next steps:
   2. Start the dev server: bun run dev
 ```
 
-Inside the repository, `init` notices the workspace. It writes `"workspace:*"` for `@quickservice/core` and `@quickservice/cli` in the new `package.json`, and runs `bun install` at the repository root, so the packages are linked right away.
+Inside the repository, `init` notices the workspace. It writes `"workspace:*"` for `@quickservicets/core` and `@quickservicets/cli` in the new `package.json`, and runs `bun install` at the repository root, so the packages are linked right away.
 
 The target folder must be empty or not exist yet; otherwise `init` stops with `Directory is not empty`.
 
@@ -48,14 +48,14 @@ examples/my-api/
 ├── endpoints/                 # your custom routes
 ├── hooks/                     # your hooks
 ├── package.json               # dependencies and scripts
-├── quickservice.config.ts     # the project configuration
+├── quickservicets.config.ts     # the project configuration
 └── tsconfig.json
 ```
 
 The three folders start with a `.gitkeep` file. The config uses the database you chose:
 
-```ts check title="quickservice.config.ts"
-import { defineConfig, memoryAdapter } from "@quickservice/core";
+```ts check title="quickservicets.config.ts"
+import { defineConfig, memoryAdapter } from "@quickservicets/core";
 
 export default defineConfig({
   database: memoryAdapter(),
@@ -83,13 +83,13 @@ The `postgres` and `mongodb` values in `.env` are placeholders. Replace them wit
 
 ## Run the CLI
 
-Inside the project, the CLI is available as `bun run quickservice <command>`. The project also has four scripts:
+Inside the project, the CLI is available as `bun run quickservicets <command>`. The project also has four scripts:
 
 | Script | Runs |
 | --- | --- |
-| `bun run dev` | `quickservice dev`: builds, serves and rebuilds on every change |
-| `bun run build` | `quickservice build`: writes `.generated/` |
-| `bun run migrate` | `quickservice migrate`: applies pending migrations |
+| `bun run dev` | `quickservicets dev`: builds, serves and rebuilds on every change |
+| `bun run build` | `quickservicets build`: writes `.generated/` |
+| `bun run migrate` | `quickservicets migrate`: applies pending migrations |
 | `bun run start` | `bun .generated/server.ts`: starts the last build |
 
 Every command and flag is in the [CLI reference](/reference/cli/), and every config key in the [configuration reference](/reference/config/).

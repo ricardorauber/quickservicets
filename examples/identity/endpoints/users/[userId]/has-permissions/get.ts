@@ -1,4 +1,4 @@
-import { type Endpoint } from "@quickservice/core";
+import { type Endpoint } from "@quickservicets/core";
 import { grantedPermissions } from "../../../../lib/permissions";
 
 type Query = {

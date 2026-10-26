@@ -1,6 +1,6 @@
 ---
 title: Project structure
-description: What each file and folder of a QuickService project is for.
+description: What each file and folder of a QuickService.ts project is for.
 sidebar:
   order: 5
 ---
@@ -29,7 +29,7 @@ my-api/
 ├── jobs/                      # scheduled jobs, optional
 ├── migrations/                # SQLite, PostgreSQL and MongoDB only
 ├── package.json
-├── quickservice.config.ts
+├── quickservicets.config.ts
 └── tsconfig.json
 ```
 
@@ -47,7 +47,7 @@ One entity per file, named like its type: `entities/User.ts` exports `User`. Eac
 Your own routes, one file per route. The folders are the path and the file name is the method (`get.ts`, `post.ts`, `put.ts`, `patch.ts`, `delete.ts` or `options.ts`). A folder in brackets, like `[id]`, is a path parameter.
 
 ```ts check title="endpoints/health/get.ts"
-import type { Endpoint } from "@quickservice/core";
+import type { Endpoint } from "@quickservicets/core";
 
 /**
  * @summary Health check
@@ -67,7 +67,7 @@ An endpoint receives the repositories, the request and the response controls, an
 Code that runs before or after a route. The file name is the hook's name, and you apply it by tagging an entity or an endpoint with it, like `@authorized` above.
 
 ```ts check title="hooks/authorized.ts"
-import { definePreHook, HttpError } from "@quickservice/core";
+import { definePreHook, HttpError } from "@quickservicets/core";
 
 export default definePreHook(async (_repos, req) => {
   if (!req.headers.get("authorization")) throw new HttpError(401, "Missing credentials");
@@ -100,12 +100,12 @@ Features of your own, one folder per feature: `features/greeting/index.ts` defau
 
 Features may also give the project new convention folders, like `queues/` or `greetings/`: the feature declares the folder, and the build reads every file in it, the way it reads `entities/`. Such a folder appears only when a feature that declares it is enabled.
 
-## `quickservice.config.ts`
+## `quickservicets.config.ts`
 
 The project configuration: the database, plus optional settings for the server, files, storage, populate depth, migrations and the API docs.
 
-```ts check title="quickservice.config.ts"
-import { defineConfig, memoryAdapter } from "@quickservice/core";
+```ts check title="quickservicets.config.ts"
+import { defineConfig, memoryAdapter } from "@quickservicets/core";
 
 export default defineConfig({
   database: memoryAdapter(),
@@ -120,7 +120,7 @@ Environment variables, such as `DATABASE_URL` or `PORT`. Bun loads this file by 
 
 ## `migrations/`
 
-Created by `quickservice migration add <Name>`, one file per migration (`<timestamp>_<Name>.ts`) plus a `meta/` folder with the model snapshots. You apply them with `quickservice migrate`. The memory database has no migrations, so this folder does not appear in `my-api`. See the [CLI reference](/reference/cli/).
+Created by `quickservicets migration add <Name>`, one file per migration (`<timestamp>_<Name>.ts`) plus a `meta/` folder with the model snapshots. You apply them with `quickservicets migrate`. The memory database has no migrations, so this folder does not appear in `my-api`. See the [CLI reference](/reference/cli/).
 
 ## `.generated/`
 

@@ -11,10 +11,10 @@ The samples come from the example project `examples/minimal/events`: posts, comm
 
 ## Transactions
 
-`repos.transaction(fn)`, or `transaction(fn)` from `@quickservice/core`, runs several repository calls as one database transaction: every call made inside `fn` (also through hooks or other modules) takes part, a throw rolls everything back and rejects with the error, and the result of `fn` is returned. The publish endpoint of the example updates the post and emits an event in one transaction, so a failed publish leaves neither:
+`repos.transaction(fn)`, or `transaction(fn)` from `@quickservicets/core`, runs several repository calls as one database transaction: every call made inside `fn` (also through hooks or other modules) takes part, a throw rolls everything back and rejects with the error, and the result of `fn` is returned. The publish endpoint of the example updates the post and emits an event in one transaction, so a failed publish leaves neither:
 
 ```ts title="endpoints/posts/[id]/publish/post.ts"
-import { events, HttpError, type Endpoint } from "@quickservice/core";
+import { events, HttpError, type Endpoint } from "@quickservicets/core";
 
 /** Publishes a post and emits `post.published` in the same transaction: a failed publish emits nothing. */
 const publish: Endpoint<{ dryRun?: boolean }> = async (repos, req) =>
@@ -36,7 +36,7 @@ export default publish;
 
 ## Write events
 
-`events: {}` in `quickservice.config.ts` turns the native on (or `QS_EVENTS_ENABLED=true`). From then on every `create`, `update`, `replace` and `delete` of an entity that is not a system entity becomes a write event:
+`events: {}` in `quickservicets.config.ts` turns the native on (or `QS_EVENTS_ENABLED=true`). From then on every `create`, `update`, `replace` and `delete` of an entity that is not a system entity becomes a write event:
 
 | Field | Value |
 | --- | --- |
@@ -87,7 +87,7 @@ Declare each custom event's payload in `EventMap`, and `emit` and the listeners 
 
 ```ts title="event-map.ts"
 /** The custom events of the project, with their payloads. */
-declare module "@quickservice/core" {
+declare module "@quickservicets/core" {
   interface EventMap {
     "post.published": { postId: string };
   }
@@ -101,7 +101,7 @@ export {};
 A file in `events/` default-exports `listen(pattern, listener, options?)` and is registered without any other code, before the listeners features add in their setup. The listener gets the event and `{ repos, log }`, where `log` adds `listener: <file name>` to each entry:
 
 ```ts title="events/count-comments.ts"
-import { listen } from "@quickservice/core";
+import { listen } from "@quickservicets/core";
 
 /** Keeps `commentCount` of a post in step with its comments, after each committed comment change. */
 export default listen("comment.written", async (event, { repos }) => {
@@ -115,7 +115,7 @@ export default listen("comment.written", async (event, { repos }) => {
 A feature ships its own listener files in `features/<key>/events/`, and a project file of the same name replaces it, with an `Override:` line in the build:
 
 ```ts title="features/notify/events/notify.ts"
-import { listen } from "@quickservice/core";
+import { listen } from "@quickservicets/core";
 
 /** Writes an in-app notification once a post is published. */
 export default listen("post.published", async (event, { repos }) => {
@@ -151,7 +151,7 @@ Each chosen event is then stored as an `OutboxEvent` row in the same transaction
 Delivery is **at least once**: a worker that crashes after the handler ran but before it stored the outcome leaves the row leased, and another worker delivers it again once the lease expires. Write handlers to be idempotent, as the `notify` feature does:
 
 ```ts title="features/notify/index.ts"
-import { defineFeature, type Repositories } from "@quickservice/core";
+import { defineFeature, type Repositories } from "@quickservicets/core";
 
 /**
  * Notifies about published posts: its listener file `events/notify.ts` writes an in-app notification after the
@@ -183,9 +183,9 @@ export default defineFeature({
 Events that still have pending, delivering or failed rows survive the retention cleanup; delivered rows go with their event. Two commands inspect and repair deliveries:
 
 ```bash
-bun run quickservice events outbox                                 # per consumer: rows per status, oldest pending age
-bun run quickservice events retry <delivery id>                    # reset one failed delivery to pending
-bun run quickservice events retry --consumer notify/email --failed # reset every failed delivery of a consumer
+bun run quickservicets events outbox                                 # per consumer: rows per status, oldest pending age
+bun run quickservicets events retry <delivery id>                    # reset one failed delivery to pending
+bun run quickservicets events retry --consumer notify/email --failed # reset every failed delivery of a consumer
 ```
 
 ## Customization
@@ -198,7 +198,7 @@ bun run quickservice events retry --consumer notify/email --failed # reset every
 | Hooks | `beforeEmit(event, { operation })` may return a changed event (its `id`, `type` and `at` stay) or `null` to drop it, and a throw fails the write; `afterEmit(event)` observes each event once it was stored and handed to dispatch. Other features add hooks through `ctx.feature("events").addHook(...)`. |
 | Override files | A project `events/<name>.ts` replaces a feature's listener file of the same name. |
 | Implementation | `bus: { publish, subscribe }` replaces the in-process after-commit dispatch (`memoryEventBus()` by default), for example with a broker; in-transaction listeners and the outbox stay in the native. |
-| Eject | `bun run quickservice eject events` copies the native into `features/events/`, which then replaces it with the same behavior. |
+| Eject | `bun run quickservicets eject events` copies the native into `features/events/`, which then replaces it with the same behavior. |
 
 ```ts
 events: {

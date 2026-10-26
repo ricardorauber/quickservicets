@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createApp, memoryAdapter, resolveConfig, type DatabaseAdapter } from "@quickservice/core";
+import { createApp, memoryAdapter, resolveConfig, type DatabaseAdapter } from "@quickservicets/core";
 import { parseEntities } from "../entities/parse-entities.ts";
 import { createProject } from "../testing/project.ts";
 import { generateTypesFile } from "./generate-types.ts";

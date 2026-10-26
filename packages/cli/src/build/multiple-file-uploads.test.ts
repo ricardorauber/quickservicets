@@ -2,12 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createApp, localStorage, memoryAdapter, resolveConfig } from "@quickservice/core";
+import { createApp, localStorage, memoryAdapter, resolveConfig } from "@quickservicets/core";
 import { parseEntities, parseProjectEntities } from "../entities/parse-entities.ts";
 import { createProject } from "../testing/project.ts";
 
 const entities = {
-  "entities/Organization.ts": `import type { Media } from "@quickservice/core";
+  "entities/Organization.ts": `import type { Media } from "@quickservicets/core";
 export type Organization = {
   name: string;
   /** @maxTotalSize 5MB @maxItems 3 @accept image/png */
@@ -15,7 +15,7 @@ export type Organization = {
   /** @keepFile */
   archive?: Media[];
 };`,
-  "entities/Post.ts": 'import type { Media } from "@quickservice/core";\nexport type Post = { title: string; cover?: Media }',
+  "entities/Post.ts": 'import type { Media } from "@quickservicets/core";\nexport type Post = { title: string; cover?: Media }',
 };
 
 const MB = 1024 * 1024;
@@ -30,7 +30,7 @@ function walk(dir: string): string[] {
 
 async function setup() {
   const models = parseProjectEntities(createProject(entities));
-  const dir = mkdtempSync(join(tmpdir(), "quickservice-multi-uploads-"));
+  const dir = mkdtempSync(join(tmpdir(), "quickservicets-multi-uploads-"));
   const database = memoryAdapter();
   const config = resolveConfig({ database, storage: { default: localStorage({ dir }) }, logger: { info() {}, warn() {}, error() {} } }, {});
   await database.connect(models);
@@ -199,7 +199,7 @@ describe("tags", () => {
       parseEntities(
         createProject({
           "entities/Tag.ts": "export type Tag = { name: string }",
-          "entities/Post.ts": `import type { Media } from "@quickservice/core";\nimport type { Tag } from "./Tag.ts";\nexport type Post = {\n  /** @maxTotalSize 1MB */\n  value: ${type};\n}`,
+          "entities/Post.ts": `import type { Media } from "@quickservicets/core";\nimport type { Tag } from "./Tag.ts";\nexport type Post = {\n  /** @maxTotalSize 1MB */\n  value: ${type};\n}`,
         }),
       );
     expect(() => parse("Media")).toThrow('field "value" has invalid @maxTotalSize: only applies to arrays of files');

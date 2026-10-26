@@ -61,7 +61,7 @@ flags: { onEvaluate: ({ name, on, reason, user }) => console.info("flag exposure
 
 ## Level 5: override files
 
-With `source: "database"`, a project `entities/FeatureFlag.ts` replaces the table, keeping its fields and adding others; `quickservice flags set` changes rows without a deploy:
+With `source: "database"`, a project `entities/FeatureFlag.ts` replaces the table, keeping its fields and adding others; `quickservicets flags set` changes rows without a deploy:
 
 ```ts
 /** @internal */
@@ -79,7 +79,7 @@ export type FeatureFlag = {
 ```
 
 ```bash
-quickservice flags set checkout-v2 --percentage 50
+quickservicets flags set checkout-v2 --percentage 50
 ```
 
 ## Level 6: replace the implementation
@@ -96,5 +96,5 @@ flags: { provider: { isOn: (name) => file[name] === true, all: () => ({ ...file 
 Copy the native into the project as a `features/flags/` project feature that replaces it:
 
 ```bash
-quickservice eject flags
+quickservicets eject flags
 ```

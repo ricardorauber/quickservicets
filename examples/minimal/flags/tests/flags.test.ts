@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { startTestService } from "@quickservice/cli/testing";
+import { startTestService } from "@quickservicets/cli/testing";
 
 const root = join(import.meta.dir, "..");
 
 /** The example's own files, as `startTestService` takes them. */
 function exampleFiles(): Record<string, string> {
-  const files: Record<string, string> = { "quickservice.config.ts": readFileSync(join(root, "quickservice.config.ts"), "utf8") };
+  const files: Record<string, string> = { "quickservicets.config.ts": readFileSync(join(root, "quickservicets.config.ts"), "utf8") };
   for (const folder of ["entities", "endpoints", "features", "jobs"]) {
     for (const entry of readdirSync(join(root, folder), { recursive: true, withFileTypes: true })) {
       if (entry.isFile()) files[relative(root, join(entry.parentPath, entry.name))] = readFileSync(join(entry.parentPath, entry.name), "utf8");
@@ -49,7 +49,7 @@ test("POST /checkout answers 404 Route not found to u2 and 200 to u1; QS_FLAGS_R
 test("the job reads flags for a user it names", async () => {
   const files = exampleFiles();
   // A test-only route that starts the job now.
-  files["endpoints/run-report/post.ts"] = 'import type { Repositories, ServiceRequest } from "@quickservice/core";\nexport default (_repos: Repositories, req: ServiceRequest) => req.jobs.run("flag-report");\n';
+  files["endpoints/run-report/post.ts"] = 'import type { Repositories, ServiceRequest } from "@quickservicets/core";\nexport default (_repos: Repositories, req: ServiceRequest) => req.jobs.run("flag-report");\n';
   const service = await startTestService({ files });
   try {
     const { runId } = (await (await service.fetch("/run-report", { method: "POST" })).json()) as { runId: string };

@@ -10,20 +10,20 @@ const LOGGER = `logger: {
     warn: (entry: object) => void ((globalThis as any).realtimeLogs ??= []).push(entry),
     error: (entry: object) => void ((globalThis as any).realtimeLogs ??= []).push(entry),
   }`;
-const config = (realtime = "{}", extra = "") => `import { defineConfig, memoryAdapter } from "@quickservice/core";
+const config = (realtime = "{}", extra = "") => `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter(), events: {}, realtime: ${realtime}, ${LOGGER}${extra ? `, ${extra}` : ""} });
 `;
 /** A project feature that signs requests in as the user of the x-user header. */
-const SIGN_IN = `import { defineFeature } from "@quickservice/core";
+const SIGN_IN = `import { defineFeature } from "@quickservicets/core";
 export default defineFeature({
   key: "signin",
   middleware: [{ stage: "handler", run: (req, _res, next) => { const id = req.headers.get("x-user"); if (id) (req as { user?: unknown }).user = { id }; return next(); } }],
 });
 `;
 const FILES = {
-  "quickservice.config.ts": config(),
+  "quickservicets.config.ts": config(),
   "entities/Task.ts": '/** @changes */\nexport type Task = { title: string; owner?: string };\n',
-  "endpoints/clock/sse.ts": 'import { defineSse } from "@quickservice/core";\nexport default defineSse(() => undefined);\n',
+  "endpoints/clock/sse.ts": 'import { defineSse } from "@quickservicets/core";\nexport default defineSse(() => undefined);\n',
 };
 const logs = () => ((globalThis as { realtimeLogs?: Record<string, unknown>[] }).realtimeLogs ??= []);
 afterEach(() => {
@@ -109,7 +109,7 @@ describe("hooks and the feature API", () => {
     const files = {
       ...FILES,
       "features/signin/index.ts": SIGN_IN,
-      "quickservice.config.ts": config(
+      "quickservicets.config.ts": config(
         '{ sse: { beforeDeliver: ({ user, event }) => { if ((event.after as any)?.title === "boom") throw new Error("hook broke"); return (event.after as any)?.owner === user?.id; } } }',
         "signin: {}",
       ),
@@ -134,7 +134,7 @@ describe("hooks and the feature API", () => {
   });
 
   test("beforeSend changes or skips messages; a feature's beforeSend runs after the config's, and publish reaches open streams", async () => {
-    const feature = `import { defineFeature, type WriteEvent } from "@quickservice/core";
+    const feature = `import { defineFeature, type WriteEvent } from "@quickservicets/core";
 export default defineFeature({
   key: "announcer",
   requires: ["realtime"],
@@ -148,7 +148,7 @@ export default defineFeature({
     const files = {
       ...FILES,
       "features/announcer/index.ts": feature,
-      "quickservice.config.ts": config(
+      "quickservicets.config.ts": config(
         '{ sse: { beforeSend: ({ event, data }) => ((event.after as any)?.title === "hidden" ? null : { ...(data as object), extra: "config" }) } }',
         "announcer: {}",
       ),
@@ -174,7 +174,7 @@ export default defineFeature({
 
 describe("override files and the change source", () => {
   test("a project endpoints/tasks/changes/sse.ts replaces the generated change stream, with an override line", async () => {
-    const files = { ...FILES, "endpoints/tasks/changes/sse.ts": 'import { defineSse } from "@quickservice/core";\nexport default defineSse((stream) => stream.send("custom"));\n' };
+    const files = { ...FILES, "endpoints/tasks/changes/sse.ts": 'import { defineSse } from "@quickservicets/core";\nexport default defineSse((stream) => stream.send("custom"));\n' };
     const summary = await build(createLinkedProject(files));
     expect((summary.buildSteps ?? []).flatMap((step) => step.lines)).toContain("Override: endpoints/tasks/changes/sse.ts replaces GET /tasks/changes from realtime");
     const service = await startTestService({ files });
@@ -214,7 +214,7 @@ export const memorySource = {
     const files = {
       ...FILES,
       "source.ts": source,
-      "quickservice.config.ts": config("{ sse: { changeSource: memorySource } }").replace("events: {}", "events: { outbox: true }").replace('import { defineConfig, memoryAdapter } from "@quickservice/core";', 'import { defineConfig, memoryAdapter } from "@quickservice/core";\nimport { memorySource } from "./source.ts";'),
+      "quickservicets.config.ts": config("{ sse: { changeSource: memorySource } }").replace("events: {}", "events: { outbox: true }").replace('import { defineConfig, memoryAdapter } from "@quickservicets/core";', 'import { defineConfig, memoryAdapter } from "@quickservicets/core";\nimport { memorySource } from "./source.ts";'),
     };
     const service = await startTestService({ files });
     try {

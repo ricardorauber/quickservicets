@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { defineFeature, list, loadConfig, registerNative, string, url } from "@quickservice/core";
+import { defineFeature, list, loadConfig, registerNative, string, url } from "@quickservicets/core";
 import { unregisterNative } from "../../../core/src/features.ts";
 import { referencePages } from "../../../../docs/scripts/reference.ts";
 import { build } from "../build/build.ts";
@@ -11,15 +11,15 @@ import { ENV_EXAMPLE_HEADER, envExampleContent, HAND_WRITTEN_ENV_EXAMPLE } from 
 import { envCheck, parseEnvFile, projectEnvironment } from "./env-check.ts";
 
 const SECRET = "sk_live_123";
-const CONFIG = `import { defineConfig, integer, memoryAdapter, secret, url } from "@quickservice/core";
+const CONFIG = `import { defineConfig, integer, memoryAdapter, secret, url } from "@quickservicets/core";
 export default defineConfig({
   database: memoryAdapter(),
   env: { DATABASE_URL: url().describe("Main database"), STRIPE_KEY: secret(), REPORT_HOUR: integer().default(6) },
 });
 `;
-const NO_ENV = 'import { defineConfig, memoryAdapter } from "@quickservice/core";\nexport default defineConfig({ database: memoryAdapter() });\n';
+const NO_ENV = 'import { defineConfig, memoryAdapter } from "@quickservicets/core";\nexport default defineConfig({ database: memoryAdapter() });\n';
 const project = (files: Record<string, string> = {}) =>
-  createLinkedProject({ "quickservice.config.ts": CONFIG, "entities/User.ts": "export type User = { email: string };\n", ...files });
+  createLinkedProject({ "quickservicets.config.ts": CONFIG, "entities/User.ts": "export type User = { email: string };\n", ...files });
 const valid = { DATABASE_URL: "https://db.example.com", STRIPE_KEY: SECRET };
 const withVariables = async <T>(set: Record<string, string>, body: () => Promise<T>): Promise<T> => {
   Object.assign(process.env, set);
@@ -75,14 +75,14 @@ EXAMPLE_API_URL=
     await withVariables(valid, () => build(root));
     expect(statSync(file).mtimeMs).toBe(before);
     // A project whose config no longer declares variables (a new folder, since config modules are cached per process).
-    const withoutEnv = project({ "quickservice.config.ts": NO_ENV, ".env.example": read(root) });
+    const withoutEnv = project({ "quickservicets.config.ts": NO_ENV, ".env.example": read(root) });
     await build(withoutEnv);
     expect(existsSync(join(withoutEnv, ".env.example"))).toBe(false);
 
     const handWritten = project({ ".env.example": "DATABASE_URL=postgres://localhost/app\n" });
     expect((await withVariables(valid, () => build(handWritten))).warnings).toContain(HAND_WRITTEN_ENV_EXAMPLE);
     expect(readFileSync(join(handWritten, ".env.example"), "utf8")).toBe("DATABASE_URL=postgres://localhost/app\n");
-    const handWrittenWithoutEnv = project({ "quickservice.config.ts": NO_ENV, ".env.example": "DATABASE_URL=postgres://localhost/app\n" });
+    const handWrittenWithoutEnv = project({ "quickservicets.config.ts": NO_ENV, ".env.example": "DATABASE_URL=postgres://localhost/app\n" });
     await build(handWrittenWithoutEnv);
     expect(readFileSync(join(handWrittenWithoutEnv, ".env.example"), "utf8")).toBe("DATABASE_URL=postgres://localhost/app\n");
   });
@@ -143,7 +143,7 @@ describe("secrets", () => {
     expect(json).toContain("[secret]");
     expect(json).not.toContain(SECRET);
     expect(config.files.signingSecret).toBe(SECRET);
-    const { env } = await import("@quickservice/core");
+    const { env } = await import("@quickservicets/core");
     expect(Bun.inspect(env)).toContain("[secret]");
     expect(Bun.inspect(env)).not.toContain(SECRET);
     expect((env as unknown as Record<string, string>).STRIPE_KEY).toBe(SECRET);
@@ -159,11 +159,11 @@ describe("secrets", () => {
     });
     outputs.push(read(root), readFileSync(join(root, ".generated/types.ts"), "utf8"), readFileSync(join(root, ".generated/openapi.json"), "utf8"));
     outputs.push(...Object.values(referencePages()));
-    const failed = project({ "quickservice.config.ts": CONFIG.replace("STRIPE_KEY: secret()", "STRIPE_KEY: secret().min(40)") });
+    const failed = project({ "quickservicets.config.ts": CONFIG.replace("STRIPE_KEY: secret()", "STRIPE_KEY: secret().min(40)") });
     await withVariables(valid, async () => {
       expect(await run(["build"], collect, failed)).toBe(1);
     });
-    const server = Bun.spawn(["bun", "-e", `import(${JSON.stringify(join(failed, "quickservice.config.ts"))}).then(async (m) => (await import("@quickservice/core")).resolveConfig(m.default))`], {
+    const server = Bun.spawn(["bun", "-e", `import(${JSON.stringify(join(failed, "quickservicets.config.ts"))}).then(async (m) => (await import("@quickservicets/core")).resolveConfig(m.default))`], {
       cwd: failed,
       env: { ...process.env, ...valid },
       stdout: "pipe",

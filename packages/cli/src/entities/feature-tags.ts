@@ -9,7 +9,7 @@ import {
   type ParsedTag,
   type ParsedTags,
   type ResolvedFeature,
-} from "@quickservice/core";
+} from "@quickservicets/core";
 import { BuildError } from "../errors.ts";
 import type { DocTag } from "./jsdoc.ts";
 
@@ -144,6 +144,6 @@ export function applyFeatureTag(tags: ParsedTags | undefined, tag: DocTag, targe
 /** The message for a tag no built-in, hook or enabled feature defines. */
 export function unknownTagMessage(file: string, name: string): string {
   const native = active.disabled.get(name);
-  if (native) return `${file}: @${name} needs ${native}, which is not enabled; add ${native}: {} to quickservice.config.ts`;
+  if (native) return `${file}: @${name} needs ${native}, which is not enabled; add ${native}: {} to quickservicets.config.ts`;
   return `${file}: unknown tag @${name}: no hook or feature defines it`;
 }

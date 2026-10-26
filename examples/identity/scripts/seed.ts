@@ -3,7 +3,7 @@
  * Every record is looked up by its natural key first (a slug, an email, a module and action...), so running the script
  * again creates only what is missing and never duplicates a record.
  */
-import { createRepositories, resolveConfig, type Repositories } from "@quickservice/core";
+import { createRepositories, resolveConfig, type Repositories } from "@quickservicets/core";
 
 type Action = "manage" | "view";
 
@@ -112,7 +112,7 @@ export async function seed(repos: Repositories): Promise<SeedSummary> {
 }
 
 if (import.meta.main) {
-  const { default: projectConfig } = await import("../quickservice.config.ts");
+  const { default: projectConfig } = await import("../quickservicets.config.ts");
   const { models } = await import("../.generated/models.ts");
   const config = resolveConfig(projectConfig);
   await config.database.connect(models, { defaultSchema: config.schema });

@@ -89,7 +89,7 @@ describe("reading", () => {
 describe("the env object", () => {
   test("reading it before a configuration is resolved throws", () => {
     clearEnvValues();
-    expect(() => vars.DATABASE_URL).toThrow("env.DATABASE_URL was read before the configuration was resolved; use process.env inside quickservice.config.ts");
+    expect(() => vars.DATABASE_URL).toThrow("env.DATABASE_URL was read before the configuration was resolved; use process.env inside quickservicets.config.ts");
   });
 
   test("after resolution it holds the parsed values and is read-only", () => {

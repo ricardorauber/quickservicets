@@ -16,12 +16,12 @@ function titledSamples(markdown: string): Map<string, string> {
 describe("the error reporting guide", () => {
   test("its file samples are the example project's files", () => {
     const samples = titledSamples(guide);
-    expect([...samples.keys()].sort()).toEqual(["endpoints/boom/get.ts", "jobs/sync-invoices.ts", "quickservice.config.ts", "reporters.ts"]);
+    expect([...samples.keys()].sort()).toEqual(["endpoints/boom/get.ts", "jobs/sync-invoices.ts", "quickservicets.config.ts", "reporters.ts"]);
     for (const [path, code] of samples) expect(code).toBe(readFileSync(join(example, path), "utf8"));
   });
 
   test("it covers every topic", () => {
-    for (const topic of ["## The interface", "## What is reported, and when", "## The report", "## Masking", "## The console reporter", "## Writing a reporter", "## Flushing", "## Customization", "sampleRate", "ignore", "@report off", "beforeReport", "quickservice eject errors"]) {
+    for (const topic of ["## The interface", "## What is reported, and when", "## The report", "## Masking", "## The console reporter", "## Writing a reporter", "## Flushing", "## Customization", "sampleRate", "ignore", "@report off", "beforeReport", "quickservicets eject errors"]) {
       expect(guide).toContain(topic);
     }
   });

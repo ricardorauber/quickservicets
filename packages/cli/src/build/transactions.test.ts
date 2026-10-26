@@ -3,15 +3,15 @@ import { startTestService } from "../testing/service.ts";
 import { createLinkedProject, MEMORY_CONFIG } from "../testing/project.ts";
 import { build } from "./build.ts";
 
-const CONFIG = `import { defineConfig, memoryAdapter } from "@quickservice/core";
+const CONFIG = `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter(), stocker: {} });
 `;
 
 const files = {
-  "quickservice.config.ts": CONFIG,
+  "quickservicets.config.ts": CONFIG,
   "entities/Order.ts": "export type Order = { item: string };\n",
   "entities/Stock.ts": "export type Stock = { count: number };\n",
-  "jobs/restock.ts": `import { job } from "@quickservice/core";
+  "jobs/restock.ts": `import { job } from "@quickservicets/core";
 export default job({ every: "1h" }, async ({ repos }) => {
   await repos.transaction(async () => {
     await repos.orders.create({ item: "from job" });
@@ -19,11 +19,11 @@ export default job({ every: "1h" }, async ({ repos }) => {
   });
 });
 `,
-  "endpoints/restock/post.ts": `import type { Endpoint } from "@quickservice/core";
+  "endpoints/restock/post.ts": `import type { Endpoint } from "@quickservicets/core";
 const handler: Endpoint = async (_repos, req) => req.jobs.run("restock");
 export default handler;
 `,
-  "features/stocker/index.ts": `import { defineFeature, transaction } from "@quickservice/core";
+  "features/stocker/index.ts": `import { defineFeature, transaction } from "@quickservicets/core";
 export default defineFeature({
   key: "stocker",
   setup(ctx) {
@@ -56,7 +56,7 @@ describe("transactions from jobs and features", () => {
 
 describe("the reserved repository key", () => {
   test("an entity whose repository key is transaction fails the build", async () => {
-    const root = createLinkedProject({ "quickservice.config.ts": MEMORY_CONFIG, "entities/Payment.ts": "/** @collection transaction */\nexport type Payment = { amount: number };\n" });
+    const root = createLinkedProject({ "quickservicets.config.ts": MEMORY_CONFIG, "entities/Payment.ts": "/** @collection transaction */\nexport type Payment = { amount: number };\n" });
     let message = "";
     try {
       await build(root);
@@ -67,7 +67,7 @@ describe("the reserved repository key", () => {
   });
 
   test("the generated Repositories type repos.transaction", async () => {
-    const root = createLinkedProject({ "quickservice.config.ts": MEMORY_CONFIG, "entities/Payment.ts": "export type Payment = { amount: number };\n" });
+    const root = createLinkedProject({ "quickservicets.config.ts": MEMORY_CONFIG, "entities/Payment.ts": "export type Payment = { amount: number };\n" });
     await build(root);
     expect(await Bun.file(`${root}/.generated/types.ts`).text()).toContain("  transaction<T>(fn: () => Promise<T>): Promise<T>;");
   });

@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@quickservice/core": "workspace:*",
-    "@quickservice/cli": "workspace:*"
+    "@quickservicets/core": "workspace:*",
+    "@quickservicets/cli": "workspace:*"
   }
 }

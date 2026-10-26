@@ -1,4 +1,4 @@
-import { isJobDefinition, type JobOptions, type JobSchedule } from "@quickservice/core";
+import { isJobDefinition, type JobOptions, type JobSchedule } from "@quickservicets/core";
 import { readdirSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { BuildError } from "../errors.ts";
@@ -7,7 +7,7 @@ import { jobOptionsError, scheduleError } from "./validate-job.ts";
 export interface JobEntry {
   /** The path under `jobs/` without extension, e.g. `billing/close-invoices`. */
   name: string;
-  /** File path relative to the project root, or `@quickservice/core/features/...` for a native's file. */
+  /** File path relative to the project root, or `@quickservicets/core/features/...` for a native's file. */
   file: string;
   /** Absolute path of the file (default: the file under the project root). */
   source?: string;

@@ -1,5 +1,5 @@
 // WHAT-IF: the same JSON lines, but buffered and written once per event-loop turn instead of one write per request.
-import { defineConfig, localStorage, postgresAdapter } from "@quickservice/core";
+import { defineConfig, localStorage, postgresAdapter } from "@quickservicets/core";
 
 let buffer: string[] = [];
 let scheduled = false;

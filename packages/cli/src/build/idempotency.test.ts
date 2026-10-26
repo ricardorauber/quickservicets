@@ -3,12 +3,12 @@ import { startTestService, type TestService } from "../testing/service.ts";
 
 afterEach(() => setSystemTime());
 
-const config = (idempotency = "{}") => `import { defineConfig, memoryAdapter } from "@quickservice/core";
+const config = (idempotency = "{}") => `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter(), idempotency: ${idempotency}, users: {} });
 `;
 /** A project feature that sets req.user from the x-user header, as an auth middleware would. */
-const USERS = `import { defineFeature } from "@quickservice/core";
-declare module "@quickservice/core" {
+const USERS = `import { defineFeature } from "@quickservicets/core";
+declare module "@quickservicets/core" {
   interface RequestUser { id: string }
 }
 export default defineFeature({
@@ -23,12 +23,12 @@ export default defineFeature({
 const g = globalThis as unknown as { runs?: Record<string, number> };
 const counting = (name: string) => `((globalThis as { runs?: Record<string, number> }).runs ??= {})[${JSON.stringify(name)}] = (((globalThis as { runs?: Record<string, number> }).runs ?? {})[${JSON.stringify(name)}] ?? 0) + 1;`;
 const FILES = {
-  "quickservice.config.ts": config(),
+  "quickservicets.config.ts": config(),
   "features/users/index.ts": USERS,
   "entities/Order.ts": "export type Order = { item: string; quantity: number };\n",
   "entities/Ticket.ts": "/** @idempotent required=true */\nexport type Ticket = { title: string };\n",
   "entities/Note.ts": "/** @idempotent off */\nexport type Note = { text: string };\n",
-  "endpoints/orders/post.ts": `import type { Repositories, ServiceRequest, ServiceResponse } from "@quickservice/core";
+  "endpoints/orders/post.ts": `import type { Repositories, ServiceRequest, ServiceResponse } from "@quickservicets/core";
 export default async (repos: Repositories, req: ServiceRequest, res: ServiceResponse) => {
   ${counting("orders")}
   const order = await (repos as unknown as { orders: { create(data: object): Promise<{ id: string }> } }).orders.create((await req.json()) as object);
@@ -42,7 +42,7 @@ export default async (repos: Repositories, req: ServiceRequest, res: ServiceResp
   return { done: true };
 };
 `,
-  "endpoints/failing/post.ts": `import { HttpError, type ServiceRequest } from "@quickservice/core";
+  "endpoints/failing/post.ts": `import { HttpError, type ServiceRequest } from "@quickservicets/core";
 export default async (_repos: unknown, req: ServiceRequest) => {
   ${counting("failing")}
   const { mode } = (await req.json()) as { mode: string };

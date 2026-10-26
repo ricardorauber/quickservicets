@@ -1,5 +1,5 @@
 /**
- * Feature switches of benchmark runs (`bun benchmarks/run.ts quickservice --features security=off,events=on`) and the
+ * Feature switches of benchmark runs (`bun benchmarks/run.ts quickservicets --features security=off,events=on`) and the
  * comparison of a run with the baseline (`bun benchmarks/compare-features.ts`).
  */
 import { join } from "node:path";
@@ -23,7 +23,7 @@ export interface FeatureSwitches {
 }
 
 /**
- * Variables every QuickService run starts with: the load generator is one IP, so the default rate limit would
+ * Variables every QuickService.ts run starts with: the load generator is one IP, so the default rate limit would
  * measure 429 responses. A run with `--features security=on` keeps it on, to measure it.
  */
 export const QUICKSERVICE_RUN_VARIABLES: Readonly<Record<string, string>> = { QS_SECURITY_RATE_LIMIT_ENABLED: "false" };
@@ -59,7 +59,7 @@ export function resultFile(resultsDir: string, stack: string, features?: Feature
 }
 
 /**
- * The variables a QuickService run starts with: the rate limit off, then the switches. `security=on` keeps the rate
+ * The variables a QuickService.ts run starts with: the rate limit off, then the switches. `security=on` keeps the rate
  * limit on, which is how it is measured.
  */
 export function quickServiceVariables(features?: FeatureSwitches): Record<string, string> {

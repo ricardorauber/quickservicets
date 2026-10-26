@@ -2,13 +2,16 @@ import {
   anyOf,
   defineFeature,
   HttpError,
+  hook,
   list,
+  number,
   object,
   observeJobRuns,
   oneOf,
   parseDuration,
   provider,
   record,
+  resolveOption,
   safeLog,
   setErrorReportSink,
   setFailureSinks,
@@ -51,7 +54,20 @@ const options = object({
     .optional()
     .describe("Receives every report: one reporter or a list, each an object with report(report) and an optional flush(timeoutMs); without it, consoleReporter() writes error.report log entries."),
   release: string().optional().describe("The release of the service added to every report, like a version or a commit."),
-  tags: record(string().describe("The value of the tag.")).describe("Tags added to every report, by name."),
+  tags: record(string().describe("The value of the tag."))
+    .perRequest()
+    .describe("Tags added to every report, by name; a function of the request, its user and tenant computes them for request reports."),
+  sampleRate: number()
+    .min(0)
+    .max(1)
+    .default(1)
+    .describe("The probability each report is sent, decided once per report; startup reports are always sent."),
+  ignore: list(string())
+    .default([])
+    .describe("Error names, like AbortError, and response statuses, like 503, whose reports are dropped before sampling."),
+  beforeReport: hook<ErrorReport | null, undefined>().describe(
+    "Runs on each report after masking and before the reporters; it returns a changed report, or null to drop it, and a throw is logged and drops nothing.",
+  ),
   jobs: oneOf(["final", "every"])
     .default("final")
     .describe("Which failed job runs and queue attempts are reported: final reports a run only when no retry follows, every reports each failed attempt."),
@@ -86,25 +102,49 @@ export function errorOf(error: unknown, production: boolean): ErrorReport["error
 export const isUnexpected = (error: unknown) => !(error instanceof HttpError) || error.status >= 500;
 
 /** Sends reports to reporters without blocking: each failure is logged with the reporter's index, the others still get it. */
-export function reportDispatcher(settings: { reporters: () => readonly ErrorReporter[]; logger: Logger; mask?: () => LogMasker | undefined }) {
+export function reportDispatcher(settings: {
+  reporters: () => readonly ErrorReporter[];
+  logger: Logger;
+  mask?: () => LogMasker | undefined;
+  /** The `beforeReport` hooks, run in order on the masked report. */
+  beforeReport?: readonly ((report: ErrorReport | null, ctx: undefined) => unknown)[];
+}) {
   const pending = new Set<Promise<unknown>>();
   const failed = (index: number, error: unknown) =>
     safeLog(settings.logger, "error", { timestamp: new Date().toISOString(), message: "error.report.failed", reporter: index, error: { message: (error as Error)?.message ?? String(error) } });
+  const deliver = (masked: ErrorReport) =>
+    settings.reporters().forEach((reporter, index) => {
+      try {
+        const result = reporter.report(masked);
+        if (result instanceof Promise) {
+          const tracked = result.catch((error: unknown) => failed(index, error)).finally(() => pending.delete(tracked));
+          pending.add(tracked);
+        }
+      } catch (error) {
+        failed(index, error);
+      }
+    });
   return {
     send(report: ErrorReport) {
       const masker = settings.mask?.();
       const masked = masker ? masker.entry(report) : report;
-      settings.reporters().forEach((reporter, index) => {
-        try {
-          const result = reporter.report(masked);
-          if (result instanceof Promise) {
-            const tracked = result.catch((error: unknown) => failed(index, error)).finally(() => pending.delete(tracked));
-            pending.add(tracked);
+      const hooks = settings.beforeReport ?? [];
+      if (hooks.length === 0) return deliver(masked);
+      // The hooks may be asynchronous; the caller never waits for them.
+      const tracked: Promise<unknown> = (async () => {
+        let current: ErrorReport = masked;
+        for (const fn of hooks) {
+          try {
+            const result = await fn(current, undefined);
+            if (result === null) return;
+            if (result !== undefined) current = result as ErrorReport;
+          } catch (error) {
+            safeLog(settings.logger, "error", { timestamp: new Date().toISOString(), message: "feature.hook.failed", feature: "errors", hook: "beforeReport", error: { message: (error as Error)?.message ?? String(error) } });
           }
-        } catch (error) {
-          failed(index, error);
         }
-      });
+        deliver(current);
+      })().finally(() => pending.delete(tracked));
+      pending.add(tracked);
     },
     /** The reports still being delivered. */
     pending: () => [...pending],
@@ -147,6 +187,14 @@ const errorsFeature = defineFeature({
   key: "errors",
   docs: { summary: "One interface that receives every unexpected error with its request, user and tenant, so a reporting service plugs in with one line." },
   options,
+  tags: {
+    report: {
+      on: ["entity", "endpoint"],
+      options: ["sampleRate"],
+      description: "`@report off` stops the request reports of the endpoint or of the entity's routes, and `@report sampleRate=0.1` sets their sampling rate.",
+      example: "/** @report sampleRate=0.1 */\nexport default () => ({ ok: true });",
+    },
+  },
   // Reports are masked like the log when security masking is on, and cover queue messages and events when they run.
   after: ["security", "queues", "events"],
   setup(ctx) {
@@ -156,7 +204,17 @@ const errorsFeature = defineFeature({
     added.set(ctx.options, reporters);
     const production = ctx.config.production;
     const security = ctx.config.features.some((feature) => feature.key === "security") ? ctx.feature("security") : undefined;
-    const dispatcher = reportDispatcher({ reporters: () => reporters, logger: ctx.logger, mask: () => security?.masker() });
+    const dispatcher = reportDispatcher({ reporters: () => reporters, logger: ctx.logger, mask: () => security?.masker(), beforeReport: ctx.options.beforeReport as never });
+    const ignored = new Set(ctx.options.ignore);
+    /** Sends a report unless its error name or status is ignored, or sampling leaves it out; startup reports always go. */
+    const submit = (report: ErrorReport, settings: { status?: number; sampleRate?: number } = {}) => {
+      if (ignored.has(report.error.name) || (settings.status !== undefined && ignored.has(String(settings.status)))) return;
+      const rate = settings.sampleRate ?? ctx.options.sampleRate;
+      if (report.kind !== "startup" && !(randomSource() < rate)) return;
+      dispatcher.send(report);
+    };
+    /** The static tags; a tags function applies to request reports only. */
+    const staticTags = typeof ctx.options.tags === "function" ? {} : (ctx.options.tags as Record<string, string>);
     const build = (error: unknown, kind: ErrorReportKind, extra: ReportErrorExtra & Omit<Partial<FailureDetails>, "kind"> = {}): ErrorReport => {
       const req = extra.request;
       const user = extra.user ?? idOf(req?.user);
@@ -170,7 +228,7 @@ const errorsFeature = defineFeature({
         ...(extra.job ? { job: extra.job } : {}),
         ...(extra.queue ? { queue: extra.queue } : {}),
         ...(extra.requestId ? { requestId: extra.requestId } : {}),
-        tags: { ...(ctx.options.tags as Record<string, string>), ...(extra.tags ?? {}) },
+        tags: { ...staticTags, ...(extra.tags ?? {}) },
         environment: production ? "production" : "development",
         ...(ctx.options.release !== undefined ? { release: ctx.options.release } : {}),
         at: new Date(),
@@ -179,8 +237,21 @@ const errorsFeature = defineFeature({
     const middleware: ErrorMiddleware = {
       stage: "error",
       order: -1000,
-      run(error, { req }) {
-        if (isUnexpected(error)) dispatcher.send(build(error, "request", req ? { request: req } : {}));
+      async run(error, { req }) {
+        if (!isUnexpected(error)) return undefined;
+        // `@report off` on the route's endpoint or entity stops its reports, and `@report sampleRate=` sets their rate.
+        const route = req ? errorsFeature.optionsFor(req) : undefined;
+        if (route?.on === false) return undefined;
+        let tags: Record<string, string> = {};
+        if (req && typeof ctx.options.tags === "function") {
+          try {
+            tags = ((await resolveOption(ctx.options.tags, { req })) as Record<string, string> | undefined) ?? {};
+          } catch (failure) {
+            safeLog(ctx.logger, "error", { timestamp: new Date().toISOString(), message: "error.tags.failed", requestId: req.id, error: { message: (failure as Error)?.message ?? String(failure) } });
+          }
+        }
+        const status = error instanceof HttpError ? error.status : 500;
+        submit(build(error, "request", { ...(req ? { request: req } : {}), tags }), { status, ...(route ? { sampleRate: route.sampleRate } : {}) });
         return undefined;
       },
     };
@@ -189,10 +260,10 @@ const errorsFeature = defineFeature({
     const flush = async (budgetMs: number) => {
       if (!(await dispatcher.flush(budgetMs))) safeLog(ctx.logger, "error", { timestamp: new Date().toISOString(), message: "error.flush.timeout", timeoutMs: budgetMs });
     };
-    const failures = (error: unknown, details: FailureDetails) => dispatcher.send(build(error, details.kind, details));
+    const failures = (error: unknown, details: FailureDetails) => submit(build(error, details.kind, details));
     // A later feature failing to start is reported from now on; the rest once the service started.
     const startup = async (error: unknown, details: { feature?: string; phase?: string }) => {
-      dispatcher.send(build(error, "startup", { tags: { ...(details.feature ? { feature: details.feature } : {}), ...(details.phase ? { phase: details.phase } : {}) } }));
+      submit(build(error, "startup", { tags: { ...(details.feature ? { feature: details.feature } : {}), ...(details.phase ? { phase: details.phase } : {}) } }));
       await flush(stopTimeout);
     };
     setFailureSinks(undefined, startup);
@@ -200,7 +271,7 @@ const errorsFeature = defineFeature({
     const every = ctx.options.jobs === "every";
     let stopObserving = () => {};
     ctx.app.onStart(() => {
-      setErrorReportSink((error, extra) => dispatcher.send(build(error, "manual", extra)));
+      setErrorReportSink((error, extra) => submit(build(error, "manual", extra)));
       setFailureSinks(failures, startup);
       stopObserving = observeJobRuns(onJobRun);
     });
@@ -209,7 +280,7 @@ const errorsFeature = defineFeature({
       if (!every && run.willRetry) return;
       const failure = Object.assign(new Error(run.error?.message ?? `Job ${run.job} ended ${run.status}`), { stack: run.error?.stack });
       if (!run.error?.stack) delete (failure as { stack?: string }).stack;
-      dispatcher.send(build(failure, "job", { job: { name: run.job, runId: run.runId, attempt: run.attempt } }));
+      submit(build(failure, "job", { job: { name: run.job, runId: run.runId, attempt: run.attempt } }));
     };
     // Dead queue messages, and with every each failed attempt, with the user and tenant of the request that added them.
     if (ctx.config.features.some((feature) => feature.key === "queues")) {
@@ -220,8 +291,8 @@ const errorsFeature = defineFeature({
         ...(message.actor?.tenant !== undefined ? { tenant: { id: message.actor.tenant } } : {}),
         ...(message.requestId ? { requestId: message.requestId } : {}),
       });
-      queues.addHook("onDead", ({ message, error }) => void dispatcher.send(build(error, "queue", fromMessage(message))));
-      if (every) queues.addHook("afterProcess", ({ message, status, error }) => void (status === "failed" && dispatcher.send(build(error, "queue", fromMessage(message)))));
+      queues.addHook("onDead", ({ message, error }) => void submit(build(error, "queue", fromMessage(message))));
+      if (every) queues.addHook("afterProcess", ({ message, status, error }) => void (status === "failed" && submit(build(error, "queue", fromMessage(message)))));
     }
     // On shutdown, the pending reports and the reporters' own buffers are delivered within the stop timeout.
     ctx.app.onStop(async () => {
@@ -233,12 +304,21 @@ const errorsFeature = defineFeature({
     });
   },
   api: (ctx): ErrorsApi => ({
+    beforeReport: (fn) => ctx.addHook("beforeReport", fn as never),
     addReporter(reporter) {
       if (typeof reporter?.report !== "function") throw new Error("errors addReporter() expects an ErrorReporter with a report method");
       added.get(ctx.options)!.push(reporter);
     },
   }),
 });
+
+/** Where sampling draws its numbers; tests replace it to make sampling predictable. */
+let randomSource: () => number = Math.random;
+
+/** Replaces the random source of sampling (`Math.random` when undefined), for tests. */
+export function setSamplingRandom(source: (() => number) | undefined): void {
+  randomSource = source ?? Math.random;
+}
 
 /** The reporters of each running configuration, which features add to. */
 const added = new WeakMap<object, ErrorReporter[]>();

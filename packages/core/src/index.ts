@@ -325,7 +325,7 @@ export type { EntityTagger, NotModified, PreconditionFailure } from "./features/
 export { historyFeature } from "./features/history/index.ts";
 export { realtimeFeature } from "./features/realtime/index.ts";
 export type { ChangeDelivery, ChangeSend, ChangeSource, RealtimeApi } from "./features/realtime/index.ts";
-export { consoleReporter, errorsFeature } from "./features/errors/index.ts";
+export { consoleReporter, errorsFeature, setSamplingRandom } from "./features/errors/index.ts";
 export type { ErrorsApi } from "./features/errors/index.ts";
 export type {
   DatabaseHistoryStore,

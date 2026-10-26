@@ -26,8 +26,36 @@ It is not enabled by default: turn it on with `errors: {}` or `QS_ERRORS_ENABLED
 | `errors.reporter` | `ErrorReporter \| ErrorReporter[]` | — | `QS_ERRORS_REPORTER` | no | Receives every report: one reporter or a list, each an object with report(report) and an optional flush(timeoutMs); without it, consoleReporter() writes error.report log entries. |
 | `errors.release` | `string` | — | `QS_ERRORS_RELEASE` | no | The release of the service added to every report, like a version or a commit. |
 | `errors.tags.<name>` | `record of string` | — | `QS_ERRORS_TAGS_<NAME>` | no | The value of the tag. |
+| `errors.sampleRate` | `number` | `1` | `QS_ERRORS_SAMPLE_RATE` | no | The probability each report is sent, decided once per report; startup reports are always sent. |
+| `errors.ignore` | `string[]` | `[]` | `QS_ERRORS_IGNORE` | no | Error names, like AbortError, and response statuses, like 503, whose reports are dropped before sampling. |
+| `errors.beforeReport` | `hook` | — | not overridable | no | Runs on each report after masking and before the reporters; it returns a changed report, or null to drop it, and a throw is logged and drops nothing. |
 | `errors.jobs` | `"final" \| "every"` | `"final"` | `QS_ERRORS_JOBS` | no | Which failed job runs and queue attempts are reported: final reports a run only when no retry follows, every reports each failed attempt. |
 | `errors.enabled` | `boolean` | `true` | `QS_ERRORS_ENABLED` | no | Turns the feature off when false. |
+
+## Tags
+
+### `@report`
+
+`@report off` stops the request reports of the endpoint or of the entity's routes, and `@report sampleRate=0.1` sets their sampling rate.
+
+**Applies to:** entities, endpoints
+
+**Syntax:** `@report [sampleRate=…]` or `@report off`
+
+**Options:** `errors.sampleRate`
+
+```ts
+/** @report sampleRate=0.1 */
+export default () => ({ ok: true });
+```
+
+## Hooks
+
+Hooks are functions (or lists of functions) written in the config; `before` hooks may change the value or cancel the step by throwing, `after` and `on` hooks observe.
+
+| Hook | Kind | Description |
+| --- | --- | --- |
+| `errors.beforeReport` | before | Runs on each report after masking and before the reporters; it returns a changed report, or null to drop it, and a throw is logged and drops nothing. |
 
 ## Feature API
 
@@ -40,3 +68,11 @@ addReporter(reporter: ErrorReporter): void;
 ```
 
 Adds a reporter that receives every report after the configured ones.
+
+### `beforeReport`
+
+```ts
+beforeReport(fn: FeatureHook<ErrorReport | null, undefined>): void;
+```
+
+Appends a `beforeReport` hook after the config's; it returns a changed report, or null to drop it.

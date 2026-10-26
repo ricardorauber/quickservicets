@@ -482,5 +482,23 @@ Every option, tag, command and hook of `errors` is on [its reference page](/refe
 | `errors.reporter` | `ErrorReporter \| ErrorReporter[]` | — | `QS_ERRORS_REPORTER` | Receives every report: one reporter or a list, each an object with report(report) and an optional flush(timeoutMs); without it, consoleReporter() writes error.report log entries. |
 | `errors.release` | `string` | — | `QS_ERRORS_RELEASE` | The release of the service added to every report, like a version or a commit. |
 | `errors.tags.<name>` | `record of string` | — | `QS_ERRORS_TAGS_<NAME>` | The value of the tag. |
+| `errors.sampleRate` | `number` | `1` | `QS_ERRORS_SAMPLE_RATE` | The probability each report is sent, decided once per report; startup reports are always sent. |
+| `errors.ignore` | `string[]` | `[]` | `QS_ERRORS_IGNORE` | Error names, like AbortError, and response statuses, like 503, whose reports are dropped before sampling. |
+| `errors.beforeReport` | `hook` | — | not overridable | Runs on each report after masking and before the reporters; it returns a changed report, or null to drop it, and a throw is logged and drops nothing. |
 | `errors.jobs` | `"final" \| "every"` | `"final"` | `QS_ERRORS_JOBS` | Which failed job runs and queue attempts are reported: final reports a run only when no retry follows, every reports each failed attempt. |
 | `errors.enabled` | `boolean` | `true` | `QS_ERRORS_ENABLED` | Turns the feature off when false. |
+
+#### `@report`
+
+`@report off` stops the request reports of the endpoint or of the entity's routes, and `@report sampleRate=0.1` sets their sampling rate.
+
+**Applies to:** entities, endpoints
+
+**Options:** `sampleRate`
+
+**Syntax:** `@report [sampleRate=…]` or `@report off`
+
+```ts
+/** @report sampleRate=0.1 */
+export default () => ({ ok: true });
+```

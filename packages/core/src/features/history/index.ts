@@ -1,6 +1,7 @@
-import { defineFeature, object, oneOf, type WriteEvent } from "../public.ts";
+import { defineFeature, HttpError, object, oneOf, resolveRouteHooks, type Repositories, type ServiceRequest, type WriteEvent } from "../public.ts";
 import { coveredEntities, excludedFields, historyModelKey, historyModels, snapshotOf, type HistoryOperation } from "./model.ts";
-import { writeVersion, type NewVersion } from "./store.ts";
+import { documentHistory, hiddenPathsOf, historyPaths, listAnswer, parseVersionNumber, parseVersionQuery, versionResponse } from "./routes.ts";
+import { getVersion, listVersions, writeVersion, type NewVersion } from "./store.ts";
 
 const options = object({
   entities: oneOf(["tagged", "all"])
@@ -62,6 +63,35 @@ const historyFeature = defineFeature({
       const model = ctx.models.find((candidate) => candidate.key === historyModelKey(entity) && candidate.system);
       if (!model) throw new Error(`History needs the ${historyModelKey(entity)} entity; run quickservice build after enabling history`);
       const excluded = excludedFields(entity);
+      if (!entity.internal && !entity.system && !entity.link) {
+        // The routes run the hooks of the entity's read route, so whoever may not read a record may not read its history.
+        const hooks = resolveRouteHooks({ kind: "generated", entity, operation: "read" });
+        const hidden = hiddenPathsOf(entity);
+        const paths = historyPaths(entity);
+        ctx.app.route(
+          "GET",
+          paths.list,
+          async (_repos: Repositories, req: ServiceRequest) => {
+            const query = parseVersionQuery(req.query);
+            const id = req.params.id!;
+            const page = await listVersions(adapter, model, id, query);
+            const anyVersion = page.total > 0 || (query.where.length > 0 && (await listVersions(adapter, model, id, { where: [], limit: 1, offset: 0 })).total > 0);
+            return listAnswer(entity, page, query, hidden, anyVersion);
+          },
+          { hooks },
+        );
+        ctx.app.route(
+          "GET",
+          paths.version,
+          async (_repos: Repositories, req: ServiceRequest) => {
+            const number = parseVersionNumber(req.params.version);
+            const version = await getVersion(adapter, model, req.params.id!, number);
+            if (!version) throw new HttpError(404, `${entity.entityName} version ${number} not found`);
+            return versionResponse(version, hidden);
+          },
+          { hooks },
+        );
+      }
       // One listener per covered entity, so writes of other entities never reach the native.
       unsubscribes.push(
         ctx.events.on(
@@ -77,11 +107,17 @@ const historyFeature = defineFeature({
       for (const unsubscribe of unsubscribes.splice(0)) unsubscribe();
     });
   },
+  openapi(doc, { models, options }) {
+    return documentHistory(
+      doc,
+      coveredEntities(models, options.entities).filter((entity) => !entity.internal && !entity.system && !entity.link),
+    );
+  },
 });
 
 export default historyFeature;
 export { historyFeature };
 export { coveredEntities, excludedFields, historyModel, historyModelKey, historyModels, isCovered, snapshotOf } from "./model.ts";
-export { writeVersion } from "./store.ts";
+export { getVersion, listVersions, writeVersion } from "./store.ts";
 export type { HistoryCoverage, HistoryOperation, HistoryVersion } from "./model.ts";
-export type { NewVersion } from "./store.ts";
+export type { NewVersion, VersionPage, VersionQuery } from "./store.ts";

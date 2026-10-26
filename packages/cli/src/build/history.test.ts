@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { validate } from "@scalar/openapi-parser";
 import type { EntityModel } from "@quickservice/core";
 import { addMigration } from "../migrations/add.ts";
 import { createLinkedProject } from "../testing/project.ts";
@@ -160,6 +161,127 @@ describe("versions over HTTP", () => {
       expect((await service.fetch(`/organizations/${org.id}`, { method: "DELETE" })).status).toBe(204);
       for (const id of ids) expect((await versionsOf(service, "membershipHistory", id)).map((version) => version.operation)).toEqual(["create", "delete"]);
       expect((await versionsOf(service, "organizationHistory", org.id)).map((version) => version.operation)).toEqual(["create", "delete"]);
+    } finally {
+      await service.stop();
+    }
+  });
+});
+
+const ROUTE_FILES = {
+  ...FILES,
+  "entities/User.ts": FILES["entities/User.ts"].replace("/** @history */", "/**\n * @history\n * @own:read\n */"),
+  "hooks/own.ts": `import { definePreHook, HttpError } from "@quickservice/core";
+export default definePreHook((_repos, req) => {
+  const user = req.headers.get("x-user");
+  if (user && user !== req.params.id) throw new HttpError(403, "Forbidden");
+});
+`,
+  "entities/AuditEntry.ts": "/**\n * @internal\n * @history\n */\nexport type AuditEntry = { line: string };\n",
+  "endpoints/audit/post.ts": `import type { Repositories } from "@quickservice/core";
+export default async (repos: Repositories) => (repos as unknown as { auditEntries: { create(data: object): Promise<unknown> } }).auditEntries.create({ line: "x" });
+`,
+};
+
+type Page = { data: (Version & { at: string; entityId?: string })[]; total: number; limit: number; offset: number };
+const get = async (service: TestService, path: string, headers: Record<string, string> = {}) => {
+  const response = await service.fetch(path, { headers });
+  return { status: response.status, body: (await response.json()) as Page & { error?: { code: string; message: string; details?: { field: string }[] } } };
+};
+
+describe("history routes", () => {
+  test("the list is newest first and paginated, filters by operation, time and actor, and rejects other parameters", async () => {
+    const service = await startTestService({ files: ROUTE_FILES });
+    try {
+      const { id } = (await (await service.fetch("/users", send("POST", { name: "A" }))).json()) as { id: string };
+      await Bun.sleep(5);
+      await service.fetch(`/users/${id}`, send("PATCH", { name: "B" }));
+      const list = await get(service, `/users/${id}/history`);
+      expect(list.status).toBe(200);
+      expect([list.body.total, list.body.limit, list.body.offset, list.body.data.map((version) => version.version)]).toEqual([2, 20, 0, [2, 1]]);
+      expect(Object.keys(list.body.data[0]!).sort()).toEqual(["actor", "at", "changed", "operation", "record", "requestId", "version"]);
+      expect((await get(service, `/users/${id}/history?limit=1&offset=1`)).body.data.map((version) => version.version)).toEqual([1]);
+      expect((await get(service, `/users/${id}/history?where[operation][eq]=update`)).body.data.map((version) => version.operation)).toEqual(["update"]);
+      expect((await get(service, `/users/${id}/history?where[operation][in]=create,delete`)).body.total).toBe(1);
+      expect((await get(service, `/users/${id}/history?where[actor][eq]=system`)).body.total).toBe(2);
+      const second = list.body.data[0]!.at;
+      expect((await get(service, `/users/${id}/history?where[at][gte]=${encodeURIComponent(second)}`)).body.data.map((version) => version.version)).toEqual([2]);
+      expect((await get(service, `/users/${id}/history?where[at][lt]=2000-01-01`)).body.total).toBe(0);
+      for (const parameter of ["where[version][eq]=1", "sort=at", "where[operation][ne]=create"]) {
+        const refused = await get(service, `/users/${id}/history?${parameter}`);
+        expect(refused.status).toBe(400);
+        expect(refused.body.error!.details!.map((detail) => detail.field)).toEqual([parameter.split("=")[0]!]);
+      }
+      expect((await get(service, `/users/${id}/history?limit=0`)).status).toBe(400);
+    } finally {
+      await service.stop();
+    }
+  });
+
+  test("one version, its validation and not-found messages, and versions of deleted or unknown records", async () => {
+    const service = await startTestService({ files: ROUTE_FILES });
+    try {
+      const { id } = (await (await service.fetch("/users", send("POST", { name: "A" }))).json()) as { id: string };
+      const first = await service.fetch(`/users/${id}/history/1`);
+      expect(first.status).toBe(200);
+      expect(((await first.json()) as Version).operation).toBe("create");
+      const missing = await get(service, `/users/${id}/history/9`);
+      expect([missing.status, missing.body.error!.code, missing.body.error!.message]).toEqual([404, "NOT_FOUND", "User version 9 not found"]);
+      for (const bad of ["abc", "0", "-1", "1.5"]) {
+        const invalid = await get(service, `/users/${id}/history/${bad}`);
+        expect([invalid.status, invalid.body.error!.code, invalid.body.error!.details![0]!.field]).toEqual([400, "VALIDATION_ERROR", "version"]);
+      }
+      const unknown = await get(service, "/users/0190f0e0-0000-7000-8000-000000000000/history");
+      expect([unknown.status, unknown.body.error!.message]).toEqual([404, "User not found"]);
+      expect((await get(service, `/users/${id}/history?where[operation][eq]=delete`)).status).toBe(200);
+      await service.fetch(`/users/${id}`, { method: "DELETE" });
+      expect((await get(service, `/users/${id}/history`)).body.total).toBe(2);
+      expect((await service.fetch(`/users/${id}/history/2`)).status).toBe(200);
+    } finally {
+      await service.stop();
+    }
+  });
+
+  test("the read hooks of the entity guard both routes", async () => {
+    const service = await startTestService({ files: ROUTE_FILES });
+    try {
+      const { id } = (await (await service.fetch("/users", send("POST", { name: "A" }))).json()) as { id: string };
+      expect((await service.fetch(`/users/${id}`, { headers: { "x-user": "other" } })).status).toBe(403);
+      expect((await service.fetch(`/users/${id}/history`, { headers: { "x-user": "other" } })).status).toBe(403);
+      expect((await service.fetch(`/users/${id}/history/1`, { headers: { "x-user": "other" } })).status).toBe(403);
+      expect((await service.fetch(`/users/${id}/history`, { headers: { "x-user": id } })).status).toBe(200);
+    } finally {
+      await service.stop();
+    }
+  });
+
+  test("a hidden field kept by @history on is stored but never answered", async () => {
+    const service = await startTestService({ files: ROUTE_FILES });
+    try {
+      const { id } = (await (await service.fetch("/users", send("POST", { name: "A", recoveryCode: "r" }))).json()) as { id: string };
+      expect((await versionsOf(service, "userHistory", id))[0]!.record.recoveryCode).toBe("r");
+      expect(Object.keys((await get(service, `/users/${id}/history`)).body.data[0]!.record)).not.toContain("recoveryCode");
+      expect(Object.keys(((await (await service.fetch(`/users/${id}/history/1`)).json()) as Version).record)).not.toContain("recoveryCode");
+    } finally {
+      await service.stop();
+    }
+  });
+
+  test("OpenAPI documents both routes with UserVersion; internal entities get no routes but keep their versions", async () => {
+    const service = await startTestService({ files: ROUTE_FILES });
+    try {
+      const document = JSON.parse(readFileSync(join(service.root, ".generated/openapi.json"), "utf8"));
+      expect((await validate(structuredClone(document))).errors).toEqual([]);
+      const list = document.paths["/users/{id}/history"].get;
+      expect(list.tags).toEqual(document.paths["/users/{id}"].get.tags);
+      expect(list.parameters.map((parameter: { name: string }) => parameter.name)).toContain("where[at][gte]");
+      expect(Object.keys(list.responses)).toEqual(["200", "400", "404"]);
+      expect(Object.keys(document.paths["/users/{id}/history/{version}"].get.responses)).toEqual(["200", "400", "404"]);
+      expect(document.components.schemas.UserVersion.properties.record).toEqual(document.paths["/users/{id}"].get.responses["200"].content["application/json"].schema);
+      expect(Object.keys(document.paths).some((path) => path.includes("audit-entries"))).toBe(false);
+      const created = await service.fetch("/audit", send("POST", {}));
+      const { id } = (await created.json()) as { id: string };
+      expect((await service.fetch(`/audit-entries/${id}/history`)).status).toBe(404);
+      expect((await versionsOf(service, "auditEntryHistory", id)).map((version) => version.operation)).toEqual(["create"]);
     } finally {
       await service.stop();
     }

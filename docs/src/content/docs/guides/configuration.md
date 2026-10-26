@@ -245,5 +245,6 @@ An error thrown by the logger never changes the response.
 - [Idempotency keys](/guides/idempotency/): the `idempotency` key, for safe retries of `POST` requests.
 - [Optimistic concurrency](/guides/optimistic-concurrency/): the `etag` key, for entity tags, 304 answers and `If-Match`.
 - [Entity history](/guides/history/): the `history` key, for every version of chosen records, its routes and its retention.
+- [Server-Sent Events](/guides/server-sent-events/): the `realtime` key, for `sse.ts` endpoints and live change streams.
 
 Next: [Jobs](/guides/jobs/).

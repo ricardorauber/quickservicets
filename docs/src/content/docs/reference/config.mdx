@@ -450,19 +450,23 @@ Every option, tag, command and hook of `realtime` is on [its reference page](/re
 | `realtime.sse.changes` | `"tagged" \| "all"` | `"tagged"` | `QS_REALTIME_SSE_CHANGES` | Which entities get a change stream route: tagged for entities tagged @changes, all for every entity with list routes without @changes off. |
 | `realtime.sse.pollInterval` | `duration` | `"1s"` | `QS_REALTIME_SSE_POLL_INTERVAL` | How often a worker with open change streams reads the outbox log, when events.outbox is on. |
 | `realtime.sse.buffer` | `integer` | `1000` | `QS_REALTIME_SSE_BUFFER` | How many change events each worker keeps for reconnecting clients, when events.outbox is off. |
+| `realtime.sse.events` | `("created" \| "updated" \| "deleted")[]` | `["created","updated","deleted"]` | `QS_REALTIME_SSE_EVENTS` | The write events change streams offer; @changes events=created limits one entity, and a client asking for others gets 400. |
+| `realtime.sse.beforeDeliver` | `hook` | — | not overridable | Runs for each change and open change stream with the request, its user and tenant, the event and the entity; returning false skips the change for that stream, and a throw skips it and is logged. |
+| `realtime.sse.beforeSend` | `hook` | — | not overridable | Runs before each change message is written with the request, the event and the data; it returns changed data, or null to skip the message. |
+| `realtime.sse.changeSource` | `ChangeSource` | — | not overridable | Replaces the outbox and ring buffer sources: subscribe delivers live write events of some entities, and replay the ones after an event id or expired. |
 | `realtime.enabled` | `boolean` | `true` | `QS_REALTIME_ENABLED` | Turns the feature off when false. |
 
 #### `@changes`
 
-`@changes` gives the entity a change stream at `GET /<collection>/changes`, and `@changes off` removes it when `sse.changes` is `all`.
+`@changes` gives the entity a change stream at `GET /<collection>/changes`, `@changes events=created,deleted` limits the events it offers, and `@changes off` removes it when `sse.changes` is `all`.
 
 **Applies to:** entities
 
-**Options:** none (a flag: `@changes` or `@changes off`)
+**Options:** `sse.events`
 
-**Syntax:** `@changes` or `@changes off`
+**Syntax:** `@changes [events=…]` or `@changes off`
 
 ```ts
-/** @changes */
+/** @changes events=created,deleted */
 export type Task = { title: string; status: string };
 ```

@@ -16,12 +16,34 @@ export type ResetReason = "unknown-id" | "expired" | "too-many";
  * query, in order, then the live ones, without gaps or duplicates between the two; a `reset` message when the missed
  * events cannot be replayed. The first message carries `retry: 3000`.
  */
-export async function followChanges(stream: SseStream, options: { entity: EntityModel; query: ChangeQuery; source: ChangeSource; lastEventId?: string; files?: FileAccessSettings }): Promise<void> {
+export async function followChanges(
+  stream: SseStream,
+  options: {
+    entity: EntityModel;
+    query: ChangeQuery;
+    source: ChangeSource;
+    lastEventId?: string;
+    files?: FileAccessSettings;
+    /** Whether this stream gets an event, asked before its message is built (`beforeDeliver`). */
+    accepts?: (event: WriteEvent) => Promise<boolean>;
+    /** Changes a message's data before it is written, or skips it with null (`beforeSend`). */
+    transform?: (event: WriteEvent, data: unknown) => Promise<unknown>;
+  },
+): Promise<void> {
   const { entity, query, source } = options;
   let first = true;
   const write = (data: unknown, event: string, id?: string) => {
     stream.send(data, { event, ...(id !== undefined ? { id } : {}), ...(first ? { retry: RETRY_MS } : {}) });
     first = false;
+  };
+  /** Writes the message of an event when the stream accepts it and the transform keeps it. */
+  const send = async (event: WriteEvent) => {
+    if (options.accepts && !(await options.accepts(event))) return;
+    const message = await changeMessage(event, entity, query, options.files);
+    if (!message) return;
+    const data = options.transform ? await options.transform(event, message.data) : message.data;
+    if (data === null) return;
+    write(data, message.event, message.id);
   };
   const replayed = new Set<string>();
   let live = false;
@@ -30,10 +52,7 @@ export async function followChanges(stream: SseStream, options: { entity: Entity
   let queue = Promise.resolve();
   const deliver = (event: WriteEvent) => {
     if (replayed.has(event.id)) return;
-    queue = queue.then(async () => {
-      const message = await changeMessage(event, entity, query, options.files);
-      if (message) write(message.data, message.event, message.id);
-    });
+    queue = queue.then(() => send(event));
   };
   // Live events are collected from now on, so none is lost while the missed ones are read.
   const unsubscribe = source.subscribe([entity.entityName], (event) => (live ? deliver(event) : pending.push(event)));
@@ -49,8 +68,7 @@ export async function followChanges(stream: SseStream, options: { entity: Entity
       else
         for (const event of missed) {
           replayed.add(event.id);
-          const message = await changeMessage(event, entity, query, options.files);
-          if (message) write(message.data, message.event, message.id);
+          await send(event);
         }
     }
   }

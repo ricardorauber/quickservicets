@@ -214,5 +214,6 @@ The feature API, `ctx.feature("events")`, offers `addHook`, `on`, `emit` and `de
 - [Hooks](/guides/hooks/): code around one route, where events are code around every write.
 - [Project features](/guides/project-features/): setup, `requires` and feature APIs.
 - [Entity history](/guides/history/): every version of chosen records, written by an in-transaction listener.
+- [Server-Sent Events](/guides/server-sent-events/): change streams that send write events to clients live.
 
 Next: [Recipes](/recipes/).

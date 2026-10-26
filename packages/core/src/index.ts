@@ -238,7 +238,7 @@ import eventsNative, { type EventsApi } from "./features/events/index.ts";
 import securityNative, { type SecurityApi } from "./features/security/index.ts";
 import etagNative from "./features/etag/index.ts";
 import historyNative, { type HistoryApi } from "./features/history/index.ts";
-import realtimeNative from "./features/realtime/index.ts";
+import realtimeNative, { type RealtimeApi } from "./features/realtime/index.ts";
 import idempotencyNative, { type IdempotencyApi } from "./features/idempotency/index.ts";
 import healthNative, { type HealthApi, type HealthStatusChangedEvent } from "./features/health/index.ts";
 import queuesNative, { type QueueClient, type QueueMessageEvent, type QueuesApi } from "./features/queues/index.ts";
@@ -318,6 +318,7 @@ export type { EntityTagger, NotModified, PreconditionFailure } from "./features/
 
 export { historyFeature } from "./features/history/index.ts";
 export { realtimeFeature } from "./features/realtime/index.ts";
+export type { ChangeDelivery, ChangeSend, ChangeSource, RealtimeApi } from "./features/realtime/index.ts";
 export type {
   DatabaseHistoryStore,
   HistoryApi,
@@ -381,5 +382,6 @@ declare module "./features.ts" {
     idempotency: IdempotencyApi;
     security: SecurityApi;
     history: HistoryApi;
+    realtime: RealtimeApi;
   }
 }

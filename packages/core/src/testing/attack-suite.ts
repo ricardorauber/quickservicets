@@ -1,8 +1,13 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { DatabaseAdapter, StoredRecord } from "../adapter.ts";
-import { createApp } from "../app.ts";
-import { resolveConfig } from "../config.ts";
+import type { App } from "../app.ts";
+import type { ServiceConfig } from "../config.ts";
+import { pathAndQueryLength } from "../features/security/limits.ts";
+import { parseSize } from "../files/limits.ts";
 import { builtInFileEntity } from "../files.ts";
+import type { Repositories } from "../hooks.ts";
+// The package entry registers the natives, so the suite resolves them as a service does.
+import { createApp, createFeatureLifecycle, resolveConfig, type FeatureLifecycle } from "../index.ts";
 import type { LogEntry } from "../logger.ts";
 import type { EntityModel } from "../model.ts";
 import { contractItem, contractOrganization, contractRecord } from "./adapter-contract.ts";
@@ -12,6 +17,11 @@ export interface AttackSuiteOptions {
   name: string;
   /** Returns a fresh, empty adapter whose `connect` creates the tables of the models it receives. */
   adapter: () => DatabaseAdapter | Promise<DatabaseAdapter>;
+  /**
+   * Merged into the config the suite resolves, like `{ security: false }` or `{ security: { limits: { url: "64KB" } } }`;
+   * the adapter and a quiet logger are always applied. The natives enabled by default run unless it turns them off.
+   */
+  config?: Partial<Omit<ServiceConfig, "database" | "logger">>;
 }
 
 const fileEntity = builtInFileEntity("file");
@@ -34,44 +44,117 @@ export const SQL_PAYLOADS: Payload[] = [
   { label: "a 10 KB string", value: "'; --".repeat(2048) },
 ];
 
-interface Harness {
+/** A running app of the attack models, with the natives the config enables, called without opening a port. */
+export interface AttackHarness {
   adapter: DatabaseAdapter;
   fetch(method: string, path: string, body?: string): Promise<Response>;
   /** Every stored item and file, sorted by id, to compare before and after an attack. */
   snapshot(): Promise<StoredRecord[]>;
+  /** Whether the security limits refuse `path` for its length: security and its `limits` item on, and the path and query over `limits.url`. */
+  urlTooLong(path: string): boolean;
+  /** Runs the shutdown sequence and disconnects the adapter. */
+  stop(): Promise<void>;
 }
 
-function setUp(options: AttackSuiteOptions): () => Harness {
-  let harness: Harness | undefined;
-  let adapter: DatabaseAdapter;
-  beforeAll(async () => {
-    adapter = await options.adapter();
+const ORIGIN = "http://attack.test";
+
+interface SecuritySettings {
+  limits?: { enabled?: boolean; url?: string | number };
+  headers?: { enabled?: boolean; contentTypeOptions?: boolean };
+}
+
+const securityOf = (features: readonly { key: string; options: unknown }[]) =>
+  features.find((feature) => feature.key === "security")?.options as SecuritySettings | undefined;
+
+/** The `limits.url` of the resolved security native, in bytes; undefined when security or its `limits` item is off. */
+function urlLimit(security: SecuritySettings | undefined): number | undefined {
+  if (!security?.limits?.enabled || security.limits.url === undefined) return undefined;
+  return parseSize(security.limits.url);
+}
+
+/**
+ * Starts the attack models on a fresh adapter as `startService` does, without listening: the enabled features' setups,
+ * the connection, the app with the features' routes, middleware and server settings, then the `onStart` callbacks.
+ */
+export async function startAttackHarness(options: AttackSuiteOptions): Promise<AttackHarness> {
+  const adapter = await options.adapter();
+  const quiet = (_entry: LogEntry) => {};
+  const config = resolveConfig({ ...options.config, database: adapter, logger: { info: quiet, warn: quiet, error: quiet } }, {});
+  const lifecycle: FeatureLifecycle = createFeatureLifecycle({
+    features: config.features,
+    config,
+    models: attackModels,
+    worker: { index: 0, count: 1, runsScheduledWork: true },
+    endpoints: [],
+    crudRoutes: [],
+  });
+  let connected = false;
+  let app: App | undefined;
+  try {
+    await lifecycle.setup();
     await adapter.connect(attackModels);
-    const quiet = (_entry: LogEntry) => {};
-    const config = resolveConfig({ database: adapter, logger: { info: quiet, warn: quiet, error: quiet } }, {});
-    const app = createApp({ models: attackModels, crudRoutes: [], endpoints: [], hooks: new Map(), config });
-    const all = async (model: EntityModel) =>
-      (await adapter.findMany(model, { where: [], sort: [{ field: "id", direction: "asc" }], limit: 10_000, offset: 0 })).data;
-    harness = {
-      adapter,
-      fetch: (method, path, body) =>
-        app.server.fetch(
-          new Request(`http://attack.test${path}`, {
-            method,
-            ...(body === undefined ? {} : { body, headers: { "content-type": "application/json" } }),
-          }),
-        ),
-      snapshot: async () => [...(await all(contractItem)), ...(await all(fileEntity))],
-    };
+    connected = true;
+    app = createApp({
+      models: attackModels,
+      crudRoutes: [],
+      endpoints: [],
+      hooks: new Map(),
+      config,
+      runtimeRoutes: lifecycle.routes,
+      middleware: lifecycle.middleware,
+      server: lifecycle.server,
+    });
+    await lifecycle.start({ repos: app.repos as unknown as Repositories, server: app.server });
+  } catch (error) {
+    await app?.shutdown();
+    await lifecycle.stop();
+    if (connected) await adapter.disconnect();
+    throw error;
+  }
+  const running = app;
+  const security = securityOf(config.features);
+  const maxUrl = urlLimit(security);
+  // With the security headers on, every response the suite receives must carry them, refusals included.
+  const nosniff = security?.headers?.enabled === true && security.headers.contentTypeOptions === true;
+  const all = async (model: EntityModel) =>
+    (await adapter.findMany(model, { where: [], sort: [{ field: "id", direction: "asc" }], limit: 10_000, offset: 0 })).data;
+  return {
+    adapter,
+    fetch: async (method, path, body) => {
+      const response = await running.server.fetch(
+        new Request(`${ORIGIN}${path}`, {
+          method,
+          ...(body === undefined ? {} : { body, headers: { "content-type": "application/json" } }),
+        }),
+      );
+      if (nosniff) expect(response.headers.get("x-content-type-options"), `${method} ${path.slice(0, 80)}`).toBe("nosniff");
+      return response;
+    },
+    snapshot: async () => [...(await all(contractItem)), ...(await all(fileEntity))],
+    urlTooLong: (path) => maxUrl !== undefined && pathAndQueryLength(new URL(path, ORIGIN).href) > maxUrl,
+    async stop() {
+      await lifecycle.shutdown();
+      await running.shutdown();
+      await lifecycle.stop();
+      await adapter.disconnect();
+    },
+  };
+}
+
+/** Starts a harness before the first test of the enclosing group and stops it after the last. */
+function setUp(options: AttackSuiteOptions): () => AttackHarness {
+  let harness: AttackHarness | undefined;
+  beforeAll(async () => {
+    harness = await startAttackHarness(options);
   });
   afterAll(async () => {
-    await adapter?.disconnect();
+    await harness?.stop();
   });
   return () => harness!;
 }
 
 /** Creates items through the generated route, as a client would. */
-async function seedItems(harness: Harness, titles: string[]): Promise<StoredRecord[]> {
+async function seedItems(harness: AttackHarness, titles: string[]): Promise<StoredRecord[]> {
   const stored: StoredRecord[] = [];
   for (const title of titles) {
     const response = await harness.fetch("POST", "/items", JSON.stringify({ title }));
@@ -99,13 +182,31 @@ async function expectValidationError(response: Response, message?: string): Prom
 }
 
 /** Runs a read attack and asserts that it neither failed with a 500 nor changed any stored record. */
-async function readAttack(harness: Harness, path: string, method = "GET"): Promise<Response> {
+async function readAttack(harness: AttackHarness, path: string, method = "GET"): Promise<Response> {
   const before = await harness.snapshot();
   const response = await harness.fetch(method, path);
   const clone = response.clone() as Response;
   await expectNot500(response);
   expect(await harness.snapshot()).toEqual(before);
   return clone;
+}
+
+/**
+ * Sends a payload in the URL: over the security `limits.url` it expects 414 `URL is too long` and an unchanged
+ * snapshot; otherwise it hands the response to `expectations`. Never a 500, never a changed record.
+ */
+export async function urlAttack(harness: AttackHarness, method: string, path: string, expectations: (response: Response) => Promise<void> | void, body?: string): Promise<void> {
+  const before = await harness.snapshot();
+  const response = await harness.fetch(method, path, body);
+  const clone = response.clone() as Response;
+  const parsed = (await expectNot500(response)) as { error?: { message?: string } } | undefined;
+  expect(await harness.snapshot()).toEqual(before);
+  if (harness.urlTooLong(path)) {
+    expect(clone.status).toBe(414);
+    expect(parsed?.error?.message).toBe("URL is too long");
+    return;
+  }
+  await expectations(clone);
 }
 
 async function listedIds(response: Response): Promise<string[]> {
@@ -143,23 +244,18 @@ export function runAttackSuite(options: AttackSuiteOptions): void {
         ];
         for (const [op, raw, matches] of filters) {
           test(`sql: ${op} with ${label}`, async () => {
-            const response = await readAttack(harness(), `/items${query({ [`where[title][${op}]`]: raw })}`);
-            if (refused) await expectValidationError(response);
-            else expect(await listedIds(response)).toEqual(idsOf(seeded, matches));
+            await urlAttack(harness(), "GET", `/items${query({ [`where[title][${op}]`]: raw })}`, async (response) => {
+              if (refused) await expectValidationError(response);
+              else expect(await listedIds(response)).toEqual(idsOf(seeded, matches));
+            });
           });
         }
 
         test(`sql: id with ${label}`, async () => {
           const path = `/items/${encodeURIComponent(value)}`;
-          for (const method of ["GET", "DELETE"]) {
-            const response = await readAttack(harness(), path, method);
-            expect([400, 404]).toContain(response.status);
-          }
-          const before = await harness().snapshot();
-          const patched = await harness().fetch("PATCH", path, JSON.stringify({ title: "changed" }));
-          await expectNot500(patched);
-          expect([400, 404]).toContain(patched.status);
-          expect(await harness().snapshot()).toEqual(before);
+          const missing = (response: Response) => void expect([400, 404]).toContain(response.status);
+          for (const method of ["GET", "DELETE"]) await urlAttack(harness(), method, path, missing);
+          await urlAttack(harness(), "PATCH", path, missing, JSON.stringify({ title: "changed" }));
         });
 
         test(`sql: body with ${label}`, async () => {

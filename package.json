@@ -15,7 +15,7 @@
     "audit": "bun scripts/audit.ts",
     "docs:dev": "bun run --cwd docs dev",
     "docs:build": "bun run --cwd docs build",
-    "docs:reference": "bun docs/scripts/write-reference.ts",
+    "docs:reference": "bun docs/scripts/write-reference.ts && bun scripts/agents.ts",
     "agents:generate": "bun scripts/agents.ts",
     "release:check": "bun scripts/release.ts check",
     "release": "bun scripts/release.ts publish"

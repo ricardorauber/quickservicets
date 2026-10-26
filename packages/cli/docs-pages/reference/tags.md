@@ -1,0 +1,407 @@
+# JSDoc tags
+
+> Every built-in tag for entities, fields and endpoints.
+
+Tags configure entities, fields and endpoints. This page lists every built-in tag; it is generated from the framework's tag registries.
+
+## Entity tags
+
+Written in the JSDoc comment above an entity type. Any other tag on an entity names a hook from `hooks/`.
+
+### `@collection`
+
+Name of the table or collection and of the routes (default: the plural of the entity name).
+
+**Applies to:** Entities
+
+```ts
+/** @collection people */
+export type Person = { name: string }
+```
+
+### `@schema`
+
+Database schema of the entity (default: its folder inside `entities/`, or the default schema).
+
+**Applies to:** Entities
+
+```ts
+/** @schema auth */
+export type Account = { email: string }
+```
+
+### `@overrideHooks`
+
+`inherit` (default) or `replace`: whether custom endpoints that override a generated route keep the entity's hooks.
+
+**Applies to:** Entities
+
+```ts
+/** @overrideHooks replace */
+export type User = { email: string }
+```
+
+### `@fields`
+
+Fields the list and read routes return; scope it with `:list` or `:read`.
+
+**Applies to:** Entities
+
+```ts
+/** @fields:list id,name */
+export type User = { name: string; bio?: string }
+```
+
+### `@populate`
+
+Reference paths populated by default on list and read; scope it with `:list` or `:read`.
+
+**Applies to:** Entities
+
+```ts
+/** @populate:read organization */
+export type User = { organization: Organization }
+```
+
+### `@storage`
+
+Storage of a file entity's objects (default `default`).
+
+**Applies to:** File entities
+
+```ts
+/** @storage archive */
+export type Document = File & { title?: string }
+```
+
+### `@maxSize`
+
+Largest upload a file entity accepts (default `files.maxSize`).
+
+**Applies to:** File entities
+
+```ts
+/** @maxSize 5MB */
+export type Avatar = Media
+```
+
+### `@accept`
+
+MIME patterns a file entity accepts (default `files.accept`).
+
+**Applies to:** File entities
+
+```ts
+/** @accept image/png,image/jpeg */
+export type Avatar = Media
+```
+
+### `@access`
+
+How file URLs work: `direct`, `proxy` or `signed [ttlSeconds]` (default `files.access`).
+
+**Applies to:** File entities
+
+```ts
+/** @access signed 60 */
+export type Contract = File
+```
+
+### `@internal`
+
+Creates no routes for the entity; it is only used from code.
+
+**Applies to:** Entities
+
+```ts
+/** @internal */
+export type AuditLog = { action: string }
+```
+
+## Field tags
+
+Written in the JSDoc comment above a field of an entity.
+
+### `@unique`
+
+Rejects a value that another record already has, with 409 `Value already exists`.
+
+**Applies to:** Top-level fields that are not arrays or objects
+
+```ts
+/** @unique */ email: string
+```
+
+### `@index`
+
+Creates a database index on the field, for faster filters and sorting.
+
+**Applies to:** Top-level fields that are not arrays or objects
+
+```ts
+/** @index */ country: string
+```
+
+### `@default`
+
+Value used when a create body leaves the field out; enum fields also accept `Enum.member`.
+
+**Applies to:** Any field
+
+```ts
+/** @default 'member' */ role: "member" | "admin"
+```
+
+### `@minLength`
+
+Minimum length of a string (`Must be at least <n> characters`); on arrays, the minimum number of items.
+
+**Applies to:** Strings and arrays
+
+```ts
+/** @minLength 2 */ name: string
+```
+
+### `@maxLength`
+
+Maximum length of a string; on arrays, the maximum number of items.
+
+**Applies to:** Strings and arrays
+
+```ts
+/** @maxLength 80 */ title: string
+```
+
+### `@minItems`
+
+Minimum number of items (`Must have at least <n> items`).
+
+**Applies to:** Arrays and reference arrays
+
+```ts
+/** @minItems 1 */ tags: string[]
+```
+
+### `@maxItems`
+
+Maximum number of items (`Must have at most <n> items`).
+
+**Applies to:** Arrays and reference arrays
+
+```ts
+/** @maxItems 10 */ members: User[]
+```
+
+### `@min`
+
+Smallest accepted number (`Must be at least <n>`).
+
+**Applies to:** Numbers
+
+```ts
+/** @min 0 */ age: number
+```
+
+### `@max`
+
+Largest accepted number (`Must be at most <n>`).
+
+**Applies to:** Numbers
+
+```ts
+/** @max 150 */ age: number
+```
+
+### `@integer`
+
+Accepts only whole numbers (`Must be an integer`); the API docs show `type: integer`. Also applies to number query items of custom endpoints.
+
+**Applies to:** Numbers (entity fields and query items, arrays of numbers included on query items)
+
+```ts
+/** @integer @min 0 */ stock: number
+```
+
+### `@format`
+
+Checks that a string is an `email` or a `url`.
+
+**Applies to:** Strings
+
+```ts
+/** @format email */ email: string
+```
+
+### `@maxSize`
+
+Largest file this field accepts, on top of the file entity's own limit.
+
+**Applies to:** References and reference arrays to file entities
+
+```ts
+/** @maxSize 1MB */ logo?: Media
+```
+
+### `@accept`
+
+MIME patterns this field accepts, on top of the file entity's own rules.
+
+**Applies to:** References and reference arrays to file entities
+
+```ts
+/** @accept image/png,image/webp */ logo?: Media
+```
+
+### `@maxTotalSize`
+
+Largest total size of the files uploaded to the field in one request.
+
+**Applies to:** Reference arrays to file entities
+
+```ts
+/** @maxTotalSize 10MB */ gallery?: Media[]
+```
+
+### `@keepFile`
+
+Never deletes the referenced file when it is replaced or when this record is deleted.
+
+**Applies to:** References and reference arrays to file entities
+
+```ts
+/** @keepFile */ contract?: File
+```
+
+### `@onDelete`
+
+What happens to this record when the referenced record is deleted: `restrict` (default), `cascade` or `setNull`; arrays take `pull` (default), `restrict` or `cascade`.
+
+**Applies to:** References and reference arrays
+
+```ts
+/** @onDelete cascade */ organization: Organization
+```
+
+### `@inverse`
+
+Pairs the field with a field of the referenced entity into one relation; `@inverse none` keeps them apart.
+
+**Applies to:** References and reference arrays
+
+```ts
+/** @inverse members */ organization: Organization
+```
+
+### `@owner`
+
+Marks the side of a 1-1 relation that stores the reference.
+
+**Applies to:** Single references in a 1-1 relation
+
+```ts
+/** @owner */ profile: Profile
+```
+
+### `@joinTable`
+
+Names the junction table (or join collection) of a reference array or N-N relation.
+
+**Applies to:** Reference arrays
+
+```ts
+/** @joinTable team_members */ users: User[]
+```
+
+### `@onConflict`
+
+With `replace`, linking a 1-1 target that is already linked moves the link instead of failing with 409.
+
+**Applies to:** Single references in a 1-1 relation
+
+```ts
+/** @onConflict replace */ badge: Badge
+```
+
+### `@vector`
+
+Stores embeddings of `<dimensions>` numbers (1 to 16000): a pgvector `vector` column on PostgreSQL, a number array elsewhere. Writes need exactly that many numbers (`Must be a list of <n> numbers`); list and read routes return the field only when `fields` selects it, and it cannot be filtered or sorted. Options: `metric=cosine|l2|ip` (default `cosine`) and `index=none|hnsw` (default `none`; `hnsw` builds an approximate index on PostgreSQL, up to 2000 dimensions).
+
+**Applies to:** Top-level `number[]` fields
+
+```ts
+/** @vector 1536 index=hnsw */ embedding?: number[]
+```
+
+### `@hidden`
+
+Never returns the field in responses; `@hidden:list` or `@hidden:read` hides it only there.
+
+**Applies to:** Any field
+
+```ts
+/** @hidden */ passwordHash: string
+```
+
+## Endpoint tags
+
+Written in the JSDoc comment above an endpoint's default export. Any other tag names a hook from `hooks/`.
+
+### `@populate`
+
+Reference paths populated on the response of an override of a list or read route.
+
+**Applies to:** Overrides of generated list and read routes
+
+```ts
+/** @populate organization */
+```
+
+### `@summary`
+
+One-line summary of the operation in the API docs.
+
+**Applies to:** Custom endpoints
+
+```ts
+/** @summary Organization stats */
+```
+
+### `@description`
+
+Longer text of the operation in the API docs; may span several lines.
+
+**Applies to:** Custom endpoints
+
+```ts
+/** @description Counts the members of an organization. */
+```
+
+### `@status`
+
+Status of a success response (200 to 299), used when the handler does not call `res.status`, and documented as the operation's success response. `204` is documented without content.
+
+**Applies to:** Custom endpoints
+
+```ts
+/** @status 201 */
+```
+
+### `@fields`
+
+Fields the response keeps.
+
+**Applies to:** Custom endpoints
+
+```ts
+/** @fields id,name */
+```
+
+### `@exclude`
+
+Fields removed from the response.
+
+**Applies to:** Custom endpoints
+
+```ts
+/** @exclude secret */
+```

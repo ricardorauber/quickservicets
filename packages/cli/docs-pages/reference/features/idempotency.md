@@ -1,0 +1,86 @@
+# idempotency
+
+> Idempotency keys: a request repeated with the same Idempotency-Key gets the first response again without running twice.
+
+Idempotency keys: a request repeated with the same Idempotency-Key gets the first response again without running twice.
+
+## Enabling
+
+Turn it on in `quickservicets.config.ts`:
+
+```ts
+idempotency: {}
+```
+
+It is not enabled by default: turn it on with `idempotency: {}` or `QS_IDEMPOTENCY_ENABLED=true`, and off with `idempotency: false` or `QS_IDEMPOTENCY_ENABLED=false`.
+
+## Options
+
+| Key | Type | Default | Environment variable | Per request | Description |
+| --- | --- | --- | --- | --- | --- |
+| `idempotency.header` | `string` | `"Idempotency-Key"` | `QS_IDEMPOTENCY_HEADER` | no | The request header that carries the key. |
+| `idempotency.methods` | `("POST" \| "PUT" \| "PATCH" \| "DELETE")[]` | `["POST"]` | `QS_IDEMPOTENCY_METHODS` | no | The methods whose routes honor keys; @idempotent turns a route on for any method. |
+| `idempotency.required` | `boolean` | `false` | `QS_IDEMPOTENCY_REQUIRED` | yes | Rejects requests without the header with 400 on the routes that honor keys; a function of the request decides per request. |
+| `idempotency.ttl` | `duration` | `"24h"` | `QS_IDEMPOTENCY_TTL` | yes | How long a stored response is replayed for its key; a function of the request decides per request. |
+| `idempotency.maxResponseSize` | `size` | `"1MB"` | `QS_IDEMPOTENCY_MAX_RESPONSE_SIZE` | no | The largest response body stored for replays; larger ones release the key. |
+| `idempotency.scope` | `string` | — | `QS_IDEMPOTENCY_SCOPE` | yes | Replaces the user part of a key's scope: a function of the request, its user and tenant returning a text, like the tenant id with the user id. |
+| `idempotency.beforeReplay` | `hook` | — | not overridable | no | Runs before a stored response is replayed with the request and the record; returning false deletes the record and runs the request again. |
+| `idempotency.afterStore` | `hook` | — | not overridable | no | Runs after a response was stored for a key, with the request and the record. |
+| `idempotency.onConflict` | `hook` | — | not overridable | no | Runs when a key is refused, with the request and the kind: reused for another request, inUse for one in progress. |
+| `idempotency.store` | `IdempotencyStore` | — | not overridable | no | Replaces where keys are kept; without the IdempotencyKey entity in the build. |
+| `idempotency.enabled` | `boolean` | `true` | `QS_IDEMPOTENCY_ENABLED` | no | Turns the feature off when false. |
+
+## Tags
+
+### `@idempotent`
+
+`@idempotent` honors keys on an endpoint whatever its method, or on an entity's create route; `required` and `ttl` override the options there, and `@idempotent off` ignores keys.
+
+**Applies to:** entities, endpoints
+
+**Syntax:** `@idempotent [required=…] [ttl=…]` or `@idempotent off`
+
+**Options:** `idempotency.required`, `idempotency.ttl`
+
+```ts
+/** @idempotent required=true ttl=7d */
+export type Order = { total: number };
+```
+
+## Hooks
+
+Hooks are functions (or lists of functions) written in the config; `before` hooks may change the value or cancel the step by throwing, `after` and `on` hooks observe.
+
+| Hook | Kind | Description |
+| --- | --- | --- |
+| `idempotency.beforeReplay` | before | Runs before a stored response is replayed with the request and the record; returning false deletes the record and runs the request again. |
+| `idempotency.afterStore` | after | Runs after a response was stored for a key, with the request and the record. |
+| `idempotency.onConflict` | on | Runs when a key is refused, with the request and the kind: reused for another request, inUse for one in progress. |
+
+## Feature API
+
+Other features reach it with `ctx.feature("idempotency")` in their setup, listing `idempotency` in `requires` or `after`.
+
+### `addHook`
+
+```ts
+addHook(name: "beforeReplay", fn: FeatureHook<IdempotencyStep | false, undefined>): void;
+```
+
+Appends a `beforeReplay` hook after the config's; returning false runs the request again instead of replaying.
+
+### `addHook`
+
+```ts
+addHook(name: "afterStore", fn: FeatureHook<IdempotencyStep, undefined>): void;
+```
+
+Appends an `afterStore` hook after the config's.
+
+### `addHook`
+
+```ts
+addHook(name: "onConflict", fn: FeatureHook<IdempotencyConflict, undefined>): void;
+```
+
+Appends an `onConflict` hook after the config's.

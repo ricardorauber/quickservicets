@@ -10,6 +10,7 @@ All notable changes to the published packages (`quickservicets`, `@quickservicet
 - The repository has an `AGENTS.md` generated from those topics, and a `CLAUDE.md` that imports it.
 - A Claude Code plugin in the repository with the `quickservicets` skill: `/plugin marketplace add ricardorauber/quickservicets`, then `/plugin install quickservicets@quickservicets`. The new [Coding agents](https://github.com/ricardorauber/quickservicets/blob/main/docs/src/content/docs/guides/coding-agents.md) guide explains it, `AGENTS.md` and `llms.txt`.
 - `quickservicets init` writes `AGENTS.md`, `CLAUDE.md` and the `quickservicets` skill in `.claude/skills/quickservicets/` for the new project; `--no-agents` leaves them out, and `quickservicets agents update` refreshes their generated part after an upgrade, keeping what you wrote below `<!-- quickservicets:end -->`.
+- `quickservicets docs` lists the agent guide topics, `quickservicets docs <topic>` prints one (`--full` prints the docs page it links to, or a page by name like `queues`), and `quickservicets docs search <term>` searches the topics and the CLI, config and tags reference, offline and matching the installed version: the CLI package bundles the topics and every docs page as Markdown.
 - The docs site serves `llms.txt`, `llms-full.txt` and `llms-small.txt` (llmstxt.org) and a Markdown copy of every page at its path plus `.md`, linked from the footer.
 
 ### Fixed

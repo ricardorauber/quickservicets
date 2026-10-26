@@ -1,0 +1,135 @@
+# flags
+
+> Feature flags turned on per user, per tenant or for a percentage of users, read synchronously in any endpoint or hook.
+
+Feature flags turned on per user, per tenant or for a percentage of users, read synchronously in any endpoint or hook.
+
+## Enabling
+
+Turn it on in `quickservicets.config.ts`:
+
+```ts
+flags: {}
+```
+
+It is not enabled by default: turn it on with `flags: {}` or `QS_FLAGS_ENABLED=true`, and off with `flags: false` or `QS_FLAGS_ENABLED=false`.
+
+## Options
+
+| Key | Type | Default | Environment variable | Per request | Description |
+| --- | --- | --- | --- | --- | --- |
+| `flags.source` | `"config" \| "database"` | `"config"` | `QS_FLAGS_SOURCE` | no | Where the flags live: the rules of the config, or the FeatureFlag table with the config rules as defaults. |
+| `flags.rules.<name>.enabled` | `record of boolean` | `true` | `QS_FLAGS_RULES_<NAME>_ENABLED` | no | One flag: true or false for everyone, who it is on for, or a function of the request, its user and tenant returning a boolean synchronously. Turns it off when false. |
+| `flags.rules.<name>.users` | `record of string[]` | — | `QS_FLAGS_RULES_<NAME>_USERS` | no | The user ids the flag is on for. |
+| `flags.rules.<name>.tenants` | `record of string[]` | — | `QS_FLAGS_RULES_<NAME>_TENANTS` | no | The tenant ids the flag is on for. |
+| `flags.rules.<name>.percentage` | `record of integer` | — | `QS_FLAGS_RULES_<NAME>_PERCENTAGE` | no | The share of users (or tenants without a user) the flag is on for, stable across processes. |
+| `flags.rules.<name>.description` | `record of string` | — | `QS_FLAGS_RULES_<NAME>_DESCRIPTION` | no | What the flag turns on, for people reading the config. |
+| `flags.refresh` | `duration` | `"30s"` | `QS_FLAGS_REFRESH` | no | How often each worker reloads the flags of the database source. |
+| `flags.gate` | `string` | — | `QS_FLAGS_GATE` | no | A flag every route needs: while it is off for a caller, every route answers 404; set per endpoint or entity with @flag. |
+| `flags.onEvaluate` | `hook` | — | not overridable | no | Runs after each new evaluation with the name, the value, the reason, the user, the tenant and the request; it observes and cannot change the value. |
+| `flags.provider` | `FlagProvider` | — | not overridable | no | Replaces the evaluation of both sources: isOn(name, ctx) answers synchronously, all(ctx) lists every flag, and optional start() and stop() run with the server. |
+| `flags.enabled` | `boolean` | `true` | `QS_FLAGS_ENABLED` | no | Turns the feature off when false. |
+
+## Tags
+
+### `@flag`
+
+`@flag checkout-v2` hides an endpoint, or every route of an entity, behind a flag: while it is off for the caller they answer 404; `@flag off` removes the global gate.
+
+**Applies to:** entities, endpoints
+
+**Syntax:** `@flag <gate>` or `@flag off`
+
+**Options:** `flags.gate`
+
+```ts
+/** @flag checkout-v2 */
+export default () => ({ ok: true });
+```
+
+## Commands
+
+### `flags list`
+
+Prints each flag with its origin (config, database or both), on or off, its user and tenant counts and its percentage.
+
+```bash
+quickservicets flags list
+```
+
+### `flags set`
+
+Creates or updates a flag of the database source, changing only the flags given, and prints its line.
+
+```bash
+quickservicets flags set <name> [--on | --off] [--percentage <n>] [--users <a,b>] [--tenants <a,b>] [--description <text>]
+```
+
+**Arguments:**
+
+- `<name>`: The flag's name.
+
+**Flags:**
+
+- `--on` (`boolean`, default `false`): Turns the flag on.
+- `--off` (`boolean`, default `false`): Turns the flag off.
+- `--percentage` (`integer`): The share of users the flag is on for.
+- `--users` (`string[]`): The user ids the flag is on for, comma-separated.
+- `--tenants` (`string[]`): The tenant ids the flag is on for, comma-separated.
+- `--description` (`string`): What the flag turns on.
+
+### `flags remove`
+
+Deletes a flag of the database source; the config's rule of that name applies again.
+
+```bash
+quickservicets flags remove <name>
+```
+
+**Arguments:**
+
+- `<name>`: The flag's name.
+
+## Hooks
+
+Hooks are functions (or lists of functions) written in the config; `before` hooks may change the value or cancel the step by throwing, `after` and `on` hooks observe.
+
+| Hook | Kind | Description |
+| --- | --- | --- |
+| `flags.onEvaluate` | on | Runs after each new evaluation with the name, the value, the reason, the user, the tenant and the request; it observes and cannot change the value. |
+
+## Feature API
+
+Other features reach it with `ctx.feature("flags")` in their setup, listing `flags` in `requires` or `after`.
+
+### `isOn`
+
+```ts
+isOn(name: string, context?: FlagContext): boolean;
+```
+
+Whether a flag is on for a user and a tenant, with the same rules as `req.flags`.
+
+### `all`
+
+```ts
+all(context?: FlagContext): Record<string, boolean>;
+```
+
+Every known flag with its value for a user and a tenant.
+
+### `onEvaluate`
+
+```ts
+onEvaluate(fn: FeatureHook<FlagEvaluation, undefined>): void;
+```
+
+Appends an `onEvaluate` hook after the config's; it observes each new evaluation.
+
+### `setProvider`
+
+```ts
+setProvider(provider: FlagProvider): void;
+```
+
+Replaces the evaluation with a provider, during setup; a second provider fails startup.

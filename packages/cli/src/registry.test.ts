@@ -51,7 +51,7 @@ describe("definitions and the built-in registry", () => {
 
   test("every built-in command is defined in the registry, and the reference list derives from it", () => {
     expect(BUILT_IN_COMMANDS.map((command) => command.name)).toEqual([
-      "init", "dev", "build", "migrate", "migration add", "migration list", "migration remove", "migration script", "job run", "job list", "job runs", "eject", "env check", "agents update",
+      "init", "dev", "build", "migrate", "migration add", "migration list", "migration remove", "migration script", "job run", "job list", "job runs", "eject", "env check", "agents update", "docs", "docs search",
     ]);
     expect(COMMANDS.map((command) => command.name)).toEqual([...BUILT_IN_COMMANDS.map((command) => command.name), "--version"]);
   });

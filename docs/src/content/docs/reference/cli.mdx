@@ -119,6 +119,22 @@ Refreshes the agent files `init` wrote (`AGENTS.md`, `CLAUDE.md` and `.claude/sk
 quickservicets agents update
 ```
 
+## `docs`
+
+Lists the agent guide topics with their summaries, or prints one; `--full` prints the full docs page the topic links to (or a page by name, like `queues`). Works offline and matches the installed version.
+
+```bash
+quickservicets docs [topic] [--full] [--plain]
+```
+
+## `docs search`
+
+Searches the agent guide topics and the CLI, config and tags reference, ignoring case, and prints up to 10 matching lines as `<source>: <line>`.
+
+```bash
+quickservicets docs search <term>
+```
+
 ## `--version`
 
 Prints the CLI version.

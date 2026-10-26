@@ -10,6 +10,7 @@ import { agentsMarkdown, GENERATE_COMMAND, generatedFiles, repositoryLink, ROOT,
 function tempRoot(): string {
   const root = mkdtempSync(join(tmpdir(), "quickservicets-agents-"));
   cpSync(join(ROOT, "packages/cli/agent-docs"), join(root, "packages/cli/agent-docs"), { recursive: true });
+  cpSync(join(ROOT, "docs/src/content/docs"), join(root, "docs/src/content/docs"), { recursive: true });
   mkdirSync(join(root, "packages/quickservicets"), { recursive: true });
   cpSync(join(ROOT, "packages/quickservicets/package.json"), join(root, "packages/quickservicets/package.json"));
   return root;

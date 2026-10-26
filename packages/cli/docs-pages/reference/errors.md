@@ -1,0 +1,47 @@
+# Errors
+
+> Error codes, statuses and the messages clients read.
+
+Every error response has the shape `{ "error": { "code", "message", "details"? } }`. The code depends only on the HTTP status.
+
+| Status | Code |
+| --- | --- |
+| 400 | `VALIDATION_ERROR` |
+| 401 | `UNAUTHORIZED` |
+| 403 | `FORBIDDEN` |
+| 404 | `NOT_FOUND` |
+| 405 | `METHOD_NOT_ALLOWED` |
+| 408 | `REQUEST_TIMEOUT` |
+| 409 | `CONFLICT` |
+| 412 | `PRECONDITION_FAILED` |
+| 413 | `PAYLOAD_TOO_LARGE` |
+| 414 | `URI_TOO_LONG` |
+| 415 | `UNSUPPORTED_MEDIA_TYPE` |
+| 422 | `UNPROCESSABLE_ENTITY` |
+| 428 | `PRECONDITION_REQUIRED` |
+| 429 | `RATE_LIMITED` |
+| 431 | `REQUEST_HEADER_FIELDS_TOO_LARGE` |
+| 500 | `INTERNAL_ERROR` |
+| 503 | `SERVICE_UNAVAILABLE` |
+
+## Messages
+
+| Status | Message | When |
+| --- | --- | --- |
+| 400 | `Invalid JSON body` | The body is not valid JSON. |
+| 400 | `Invalid body` | Validation failed; `details` lists each field, e.g. `Is required`, `Unknown field`, `Field is read-only`, `Cannot be null`, `Must be a string`, `Must be one of: <values>`. |
+| 400 | `Referenced record not found` | A reference or reference array item points to a record that does not exist (in `details`). |
+| 400 | `Invalid query` | A query parameter or typed query item is invalid, e.g. `Unknown parameter`, `Parameter is repeated`, `Must be an integer from 1 to 100`. |
+| 400 | `Populate depth exceeds <n>` | A populate path has more segments than `populate.maxDepth`. |
+| 403 | `Invalid or expired signature` | A signed file URL is wrong or expired. |
+| 404 | `Route not found` | No route matches the path. |
+| 404 | `<Entity> not found` | No record has the id. |
+| 405 | `Method not allowed` | The path exists with other methods, listed in the `allow` header. |
+| 409 | `Value already exists` | A `@unique` field already has the value. |
+| 409 | `Cannot delete: referenced by <collection>` | A `restrict` reference still points to the record. |
+| 409 | `Cannot delete: <collection>.<field> would have fewer than <n> items` | A `pull` would leave a reference array below its `@minItems` (`item` when `<n>` is 1). |
+| 413 | `File too large` | An upload is larger than the allowed size. |
+| 413 | `Total upload size too large` | The files of an array field are larger than `@maxTotalSize` together. |
+| 415 | `Must be multipart/form-data` | A file entity was written with JSON instead of a multipart body. |
+| 415 | `File content does not match its type` | An upload's bytes are a recognized format other than its declared type; `details` names the field and both types. |
+| 500 | `Internal server error` | An unexpected error; outside production, `details.stack` has the stack trace. |

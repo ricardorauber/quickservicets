@@ -31,6 +31,8 @@ The framework ships as three npm packages: `@quickservicets/core` (the runtime),
 
 Each entity `Task` in `entities/Task.ts` is served at `/tasks` (list, read, create, update, replace, delete) and is `repos.tasks` in endpoints, hooks and jobs.
 
+Every topic ships with the CLI: `bunx quickservicets docs` lists them, `bunx quickservicets docs <topic>` prints one offline, and `bunx quickservicets docs search <term>` searches them with the CLI, config and tags reference.
+
 Full docs: [Introduction](/getting-started/)
 
 ## Do not

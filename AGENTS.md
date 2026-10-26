@@ -41,6 +41,8 @@ The framework ships as three npm packages: `@quickservicets/core` (the runtime),
 
 Each entity `Task` in `entities/Task.ts` is served at `/tasks` (list, read, create, update, replace, delete) and is `repos.tasks` in endpoints, hooks and jobs.
 
+Every topic ships with the CLI: `bunx quickservicets docs` lists them, `bunx quickservicets docs <topic>` prints one offline, and `bunx quickservicets docs search <term>` searches them with the CLI, config and tags reference.
+
 Full docs: [Introduction](docs/src/content/docs/getting-started/index.md)
 
 ### Do not
@@ -164,6 +166,6 @@ Full docs: [Getting started](docs/src/content/docs/getting-started/installation.
 - Bun workspaces: `packages/core` (`@quickservicets/core`), `packages/cli` (`@quickservicets/cli`), `packages/quickservicets` (the `bunx quickservicets` package), `docs` (the docs site), `benchmarks/quickservicets` and the projects in `examples/` and `examples/minimal/`. Run `bun install` once at the root.
 - `bun test` at the root runs every test, `bun run typecheck` included. The PostgreSQL and MongoDB tests run only when `TEST_POSTGRES_URL` and `TEST_MONGODB_URL` are set (MongoDB as a replica set), like `TEST_POSTGRES_URL=postgres://postgres:pass@localhost:5432/postgres TEST_MONGODB_URL='mongodb://localhost:27017/?replicaSet=rs0' bun test`; otherwise they are skipped.
 - `bun run docs:reference` regenerates the reference pages after changing tags, config keys, CLI commands or documented error messages; a test fails while they are stale.
-- `bun run agents:generate` regenerates this file from `packages/cli/agent-docs/`; a test fails while it is stale. Edit the topics, never this file.
+- `bun run agents:generate` regenerates this file, the skill in `skills/quickservicets/`, the plugin manifests in `.claude-plugin/` and the docs pages the CLI bundles in `packages/cli/docs-pages/` from the topics in `packages/cli/agent-docs/` and the docs pages; `bun run docs:reference` runs it too, and a test fails while they are stale. Edit the topics, never the generated files.
 - `bun run docs:dev` serves the docs site, and `bun run release:check` packs the packages and builds a project from the tarballs.
 - Decisions are recorded in `adrs/` (one file per decision, numbered). Specs, when present, are in `specs/`, which is kept out of git.

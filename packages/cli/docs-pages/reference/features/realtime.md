@@ -1,0 +1,87 @@
+# realtime
+
+> Server-Sent Events endpoints from sse.ts files, with heartbeats, disconnect handling and a stream limit per worker.
+
+Server-Sent Events endpoints from sse.ts files, with heartbeats, disconnect handling and a stream limit per worker.
+
+## Enabling
+
+Turn it on in `quickservicets.config.ts`:
+
+```ts
+realtime: {}
+```
+
+It is not enabled by default: turn it on with `realtime: {}` or `QS_REALTIME_ENABLED=true`, and off with `realtime: false` or `QS_REALTIME_ENABLED=false`.
+
+**Runs after:** `events`
+
+## Options
+
+| Key | Type | Default | Environment variable | Per request | Description |
+| --- | --- | --- | --- | --- | --- |
+| `realtime.sse.enabled` | `boolean` | `true` | `QS_REALTIME_SSE_ENABLED` | no | Serves the sse.ts endpoints as Server-Sent Events streams. Turns it off when false. |
+| `realtime.sse.heartbeat` | `duration` | `"15s"` | `QS_REALTIME_SSE_HEARTBEAT` | no | How often an open stream writes a ping comment, so proxies and clients keep it open. |
+| `realtime.sse.maxStreams` | `integer` | `1000` | `QS_REALTIME_SSE_MAX_STREAMS` | no | The most streams one worker keeps open; more are refused with 503 and Retry-After: 5. |
+| `realtime.sse.changes` | `"tagged" \| "all"` | `"tagged"` | `QS_REALTIME_SSE_CHANGES` | no | Which entities get a change stream route: tagged for entities tagged @changes, all for every entity with list routes without @changes off. |
+| `realtime.sse.pollInterval` | `duration` | `"1s"` | `QS_REALTIME_SSE_POLL_INTERVAL` | no | How often a worker with open change streams reads the outbox log, when events.outbox is on. |
+| `realtime.sse.buffer` | `integer` | `1000` | `QS_REALTIME_SSE_BUFFER` | no | How many change events each worker keeps for reconnecting clients, when events.outbox is off. |
+| `realtime.sse.events` | `("created" \| "updated" \| "deleted")[]` | `["created","updated","deleted"]` | `QS_REALTIME_SSE_EVENTS` | no | The write events change streams offer; @changes events=created limits one entity, and a client asking for others gets 400. |
+| `realtime.sse.beforeDeliver` | `hook` | — | not overridable | no | Runs for each change and open change stream with the request, its user and tenant, the event and the entity; returning false skips the change for that stream, and a throw skips it and is logged. |
+| `realtime.sse.beforeSend` | `hook` | — | not overridable | no | Runs before each change message is written with the request, the event and the data; it returns changed data, or null to skip the message. |
+| `realtime.sse.changeSource` | `ChangeSource` | — | not overridable | no | Replaces the outbox and ring buffer sources: subscribe delivers live write events of some entities, and replay the ones after an event id or expired. |
+| `realtime.enabled` | `boolean` | `true` | `QS_REALTIME_ENABLED` | no | Turns the feature off when false. |
+
+## Tags
+
+### `@changes`
+
+`@changes` gives the entity a change stream at `GET /<collection>/changes`, `@changes events=created,deleted` limits the events it offers, and `@changes off` removes it when `sse.changes` is `all`.
+
+**Applies to:** entities
+
+**Syntax:** `@changes [events=…]` or `@changes off`
+
+**Options:** `realtime.sse.events`
+
+```ts
+/** @changes events=created,deleted */
+export type Task = { title: string; status: string };
+```
+
+## Hooks
+
+Hooks are functions (or lists of functions) written in the config; `before` hooks may change the value or cancel the step by throwing, `after` and `on` hooks observe.
+
+| Hook | Kind | Description |
+| --- | --- | --- |
+| `realtime.sse.beforeDeliver` | before | Runs for each change and open change stream with the request, its user and tenant, the event and the entity; returning false skips the change for that stream, and a throw skips it and is logged. |
+| `realtime.sse.beforeSend` | before | Runs before each change message is written with the request, the event and the data; it returns changed data, or null to skip the message. |
+
+## Feature API
+
+Other features reach it with `ctx.feature("realtime")` in their setup, listing `realtime` in `requires` or `after`.
+
+### `beforeDeliver`
+
+```ts
+beforeDeliver(fn: FeatureHook<ChangeDelivery | false, undefined>): void;
+```
+
+Appends a `beforeDeliver` hook after the config's; returning false skips the change for that stream.
+
+### `beforeSend`
+
+```ts
+beforeSend(fn: FeatureHook<ChangeSend | null, undefined>): void;
+```
+
+Appends a `beforeSend` hook after the config's; it returns changed data, or null to skip the message.
+
+### `publish`
+
+```ts
+publish(entity: string, event: WriteEvent): void;
+```
+
+Sends a change to the open change streams of an entity on this worker, without a write.

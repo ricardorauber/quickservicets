@@ -1,0 +1,273 @@
+# CLI
+
+> Every command of the QuickService.ts CLI.
+
+Run the commands with `bun run quickservicets <command>` inside a project. `quickservicets help` lists them with the commands of the enabled features, and `quickservicets <command> --help` describes one.
+
+## `init`
+
+Creates a project, with `AGENTS.md`, `CLAUDE.md` and the Claude Code skill in `.claude/skills/quickservicets/` for coding agents; inside the QuickService.ts monorepo it also links the workspace packages and installs them.
+
+```bash
+quickservicets init [directory] [--db postgres|mongodb|sqlite|memory] [--no-agents]
+```
+
+## `dev`
+
+Builds and serves the project, rebuilding and restarting when entities, endpoints, hooks, jobs, features, the config, the `.env` files, or a folder or `watch` path of an enabled feature change.
+
+```bash
+quickservicets dev
+```
+
+## `build`
+
+Generates `.generated/`: models, routes, types, the OpenAPI document and the server entry.
+
+```bash
+quickservicets build
+```
+
+## `migrate`
+
+Applies pending migrations, or migrates up or down to the target migration.
+
+```bash
+quickservicets migrate [target] [--force]
+```
+
+## `migration add`
+
+Creates a migration from the model changes since the last one.
+
+```bash
+quickservicets migration add <Name>
+```
+
+## `migration list`
+
+Lists the migrations and whether each one is applied.
+
+```bash
+quickservicets migration list
+```
+
+## `migration remove`
+
+Removes the latest migration when it is not applied.
+
+```bash
+quickservicets migration remove
+```
+
+## `migration script`
+
+Prints, or writes to a file, the SQL of the migrations between two points.
+
+```bash
+quickservicets migration script [from] [to] [--output <file>]
+```
+
+## `job run`
+
+Runs a job now in the CLI process as a `manual` run, printing its status, duration and result or error; exits with 1 unless it succeeds. `--force` runs it even while another run of the job is running.
+
+```bash
+quickservicets job run <name> [--force]
+```
+
+## `job list`
+
+Lists every job with its schedule, time zone and next run time.
+
+```bash
+quickservicets job list
+```
+
+## `job runs`
+
+Lists the latest runs of a job (20 by default) with their attempt, trigger, status, start and duration.
+
+```bash
+quickservicets job runs <name> [--limit n]
+```
+
+## `eject`
+
+Copies an enabled native feature into `features/<key>/` as a project feature that replaces it, or with `--file` one of its entity, endpoint, hook, job or folder files into the matching project folder, where it replaces the native's file; imports of the core are rewritten to `@quickservicets/core`.
+
+```bash
+quickservicets eject <key> [--file <path>] [--dry-run] [--force]
+```
+
+## `env check`
+
+Checks the environment the service would start with (the process and its `.env` files): one line per declared variable with `ok`, `default`, `missing` or `invalid`, and its value unless it is a secret, then the `QS_*` overrides that are set and warnings for unknown ones. Exits with 1 when a variable is missing or invalid.
+
+```bash
+quickservicets env check
+```
+
+## `agents update`
+
+Refreshes the agent files `init` wrote (`AGENTS.md`, `CLAUDE.md` and `.claude/skills/quickservicets/`) for the installed QuickService.ts version, rewriting only the part above `<!-- quickservicets:end -->` and keeping what you wrote below it; files without the marker are skipped.
+
+```bash
+quickservicets agents update
+```
+
+## `docs`
+
+Lists the agent guide topics with their summaries, or prints one; `--full` prints the full docs page the topic links to (or a page by name, like `queues`). Works offline and matches the installed version.
+
+```bash
+quickservicets docs [topic] [--full] [--plain]
+```
+
+## `docs search`
+
+Searches the agent guide topics and the CLI, config and tags reference, ignoring case, and prints up to 10 matching lines as `<source>: <line>`.
+
+```bash
+quickservicets docs search <term>
+```
+
+## `--version`
+
+Prints the CLI version.
+
+```bash
+quickservicets --version
+```
+
+## Commands of native features
+
+Each native feature's commands are available while the feature is enabled.
+
+### `events`
+
+#### `events outbox`
+
+Prints, per durable consumer, how many deliveries are pending, delivering, delivered and failed, and the age of the oldest pending one.
+
+```bash
+quickservicets events outbox
+```
+
+#### `events retry`
+
+Resets failed deliveries to pending with attempt 0, one by id or every failed one of a consumer, and prints how many.
+
+```bash
+quickservicets events retry <delivery id> | quickservicets events retry --consumer <name> --failed
+```
+
+**Arguments:**
+
+- `<id>`: The id of one failed delivery.
+
+**Flags:**
+
+- `--consumer` (`string`): The consumer whose failed deliveries are reset.
+- `--failed` (`boolean`, default `false`): Resets the consumer's failed deliveries.
+
+### `queues`
+
+#### `queue list`
+
+Prints each queue with its number of waiting, active, completed and dead messages, and the age of its oldest waiting message.
+
+```bash
+quickservicets queue list
+```
+
+#### `queue dead`
+
+Prints the latest dead messages of a queue with their id, attempts, finish time and error message.
+
+```bash
+quickservicets queue dead <queue> [--limit <n>]
+```
+
+**Arguments:**
+
+- `<queue>` (required): The queue name.
+
+**Flags:**
+
+- `--limit` (`integer`, default `20`): How many messages to print.
+
+#### `queue retry`
+
+Moves dead messages back to waiting with attempt 0, one by id or every dead one of a queue, and prints how many.
+
+```bash
+quickservicets queue retry <message id> | quickservicets queue retry --queue <name> --dead
+```
+
+**Arguments:**
+
+- `<id>`: The id of one dead message.
+
+**Flags:**
+
+- `--queue` (`string`): The queue whose dead messages are requeued.
+- `--dead` (`boolean`, default `false`): Requeues the queue's dead messages.
+
+### `history`
+
+#### `history prune`
+
+Deletes the versions older than their entity's retention, keeping the current version of every live record, and prints the count per entity.
+
+```bash
+quickservicets history prune [--entity <Name>] [--dry-run]
+```
+
+**Flags:**
+
+- `--entity` (`string`): Prunes only this entity.
+- `--dry-run` (`boolean`, default `false`): Prints what would be deleted without deleting it.
+
+### `flags`
+
+#### `flags list`
+
+Prints each flag with its origin (config, database or both), on or off, its user and tenant counts and its percentage.
+
+```bash
+quickservicets flags list
+```
+
+#### `flags set`
+
+Creates or updates a flag of the database source, changing only the flags given, and prints its line.
+
+```bash
+quickservicets flags set <name> [--on | --off] [--percentage <n>] [--users <a,b>] [--tenants <a,b>] [--description <text>]
+```
+
+**Arguments:**
+
+- `<name>`: The flag's name.
+
+**Flags:**
+
+- `--on` (`boolean`, default `false`): Turns the flag on.
+- `--off` (`boolean`, default `false`): Turns the flag off.
+- `--percentage` (`integer`): The share of users the flag is on for.
+- `--users` (`string[]`): The user ids the flag is on for, comma-separated.
+- `--tenants` (`string[]`): The tenant ids the flag is on for, comma-separated.
+- `--description` (`string`): What the flag turns on.
+
+#### `flags remove`
+
+Deletes a flag of the database source; the config's rule of that name applies again.
+
+```bash
+quickservicets flags remove <name>
+```
+
+**Arguments:**
+
+- `<name>`: The flag's name.

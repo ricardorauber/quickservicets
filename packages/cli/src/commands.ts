@@ -221,6 +221,33 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
       return 0;
     },
   }),
+  defineCommand({
+    name: "docs",
+    usage: "quickservicets docs [topic] [--full] [--plain]",
+    description:
+      "Lists the agent guide topics with their summaries, or prints one; `--full` prints the full docs page the topic links to (or a page by name, like `queues`). Works offline and matches the installed version.",
+    args: [{ name: "topic", description: "The topic to print, like `quickstart`." }],
+    flags: object({
+      full: boolean().default(false).describe("Prints the full docs page the topic links to, bundled with the CLI."),
+      plain: boolean().default(false).describe("Prints without colors, as when the output is not a terminal."),
+    }),
+    async run({ args, flags, output }) {
+      const { listTopics, printFullPage, printTopic } = await import("./agents/docs.ts");
+      const color = !flags.plain && process.stdout.isTTY === true && !process.env.NO_COLOR;
+      if (!args.topic) return print(output, listTopics());
+      return print(output, flags.full ? printFullPage(args.topic, { color }) : printTopic(args.topic, { color }));
+    },
+  }),
+  defineCommand({
+    name: "docs search",
+    usage: "quickservicets docs search <term>",
+    description: "Searches the agent guide topics and the CLI, config and tags reference, ignoring case, and prints up to 10 matching lines as `<source>: <line>`.",
+    args: [{ name: "term", required: true, description: "The text to look for, like `rateLimit`." }],
+    async run({ args, output }) {
+      const { searchDocs } = await import("./agents/docs.ts");
+      return print(output, searchDocs(args.term!));
+    },
+  }),
 ];
 
 export const COMMANDS: CommandDoc[] = [

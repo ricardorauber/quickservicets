@@ -1,0 +1,224 @@
+# security
+
+> Safe defaults for every service: security headers, CORS, request limits, timeouts, load shedding, rate limits, IP lists and log masking, each a switchable item.
+
+Safe defaults for every service: security headers, CORS, request limits, timeouts, load shedding, rate limits, IP lists and log masking, each a switchable item.
+
+## Enabling
+
+Turn it on in `quickservicets.config.ts`:
+
+```ts
+security: {}
+```
+
+It is enabled by default; turn it off with `security: false` or `QS_SECURITY_ENABLED=false`.
+
+## Options
+
+| Key | Type | Default | Environment variable | Per request | Description |
+| --- | --- | --- | --- | --- | --- |
+| `security.proxy.enabled` | `boolean` | `true` | `QS_SECURITY_PROXY_ENABLED` | no | Resolves the client address in req.ip through the proxies the project trusts. Turns it off when false. |
+| `security.proxy.trust` | `cidr[]` | `[]` | `QS_SECURITY_PROXY_TRUST` | no | The proxies whose forwarding headers are read: addresses, CIDR blocks or loopback, private and linklocal. |
+| `security.proxy.header` | `string` | `"x-forwarded-for"` | `QS_SECURITY_PROXY_HEADER` | no | The header trusted proxies put the client address in: x-forwarded-for, forwarded (RFC 7239) or another comma-separated list. |
+| `security.proxy.resolver` | `ClientIpResolver` | — | not overridable | no | Replaces the trusted walk: its resolve method gets the request and its peer address and returns the client address, which is then normalized. |
+| `security.headers.enabled` | `boolean` | `true` | `QS_SECURITY_HEADERS_ENABLED` | no | Sends the standard security headers on every response. Turns it off when false. |
+| `security.headers.contentTypeOptions` | `boolean` | `true` | `QS_SECURITY_HEADERS_CONTENT_TYPE_OPTIONS` | no | Sends X-Content-Type-Options: nosniff. |
+| `security.headers.referrerPolicy` | `string` | `"no-referrer"` | `QS_SECURITY_HEADERS_REFERRER_POLICY` | no | The Referrer-Policy header; an empty string leaves it out. |
+| `security.headers.frameOptions` | `"DENY" \| "SAMEORIGIN"` | `"DENY"` | `QS_SECURITY_HEADERS_FRAME_OPTIONS` | no | The X-Frame-Options header. |
+| `security.headers.csp` | `string` | `"default-src 'none'; frame-ancestors 'none'"` | `QS_SECURITY_HEADERS_CSP` | no | The Content-Security-Policy of API responses; an empty string leaves it out. |
+| `security.headers.docsCsp` | `string` | `"default-src 'none'; script-src https://cdn.jsdelivr.net; style-src 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.scalar.com; font-src https://cdn.jsdelivr.net https://fonts.scalar.com; img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"` | `QS_SECURITY_HEADERS_DOCS_CSP` | no | The Content-Security-Policy of GET /docs, which lets the API docs page load. |
+| `security.headers.hsts.enabled` | `boolean` | `true` | `QS_SECURITY_HEADERS_HSTS_ENABLED` | no | Sends Strict-Transport-Security in production only. Turns it off when false. |
+| `security.headers.hsts.maxAge` | `duration` | `"365d"` | `QS_SECURITY_HEADERS_HSTS_MAX_AGE` | no | How long browsers keep to HTTPS, sent in seconds. |
+| `security.headers.hsts.includeSubDomains` | `boolean` | `true` | `QS_SECURITY_HEADERS_HSTS_INCLUDE_SUB_DOMAINS` | no | Adds includeSubDomains to Strict-Transport-Security. |
+| `security.headers.hsts.preload` | `boolean` | `false` | `QS_SECURITY_HEADERS_HSTS_PRELOAD` | no | Adds preload to Strict-Transport-Security, a commitment that is hard to undo. |
+| `security.files.enabled` | `boolean` | `true` | `QS_SECURITY_FILES_ENABLED` | no | Sends headers on served files (proxy and signed modes) that keep a browser from running them as pages of the service. Turns it off when false. |
+| `security.files.attachmentTypes` | `string[]` | `["text/html","application/xhtml+xml","image/svg+xml","text/xml","application/xml","application/javascript","text/javascript","text/css"]` | `QS_SECURITY_FILES_ATTACHMENT_TYPES` | no | The stored types served with content-disposition: attachment, wildcards allowed; other files stay inline. |
+| `security.cors.enabled` | `boolean` | `true` | `QS_SECURITY_CORS_ENABLED` | no | Answers cross-origin requests and preflights of the allowed origins; closed until origins are listed. Turns it off when false. |
+| `security.cors.origins` | `string[]` | `[]` | `QS_SECURITY_CORS_ORIGINS` | yes | The origins allowed to call the API from a browser: exact origins, "*", subdomain patterns like https://*.example.com, or "null"; none by default. |
+| `security.cors.methods` | `string[]` | `["GET","HEAD","POST","PUT","PATCH","DELETE"]` | `QS_SECURITY_CORS_METHODS` | no | The methods a preflight may ask for. |
+| `security.cors.headers` | `string[]` | `["content-type","authorization","idempotency-key","if-match","if-none-match","x-request-id"]` | `QS_SECURITY_CORS_HEADERS` | no | The request headers a preflight may ask for, compared case-insensitively. |
+| `security.cors.exposeHeaders` | `string[]` | `["x-request-id","etag","location","retry-after","ratelimit-limit","ratelimit-remaining","ratelimit-reset"]` | `QS_SECURITY_CORS_EXPOSE_HEADERS` | no | The response headers a browser lets the calling page read. |
+| `security.cors.credentials` | `boolean` | `false` | `QS_SECURITY_CORS_CREDENTIALS` | no | Allows cookies and authorization with cross-origin requests; not with origins "*". |
+| `security.cors.maxAge` | `duration` | `"10m"` | `QS_SECURITY_CORS_MAX_AGE` | no | How long a browser caches a preflight answer. |
+| `security.cors.onRejected` | `hook` | — | not overridable | no | Runs after a preflight is refused, with the request, address, route and reason. |
+| `security.limits.enabled` | `boolean` | `true` | `QS_SECURITY_LIMITS_ENABLED` | no | Refuses oversized URLs (414), headers (431) and bodies (413) before reading them. Turns it off when false. |
+| `security.limits.body` | `size` | `"1MB"` | `QS_SECURITY_LIMITS_BODY` | no | The largest request body, except multipart uploads, which the file settings limit. |
+| `security.limits.headers` | `size` | `"16KB"` | `QS_SECURITY_LIMITS_HEADERS` | no | The largest total length of the request's header names and values. |
+| `security.limits.headerCount` | `integer` | `100` | `QS_SECURITY_LIMITS_HEADER_COUNT` | no | The most headers a request may have. |
+| `security.limits.url` | `size` | `"8KB"` | `QS_SECURITY_LIMITS_URL` | no | The longest path and query string. |
+| `security.limits.onRejected` | `hook` | — | not overridable | no | Runs after a request is refused for its URL, headers or declared body size. |
+| `security.timeouts.enabled` | `boolean` | `true` | `QS_SECURITY_TIMEOUTS_ENABLED` | no | Closes idle connections and refuses requests whose body arrives too slowly with 408. Turns it off when false. |
+| `security.timeouts.idle` | `duration` | `"30s"` | `QS_SECURITY_TIMEOUTS_IDLE` | no | How long a connection may stay idle before it is closed, at most 255s (the Bun limit); 0s turns it off. |
+| `security.timeouts.read` | `duration` | `"30s"` | `QS_SECURITY_TIMEOUTS_READ` | no | How long a request body other than an upload has to arrive, from the first read. |
+| `security.timeouts.upload` | `duration` | `"10m"` | `QS_SECURITY_TIMEOUTS_UPLOAD` | no | How long a multipart upload has to arrive, from the first read. |
+| `security.loadShedding.enabled` | `boolean` | `true` | `QS_SECURITY_LOAD_SHEDDING_ENABLED` | no | Refuses new requests with 503 while a worker has too many in flight, so it stays responsive under overload. Turns it off when false. |
+| `security.loadShedding.maxInFlight` | `integer` | `1000` | `QS_SECURITY_LOAD_SHEDDING_MAX_IN_FLIGHT` | no | The most requests one worker serves at once; more are refused with 503. |
+| `security.loadShedding.retryAfter` | `duration` | `"1s"` | `QS_SECURITY_LOAD_SHEDDING_RETRY_AFTER` | no | The Retry-After of a refusal, sent in whole seconds. |
+| `security.loadShedding.onShed` | `hook` | — | not overridable | no | Runs after a request is refused because the worker is busy. |
+| `security.rateLimit.enabled` | `boolean` | `true` | `QS_SECURITY_RATE_LIMIT_ENABLED` | no | Limits how many requests each client address makes in a time window, answering 429 with RateLimit headers. Turns it off when false. |
+| `security.rateLimit.limit` | `rate` | `"1000/min"` | `QS_SECURITY_RATE_LIMIT_LIMIT` | yes | The requests each bucket may make per window, like 1000/min or 10/s; a function of the request context (req, user and tenant) computes it per request. |
+| `security.rateLimit.by` | `("route" \| "ip" \| "user" \| "tenant")[]` | `["ip"]` | `QS_SECURITY_RATE_LIMIT_BY` | no | What a bucket is per: the client address (ip), the route, the user or the tenant, combined. |
+| `security.rateLimit.store` | `"memory" \| "database" \| RateLimitStore` | `"memory"` | `QS_SECURITY_RATE_LIMIT_STORE` | no | Where the counters live: "memory" keeps them per worker; "database" shares them across workers and replicas through the project's database; a RateLimitStore replaces both. |
+| `security.rateLimit.syncInterval` | `duration` | `"1s"` | `QS_SECURITY_RATE_LIMIT_SYNC_INTERVAL` | no | How often the "database" store sends its pending counts and reads the shared totals back. |
+| `security.rateLimit.memory.maxKeys` | `integer` | `100000` | `QS_SECURITY_RATE_LIMIT_MEMORY_MAX_KEYS` | no | The most buckets the memory store keeps; the least recently used one is evicted. |
+| `security.rateLimit.onLimited` | `hook` | — | not overridable | no | Runs after a request is refused with 429, with the bucket's key and limit. |
+| `security.ip.enabled` | `boolean` | `true` | `QS_SECURITY_IP_ENABLED` | no | Accepts or refuses requests by client address (req.ip), for the whole service or with tags for single routes. Turns it off when false. |
+| `security.ip.allow` | `cidr[]` | `[]` | `QS_SECURITY_IP_ALLOW` | no | When not empty, only these addresses are served: addresses, CIDR blocks or loopback, private and linklocal. |
+| `security.ip.deny` | `cidr[]` | `[]` | `QS_SECURITY_IP_DENY` | no | Addresses refused with 403; a deny match wins over an allow match. |
+| `security.ip.onBlocked` | `hook` | — | not overridable | no | Runs after a request is refused for its address. |
+| `security.masking.enabled` | `boolean` | `true` | `QS_SECURITY_MASKING_ENABLED` | no | Keeps secret values and fields tagged @sensitive out of log entries, job run records and development error responses. Turns it off when false. |
+| `security.masking.keys` | `string[]` | `["password","passwd","secret","token","apikey","authorization","cookie","setcookie","privatekey","clientsecret","signature","creditcard","cardnumber","cvv"]` | `QS_SECURITY_MASKING_KEYS` | no | A logged property whose name contains one of these (ignoring case, - and _) shows [secret] instead of its value. |
+| `security.enabled` | `boolean` | `true` | `QS_SECURITY_ENABLED` | no | Turns the feature off when false. |
+
+## Tags
+
+### `@limits`
+
+Raises or lowers the body limit of one route, or of each route of an entity, like an import endpoint that takes large JSON bodies.
+
+**Applies to:** endpoints, entities
+
+**Syntax:** `@limits [body=…]` or `@limits off`
+
+**Options:** `security.limits.body`
+
+```ts
+/** @limits body=20MB */
+export default handler;
+```
+
+### `@sensitive`
+
+Marks a field whose value never appears in log entries or job run records, shown there as [sensitive]; API responses keep it (use @hidden to leave it out).
+
+**Applies to:** fields
+
+**Syntax:** `@sensitive` or `@sensitive off`
+
+**Options:** none
+
+```ts
+export type Customer = {
+  /** @sensitive */
+  taxId: string;
+};
+```
+
+### `@ipAllow`
+
+Serves one route, or each route of an entity, only to the listed addresses, on top of the global lists.
+
+**Applies to:** endpoints, entities
+
+**Syntax:** `@ipAllow <allow>` or `@ipAllow off`
+
+**Options:** `security.ip.allow`
+
+```ts
+/** @ipAllow private,loopback */
+export default handler;
+```
+
+### `@ipDeny`
+
+Refuses the listed addresses on one route, or on each route of an entity, on top of the global lists.
+
+**Applies to:** endpoints, entities
+
+**Syntax:** `@ipDeny <deny>` or `@ipDeny off`
+
+**Options:** `security.ip.deny`
+
+```ts
+/** @ipDeny 203.0.113.0/24 */
+export default handler;
+```
+
+### `@rateLimit`
+
+Gives one route, or each route of an entity, its own rate limit on top of the global one, always keyed by route; `@rateLimit off` exempts the route from every rate limit.
+
+**Applies to:** endpoints, entities
+
+**Syntax:** `@rateLimit <limit> [by=…]` or `@rateLimit off`
+
+**Options:** `security.rateLimit.limit`, `security.rateLimit.by`
+
+```ts
+/** @rateLimit 10/min by=user */
+export default handler;
+```
+
+### `@cors`
+
+Replaces the CORS options for the preflights and requests of one route or of an entity's routes; `@cors off` turns CORS handling off there.
+
+**Applies to:** endpoints, entities
+
+**Syntax:** `@cors [origins=…] [credentials=…] [methods=…] [headers=…]` or `@cors off`
+
+**Options:** `security.cors.origins`, `security.cors.credentials`, `security.cors.methods`, `security.cors.headers`
+
+```ts
+/** @cors origins=https://partner.example credentials=true */
+export default handler;
+```
+
+### `@securityHeaders`
+
+Changes the security headers of one route or of an entity's routes; `@securityHeaders off` sends none of them there.
+
+**Applies to:** endpoints, entities
+
+**Syntax:** `@securityHeaders [csp=…] [frameOptions=…] [referrerPolicy=…]` or `@securityHeaders off`
+
+**Options:** `security.headers.csp`, `security.headers.frameOptions`, `security.headers.referrerPolicy`
+
+```ts
+/** @securityHeaders csp="default-src 'self'" */
+export default handler;
+```
+
+## Hooks
+
+Hooks are functions (or lists of functions) written in the config; `before` hooks may change the value or cancel the step by throwing, `after` and `on` hooks observe.
+
+| Hook | Kind | Description |
+| --- | --- | --- |
+| `security.cors.onRejected` | on | Runs after a preflight is refused, with the request, address, route and reason. |
+| `security.limits.onRejected` | on | Runs after a request is refused for its URL, headers or declared body size. |
+| `security.loadShedding.onShed` | on | Runs after a request is refused because the worker is busy. |
+| `security.rateLimit.onLimited` | on | Runs after a request is refused with 429, with the bucket's key and limit. |
+| `security.ip.onBlocked` | on | Runs after a request is refused for its address. |
+
+## Feature API
+
+Other features reach it with `ctx.feature("security")` in their setup, listing `security` in `requires` or `after`.
+
+### `exempt`
+
+```ts
+exempt(pattern: string, items: readonly ExemptibleItem[]): void;
+```
+
+Exempts the paths matching `pattern` (a path, or a path ending in `/*` for it and every path below it) from the
+listed items: `"rateLimit"`, `"loadShedding"`, `"ip"`, `"cors"`, `"headers"` or `"all"`. Only available during setup.
+
+### `rateLimitStore`
+
+```ts
+rateLimitStore(store: RateLimitStore): void;
+```
+
+Replaces the rate limit store, like a Redis store of a plugin. Only available during setup; setting it twice, or
+when the config already sets a store, fails startup naming both owners.
+
+### `masker`
+
+```ts
+masker(): LogMasker | undefined;
+```
+
+The masking of `security.masking` (secret values, `@sensitive` fields and secret-looking keys), for features that
+send values out of the service, like error reports; undefined while masking is off.

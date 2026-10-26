@@ -1,7 +1,7 @@
 /**
  * `bun run agents:generate`: writes the files built from the agent guide topics in `packages/cli/agent-docs/`: the
- * repository's `AGENTS.md`, the Claude Code skill in `skills/quickservicets/` and the plugin and marketplace
- * manifests. Also holds the check that every command, config key, `QS_*` variable and tag the topics mention exists.
+ * repository's `AGENTS.md`, the Claude Code skill in `skills/quickservicets/`, the plugin and marketplace manifests,
+ * and the Markdown copy of every docs page that the CLI package bundles in `docs-pages/`. Also holds the check that every command, config key, `QS_*` variable and tag the topics mention exists.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -18,6 +18,7 @@ import { registeredNatives } from "../packages/core/src/features.ts";
 import "../packages/core/src/index.ts";
 import { describeOptions } from "../packages/core/src/options.ts";
 import { configKeys } from "../docs/scripts/reference.ts";
+import { pageMarkdown, readPages } from "../docs/scripts/llms.ts";
 
 export const ROOT = join(import.meta.dir, "..");
 
@@ -25,6 +26,9 @@ export const ROOT = join(import.meta.dir, "..");
 export const GENERATE_COMMAND = "bun run agents:generate";
 
 const CONTENT = "docs/src/content/docs";
+
+/** The folder of the CLI package that bundles every docs page as Markdown, for `quickservicets docs --full` and search. */
+export const DOCS_PAGES = "packages/cli/docs-pages";
 
 /** The repository path of the docs page a site link like `/guides/entities/#tags` points to, keeping the anchor. */
 export function repositoryLink(link: string, root: string = ROOT): string {
@@ -87,7 +91,7 @@ export function agentsMarkdown(topics: readonly AgentTopic[], root: string = ROO
     "- Bun workspaces: `packages/core` (`@quickservicets/core`), `packages/cli` (`@quickservicets/cli`), `packages/quickservicets` (the `bunx quickservicets` package), `docs` (the docs site), `benchmarks/quickservicets` and the projects in `examples/` and `examples/minimal/`. Run `bun install` once at the root.",
     "- `bun test` at the root runs every test, `bun run typecheck` included. The PostgreSQL and MongoDB tests run only when `TEST_POSTGRES_URL` and `TEST_MONGODB_URL` are set (MongoDB as a replica set), like `TEST_POSTGRES_URL=postgres://postgres:pass@localhost:5432/postgres TEST_MONGODB_URL='mongodb://localhost:27017/?replicaSet=rs0' bun test`; otherwise they are skipped.",
     "- `bun run docs:reference` regenerates the reference pages after changing tags, config keys, CLI commands or documented error messages; a test fails while they are stale.",
-    `- \`${GENERATE_COMMAND}\` regenerates this file from \`packages/cli/agent-docs/\`; a test fails while it is stale. Edit the topics, never this file.`,
+    `- \`${GENERATE_COMMAND}\` regenerates this file, the skill in \`skills/quickservicets/\`, the plugin manifests in \`.claude-plugin/\` and the docs pages the CLI bundles in \`packages/cli/docs-pages/\` from the topics in \`packages/cli/agent-docs/\` and the docs pages; \`bun run docs:reference\` runs it too, and a test fails while they are stale. Edit the topics, never the generated files.`,
     "- `bun run docs:dev` serves the docs site, and `bun run release:check` packs the packages and builds a project from the tarballs.",
     "- Decisions are recorded in `adrs/` (one file per decision, numbered). Specs, when present, are in `specs/`, which is kept out of git.",
     "",
@@ -136,6 +140,7 @@ export function generatedFiles(root: string = ROOT, topics: readonly AgentTopic[
     ...Object.fromEntries(topics.map((topic) => [`${SKILL_DIR}/topics/${topic.name}.md`, topic.markdown])),
     ".claude-plugin/plugin.json": json(pluginManifest(version)),
     ".claude-plugin/marketplace.json": json(marketplaceManifest(version)),
+    ...Object.fromEntries(readPages(join(root, CONTENT)).map((page) => [`${DOCS_PAGES}/${page.markdownPath.slice(1)}`, pageMarkdown(page)])),
   };
 }
 

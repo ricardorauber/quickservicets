@@ -57,6 +57,7 @@
     "!src/**/fixtures",
     "!src/**/.generated",
     "agent-docs",
+    "docs-pages",
     "README.md",
     "LICENSE"
   ]

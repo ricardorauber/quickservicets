@@ -1,0 +1,90 @@
+# health
+
+> Liveness and readiness routes for orchestrators and load balancers, checking the database, the queue and the checks features add.
+
+Liveness and readiness routes for orchestrators and load balancers, checking the database, the queue and the checks features add.
+
+## Enabling
+
+Turn it on in `quickservicets.config.ts`:
+
+```ts
+health: {}
+```
+
+It is not enabled by default: turn it on with `health: {}` or `QS_HEALTH_ENABLED=true`, and off with `health: false` or `QS_HEALTH_ENABLED=false`.
+
+**Runs after:** `security`, `queues`
+
+## Options
+
+| Key | Type | Default | Environment variable | Per request | Description |
+| --- | --- | --- | --- | --- | --- |
+| `health.live` | `string` | `"/health/live"` | `QS_HEALTH_LIVE` | no | The path of the liveness route, which answers 200 while the process serves requests. |
+| `health.ready` | `string` | `"/health/ready"` | `QS_HEALTH_READY` | no | The path of the readiness route, which runs the checks. |
+| `health.timeout` | `duration` | `"2s"` | `QS_HEALTH_TIMEOUT` | no | The time limit of each check. |
+| `health.cache` | `duration` | `"1s"` | `QS_HEALTH_CACHE` | no | How long a readiness result is reused by the probes of one worker; 0s runs the checks for every probe. |
+| `health.details` | `boolean` | — | `QS_HEALTH_DETAILS` | yes | Shows each check's error and extra fields in the ready response; on outside production and off in production by default. A function of the request decides per request. |
+| `health.log` | `boolean` | `false` | `QS_HEALTH_LOG` | no | Writes a request log entry for every probe; without it only 5xx responses of the health routes are logged. |
+| `health.drainDelay` | `duration` | — | `QS_HEALTH_DRAIN_DELAY` | no | How long ready answers draining after a shutdown signal before the listener closes; 5s in production and 0s otherwise by default. |
+| `health.checks.<name>` | `record of hook \| object` | — | not overridable | no | A check: a function resolving (healthy, with extra fields) or throwing, or an object with check and critical false for a non-critical one. |
+| `health.beforeCheck` | `hook` | — | not overridable | no | Runs before each check with its name; returning false skips the check for that probe, reported as skipped. |
+| `health.afterCheck` | `hook` | — | not overridable | no | Runs after each check with its name, status, duration and error. |
+| `health.onStatusChange` | `hook` | — | not overridable | no | Runs when the overall readiness of this worker changes, with the old and new status and the checks; with events enabled the change is also the event health.status.changed. |
+| `health.prober` | `HealthProber` | — | not overridable | no | Replaces how the checks are run and combined: its run method gets the registered checks and returns the ready response. |
+| `health.enabled` | `boolean` | `true` | `QS_HEALTH_ENABLED` | no | Turns the feature off when false. |
+
+## Hooks
+
+Hooks are functions (or lists of functions) written in the config; `before` hooks may change the value or cancel the step by throwing, `after` and `on` hooks observe.
+
+| Hook | Kind | Description |
+| --- | --- | --- |
+| `health.beforeCheck` | before | Runs before each check with its name; returning false skips the check for that probe, reported as skipped. |
+| `health.afterCheck` | after | Runs after each check with its name, status, duration and error. |
+| `health.onStatusChange` | on | Runs when the overall readiness of this worker changes, with the old and new status and the checks; with events enabled the change is also the event health.status.changed. |
+
+## Feature API
+
+Other features reach it with `ctx.feature("health")` in their setup, listing `health` in `requires` or `after`.
+
+### `check`
+
+```ts
+check(name: string, fn: (input: HealthCheckInput) => unknown | Promise<unknown>, options?: HealthCheckOptions): void;
+```
+
+Adds a readiness check named `<key>.<name>` after the calling feature's key, from its setup only; startup fails
+with `Health check <name> is defined by <owner> and <owner>` when the name is taken.
+
+### `run`
+
+```ts
+run(): Promise<HealthReport>;
+```
+
+Runs the readiness checks now, for an endpoint that replaces the ready route; the same as `runHealthChecks()`.
+
+### `addHook`
+
+```ts
+addHook(name: "beforeCheck", fn: FeatureHook<HealthCheckStep | false, undefined>): void;
+```
+
+Appends a `beforeCheck` hook after the config's; returning false skips the check.
+
+### `addHook`
+
+```ts
+addHook(name: "afterCheck", fn: FeatureHook<HealthCheckDone, undefined>): void;
+```
+
+Appends an `afterCheck` hook after the config's.
+
+### `addHook`
+
+```ts
+addHook(name: "onStatusChange", fn: FeatureHook<HealthStatusChange, undefined>): void;
+```
+
+Appends an `onStatusChange` hook after the config's.

@@ -84,6 +84,17 @@ The API docs are at `http://localhost:3000/docs`.
 
 Run `bun run typecheck` after `bun run build` to type-check the project.
 
+## In scripts and agents
+
+- Add `--json` to the commands that report results (`build`, `migration add`, `migration list`, `migrate`, `job list`, `job runs`, `env check`, and list commands like `queue list`): they print one JSON document to stdout, `{"ok":true,...}` or `{"ok":false,"error":{"code","message"}}`, and the logs to stderr.
+- Add `--yes` (or run with `CI=true`) so no command ever waits for an answer: a question with a safe answer takes it, and one without exits 2 naming the flag to pass.
+- Check the exit code: 0 success, 1 the operation failed, 2 usage error or a missing answer, 3 configuration error, 4 database unreachable.
+
+```bash
+bun run quickservicets migration list --json
+bun run quickservicets migrate --json --yes
+```
+
 Full docs: [Getting started](/getting-started/installation/)
 
 ## Do not

@@ -4,8 +4,14 @@ All notable changes to the published packages (`quickservicets`, `@quickservicet
 
 ## Unreleased
 
+### Breaking changes
+
+- **CLI exit codes:** usage errors (an unknown command or flag, a missing argument) now exit with 2 instead of 1, configuration errors (no or an invalid `quickservicets.config.ts`, an invalid environment variable) with 3, and an unreachable database with 4. Scripts that checked for 1 should check for a non-zero code, or for the specific one.
+
 ### Added
 
+- `--json` on the commands that report results (`build`, `migration add`, `migration list`, `migrate`, `job list`, `job runs`, `env check`, `agents update`, `queue list`, `queue dead`, `flags list`, `events outbox`): one JSON document on stdout, `{ "ok": true, ... }` or `{ "ok": false, "error": { "code", "message" } }`, with the logs on stderr. The CLI reference documents each command's document and the exit codes.
+- No command waits for input when stdin is not a terminal, `--yes` is given or `CI=true` is set: `init` without `--db` uses `memory`, and a question with no safe answer exits 2 with `<command> needs <flag> when not interactive`. Feature commands ask through `ctx.prompt(question, choices, { flag, default })` and report with `ctx.result(...)` and a `json` shape in `defineCommand`.
 - Agent guide topics for coding agents in `@quickservicets/cli` (`agent-docs/`): overview, quickstart, entities, endpoints and hooks, config and environment, features, testing, deploy and troubleshooting, each a short page of steps, copyable commands and a "Do not" list.
 - The repository has an `AGENTS.md` generated from those topics, and a `CLAUDE.md` that imports it.
 - A Claude Code plugin in the repository with the `quickservicets` skill: `/plugin marketplace add ricardorauber/quickservicets`, then `/plugin install quickservicets@quickservicets`. The new [Coding agents](https://github.com/ricardorauber/quickservicets/blob/main/docs/src/content/docs/guides/coding-agents.md) guide explains it, `AGENTS.md` and `llms.txt`.

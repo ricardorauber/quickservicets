@@ -48,6 +48,10 @@ A `QS_*` variable has a value its key does not accept. Fix or unset the variable
 
 `toArray()` refuses to load more than `repositories.toArrayMax` records. Page with `.skip(n).take(m)` or `.page(...)`, narrow the `where`, or raise `repositories.toArrayMax` in the config.
 
+## Exit codes and `--json`
+
+Every command exits with 0 on success, 1 when the operation fails, 2 for a usage error or a question it cannot ask (`<command> needs <flag> when not interactive`: pass that flag), 3 for a configuration error and 4 when the database cannot be reached. With `--json`, the same failure is one document on stdout, like `{"ok":false,"error":{"code":"DATABASE_UNREACHABLE","message":"Failed to connect"}}`; read `error.code` (`FAILED`, `USAGE_ERROR`, `NOT_INTERACTIVE`, `CONFIG_ERROR`, `DATABASE_UNREACHABLE`) instead of parsing text. Pass `--yes` in scripts so nothing waits for input.
+
 ## More messages
 
 - `server.workers > 1 requires a database server (PostgreSQL or MongoDB)`: set `server.workers` to 1 (or `QS_WORKERS=1`) with SQLite or the memory database.

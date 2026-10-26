@@ -1,18 +1,36 @@
 import { resolve } from "node:path";
-import { boolean, defineCommand, MIGRATIONS_TABLE_RENAMED, object, string, type CommandDefinition, type CommandOutput } from "@quickservicets/core";
+import { boolean, defineCommand, MIGRATIONS_TABLE_RENAMED, object, string, type CommandContext, type CommandDefinition, type JsonFields } from "@quickservicets/core";
 
 /** The commands of the `quickservicets` CLI, for help texts and the reference documentation. */
 export interface CommandDoc {
   name: string;
   usage: string;
   description: string;
+  /** The fields of its `--json` document besides `ok`, for the commands that accept `--json`. */
+  json?: JsonFields;
 }
 
-/** Prints a job or env command's lines and returns its exit code. */
-const print = (output: CommandOutput, result: { code: number; lines: string[]; errors: string[] }) => {
-  for (const line of result.lines) output.log(line);
-  for (const line of result.errors) output.error(line);
-  return result.code;
+/** Prints a job, env or docs command's lines, sets its `--json` fields and returns its exit code. */
+const print = (
+  { output, result }: Pick<CommandContext, "output" | "result">,
+  outcome: { code: number; lines: string[]; errors: string[]; data?: Record<string, unknown> },
+) => {
+  for (const line of outcome.lines) output.log(line);
+  for (const line of outcome.errors) output.error(line);
+  if (outcome.data) result(outcome.data);
+  return outcome.code;
+};
+
+/** The `--json` fields of `quickservicets build`. */
+const BUILD_JSON: JsonFields = {
+  entities: "number",
+  endpoints: "number",
+  hooks: "number",
+  features: "number",
+  fromFeatures: { endpoints: "number", hooks: "number", jobs: "number" },
+  buildSteps: ["string"],
+  overrides: ["string"],
+  warnings: ["string"],
 };
 
 /** Every built-in command; `run.ts` dispatches through this list. */
@@ -24,12 +42,16 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
       "Creates a project, with `AGENTS.md`, `CLAUDE.md` and the Claude Code skill in `.claude/skills/quickservicets/` for coding agents; inside the QuickService.ts monorepo it also links the workspace packages and installs them.",
     args: [{ name: "directory" }],
     flags: object({
-      db: string().optional().describe("The database: postgres, mongodb, sqlite or memory (asked when left out)."),
+      db: string().optional().describe("The database: postgres, mongodb, sqlite or memory (asked when left out; memory when not interactive)."),
       agents: boolean().default(true).describe("Writes the agent files; `--no-agents` leaves them out."),
     }),
-    async run({ args, flags, cwd, output }) {
-      const { initProject } = await import("./init/init.ts");
-      const steps = await initProject(args.directory ? resolve(cwd, args.directory) : cwd, { db: flags.db, agents: flags.agents });
+    async run({ args, flags, cwd, output, prompt }) {
+      const { initProject, DEFAULT_DATABASE } = await import("./init/init.ts");
+      const steps = await initProject(args.directory ? resolve(cwd, args.directory) : cwd, {
+        db: flags.db,
+        agents: flags.agents,
+        prompt: (question, choices) => prompt(question, choices, { flag: "--db", default: DEFAULT_DATABASE }),
+      });
       for (const line of steps) output.log(line);
       return 0;
     },
@@ -50,9 +72,20 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
     name: "build",
     usage: "quickservicets build",
     description: "Generates `.generated/`: models, routes, types, the OpenAPI document and the server entry.",
-    async run({ cwd, output }) {
+    json: BUILD_JSON,
+    async run({ cwd, output, result }) {
       const { build } = await import("./build/build.ts");
       const summary = await build(cwd);
+      result({
+        entities: summary.entities,
+        endpoints: summary.endpoints,
+        hooks: summary.hooks,
+        features: summary.features ?? 0,
+        fromFeatures: summary.fromFeatures ?? { endpoints: 0, hooks: 0, jobs: 0 },
+        buildSteps: (summary.buildSteps ?? []).map((step) => step.key),
+        overrides: summary.overrides ?? [],
+        warnings: summary.warnings,
+      });
       for (const line of summary.overrides ?? []) output.log(line);
       output.log(
         (summary.features ?? 0) > 0
@@ -79,7 +112,8 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
     description: "Applies pending migrations, or migrates up or down to the target migration.",
     args: [{ name: "target", description: "The migration to migrate up or down to, or 0 to revert every migration." }],
     flags: object({ force: boolean().default(false).describe("Reverts migrations in production.") }),
-    async run({ args, flags, cwd, output }) {
+    json: { applied: ["string"], reverted: ["string"], messages: ["string"], warnings: ["string"] },
+    async run({ args, flags, cwd, output, result: report }) {
       const { migrate, MigrationError } = await import("./migrations/migrate.ts");
       const printWarnings = (warnings: string[]) => {
         for (const warning of warnings) output.error(`Warning: ${warning}`);
@@ -89,6 +123,7 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
         throw error;
       });
       printWarnings(result.warnings);
+      report({ applied: result.applied, reverted: result.reverted, messages: result.messages, warnings: result.warnings });
       for (const table of result.renamed) {
         output.log(JSON.stringify({ timestamp: new Date().toISOString(), message: MIGRATIONS_TABLE_RENAMED, from: table.from, to: table.to }));
       }
@@ -100,12 +135,13 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
     name: "migration add",
     usage: "quickservicets migration add <Name>",
     description: "Creates a migration from the model changes since the last one.",
-    args: [{ name: "Name" }],
-    async run({ args, cwd, output }) {
-      if (!args.Name) throw new Error("Usage: quickservicets migration add <Name>");
+    args: [{ name: "Name", required: true }],
+    json: { id: "string", file: "string" },
+    async run({ args, cwd, output, result }) {
       const { addMigration } = await import("./migrations/add.ts");
-      const created = await addMigration(cwd, args.Name);
+      const created = await addMigration(cwd, args.Name!);
       output.log(`Created ${created.file}`);
+      result({ id: created.id, file: created.file });
       return 0;
     },
   }),
@@ -113,9 +149,11 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
     name: "migration list",
     usage: "quickservicets migration list",
     description: "Lists the migrations and whether each one is applied.",
-    async run({ cwd, output }) {
+    json: { migrations: [{ id: "string", status: "string", schemas: [{ schema: "string", tenants: "number" }] }], warning: "string?" },
+    async run({ cwd, output, result }) {
       const { formatSchemaCounts, listMigrationStatus } = await import("./migrations/list-remove.ts");
       const list = await listMigrationStatus(cwd);
+      result({ migrations: list.entries.map((entry) => ({ ...entry, schemas: entry.schemas ?? [] })), ...(list.warning ? { warning: list.warning } : {}) });
       if (list.warning) output.error(`Warning: ${list.warning}`);
       for (const entry of list.entries) {
         output.log(`${entry.id}  ${entry.status}${entry.schemas ? `  ${formatSchemaCounts(entry.schemas)}` : ""}`);
@@ -157,16 +195,17 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
     flags: object({ force: boolean().default(false).describe("Runs the job even while another run of it is running.") }),
     async run({ args, flags, cwd, output }) {
       const { runJobCommand } = await import("./jobs/job-commands.ts");
-      return print(output, await runJobCommand(cwd, args.name, { force: flags.force }));
+      return print({ output, result: () => {} }, await runJobCommand(cwd, args.name, { force: flags.force }));
     },
   }),
   defineCommand({
     name: "job list",
     usage: "quickservicets job list",
     description: "Lists every job with its schedule, time zone and next run time.",
-    async run({ cwd, output }) {
+    json: { jobs: [{ name: "string", schedule: "string", timeZone: "string", nextRun: "string?" }] },
+    async run(ctx) {
       const { listJobsCommand } = await import("./jobs/job-commands.ts");
-      return print(output, await listJobsCommand(cwd));
+      return print(ctx, await listJobsCommand(ctx.cwd));
     },
   }),
   defineCommand({
@@ -175,9 +214,10 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
     description: "Lists the latest runs of a job (20 by default) with their attempt, trigger, status, start and duration.",
     args: [{ name: "name" }],
     flags: object({ limit: string().optional().describe("How many runs to list (default 20).") }),
-    async run({ args, flags, cwd, output }) {
+    json: { job: "string", runs: [{ attempt: "number", trigger: "string", status: "string", startedAt: "string", durationMs: "number?" }] },
+    async run(ctx) {
       const { listJobRunsCommand } = await import("./jobs/job-commands.ts");
-      return print(output, await listJobRunsCommand(cwd, args.name, { limit: flags.limit }));
+      return print(ctx, await listJobRunsCommand(ctx.cwd, ctx.args.name, { limit: ctx.flags.limit }));
     },
   }),
   defineCommand({
@@ -202,9 +242,15 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
     usage: "quickservicets env check",
     description:
       "Checks the environment the service would start with (the process and its `.env` files): one line per declared variable with `ok`, `default`, `missing` or `invalid`, and its value unless it is a secret, then the `QS_*` overrides that are set and warnings for unknown ones. Exits with 1 when a variable is missing or invalid.",
-    async run({ cwd, output }) {
+    json: {
+      variables: [{ name: "string", status: "string", value: "string?", reason: "string?" }],
+      overrides: [{ variable: "string", key: "string", value: "string" }],
+      warnings: ["string"],
+      errors: ["string"],
+    },
+    async run(ctx) {
       const { envCheck } = await import("./env/env-check.ts");
-      return print(output, await envCheck(cwd));
+      return print(ctx, await envCheck(ctx.cwd));
     },
   }),
   defineCommand({
@@ -212,9 +258,11 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
     usage: "quickservicets agents update",
     description:
       "Refreshes the agent files `init` wrote (`AGENTS.md`, `CLAUDE.md` and `.claude/skills/quickservicets/`) for the installed QuickService.ts version, rewriting only the part above `<!-- quickservicets:end -->` and keeping what you wrote below it; files without the marker are skipped.",
-    async run({ cwd, output }) {
+    json: { changed: ["string"], skipped: ["string"] },
+    async run({ cwd, output, result }) {
       const { updateProjectAgentFiles } = await import("./agents/project.ts");
       const { changed, skipped } = updateProjectAgentFiles(cwd);
+      result({ changed, skipped });
       for (const file of changed) output.log(`Updated ${file}`);
       for (const file of skipped) output.error(`${file} has no quickservicets marker; skipped`);
       if (changed.length === 0 && skipped.length === 0) output.log("The agent files are up to date");
@@ -234,8 +282,9 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
     async run({ args, flags, output }) {
       const { listTopics, printFullPage, printTopic } = await import("./agents/docs.ts");
       const color = !flags.plain && process.stdout.isTTY === true && !process.env.NO_COLOR;
-      if (!args.topic) return print(output, listTopics());
-      return print(output, flags.full ? printFullPage(args.topic, { color }) : printTopic(args.topic, { color }));
+      const ctx = { output, result: () => {} };
+      if (!args.topic) return print(ctx, listTopics());
+      return print(ctx, flags.full ? printFullPage(args.topic, { color }) : printTopic(args.topic, { color }));
     },
   }),
   defineCommand({
@@ -245,12 +294,12 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
     args: [{ name: "term", required: true, description: "The text to look for, like `rateLimit`." }],
     async run({ args, output }) {
       const { searchDocs } = await import("./agents/docs.ts");
-      return print(output, searchDocs(args.term!));
+      return print({ output, result: () => {} }, searchDocs(args.term!));
     },
   }),
 ];
 
 export const COMMANDS: CommandDoc[] = [
-  ...BUILT_IN_COMMANDS.map(({ name, usage, description }) => ({ name, usage, description })),
+  ...BUILT_IN_COMMANDS.map(({ name, usage, description, json }) => ({ name, usage, description, ...(json ? { json } : {}) })),
   { name: "--version", usage: "quickservicets --version", description: "Prints the CLI version." },
 ];

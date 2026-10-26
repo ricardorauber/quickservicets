@@ -84,7 +84,7 @@ describe("dispatch", () => {
   test("a disabled feature's commands are unknown", async () => {
     native("example", [hello]);
     const { code, err } = await capture(["example", "hello", "Ana"], project(""));
-    expect([code, err]).toEqual([1, ["Unknown command: example"]]);
+    expect([code, err]).toEqual([2, ["Unknown command: example"]]);
   });
 });
 
@@ -103,15 +103,15 @@ describe("conflicts", () => {
 });
 
 describe("arguments and flags", () => {
-  test("unknown flags, missing arguments and invalid values print the error and the usage", async () => {
+  test("unknown flags, missing arguments and invalid values print the error and the usage, and exit 2", async () => {
     native("example", [hello]);
     const root = project();
     const usage = "Usage: quickservicets example hello <name> [--loud] [--count n]";
-    expect(await capture(["example", "hello", "Ana", "--shout"], root)).toEqual({ code: 1, out: [], err: ["Unknown flag --shout", usage] });
-    expect(await capture(["example", "hello", "Ana", "--lowd"], root)).toEqual({ code: 1, out: [], err: ["Unknown flag --lowd (did you mean --loud?)", usage] });
-    expect(await capture(["example", "hello"], root)).toEqual({ code: 1, out: [], err: ["Missing argument <name>", usage] });
-    expect(await capture(["example", "hello", "Ana", "--count=x"], root)).toEqual({ code: 1, out: [], err: ['Invalid --count: expected an integer, got "x"', usage] });
-    expect(await capture(["example", "hello", "Ana", "--count"], root)).toEqual({ code: 1, out: [], err: ["Missing value for --count", usage] });
+    expect(await capture(["example", "hello", "Ana", "--shout"], root)).toEqual({ code: 2, out: [], err: ["Unknown flag --shout", usage] });
+    expect(await capture(["example", "hello", "Ana", "--lowd"], root)).toEqual({ code: 2, out: [], err: ["Unknown flag --lowd (did you mean --loud?)", usage] });
+    expect(await capture(["example", "hello"], root)).toEqual({ code: 2, out: [], err: ["Missing argument <name>", usage] });
+    expect(await capture(["example", "hello", "Ana", "--count=x"], root)).toEqual({ code: 2, out: [], err: ['Invalid --count: expected an integer, got "x"', usage] });
+    expect(await capture(["example", "hello", "Ana", "--count"], root)).toEqual({ code: 2, out: [], err: ["Missing value for --count", usage] });
   });
 
   test("an error thrown by run prints its message and exits 1", async () => {
@@ -151,13 +151,16 @@ describe("help", () => {
       "Flags:",
       "  --loud  boolean (default false)  Shouts the greeting.",
       "  --count  integer",
+      "",
+      "Global flags:",
+      "  --yes  Never asks: takes the safe answer of each question, or exits 2 naming the flag that answers it.",
     ]);
     expect((await capture(["migrate", "--help"], project(""))).out).toContain("  --force  boolean (default false)  Reverts migrations in production.");
   });
 
   test("an unknown command suggests the closest one", async () => {
     const root = project("");
-    expect(await capture(["biuld"], root)).toEqual({ code: 1, out: [], err: ["Unknown command: biuld", "Did you mean build?"] });
+    expect(await capture(["biuld"], root)).toEqual({ code: 2, out: [], err: ["Unknown command: biuld", "Did you mean build?"] });
     expect((await capture(["migration", "ad"], root)).err).toEqual(["Unknown command: migration ad", "Did you mean migration add?"]);
     expect((await capture(["frobnicate"], root)).err).toEqual(["Unknown command: frobnicate"]);
   });

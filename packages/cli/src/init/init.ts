@@ -8,6 +8,9 @@ import { TOOLCHAIN } from "./toolchain.ts";
 export const DATABASES = ["postgres", "mongodb", "sqlite", "memory"] as const;
 export type DatabaseChoice = (typeof DATABASES)[number];
 
+/** The database `init` takes without asking when the CLI is not interactive: it needs nothing installed or running. */
+export const DEFAULT_DATABASE: DatabaseChoice = "memory";
+
 export type Prompt = (question: string, choices: readonly string[]) => Promise<string>;
 
 /** Installs the dependencies of a workspace, resolving to whether it succeeded. */

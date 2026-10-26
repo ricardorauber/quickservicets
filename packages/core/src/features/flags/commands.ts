@@ -25,6 +25,7 @@ const listCommand = defineCommand({
   name: "flags list",
   usage: "quickservicets flags list",
   description: "Prints each flag with its origin (config, database or both), on or off, its user and tenant counts and its percentage.",
+  json: { flags: [{ name: "string", origin: "string", enabled: "boolean", users: "number", tenants: "number", percentage: "number?" }] },
   async run(ctx) {
     const options = optionsOf(ctx);
     let rows = new Map<string, FlagRule>();
@@ -34,11 +35,16 @@ const listCommand = defineCommand({
     }
     const names = [...new Set([...Object.keys(options.rules), ...rows.keys()])].sort();
     if (names.length === 0) ctx.output.log("No flags.");
+    const listed: Record<string, unknown>[] = [];
     for (const name of names) {
       const row = rows.get(name);
       const configured = options.rules[name];
-      ctx.output.log(flagLine(name, row && configured ? "both" : row ? "database" : "config", row ?? configured!));
+      const origin = row && configured ? "both" : row ? "database" : "config";
+      const rule = row ?? configured!;
+      ctx.output.log(flagLine(name, origin, rule));
+      listed.push({ name, origin, enabled: rule.enabled, users: rule.users?.length ?? 0, tenants: rule.tenants?.length ?? 0, percentage: rule.percentage ?? null });
     }
+    ctx.result({ flags: listed });
   },
 });
 

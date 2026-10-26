@@ -70,8 +70,8 @@ export { createApp } from "./app.ts";
 export { startService } from "./service.ts";
 export { CORE_VERSION, generatedPath } from "./build-steps.ts";
 export type { BuildFolderFile, FeatureBuildContext } from "./build-steps.ts";
-export { defineCommand, isCommandDefinition } from "./commands.ts";
-export type { CommandArg, CommandContext, CommandDefinition, CommandInput, CommandOutput } from "./commands.ts";
+export { defineCommand, isCommandDefinition, jsonShapeProblems } from "./commands.ts";
+export type { CommandArg, CommandContext, CommandDefinition, CommandInput, CommandOutput, JsonFields, JsonShape, PromptOptions } from "./commands.ts";
 export { addOperation, addSchema, addSecurityScheme, extendOpenApi, requireSecurity } from "./openapi.ts";
 export type {
   ApiKeySecurityScheme,

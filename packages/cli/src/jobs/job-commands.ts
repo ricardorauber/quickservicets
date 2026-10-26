@@ -23,6 +23,8 @@ export interface JobCommandResult {
   lines: string[];
   /** Lines for standard error. */
   errors: string[];
+  /** The fields of the command's `--json` document. */
+  data?: Record<string, unknown>;
 }
 
 export const DEFAULT_RUNS_LIMIT = 20;
@@ -107,14 +109,16 @@ function table(rows: string[][]): string[] {
 export async function listJobsCommand(projectRoot: string, now: Date = new Date()): Promise<JobCommandResult> {
   const config = await loadConfig(projectRoot);
   const jobs = await loadJobRegistry(projectRoot, config.features);
-  if (jobs.size === 0) return { code: 0, lines: ["No jobs"], errors: [] };
+  if (jobs.size === 0) return { code: 0, lines: ["No jobs"], errors: [], data: { jobs: [] } };
   const rows = [["JOB", "SCHEDULE", "TIME ZONE", "NEXT RUN"]];
+  const listed: { name: string; schedule: string; timeZone: string; nextRun: string | null }[] = [];
   for (const [name, definition] of jobs) {
     const { timeZone } = jobSettings(definition.options, config.jobs);
     const next = nextRunTime(definition.schedule, timeZone, now);
     rows.push([name, describeSchedule(definition.schedule), timeZone, next ? next.toISOString() : "never"]);
+    listed.push({ name, schedule: describeSchedule(definition.schedule), timeZone, nextRun: next ? next.toISOString() : null });
   }
-  return { code: 0, lines: table(rows), errors: [] };
+  return { code: 0, lines: table(rows), errors: [], data: { jobs: listed } };
 }
 
 /** `quickservicets job runs <name> [--limit n]`: the latest runs of the job, newest first. */
@@ -135,12 +139,14 @@ export async function listJobRunsCommand(projectRoot: string, name: string | und
       offset: 0,
       withTotal: false,
     });
-    if (data.length === 0) return { code: 0, lines: [`No runs of ${job}`], errors: [] };
+    if (data.length === 0) return { code: 0, lines: [`No runs of ${job}`], errors: [], data: { job, runs: [] } };
     const rows = [["ATTEMPT", "TRIGGER", "STATUS", "STARTED", "DURATION"]];
+    const runs: { attempt: number; trigger: string; status: string; startedAt: string; durationMs: number | null }[] = [];
     for (const record of data as unknown as JobRun[]) {
       const duration = record.durationMs === undefined || record.durationMs === null ? "-" : `${record.durationMs}ms`;
       rows.push([String(record.attempt), record.trigger, record.status, new Date(record.startedAt).toISOString(), duration]);
+      runs.push({ attempt: record.attempt, trigger: record.trigger, status: record.status, startedAt: new Date(record.startedAt).toISOString(), durationMs: record.durationMs ?? null });
     }
-    return { code: 0, lines: table(rows), errors: [] };
+    return { code: 0, lines: table(rows), errors: [], data: { job, runs } };
   });
 }

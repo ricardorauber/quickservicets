@@ -167,20 +167,132 @@ export function parseInvocation(command: CommandDefinition, rest: readonly strin
   return { args, flags };
 }
 
-/** Runs a resolved command with the arguments after its words; usage errors print the command's usage and return 1. */
-export async function runCommand(resolved: ResolvedCommand, rest: readonly string[], cwd: string, output: CommandOutput): Promise<number> {
+/** Thrown when a command needs an answer it cannot ask for, because the CLI is not interactive. */
+export class NotInteractiveError extends Error {
+  constructor(command: string, flag: string) {
+    super(`${command} needs ${flag} when not interactive`);
+    this.name = "NotInteractiveError";
+  }
+}
+
+/** The exit codes of the CLI. */
+export const EXIT_CODES = {
+  success: 0,
+  failure: 1,
+  usage: 2,
+  config: 3,
+  databaseUnreachable: 4,
+} as const;
+
+/** The exit codes with their meaning, for the help and the reference. */
+export const EXIT_CODE_MEANINGS: readonly [number, string, string][] = [
+  [EXIT_CODES.success, "", "Success."],
+  [EXIT_CODES.failure, "FAILED", "The operation failed (a build error, a failed job, a missing variable)."],
+  [EXIT_CODES.usage, "USAGE_ERROR", "Usage error: an unknown command or flag, a missing argument, or a question with no safe answer when not interactive (`NOT_INTERACTIVE`)."],
+  [EXIT_CODES.config, "CONFIG_ERROR", "Configuration error: no `quickservicets.config.ts`, an invalid config or environment variable, or the config file under its previous name."],
+  [EXIT_CODES.databaseUnreachable, "DATABASE_UNREACHABLE", "The database could not be reached."],
+];
+
+const UNREACHABLE_CODES = new Set(["ECONNREFUSED", "ENOTFOUND", "EHOSTUNREACH", "ENETUNREACH", "ETIMEDOUT", "ECONNRESET", "SQLITE_CANTOPEN"]);
+const UNREACHABLE_NAMES = new Set(["MongoServerSelectionError", "MongoNetworkError", "MongoNetworkTimeoutError", "MongoTopologyClosedError"]);
+
+/** Whether an error, or one of its causes, says the database could not be reached. */
+export function isDatabaseUnreachable(error: unknown): boolean {
+  for (let current = error, depth = 0; current instanceof Error && depth < 5; current = current.cause, depth++) {
+    const code = String((current as { code?: unknown }).code ?? "");
+    if (UNREACHABLE_CODES.has(code) || code.startsWith("ERR_POSTGRES_CONNECTION_") || UNREACHABLE_NAMES.has(current.name)) return true;
+  }
+  return false;
+}
+
+/** The exit code and the `--json` error code of an error a command threw. */
+export function classifyError(error: unknown): { exit: number; code: string } {
+  if (error instanceof UsageError) return { exit: EXIT_CODES.usage, code: "USAGE_ERROR" };
+  if (error instanceof NotInteractiveError) return { exit: EXIT_CODES.usage, code: "NOT_INTERACTIVE" };
+  if (error instanceof ConfigError) return { exit: EXIT_CODES.config, code: "CONFIG_ERROR" };
+  if (isDatabaseUnreachable(error)) return { exit: EXIT_CODES.databaseUnreachable, code: "DATABASE_UNREACHABLE" };
+  return { exit: EXIT_CODES.failure, code: "FAILED" };
+}
+
+/** Asks a question on the terminal; the CLI's default for interactive prompts. */
+export type Ask = (question: string, choices: readonly string[]) => Promise<string>;
+
+/** How a command talks to the person running it. */
+export interface CommandIO {
+  /** Whether questions may be asked (default: stdin is a terminal, and `CI` is not `true`). */
+  interactive?: boolean;
+  /** How questions are asked when interactive. */
+  ask?: Ask;
+}
+
+/** Asks on stdin, accepting a choice by number or by name. */
+export const terminalAsk: Ask = async (question, choices) => {
+  console.error(question);
+  choices.forEach((choice, index) => console.error(`  ${index + 1}) ${choice}`));
+  for await (const line of console) {
+    const answer = line.trim();
+    const byNumber = choices[Number(answer) - 1];
+    if (byNumber) return byNumber;
+    if (choices.includes(answer)) return answer;
+    console.error(`Choose 1-${choices.length} or a name.`);
+  }
+  throw new UsageError("No answer given");
+};
+
+/** Whether the CLI may ask questions: stdin is a terminal, and `CI` is not `true`. */
+export const isInteractive = (env: Record<string, string | undefined> = process.env) => process.stdin.isTTY === true && env.CI !== "true";
+
+/** Runs `run` with `console.log`, `console.info` and `console.warn` writing to stderr, so stdout carries one JSON document. */
+async function withLogsOnStderr<T>(run: () => Promise<T>): Promise<T> {
+  const saved = { log: console.log, info: console.info, warn: console.warn };
+  console.log = console.info = console.warn = (...values: unknown[]) => console.error(...values);
+  try {
+    return await run();
+  } finally {
+    Object.assign(console, saved);
+  }
+}
+
+/**
+ * Runs a resolved command with the arguments after its words. `--yes` is accepted by every command and `--json` by the
+ * commands that declare `json`. Usage errors print the command's usage and return 2; with `--json` every outcome is
+ * one JSON document on stdout, `{ ok: true, ... }` or `{ ok: false, error: { code, message } }`, and the logs go to
+ * stderr. Other errors are thrown, except with `--json`, where they are classified into the document and exit code.
+ */
+export async function runCommand(resolved: ResolvedCommand, rest: readonly string[], cwd: string, output: CommandOutput, io: CommandIO = {}): Promise<number> {
   const { command, feature } = resolved;
+  const json = command.json !== undefined && rest.includes("--json");
+  const yes = rest.includes("--yes");
+  const args = rest.filter((arg) => arg !== "--yes" && !(json && arg === "--json"));
+  const interactive = !yes && (io.interactive ?? isInteractive());
+  const out: CommandOutput = json ? { log: (line) => output.error(line), error: (line) => output.error(line) } : output;
+  let data: Record<string, unknown> = {};
+  const fail = (code: string, message: string, exit: number) => {
+    if (json) output.log(JSON.stringify({ ok: false, error: { code, message }, ...data }));
+    else output.error(message);
+    return exit;
+  };
+
   let parsed: ReturnType<typeof parseInvocation>;
   try {
-    parsed = parseInvocation(command, rest);
+    parsed = parseInvocation(command, args);
   } catch (error) {
     if (!(error instanceof UsageError)) throw error;
+    if (json) return fail("USAGE_ERROR", error.message, EXIT_CODES.usage);
     output.error(error.message);
     output.error(`Usage: ${command.usage}`);
-    return 1;
+    return EXIT_CODES.usage;
   }
   let config = feature?.config;
   let connected: ResolvedConfig | undefined;
+  const lastErrors: string[] = [];
+  const recording: CommandOutput = {
+    log: (line) => out.log(line),
+    error: (line) => {
+      lastErrors.push(line);
+      out.error(line);
+    },
+  };
   const context: CommandContext = {
     args: parsed.args,
     flags: parsed.flags,
@@ -190,7 +302,7 @@ export async function runCommand(resolved: ResolvedCommand, rest: readonly strin
       return config;
     },
     options: feature ? (config!.features.find((entry) => entry.key === feature.key)?.options ?? {}) : {},
-    output,
+    output: recording,
     async connect(): Promise<Repositories> {
       config ??= await loadConfig(cwd);
       const file = join(cwd, ".generated/models.ts");
@@ -202,12 +314,43 @@ export async function runCommand(resolved: ResolvedCommand, rest: readonly strin
       }
       return createRepositories(models, config.database, { populateMaxDepth: config.populate.maxDepth, toArrayMax: config.repositories?.toArrayMax }) as unknown as Repositories;
     },
+    json,
+    result(fields) {
+      data = { ...data, ...fields };
+    },
+    async prompt(question, choices, options) {
+      if (interactive) return (io.ask ?? terminalAsk)(question, choices);
+      if (options.default === undefined) throw new NotInteractiveError(command.name, options.flag);
+      out.error(`Not interactive: using ${options.default} for ${options.flag}`);
+      return options.default;
+    },
   };
+  const execute = async () => {
+    try {
+      const code = await command.run(context as never);
+      return typeof code === "number" ? code : EXIT_CODES.success;
+    } finally {
+      if (connected) await connected.database.disconnect();
+    }
+  };
+  if (!json) {
+    try {
+      return await execute();
+    } catch (error) {
+      if (error instanceof NotInteractiveError) return fail("NOT_INTERACTIVE", error.message, EXIT_CODES.usage);
+      throw error;
+    }
+  }
   try {
-    const code = await command.run(context as never);
-    return typeof code === "number" ? code : 0;
-  } finally {
-    if (connected) await connected.database.disconnect();
+    const code = await withLogsOnStderr(execute);
+    if (code === EXIT_CODES.success) {
+      output.log(JSON.stringify({ ok: true, ...data }));
+      return code;
+    }
+    return fail("FAILED", lastErrors.at(-1) ?? `${command.name} failed`, code);
+  } catch (error) {
+    const { exit, code } = classifyError(error);
+    return fail(code, error instanceof Error ? error.message : String(error), exit);
   }
 }
 
@@ -227,6 +370,10 @@ export function commandHelp(command: CommandDefinition): string[] {
     command.description,
     ...(argLines.length > 0 ? ["", "Arguments:", ...argLines] : []),
     ...(flagLines.length > 0 ? ["", "Flags:", ...flagLines] : []),
+    "",
+    "Global flags:",
+    "  --yes  Never asks: takes the safe answer of each question, or exits 2 naming the flag that answers it.",
+    ...(command.json ? ["  --json  Prints one JSON document to stdout ({ ok: true, ... } or { ok: false, error: { code, message } }) and the logs to stderr."] : []),
   ];
 }
 
@@ -246,6 +393,7 @@ export function generalHelp(features: readonly FeatureCommand[]): string[] {
     ...keys.flatMap((key) => ["", `${key}:`, ...features.filter((entry) => entry.key === key).map((entry) => line(entry.command))]),
     "",
     "Run quickservicets <command> --help for its arguments and flags, and quickservicets --version for the version.",
+    "Exit codes: 0 success, 1 failure, 2 usage error or a question that needs an answer when not interactive, 3 configuration error, 4 database unreachable.",
   ];
 }
 

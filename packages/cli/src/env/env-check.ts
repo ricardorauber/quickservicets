@@ -52,10 +52,22 @@ export function projectEnvironment(projectRoot: string, processEnv: Record<strin
   return { ...fromFiles, ...processEnv };
 }
 
+/** One declared variable in the `--json` document of `env check`. */
+export interface VariableStatus {
+  name: string;
+  status: "ok" | "default" | "missing" | "invalid";
+  /** Its value or default as text, masked when secret; missing when not set. */
+  value?: string;
+  /** Why it is invalid. */
+  reason?: string;
+}
+
 export interface EnvCheckResult {
   code: number;
   lines: string[];
   errors: string[];
+  /** The `--json` fields: each declared variable, each `QS_*` override set, and the warnings and errors. */
+  data?: { variables: VariableStatus[]; overrides: { variable: string; key: string; value: string }[]; warnings: string[]; errors: string[] };
 }
 
 function defaultText(value: unknown): string {
@@ -64,21 +76,25 @@ function defaultText(value: unknown): string {
 }
 
 /** One status line of a declared variable: `ok`, `default`, `missing` or `invalid: <reason>`, with its value unless secret. */
-function statusLine({ name, schema }: DeclaredVariable, raw: string | undefined): { line: string; ok: boolean } {
+function statusLine({ name, schema }: DeclaredVariable, raw: string | undefined): { line: string; ok: boolean; status: VariableStatus } {
   const secret = schema.kind === "secret";
   const shown = (text: string) => (secret ? SECRET_MASK : text);
   if (raw === undefined || raw === "") {
-    if (schema.settings.hasDefault) return { line: `${name} default ${shown(defaultText(schema.settings.default))}`, ok: true };
-    if (schema.settings.optional) return { line: `${name} ok (not set)`, ok: true };
-    return { line: `${name} missing`, ok: false };
+    if (schema.settings.hasDefault) {
+      const value = shown(defaultText(schema.settings.default));
+      return { line: `${name} default ${value}`, ok: true, status: { name, status: "default", value } };
+    }
+    if (schema.settings.optional) return { line: `${name} ok (not set)`, ok: true, status: { name, status: "ok" } };
+    return { line: `${name} missing`, ok: false, status: { name, status: "missing" } };
   }
   try {
     parseOptionString(schema, raw, name);
-    return { line: `${name} ok ${shown(raw)}`, ok: true };
+    return { line: `${name} ok ${shown(raw)}`, ok: true, status: { name, status: "ok", value: shown(raw) } };
   } catch (error) {
     if (!(error instanceof ConfigError)) throw error;
     const expectation = /^Invalid [^:]+: expected (.*), got /.exec(error.message.split("\n")[0]!)?.[1] ?? expectationOf(schema);
-    return { line: `${name} invalid: expected ${expectation} (got ${secret ? SECRET_MASK : JSON.stringify(raw)})`, ok: false };
+    const reason = `expected ${expectation} (got ${secret ? SECRET_MASK : JSON.stringify(raw)})`;
+    return { line: `${name} invalid: ${reason}`, ok: false, status: { name, status: "invalid", value: shown(raw), reason } };
   }
 }
 
@@ -90,6 +106,9 @@ export async function envCheck(projectRoot: string, processEnv: Record<string, s
   const environment = projectEnvironment(projectRoot, processEnv);
   const lines: string[] = [];
   const errors: string[] = [];
+  const variables: VariableStatus[] = [];
+  const overridesSet: { variable: string; key: string; value: string }[] = [];
+  const warnings: string[] = [];
   let ok = true;
   const configFile = join(projectRoot, CONFIG_FILE);
   if (!existsSync(configFile)) return { code: 1, lines, errors: [`Config file not found: ${configFile}`] };
@@ -117,6 +136,7 @@ export async function envCheck(projectRoot: string, processEnv: Record<string, s
     for (const variable of declaredVariables(config.env as Record<string, AnyOptionSchema> | undefined, features)) {
       const status = statusLine(variable, environment[variable.name]);
       lines.push(status.line);
+      variables.push(status.status);
       ok &&= status.ok;
     }
   } catch (error) {
@@ -131,7 +151,12 @@ export async function envCheck(projectRoot: string, processEnv: Record<string, s
     const raw = environment[name];
     if (!override || raw === undefined || raw === "") continue;
     lines.push(`${name} sets ${override.path} = ${override.secret ? SECRET_MASK : raw}`);
+    overridesSet.push({ variable: name, key: override.path, value: override.secret ? SECRET_MASK : raw });
   }
-  for (const warning of unknownVariableWarnings(environment, definitions, [], applied)) errors.push(`Warning: ${warning}`);
-  return { code: ok ? 0 : 1, lines, errors };
+  const problems = [...errors];
+  for (const warning of unknownVariableWarnings(environment, definitions, [], applied)) {
+    errors.push(`Warning: ${warning}`);
+    warnings.push(warning);
+  }
+  return { code: ok ? 0 : 1, lines, errors, data: { variables, overrides: overridesSet, warnings, errors: problems } };
 }

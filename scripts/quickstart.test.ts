@@ -72,12 +72,13 @@ test("following the quickstart topic literally builds a service that answers GET
     "bun run dev",
     "curl -X POST localhost:3000/tasks -H \"content-type: application/json\" -d '{\"title\":\"Write the docs\"}'",
     'curl -g "localhost:3000/tasks?where[done][eq]=false&sort=-createdAt"',
+    "bun run quickservicets migration list --json",
   ]);
 
   const port = freePort();
   const env: Record<string, string | undefined> = { ...process.env, PORT: String(port) };
   let cwd = folder;
-  const outputs: string[] = [];
+  const outputs = new Map<string, string>();
   for (const step of steps) {
     if (step.kind === "file") {
       mkdirSync(dirname(join(cwd, step.path)), { recursive: true });
@@ -96,7 +97,7 @@ test("following the quickstart topic literally builds a service that answers GET
         const command = line.startsWith("bunx quickservicets ") ? ["bun", CLI, ...line.split(" ").slice(2)] : ["sh", "-c", line.replaceAll("localhost:3000", `localhost:${port}`)];
         const result = Bun.spawnSync(command, { cwd, env, stdout: "pipe", stderr: "pipe" });
         if (result.exitCode !== 0) throw new Error(`${line} failed:\n${result.stdout.toString()}${result.stderr.toString()}`);
-        outputs.push(result.stdout.toString());
+        outputs.set(line, result.stdout.toString());
       }
     }
   }
@@ -106,5 +107,7 @@ test("following the quickstart topic literally builds a service that answers GET
   const list = (await response.json()) as { data: { title: string; done: boolean }[]; total: number };
   expect(list.total).toBe(1);
   expect(list.data[0]).toMatchObject({ title: "Write the docs", done: false });
-  expect(JSON.parse(outputs.at(-1)!).data[0].title).toBe("Write the docs");
+  expect(JSON.parse(outputs.get('curl -g "localhost:3000/tasks?where[done][eq]=false&sort=-createdAt"')!).data[0].title).toBe("Write the docs");
+  expect(JSON.parse(outputs.get("bun run quickservicets migration list --json")!)).toEqual({ ok: true, migrations: [{ id: expect.stringMatching(/_CreateTasks$/), status: "applied", schemas: [] }] });
+  expect(JSON.parse(outputs.get("bun run quickservicets migrate --json --yes")!)).toMatchObject({ ok: true, applied: [] });
 }, 180_000);

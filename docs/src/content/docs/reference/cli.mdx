@@ -7,6 +7,21 @@ description: Every command of the QuickService.ts CLI.
 
 Run the commands with `bun run quickservicets <command>` inside a project. `quickservicets help` lists them with the commands of the enabled features, and `quickservicets <command> --help` describes one.
 
+## Scripts and agents
+
+- **`--json`**: the commands that show a JSON document below accept `--json`. They then print exactly one JSON document to stdout, `{ "ok": true, ... }` with the fields shown, or `{ "ok": false, "error": { "code", "message" } }` on failure, and send every log line to stderr, without colors.
+- **Non-interactive mode**: when stdin is not a terminal, `--yes` is given or `CI=true` is set, no command asks a question. A question with a safe answer takes it (`init` uses the `memory` database without `--db`); one without exits 2 with `<command> needs <flag> when not interactive`.
+
+### Exit codes
+
+| Code | `error.code` with `--json` | Meaning |
+| --- | --- | --- |
+| 0 | — | Success. |
+| 1 | `FAILED` | The operation failed (a build error, a failed job, a missing variable). |
+| 2 | `USAGE_ERROR` | Usage error: an unknown command or flag, a missing argument, or a question with no safe answer when not interactive (`NOT_INTERACTIVE`). |
+| 3 | `CONFIG_ERROR` | Configuration error: no `quickservicets.config.ts`, an invalid config or environment variable, or the config file under its previous name. |
+| 4 | `DATABASE_UNREACHABLE` | The database could not be reached. |
+
 ## `init`
 
 Creates a project, with `AGENTS.md`, `CLAUDE.md` and the Claude Code skill in `.claude/skills/quickservicets/` for coding agents; inside the QuickService.ts monorepo it also links the workspace packages and installs them.
@@ -31,12 +46,58 @@ Generates `.generated/`: models, routes, types, the OpenAPI document and the ser
 quickservicets build
 ```
 
+**JSON (`--json`):**
+
+```json
+{
+  "ok": true,
+  "entities": "number",
+  "endpoints": "number",
+  "hooks": "number",
+  "features": "number",
+  "fromFeatures": {
+    "endpoints": "number",
+    "hooks": "number",
+    "jobs": "number"
+  },
+  "buildSteps": [
+    "string"
+  ],
+  "overrides": [
+    "string"
+  ],
+  "warnings": [
+    "string"
+  ]
+}
+```
+
 ## `migrate`
 
 Applies pending migrations, or migrates up or down to the target migration.
 
 ```bash
 quickservicets migrate [target] [--force]
+```
+
+**JSON (`--json`):**
+
+```json
+{
+  "ok": true,
+  "applied": [
+    "string"
+  ],
+  "reverted": [
+    "string"
+  ],
+  "messages": [
+    "string"
+  ],
+  "warnings": [
+    "string"
+  ]
+}
 ```
 
 ## `migration add`
@@ -47,12 +108,43 @@ Creates a migration from the model changes since the last one.
 quickservicets migration add <Name>
 ```
 
+**JSON (`--json`):**
+
+```json
+{
+  "ok": true,
+  "id": "string",
+  "file": "string"
+}
+```
+
 ## `migration list`
 
 Lists the migrations and whether each one is applied.
 
 ```bash
 quickservicets migration list
+```
+
+**JSON (`--json`):**
+
+```json
+{
+  "ok": true,
+  "migrations": [
+    {
+      "id": "string",
+      "status": "string",
+      "schemas": [
+        {
+          "schema": "string",
+          "tenants": "number"
+        }
+      ]
+    }
+  ],
+  "warning": "string?"
+}
 ```
 
 ## `migration remove`
@@ -87,12 +179,46 @@ Lists every job with its schedule, time zone and next run time.
 quickservicets job list
 ```
 
+**JSON (`--json`):**
+
+```json
+{
+  "ok": true,
+  "jobs": [
+    {
+      "name": "string",
+      "schedule": "string",
+      "timeZone": "string",
+      "nextRun": "string?"
+    }
+  ]
+}
+```
+
 ## `job runs`
 
 Lists the latest runs of a job (20 by default) with their attempt, trigger, status, start and duration.
 
 ```bash
 quickservicets job runs <name> [--limit n]
+```
+
+**JSON (`--json`):**
+
+```json
+{
+  "ok": true,
+  "job": "string",
+  "runs": [
+    {
+      "attempt": "number",
+      "trigger": "string",
+      "status": "string",
+      "startedAt": "string",
+      "durationMs": "number?"
+    }
+  ]
+}
 ```
 
 ## `eject`
@@ -111,12 +237,55 @@ Checks the environment the service would start with (the process and its `.env` 
 quickservicets env check
 ```
 
+**JSON (`--json`):**
+
+```json
+{
+  "ok": true,
+  "variables": [
+    {
+      "name": "string",
+      "status": "string",
+      "value": "string?",
+      "reason": "string?"
+    }
+  ],
+  "overrides": [
+    {
+      "variable": "string",
+      "key": "string",
+      "value": "string"
+    }
+  ],
+  "warnings": [
+    "string"
+  ],
+  "errors": [
+    "string"
+  ]
+}
+```
+
 ## `agents update`
 
 Refreshes the agent files `init` wrote (`AGENTS.md`, `CLAUDE.md` and `.claude/skills/quickservicets/`) for the installed QuickService.ts version, rewriting only the part above `<!-- quickservicets:end -->` and keeping what you wrote below it; files without the marker are skipped.
 
 ```bash
 quickservicets agents update
+```
+
+**JSON (`--json`):**
+
+```json
+{
+  "ok": true,
+  "changed": [
+    "string"
+  ],
+  "skipped": [
+    "string"
+  ]
+}
 ```
 
 ## `docs`
@@ -157,6 +326,24 @@ Prints, per durable consumer, how many deliveries are pending, delivering, deliv
 quickservicets events outbox
 ```
 
+**JSON (`--json`):**
+
+```json
+{
+  "ok": true,
+  "consumers": [
+    {
+      "consumer": "string",
+      "pending": "number",
+      "delivering": "number",
+      "delivered": "number",
+      "failed": "number",
+      "oldestPending": "string?"
+    }
+  ]
+}
+```
+
 #### `events retry`
 
 Resets failed deliveries to pending with attempt 0, one by id or every failed one of a consumer, and prints how many.
@@ -184,6 +371,24 @@ Prints each queue with its number of waiting, active, completed and dead message
 quickservicets queue list
 ```
 
+**JSON (`--json`):**
+
+```json
+{
+  "ok": true,
+  "queues": [
+    {
+      "name": "string",
+      "waiting": "number",
+      "active": "number",
+      "completed": "number",
+      "dead": "number",
+      "oldestWaiting": "string?"
+    }
+  ]
+}
+```
+
 #### `queue dead`
 
 Prints the latest dead messages of a queue with their id, attempts, finish time and error message.
@@ -199,6 +404,23 @@ quickservicets queue dead <queue> [--limit <n>]
 **Flags:**
 
 - `--limit` (`integer`, default `20`): How many messages to print.
+
+**JSON (`--json`):**
+
+```json
+{
+  "ok": true,
+  "queue": "string",
+  "messages": [
+    {
+      "id": "string",
+      "attempt": "number",
+      "finishedAt": "string?",
+      "error": "string?"
+    }
+  ]
+}
+```
 
 #### `queue retry`
 
@@ -240,6 +462,24 @@ Prints each flag with its origin (config, database or both), on or off, its user
 
 ```bash
 quickservicets flags list
+```
+
+**JSON (`--json`):**
+
+```json
+{
+  "ok": true,
+  "flags": [
+    {
+      "name": "string",
+      "origin": "string",
+      "enabled": "boolean",
+      "users": "number",
+      "tenants": "number",
+      "percentage": "number?"
+    }
+  ]
+}
 ```
 
 #### `flags set`

@@ -55,9 +55,16 @@ const list = defineCommand({
   name: "queue list",
   usage: "quickservicets queue list",
   description: "Prints each queue with its number of waiting, active, completed and dead messages, and the age of its oldest waiting message.",
+  json: { queues: [{ name: "string", waiting: "number", active: "number", completed: "number", dead: "number", oldestWaiting: "string?" }] },
   async run(ctx) {
     const stats = await (await connected(ctx)).stats();
     const names = Object.keys(stats);
+    ctx.result({
+      queues: names.map((name) => {
+        const { waiting, active, completed, dead, oldestWaiting } = stats[name]!;
+        return { name, waiting, active, completed, dead, oldestWaiting: oldestWaiting ? oldestWaiting.toISOString() : null };
+      }),
+    });
     if (names.length === 0) ctx.output.log("No queues.");
     const now = Date.now();
     for (const name of names) {
@@ -74,9 +81,19 @@ const dead = defineCommand({
   description: "Prints the latest dead messages of a queue with their id, attempts, finish time and error message.",
   args: [{ name: "queue", required: true, description: "The queue name." }],
   flags: object({ limit: integer().min(1).default(20).describe("How many messages to print.") }),
+  json: { queue: "string", messages: [{ id: "string", attempt: "number", finishedAt: "string?", error: "string?" }] },
   async run(ctx) {
     const queue = ctx.args.queue!;
     const messages = await brokerMethod(await connected(ctx), "dead")(queue, { limit: ctx.flags.limit });
+    ctx.result({
+      queue,
+      messages: messages.map((message) => ({
+        id: message.id,
+        attempt: message.attempt,
+        finishedAt: message.finishedAt ? new Date(message.finishedAt).toISOString() : null,
+        error: message.lastError?.message ?? null,
+      })),
+    });
     if (messages.length === 0) ctx.output.log(`No dead messages in ${queue}.`);
     for (const message of messages) {
       const finished = message.finishedAt ? new Date(message.finishedAt).toISOString() : "-";

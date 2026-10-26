@@ -161,7 +161,7 @@ describe("secrets", () => {
     outputs.push(...Object.values(referencePages()));
     const failed = project({ "quickservicets.config.ts": CONFIG.replace("STRIPE_KEY: secret()", "STRIPE_KEY: secret().min(40)") });
     await withVariables(valid, async () => {
-      expect(await run(["build"], collect, failed)).toBe(1);
+      expect(await run(["build"], collect, failed)).toBe(3);
     });
     const server = Bun.spawn(["bun", "-e", `import(${JSON.stringify(join(failed, "quickservicets.config.ts"))}).then(async (m) => (await import("@quickservicets/core")).resolveConfig(m.default))`], {
       cwd: failed,

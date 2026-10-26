@@ -80,7 +80,7 @@ bunx quickservicets init my-api --db memory --no-agents
 
 ## Choose a database
 
-`--db` takes one of four values. Without it, `init` asks you to pick one.
+`--db` takes one of four values. Without it, `init` asks you to pick one; when it cannot ask (stdin is not a terminal, `--yes` is given or `CI=true` is set), it uses `memory` and says so.
 
 | `--db` | Adapter | Settings written to `.env` |
 | --- | --- | --- |

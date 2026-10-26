@@ -33,6 +33,7 @@ const outbox = defineCommand({
   name: "events outbox",
   usage: "quickservicets events outbox",
   description: "Prints, per durable consumer, how many deliveries are pending, delivering, delivered and failed, and the age of the oldest pending one.",
+  json: { consumers: [{ consumer: "string", pending: "number", delivering: "number", delivered: "number", failed: "number", oldestPending: "string?" }] },
   async run(ctx) {
     const adapter = await connected(ctx);
     const rows = await rowsWhere(adapter, []);
@@ -40,12 +41,19 @@ const outbox = defineCommand({
     for (const row of rows) byConsumer.set(row.consumer as string, [...(byConsumer.get(row.consumer as string) ?? []), row]);
     if (byConsumer.size === 0) ctx.output.log("No deliveries.");
     const now = Date.now();
+    const consumers: Record<string, unknown>[] = [];
     for (const [consumer, list] of [...byConsumer].sort(([a], [b]) => a.localeCompare(b))) {
       const counts = DELIVERY_STATUSES.map((status) => `${status} ${list.filter((row) => row.status === status).length}`).join(", ");
       const pending = list.filter((row) => row.status === "pending").map((row) => new Date(row.createdAt).getTime());
       const oldest = pending.length > 0 ? `; oldest pending ${age(now - Math.min(...pending))}` : "";
       ctx.output.log(`${consumer}: ${counts}${oldest}`);
+      consumers.push({
+        consumer,
+        ...Object.fromEntries(DELIVERY_STATUSES.map((status) => [status, list.filter((row) => row.status === status).length])),
+        oldestPending: pending.length > 0 ? new Date(Math.min(...pending)).toISOString() : null,
+      });
     }
+    ctx.result({ consumers });
   },
 });
 

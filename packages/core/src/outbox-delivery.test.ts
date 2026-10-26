@@ -199,6 +199,7 @@ describe("commands", () => {
       options: { outbox: { enabled: true } },
       output: { log: (line: string) => void lines.push(line), error: (line: string) => void lines.push(line) },
       connect: async () => ({}),
+      result: () => {},
     } as unknown as CommandContext<never>;
     return { ctx, lines };
   };

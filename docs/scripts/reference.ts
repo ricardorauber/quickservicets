@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import ts from "typescript";
 import { COMMANDS } from "../../packages/cli/src/commands.ts";
+import { EXIT_CODE_MEANINGS } from "../../packages/cli/src/registry.ts";
 import { documentedEntityTags } from "../../packages/cli/src/entities/entity-tags.ts";
 import { documentedFieldTags } from "../../packages/cli/src/entities/field-tags.ts";
 import { documentedEndpointTags } from "../../packages/cli/src/hooks/endpoint-tags.ts";
@@ -13,7 +14,7 @@ import { NATIVE_FEATURES_DIR, registeredNatives, type FeatureDefinition, type Fe
 // Loading the core registers the natives it ships, which the pages document.
 import "../../packages/core/src/index.ts";
 import { describeOptions, type AnyOptionSchema } from "../../packages/core/src/options.ts";
-import type { CommandDefinition } from "../../packages/core/src/commands.ts";
+import type { CommandDefinition, JsonFields } from "../../packages/core/src/commands.ts";
 
 export const REPO = join(import.meta.dir, "../..");
 export const CONTENT = join(REPO, "docs/src/content/docs");
@@ -174,6 +175,12 @@ export function configPage(): string {
   ].join("\n");
 }
 
+/** The `--json` document of a command, as reference lines: `ok` first, then its fields. */
+export function jsonShapeLines(json: JsonFields | undefined): string[] {
+  if (!json) return [];
+  return ["**JSON (`--json`):**", "", "```json", JSON.stringify({ ok: true, ...json }, null, 2), "```", ""];
+}
+
 /** The arguments and flags of a feature's command, as reference lines. */
 function commandDetails(command: CommandDefinition): string[] {
   const args = command.args.map((arg) => `- \`<${arg.name}>\`${arg.required ? " (required)" : ""}${arg.description ? `: ${arg.description}` : ""}`);
@@ -192,7 +199,7 @@ function nativeCommandSections(): string[] {
     .flatMap((native) => [
       `### \`${native.key}\``,
       "",
-      ...native.commands!.flatMap((command) => [`#### \`${command.name}\``, "", command.description, "", "```bash", command.usage, "```", "", ...commandDetails(command)]),
+      ...native.commands!.flatMap((command) => [`#### \`${command.name}\``, "", command.description, "", "```bash", command.usage, "```", "", ...commandDetails(command), ...jsonShapeLines(command.json)]),
     ]);
 }
 
@@ -201,6 +208,17 @@ export function cliPage(): string {
   return [
     frontmatter("CLI", "Every command of the QuickService.ts CLI."),
     "Run the commands with `bun run quickservicets <command>` inside a project. `quickservicets help` lists them with the commands of the enabled features, and `quickservicets <command> --help` describes one.",
+    "",
+    "## Scripts and agents",
+    "",
+    "- **`--json`**: the commands that show a JSON document below accept `--json`. They then print exactly one JSON document to stdout, `{ \"ok\": true, ... }` with the fields shown, or `{ \"ok\": false, \"error\": { \"code\", \"message\" } }` on failure, and send every log line to stderr, without colors.",
+    "- **Non-interactive mode**: when stdin is not a terminal, `--yes` is given or `CI=true` is set, no command asks a question. A question with a safe answer takes it (`init` uses the `memory` database without `--db`); one without exits 2 with `<command> needs <flag> when not interactive`.",
+    "",
+    "### Exit codes",
+    "",
+    "| Code | `error.code` with `--json` | Meaning |",
+    "| --- | --- | --- |",
+    ...EXIT_CODE_MEANINGS.map(([exit, errorCode, meaning]) => `| ${exit} | ${errorCode ? code(errorCode) : "—"} | ${meaning.replaceAll("|", "\\|")} |`),
     "",
     ...COMMANDS.flatMap((command) => [
       `## \`${command.name}\``,
@@ -211,6 +229,7 @@ export function cliPage(): string {
       command.usage,
       "```",
       "",
+      ...jsonShapeLines(command.json),
     ]),
     ...(natives.length > 0 ? ["## Commands of native features", "", "Each native feature's commands are available while the feature is enabled.", "", ...natives] : []),
   ].join("\n");

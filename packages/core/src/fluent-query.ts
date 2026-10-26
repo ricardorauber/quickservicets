@@ -287,24 +287,32 @@ export interface Query<T, R = Record<never, never>, M = never> {
   thenBy(lambda: SortLambda<T>): Query<T, R, M>;
   /** Adds a further sort field in descending order. */
   thenByDescending(lambda: SortLambda<T>): Query<T, R, M>;
-  /** Leaves out the first `count` results (not applied to `count()` and `any()`). */
+  /** Leaves out the first `count` results (not applied to `count()`, `any()` and `all()`). */
   skip(count: number): Query<T, R, M>;
-  /** Returns at most `count` results (not applied to `count()` and `any()`). */
+  /** Returns at most `count` results (not applied to `count()`, `any()` and `all()`). */
   take(count: number): Query<T, R, M>;
   /** Returns only these fields plus `id`. */
   select<K extends keyof T & string>(...fields: K[]): Query<Pick<T, K | ("id" & keyof T)>, R, M>;
   /** Replaces reference paths with the referenced records, e.g. `include("profiles.permissions.module")`. */
   include<const P extends readonly PopulatePath<R>[]>(...paths: P): Query<Populated<T, R, P[number]>, Record<never, never>, M>;
-  /** Every match; throws when there are more than `repositories.findAllMax`. */
-  all(): Promise<T[]>;
+  /** Every match; throws when there are more than `repositories.toArrayMax`. */
+  toArray(): Promise<T[]>;
   /** The first match, or 404 `<Entity> not found`. */
   first(): Promise<T>;
   /** The first match, or null. */
   firstOrDefault(): Promise<T | null>;
   /** The number of matches, without loading records. */
   count(): Promise<number>;
-  /** Whether at least one record matches, without loading records. */
-  any(): Promise<boolean>;
+  /**
+   * Whether at least one match exists, or with a condition, whether at least one match satisfies it, without loading
+   * records.
+   */
+  any(lambda?: QueryLambda<T>): Promise<boolean>;
+  /**
+   * Whether every match satisfies the condition (true when nothing matches), answered by the database in one round trip
+   * without loading records.
+   */
+  all(lambda: QueryLambda<T>): Promise<boolean>;
   /** `{ data, total, limit, offset }` like the generated list routes. */
   page(options?: PageOptions): Promise<{ data: T[]; total: number; limit: number; offset: number }>;
   /**
@@ -318,7 +326,7 @@ export interface Query<T, R = Record<never, never>, M = never> {
 /** What a query needs from its repository. */
 export interface QueryBackend {
   model: EntityModel;
-  findAllMax: number;
+  toArrayMax: number;
   /** A page of matches; `withTotal` false skips counting them (`total` is then the page size). */
   list(query: ListQuery, populate: string[], withTotal: boolean): Promise<{ data: Record<string, unknown>[]; total: number }>;
   count(where: Condition[]): Promise<number>;
@@ -372,7 +380,7 @@ function nonNegative(method: string, count: number): number {
 
 /** A query over the backend's records with the given state; every method returns a new query. */
 export function createQuery<T, R = Record<never, never>, M = never>(backend: QueryBackend, state: QueryState): Query<T, R, M> {
-  const { model, findAllMax } = backend;
+  const { model, toArrayMax } = backend;
   const next = (changes: Partial<QueryState>) => createQuery<T, R, M>(backend, { ...state, ...changes });
   const keyOf = (lambda: SortLambda<T>) => {
     const key = lambda(sortKeys(model) as unknown as SortFields<T>);
@@ -401,13 +409,13 @@ export function createQuery<T, R = Record<never, never>, M = never>(backend: Que
     take: (value) => next({ take: nonNegative("take", value) }),
     select: (...fields) => createQuery(backend, { ...state, select: fields }) as never,
     include: (...paths) => createQuery(backend, { ...state, include: [...new Set([...(state.include ?? []), ...paths])] }) as never,
-    async all() {
+    async toArray() {
       // One record past the cap shows there are too many, without counting the matches.
-      const limit = Math.min(state.take ?? Number.POSITIVE_INFINITY, findAllMax + 1);
+      const limit = Math.min(state.take ?? Number.POSITIVE_INFINITY, toArrayMax + 1);
       if (limit === 0) return [];
       const { data } = await read(limit, state.skip);
-      if (data.length > findAllMax) {
-        throw new Error(`Query on ${model.entityName} matched more than repositories.findAllMax (${findAllMax}) records`);
+      if (data.length > toArrayMax) {
+        throw new Error(`Query on ${model.entityName} matched more than repositories.toArrayMax (${toArrayMax}) records`);
       }
       return data;
     },
@@ -420,8 +428,15 @@ export function createQuery<T, R = Record<never, never>, M = never>(backend: Que
       return state.take === 0 ? null : ((await read(1, state.skip)).data[0] ?? null);
     },
     count,
-    async any() {
-      return (await count()) > 0;
+    async any(lambda) {
+      if (lambda === undefined) return (await count()) > 0;
+      return (await backend.count([...state.where, ...conditionsOf(model, lambda)])) > 0;
+    },
+    async all(lambda) {
+      if (typeof lambda !== "function") throw new Error("all() needs a condition; use toArray() to read the records");
+      // The matches and those satisfying the condition, counted together in one query.
+      const counts = await backend.aggregate(state.where, { matched: { fn: "count" }, satisfied: { fn: "count", where: conditionsOf(model, lambda) } });
+      return counts === null || counts.matched === counts.satisfied;
     },
     async page({ limit = 20, offset = 0 }: PageOptions = {}) {
       const details: FieldErrorDetail[] = [];

@@ -30,7 +30,7 @@ test("quickservicets eject events turns the native into features/events/ and the
 
   const service = await startTestService({ files: filesOf(root) });
   try {
-    type Rows<T> = { query(): { all(): Promise<T[]> }; findById(id: string): Promise<T | null> };
+    type Rows<T> = { query(): { toArray(): Promise<T[]> }; findById(id: string): Promise<T | null> };
     const repos = service.repos as unknown as { posts: Rows<{ commentCount: number }>; notifications: Rows<{ channel: string }> };
     const created = (await (await service.fetch("/posts", post({ title: "Hello" }))).json()) as { id: string };
     await service.fetch("/comments", post({ body: "one", post: created.id }));
@@ -38,7 +38,7 @@ test("quickservicets eject events turns the native into features/events/ and the
     expect((await repos.posts.findById(created.id))!.commentCount).toBe(1);
     expect((await service.fetch(`/posts/${created.id}/publish`, post({}))).status).toBe(200);
     await events.idle();
-    expect((await repos.notifications.query().all()).map((sent) => sent.channel)).toEqual(["in-app"]);
+    expect((await repos.notifications.query().toArray()).map((sent) => sent.channel)).toEqual(["in-app"]);
   } finally {
     await service.stop();
   }

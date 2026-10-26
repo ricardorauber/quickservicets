@@ -9,8 +9,8 @@ import { build } from "./build.ts";
 afterEach(() => registerProjectFeatures([]));
 
 type Message = { id: string; queue: string; status: string; attempt: number; priority: number; payload: Record<string, unknown> };
-type Repos = { queueMessages: { query(): { all(): Promise<Message[]> }; findById(id: string): Promise<Message | null> } };
-const messages = async (service: TestService) => (service.repos as unknown as Repos).queueMessages.query().all();
+type Repos = { queueMessages: { query(): { toArray(): Promise<Message[]> }; findById(id: string): Promise<Message | null> } };
+const messages = async (service: TestService) => (service.repos as unknown as Repos).queueMessages.query().toArray();
 const post = (body: unknown = {}, headers: Record<string, string> = {}) => ({ method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
 const settle = async (check: () => boolean | Promise<boolean>) => {
   for (let attempt = 0; attempt < 400 && !(await check()); attempt++) await Bun.sleep(10);

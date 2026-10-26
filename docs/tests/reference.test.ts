@@ -29,9 +29,9 @@ describe("config", () => {
     const keys = configKeys();
     expect(keys.filter((key) => !key.description).map((key) => key.path)).toEqual([]);
     const byPath = Object.fromEntries(keys.map((key) => [key.path, key]));
-    for (const path of ["database", "server.port", "files.access", "populate.maxDepth", "repositories.findAllMax"]) expect(byPath[path]).toBeDefined();
+    for (const path of ["database", "server.port", "files.access", "populate.maxDepth", "repositories.toArrayMax"]) expect(byPath[path]).toBeDefined();
     expect(byPath["populate.maxDepth"]).toMatchObject({ type: "number", defaultValue: "2" });
-    expect(pages["reference/config.mdx"]).toContain("| `repositories.findAllMax` | `number` | 10000 |");
+    expect(pages["reference/config.mdx"]).toContain("| `repositories.toArrayMax` | `number` | 10000 |");
   });
 });
 

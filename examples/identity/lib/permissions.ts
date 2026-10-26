@@ -12,11 +12,11 @@ export async function grantedPermissions(repos: Repositories, userId: string, or
     const memberships = await repos.memberships
         .where((m) => m.user.eq(userId).and(m.organization.eq(organizationId)).and(m.active.eq(true)))
         .include("profiles.permissions.module")
-        .all()
+        .toArray()
     const teams = await repos.teams
         .where((t) => t.users.contains(userId).and(t.organization.eq(organizationId)).and(t.active.eq(true)))
         .include("profiles.permissions.module")
-        .all()
+        .toArray()
 
     return new Set(
         [...memberships, ...teams]

@@ -117,7 +117,7 @@ describe("storing events", () => {
       adapter.insert = (model, record) => (model.key === "OutboxEvent" ? Promise.reject(new Error("disk full")) : insert(model, record));
       expect((await service.fetch("/users", post({ name: "a" }))).status).toBe(500);
       adapter.insert = insert;
-      expect(await (service.repos as unknown as { users: { query(): { all(): Promise<unknown[]> } } }).users.query().all()).toEqual([]);
+      expect(await (service.repos as unknown as { users: { query(): { toArray(): Promise<unknown[]> } } }).users.query().toArray()).toEqual([]);
     } finally {
       await service.stop();
     }

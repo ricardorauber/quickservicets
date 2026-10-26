@@ -77,7 +77,7 @@ Each `.ts` file under `jobs/` default-exports a `job(schedule, run, options?)` c
 import { job } from "@quickservicets/core";
 
 export default job("*/5 * * * *", async ({ repos, log }) => {
-  const expired = await repos.sessions.where((s) => s.expiresAt.lt(new Date())).all();
+  const expired = await repos.sessions.where((s) => s.expiresAt.lt(new Date())).toArray();
   for (const session of expired) await repos.sessions.delete(session.id);
   log.info("Expired sessions deleted", { deleted: expired.length });
   return { deleted: expired.length };
@@ -146,7 +146,7 @@ import { job } from "@quickservicets/core";
 export default job(
   "5 0 1 * *",
   async ({ repos, log }) => {
-    const open = await repos.invoices.where((i) => i.status.eq("open").and(i.dueAt.lt(new Date()))).all();
+    const open = await repos.invoices.where((i) => i.status.eq("open").and(i.dueAt.lt(new Date()))).toArray();
     for (const invoice of open) await repos.invoices.update(invoice.id, { status: "closed" });
     log.info("Invoices closed", { closed: open.length });
     return { closed: open.length };
@@ -288,7 +288,7 @@ const handler: Endpoint<unknown, JobRun[]> = (repos) => {
     .where((r) => r.status.in(["failed", "timedOut", "abandoned", "interrupted"]).and(r.startedAt.gt(since)))
     .orderByDescending((r) => r.startedAt)
     .take(50)
-    .all();
+    .toArray();
 };
 
 export default handler;

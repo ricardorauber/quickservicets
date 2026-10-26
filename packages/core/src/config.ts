@@ -70,8 +70,8 @@ export interface ServiceConfig extends NativeFeatures {
   };
   /** Repository settings. */
   repositories?: {
-    /** Most records a fluent query's `all()` may return (default 10000). */
-    findAllMax?: number;
+    /** Most records a fluent query's `toArray()` may return (default 10000). */
+    toArrayMax?: number;
   };
   /** Populate settings. */
   populate?: {
@@ -321,6 +321,9 @@ function resolveLifecycle(config: ServiceConfig): ResolvedConfig["lifecycle"] {
   return resolved;
 }
 
+/** The error for the config key the fluent query's `toArray()` replaced. */
+export const FIND_ALL_MAX_RENAMED = "repositories.findAllMax was renamed to repositories.toArrayMax";
+
 export function resolveConfig(
   config: ServiceConfig,
   env: Record<string, string | undefined> = process.env,
@@ -331,6 +334,7 @@ export function resolveConfig(
   if (!config || typeof config !== "object" || !config.database) {
     throw new ConfigError("Invalid config: database is required");
   }
+  if (Object.hasOwn(config.repositories ?? {}, "findAllMax")) throw new ConfigError(FIND_ALL_MAX_RENAMED);
   // Variables win over aliases, which win over the config's values; the environment is read only here.
   const environment = applyEnvironment(config as unknown as Record<string, unknown>, env, activeFeatureDefinitions());
   config = environment.config as unknown as ServiceConfig;

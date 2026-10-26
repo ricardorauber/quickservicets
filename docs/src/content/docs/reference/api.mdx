@@ -175,7 +175,7 @@ Adds a further sort field in descending order.
 skip(count: number): Query<T, R, M>;
 ```
 
-Leaves out the first `count` results (not applied to `count()` and `any()`).
+Leaves out the first `count` results (not applied to `count()`, `any()` and `all()`).
 
 ### `take`
 
@@ -183,7 +183,7 @@ Leaves out the first `count` results (not applied to `count()` and `any()`).
 take(count: number): Query<T, R, M>;
 ```
 
-Returns at most `count` results (not applied to `count()` and `any()`).
+Returns at most `count` results (not applied to `count()`, `any()` and `all()`).
 
 ### `select`
 
@@ -201,13 +201,13 @@ include<const P extends readonly PopulatePath<R>[]>(...paths: P): Query<Populate
 
 Replaces reference paths with the referenced records, e.g. `include("profiles.permissions.module")`.
 
-### `all`
+### `toArray`
 
 ```ts
-all(): Promise<T[]>;
+toArray(): Promise<T[]>;
 ```
 
-Every match; throws when there are more than `repositories.findAllMax`.
+Every match; throws when there are more than `repositories.toArrayMax`.
 
 ### `first`
 
@@ -236,10 +236,20 @@ The number of matches, without loading records.
 ### `any`
 
 ```ts
-any(): Promise<boolean>;
+any(lambda?: QueryLambda<T>): Promise<boolean>;
 ```
 
-Whether at least one record matches, without loading records.
+Whether at least one match exists, or with a condition, whether at least one match satisfies it, without loading
+records.
+
+### `all`
+
+```ts
+all(lambda: QueryLambda<T>): Promise<boolean>;
+```
+
+Whether every match satisfies the condition (true when nothing matches), answered by the database in one round trip
+without loading records.
 
 ### `page`
 

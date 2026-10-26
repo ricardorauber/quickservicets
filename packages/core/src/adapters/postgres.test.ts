@@ -273,7 +273,7 @@ if (url) {
       expect(arrays([(await teams.findById(full.id))!, (await teams.findById(empty.id))!])).toEqual(expected);
       expect(arrays((await teams.list({ where: [], sort: [{ field: "name", direction: "asc" }], limit: 10, offset: 0 })).data)).toEqual(expected);
       expect(arrays(await teams.findByIds([full.id, empty.id]))).toEqual(expected);
-      expect(arrays(await teams.query().all())).toEqual(expected);
+      expect(arrays(await teams.query().toArray())).toEqual(expected);
       expect(arrays([await teams.where((t) => t.name.eq("full")).first(), (await teams.findOne([{ field: "name", op: "eq", value: "empty" }]))!])).toEqual(expected);
       const owner = entity("Owner", [field({ name: "team", type: "ref", target: "Team", onDelete: "setNull", optional: true })]);
       const populatedAdapter = adapterWithTables();

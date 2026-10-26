@@ -33,7 +33,7 @@ Every key that holds a value can also be set by an environment variable named af
 | `files.deleteReplaced` | `boolean` | true | `QS_FILES_DELETE_REPLACED` | Delete replaced content and files no longer referenced after a reference changes (default true). |
 | `files.deleteWithOwner` | `boolean` | true | `QS_FILES_DELETE_WITH_OWNER` | Delete the files a record references when the record is deleted (default true). |
 | `repositories` | `object` | — | — | Repository settings. |
-| `repositories.findAllMax` | `number` | 10000 | `QS_REPOSITORIES_FIND_ALL_MAX` | Most records a fluent query's `all()` may return (default 10000). |
+| `repositories.toArrayMax` | `number` | 10000 | `QS_REPOSITORIES_TO_ARRAY_MAX` | Most records a fluent query's `toArray()` may return (default 10000). |
 | `populate` | `object` | — | — | Populate settings. |
 | `populate.maxDepth` | `number` | 2 | `QS_POPULATE_MAX_DEPTH` | Maximum number of segments in a populate path (default 2). |
 | `migrations` | `object` | — | — | Migration settings. |

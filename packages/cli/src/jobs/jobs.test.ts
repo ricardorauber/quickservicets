@@ -201,7 +201,7 @@ describe("job context types", () => {
       [
         'import { job } from "@quickservicets/core";',
         "export default job({ every: \"1m\" }, async (ctx) => {",
-        "  const users = await ctx.repos.users.where((u) => u.email.eq(\"a@b.c\")).all();",
+        "  const users = await ctx.repos.users.where((u) => u.email.eq(\"a@b.c\")).toArray();",
         "  const storage = ctx.files.default;",
         "  const aborted: boolean = ctx.signal.aborted;",
         '  ctx.log.info("x");',

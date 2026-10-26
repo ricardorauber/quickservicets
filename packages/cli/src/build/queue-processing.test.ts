@@ -9,7 +9,7 @@ export default defineConfig({ database: memoryAdapter(), logger, queues: { pollI
 const logs = () => (globalThis as { queueLogs?: { message: string; messageId?: string; attempt?: number }[] }).queueLogs ?? [];
 const post = (body: unknown = {}) => ({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 type Message = { id: string; status: string; attempt: number; result?: unknown; lastError?: { message: string; stack?: string } | null };
-type Repos = { queueMessages: { query(): { all(): Promise<Message[]> }; findById(id: string): Promise<Message | null> } };
+type Repos = { queueMessages: { query(): { toArray(): Promise<Message[]> }; findById(id: string): Promise<Message | null> } };
 const messages = (service: TestService) => (service.repos as unknown as Repos).queueMessages;
 const settle = async (check: () => Promise<boolean>) => {
   for (let attempt = 0; attempt < 400 && !(await check()); attempt++) await Bun.sleep(10);
@@ -37,7 +37,7 @@ describe("processing in a running service", () => {
     try {
       const ids: string[] = [];
       for (const to of ["a@b.c", "d@e.f", "g@h.i"]) ids.push(((await (await service.fetch("/send", post({ to }))).json()) as { id: string }).id);
-      await settle(async () => (await messages(service).query().all()).every((message) => message.status === "completed"));
+      await settle(async () => (await messages(service).query().toArray()).every((message) => message.status === "completed"));
       for (const [index, id] of ids.entries()) {
         expect(await messages(service).findById(id)).toMatchObject({ status: "completed", attempt: 1, result: { sentTo: ["a@b.c", "d@e.f", "g@h.i"][index], attempt: 1 } });
       }
@@ -51,7 +51,7 @@ describe("processing in a running service", () => {
     try {
       for (const to of ["a@b.c", "d@e.f", "g@h.i"]) expect((await service.fetch("/send", post({ to }))).status).toBe(200);
       await Bun.sleep(100);
-      expect((await messages(service).query().all()).map((message) => message.status)).toEqual(["waiting", "waiting", "waiting"]);
+      expect((await messages(service).query().toArray()).map((message) => message.status)).toEqual(["waiting", "waiting", "waiting"]);
     } finally {
       await service.stop();
     }

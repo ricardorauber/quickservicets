@@ -16,7 +16,7 @@ test("fluent queries return and filter by derived relation sides", async () => {
   const acme = await repos.organizations!.create({ name: "acme" });
   await repos.organizations!.create({ name: "empty" });
   const ana = await repos.users!.create({ name: "ana", organization: acme.id });
-  const found = await repos.organizations!.where((o: any) => o.users.contains(ana.id)).all();
+  const found = await repos.organizations!.where((o: any) => o.users.contains(ana.id)).toArray();
   expect(found.map((organization: any) => [organization.name, organization.users])).toEqual([["acme", [ana.id]]]);
 });
 

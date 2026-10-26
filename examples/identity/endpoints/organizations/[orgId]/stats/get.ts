@@ -23,7 +23,7 @@ const handler: Endpoint<unknown, Stats> = async (repos, req) => {
     const [members, teamCounts, profileIds] = await Promise.all([
         memberships.aggregate((m) => ({ members: m.count(), activeMembers: m.count(m.active.eq(true)) })),
         teams.aggregate((t) => ({ teams: t.count(), activeTeams: t.count(t.active.eq(true)) })),
-        Promise.all([memberships.select("profiles").all(), teams.select("profiles").all()]).then((sources) => [
+        Promise.all([memberships.select("profiles").toArray(), teams.select("profiles").toArray()]).then((sources) => [
             ...new Set(sources.flat().flatMap((source) => source.profiles)),
         ]),
     ])

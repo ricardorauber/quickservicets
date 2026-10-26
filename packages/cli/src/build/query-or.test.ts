@@ -79,9 +79,9 @@ describe.each(factories)("%s", (_, factory) => {
   test("OR, AND inside OR and OR inside AND", async () => {
     const { adapter, repos } = await setup();
     const users = repos.users!;
-    expect(emails(await users.where((u: any) => u.role.eq("admin").or(u.email.contains("@acme.com"))).all())).toEqual(["ana@acme.com", "bob@x.co"]);
-    expect(emails(await users.where((u: any) => u.active.eq(true).and(u.role.eq("admin").or(u.role.eq("owner")))).all())).toEqual(["bob@x.co"]);
-    expect(emails(await users.where((u: any) => u.role.eq("owner").and(u.active.eq(false)).or(u.role.eq("admin"))).all())).toEqual([
+    expect(emails(await users.where((u: any) => u.role.eq("admin").or(u.email.contains("@acme.com"))).toArray())).toEqual(["ana@acme.com", "bob@x.co"]);
+    expect(emails(await users.where((u: any) => u.active.eq(true).and(u.role.eq("admin").or(u.role.eq("owner")))).toArray())).toEqual(["bob@x.co"]);
+    expect(emails(await users.where((u: any) => u.role.eq("owner").and(u.active.eq(false)).or(u.role.eq("admin"))).toArray())).toEqual([
       "bob@x.co",
       "cid@x.co",
     ]);
@@ -92,7 +92,7 @@ describe.each(factories)("%s", (_, factory) => {
 
   test("groups on a derived relation side", async () => {
     const { adapter, repos, ana } = await setup();
-    const names = (await repos.organizations!.where((o: any) => o.members.contains(ana.id).or(o.active.eq(false))).all())
+    const names = (await repos.organizations!.where((o: any) => o.members.contains(ana.id).or(o.active.eq(false))).toArray())
       .map((organization: { name: string }) => organization.name)
       .sort();
     expect(names).toEqual(["acme", "gone"]);

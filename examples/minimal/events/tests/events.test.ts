@@ -19,7 +19,7 @@ function exampleFiles(): Record<string, string> {
 }
 
 const send = (method: string, body: unknown = {}) => ({ method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-type Rows<T> = { query(): { all(): Promise<T[]> }; findById(id: string): Promise<T | null> };
+type Rows<T> = { query(): { toArray(): Promise<T[]> }; findById(id: string): Promise<T | null> };
 type Repos = { posts: Rows<{ id: string; commentCount: number; published: boolean }>; notifications: Rows<{ channel: string; postId: string }>; outboxDeliveries: Rows<{ consumer: string; status: string }> };
 const settle = async (check: () => Promise<boolean>) => {
   for (let attempt = 0; attempt < 300 && !(await check()); attempt++) await Bun.sleep(10);
@@ -67,7 +67,7 @@ test("post.published reaches listeners only after a committed publish, never aft
     await events.idle();
     expect(published.map((event) => event.type)).toEqual(["post.published"]);
     expect(committed).toBe(true);
-    expect((await repos.notifications.query().all()).map((sent) => sent.channel)).toEqual(["in-app"]);
+    expect((await repos.notifications.query().toArray()).map((sent) => sent.channel)).toEqual(["in-app"]);
   } finally {
     await service.stop();
   }
@@ -80,9 +80,9 @@ test("with the outbox on, events are stored and the notify/email consumer gets i
     const post = (await (await service.fetch("/posts", send("POST", { title: "Hello" }))).json()) as { id: string };
     await service.fetch(`/posts/${post.id}/publish`, send("POST"));
     expect((await readOutbox()).map((record) => record.type)).toEqual(["post.created", "post.updated", "post.published"]);
-    await settle(async () => (await repos.outboxDeliveries.query().all()).every((row) => row.status === "delivered"));
-    expect(await repos.outboxDeliveries.query().all()).toEqual([expect.objectContaining({ consumer: "notify/email", status: "delivered" })]);
-    expect((await repos.notifications.query().all()).map((sent) => sent.channel).sort()).toEqual(["email", "in-app"]);
+    await settle(async () => (await repos.outboxDeliveries.query().toArray()).every((row) => row.status === "delivered"));
+    expect(await repos.outboxDeliveries.query().toArray()).toEqual([expect.objectContaining({ consumer: "notify/email", status: "delivered" })]);
+    expect((await repos.notifications.query().toArray()).map((sent) => sent.channel).sort()).toEqual(["email", "in-app"]);
   } finally {
     await service.stop();
   }
@@ -100,7 +100,7 @@ export default listen("post.published", async (event, { repos }) => {
     const post = (await (await service.fetch("/posts", send("POST", { title: "Hello" }))).json()) as { id: string };
     await service.fetch(`/posts/${post.id}/publish`, send("POST"));
     await events.idle();
-    expect((await repos.notifications.query().all()).map((sent) => sent.channel)).toEqual(["project"]);
+    expect((await repos.notifications.query().toArray()).map((sent) => sent.channel)).toEqual(["project"]);
   } finally {
     await service.stop();
   }

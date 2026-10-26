@@ -19,7 +19,7 @@ const files = (events: string) => ({
   "entities/User.ts": "export type User = { name: string };\n",
   "features/sink/index.ts": SINK,
 });
-type Deliveries = { outboxDeliveries: { query(): { all(): Promise<{ status: string; consumer: string; attempt: number }[]> } } };
+type Deliveries = { outboxDeliveries: { query(): { toArray(): Promise<{ status: string; consumer: string; attempt: number }[]> } } };
 
 describe("durable consumers", () => {
   test("a consumer registered in setup receives user.created once, and its row ends delivered", async () => {
@@ -27,8 +27,8 @@ describe("durable consumers", () => {
     try {
       await service.fetch("/users", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "a" }) });
       const deliveries = (service.repos as unknown as Deliveries).outboxDeliveries;
-      for (let attempt = 0; attempt < 400 && (await deliveries.query().all()).some((row) => row.status !== "delivered"); attempt++) await Bun.sleep(10);
-      expect(await deliveries.query().all()).toEqual([expect.objectContaining({ consumer: "audit-sink", status: "delivered", attempt: 1 })]);
+      for (let attempt = 0; attempt < 400 && (await deliveries.query().toArray()).some((row) => row.status !== "delivered"); attempt++) await Bun.sleep(10);
+      expect(await deliveries.query().toArray()).toEqual([expect.objectContaining({ consumer: "audit-sink", status: "delivered", attempt: 1 })]);
       const delivered = (globalThis as { delivered?: { type: string }[] }).delivered ?? [];
       expect(delivered.map((event) => event.type)).toEqual(["user.created"]);
     } finally {

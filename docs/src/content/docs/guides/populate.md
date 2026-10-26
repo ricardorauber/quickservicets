@@ -472,7 +472,7 @@ const handler: Endpoint<unknown, Person[]> = async (repos, req) => {
     .where((user) => user.organization.eq(req.params.id!))
     .orderBy((user) => user.name)
     .include("organization.country")
-    .all();
+    .toArray();
   return users.map((user) => ({ name: user.name, country: user.organization?.country?.code ?? null }));
 };
 

@@ -47,7 +47,7 @@ const settle = async (check: () => boolean | Promise<boolean>, tries = 600) => {
   for (let attempt = 0; attempt < tries && !(await check()); attempt++) await Bun.sleep(10);
 };
 type Message = { status: string; attempt: number };
-const messages = (service: TestService) => (service.repos as unknown as { queueMessages: { query(): { all(): Promise<Message[]> } } }).queueMessages.query().all();
+const messages = (service: TestService) => (service.repos as unknown as { queueMessages: { query(): { toArray(): Promise<Message[]> } } }).queueMessages.query().toArray();
 
 describe("queue messages", () => {
   test("a message that exhausts its retries is reported once, with the user of the request that added it", async () => {

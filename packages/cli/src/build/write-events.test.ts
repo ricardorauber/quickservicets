@@ -58,7 +58,7 @@ describe("write events over HTTP", () => {
     try {
       const refused = await service.fetch("/users", json("POST", { name: "veto" }));
       expect(refused.status).toBe(422);
-      expect(await (service.repos as unknown as { users: { query(): { all(): Promise<unknown[]> } } }).users.query().all()).toEqual([]);
+      expect(await (service.repos as unknown as { users: { query(): { toArray(): Promise<unknown[]> } } }).users.query().toArray()).toEqual([]);
     } finally {
       await service.stop();
     }

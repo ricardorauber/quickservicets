@@ -157,7 +157,7 @@ describe("the events native", () => {
     const req = { id: "req-1", user: { id: "u1" }, tenant: { id: "t1" } } as unknown as ServiceRequest;
     const created = await withOperation({ requestId: "req-1", req }, () => repos.users!.create({ name: "A" }));
     await withJobOperation({ name: "nightly", runId: "run-1" }, () => repos.orderitems!.create({ sku: "x" }));
-    await repos.logs!.query().all();
+    await repos.logs!.query().toArray();
     await events.idle();
     expect(received.map((event) => event.type)).toEqual(["user.created", "orderItem.created"]);
     expect(received[0]!.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-/);
@@ -188,7 +188,7 @@ describe("the events native", () => {
       { phase: "inTransaction" },
     );
     expect((await failure(() => repos.users!.create({ name: "A" }))).message).toBe("no users today");
-    expect(await repos.users!.query().all()).toEqual([]);
+    expect(await repos.users!.query().toArray()).toEqual([]);
     stop();
     entries.length = 0;
     const seen: string[] = [];

@@ -82,7 +82,7 @@ describe("repositories", () => {
         ...files(),
         "jobs/stale.ts": `import { HttpError, job } from "@quickservicets/core";
 export default job({ every: "1h" }, async (ctx) => {
-  const [user] = await (ctx.repos as unknown as { users: { query(): { all(): Promise<{ id: string }[]> } } }).users.query().all();
+  const [user] = await (ctx.repos as unknown as { users: { query(): { toArray(): Promise<{ id: string }[]> } } }).users.query().toArray();
   try {
     await (ctx.repos as unknown as { users: { update(id: string, changes: object, options: object): Promise<unknown> } }).users.update(user!.id, { name: "x" }, { ifMatch: '"old"' });
     return { status: 200 };

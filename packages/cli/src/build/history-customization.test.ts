@@ -30,7 +30,7 @@ afterEach(() => {
 });
 const create = async (service: TestService, body: unknown = { name: "Ada", email: "ada@x.io" }) => ((await (await service.fetch("/users", send("POST", body))).json()) as { id: string }).id;
 const versionsOf = async (service: TestService, id: string) =>
-  ((await (service.repos as unknown as Record<string, { query(): { all(): Promise<Version[]> } }>).userHistory!.query().all()) as Version[])
+  ((await (service.repos as unknown as Record<string, { query(): { toArray(): Promise<Version[]> } }>).userHistory!.query().toArray()) as Version[])
     .filter((version) => version.entityId === id)
     .sort((a, b) => a.version! - b.version!);
 const failure = async (work: () => Promise<unknown>): Promise<Error> => {

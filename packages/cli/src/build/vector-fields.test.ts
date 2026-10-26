@@ -265,8 +265,8 @@ describe("responses", () => {
     const { repos } = await serverFor();
     const created = await repos.chunks.create({ text: "a", embedding: [1, 2, 3] });
     expect((await repos.chunks.findById(created.id))!.embedding).toEqual([1, 2, 3]);
-    expect((await repos.chunks.query().all())[0]!.embedding).toEqual([1, 2, 3]);
-    expect(await repos.chunks.query().select("id", "text").all()).toEqual([{ id: created.id, text: "a" }]);
+    expect((await repos.chunks.query().toArray())[0]!.embedding).toEqual([1, 2, 3]);
+    expect(await repos.chunks.query().select("id", "text").toArray()).toEqual([{ id: created.id, text: "a" }]);
   });
 });
 

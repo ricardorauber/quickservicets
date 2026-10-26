@@ -468,9 +468,9 @@ export function runAdapterContract(name: string, factory: AdapterFactory): void 
       test("scope every terminal to the records of the array, in the usual default order", async () => {
         const { items, a, linked } = await setupRelated();
         const partners = items.related(linked.id, "partners");
-        expect(names(await partners.all())).toEqual(["c", "b", "a"]);
+        expect(names(await partners.toArray())).toEqual(["c", "b", "a"]);
         const bigOrC = partners.where((o) => o.size.gte(15).or(o.name.eq("c")));
-        expect(names(await bigOrC.orderBy((o) => o.name).all())).toEqual(["b", "c"]);
+        expect(names(await bigOrC.orderBy((o) => o.name).toArray())).toEqual(["b", "c"]);
         expect(await partners.count()).toBe(3);
         expect(await bigOrC.count()).toBe(2);
         expect(await partners.any()).toBe(true);
@@ -508,7 +508,7 @@ export function runAdapterContract(name: string, factory: AdapterFactory): void 
         expect(await items.related(empty.id, "partners").aggregate(() => ({}))).toEqual({});
         for (const id of [newId(), empty.id]) {
           const partners = items.related(id, "partners");
-          expect(await partners.all()).toEqual([]);
+          expect(await partners.toArray()).toEqual([]);
           expect(await partners.count()).toBe(0);
           expect(await partners.any()).toBe(false);
           expect(await partners.firstOrDefault()).toBeNull();

@@ -202,7 +202,7 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
     populateMaxDepth: config.populate?.maxDepth,
     fileAccess,
     fileCleanup,
-    findAllMax: config.repositories?.findAllMax,
+    toArrayMax: config.repositories?.toArrayMax,
   });
   const hooksByRoute = new Map(crudRoutes.map((entry) => [`${entry.method} ${entry.path}`, entry.hooks]));
   const uploads = { storage: config.storage, files: config.files };

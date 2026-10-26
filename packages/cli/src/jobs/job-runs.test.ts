@@ -196,9 +196,9 @@ describe("read-only repository", () => {
       [
         'import type { GeneratedRepositories } from "./.generated/types.ts";',
         "declare const repos: GeneratedRepositories;",
-        'const failed = await repos.jobRuns.where((r) => r.status.eq("failed")).all();',
+        'const failed = await repos.jobRuns.where((r) => r.status.eq("failed")).toArray();',
         "const statuses: string[] = failed.map((run) => run.status);",
-        'const latest = await repos.jobRuns.query().orderByDescending((r) => r.startedAt).take(5).all();',
+        'const latest = await repos.jobRuns.query().orderByDescending((r) => r.startedAt).take(5).toArray();',
         "const result: unknown = latest[0]?.result;",
         'const one = await repos.jobRuns.findById("x");',
         "const attempt: number | undefined = one?.attempt;",

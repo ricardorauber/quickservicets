@@ -53,7 +53,7 @@ export const CONFIG_OVERRIDES: readonly ConfigOverride[] = [
   { path: "files.deleteOnRemove", schema: boolean() },
   { path: "files.deleteReplaced", schema: boolean() },
   { path: "files.deleteWithOwner", schema: boolean() },
-  { path: "repositories.findAllMax", schema: integer().min(1) },
+  { path: "repositories.toArrayMax", schema: integer().min(1) },
   { path: "populate.maxDepth", schema: integer().min(1) },
   { path: "migrations.autoInDev", schema: boolean() },
   { path: "jobs.enabled", schema: boolean(), alias: { name: "JOBS_ENABLED" } },

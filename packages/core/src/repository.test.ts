@@ -213,7 +213,7 @@ test("reads that return no total skip counting", async () => {
   const created = await teams.create({ lead: a.id, members: [a.id, b.id] });
   await teams.findById(created.id, { populate: ["lead", "members"] });
   await users.findByIds([a.id, b.id]);
-  await users.query().all();
+  await users.query().toArray();
   await users.query().first();
   await users.query().firstOrDefault();
   await users.delete(a.id);

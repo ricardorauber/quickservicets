@@ -5,7 +5,7 @@ sidebar:
   order: 32
 ---
 
-Endpoints and hooks receive `repos`, with one repository per entity. Besides `create`, `findById`, `update` and the other single-record methods, every repository starts a typed query: you filter with lambdas, chain ordering and paging, and finish with a terminal method such as `all()` or `first()`.
+Endpoints and hooks receive `repos`, with one repository per entity. Besides `create`, `findById`, `update` and the other single-record methods, every repository starts a typed query: you filter with lambdas, chain ordering and paging, and finish with a terminal method such as `toArray()` or `first()`.
 
 ```ts check
 import type { Repositories } from "@quickservicets/core";
@@ -14,7 +14,7 @@ export async function activeAdmins(repos: Repositories) {
   return repos.users
     .where((u) => u.role.eq("admin").and(u.active.eq(true)))
     .orderBy((u) => u.name)
-    .all();
+    .toArray();
 }
 ```
 
@@ -97,8 +97,8 @@ declare module "@quickservicets/core" {
 import type { Repositories } from "@quickservicets/core";
 
 export async function starts(repos: Repositories) {
-  const admins = await repos.users.where((u) => u.role.eq("admin")).all(); // ["Dee", "Ana"]
-  const everyone = await repos.users.query().all(); // ["Dee", "Cid", "Bob", "Ana"]
+  const admins = await repos.users.where((u) => u.role.eq("admin")).toArray(); // ["Dee", "Ana"]
+  const everyone = await repos.users.query().toArray(); // ["Dee", "Cid", "Bob", "Ana"]
   return { admins, everyone };
 }
 ```
@@ -121,29 +121,29 @@ import type { Repositories } from "@quickservicets/core";
 
 export async function conditions(repos: Repositories, anaId: string, bobId: string, cidId: string, deeId: string, acmeId: string) {
   // Strings: contains and startsWith ignore case and match the text literally.
-  await repos.users.where((u) => u.email.contains("ACME")).all(); // ["Bob", "Ana"]
-  await repos.users.where((u) => u.name.startsWith("d")).all(); // ["Dee"]
+  await repos.users.where((u) => u.email.contains("ACME")).toArray(); // ["Bob", "Ana"]
+  await repos.users.where((u) => u.name.startsWith("d")).toArray(); // ["Dee"]
 
   // Numbers and dates compare.
-  await repos.users.where((u) => u.age.lt(30)).all(); // ["Dee", "Bob"]
+  await repos.users.where((u) => u.age.lt(30)).toArray(); // ["Dee", "Bob"]
   await repos.users.where((u) => u.createdAt.gte(new Date("2026-01-01"))).count(); // 4
 
   // Lists of values.
-  await repos.users.where((u) => u.id.in([anaId, cidId])).all(); // ["Cid", "Ana"]
-  await repos.users.where((u) => u.role.nin(["admin"])).all(); // ["Cid", "Bob"]
+  await repos.users.where((u) => u.id.in([anaId, cidId])).toArray(); // ["Cid", "Ana"]
+  await repos.users.where((u) => u.role.nin(["admin"])).toArray(); // ["Cid", "Bob"]
 
   // exists() and isNull() mean true; pass false for the opposite.
-  await repos.users.where((u) => u.age.isNull()).all(); // []
-  await repos.organizations.where((o) => o.owner.exists()).all(); // ["Acme"]
+  await repos.users.where((u) => u.age.isNull()).toArray(); // []
+  await repos.organizations.where((o) => o.owner.exists()).toArray(); // ["Acme"]
 
   // A single reference holds an id.
-  await repos.projects.where((p) => p.organization.eq(acmeId)).all(); // ["Website"]
+  await repos.projects.where((p) => p.organization.eq(acmeId)).toArray(); // ["Website"]
 
   // Reference arrays.
-  await repos.organizations.where((o) => o.members.contains(bobId)).all(); // ["Acme"]
-  await repos.organizations.where((o) => o.members.containsAny([anaId, deeId])).all(); // ["Globex", "Acme"]
-  await repos.organizations.where((o) => o.members.containsAll([cidId, deeId])).all(); // ["Globex"]
-  await repos.organizations.where((o) => o.members.isEmpty()).all(); // []
+  await repos.organizations.where((o) => o.members.contains(bobId)).toArray(); // ["Acme"]
+  await repos.organizations.where((o) => o.members.containsAny([anaId, deeId])).toArray(); // ["Globex", "Acme"]
+  await repos.organizations.where((o) => o.members.containsAll([cidId, deeId])).toArray(); // ["Globex"]
+  await repos.organizations.where((o) => o.members.isEmpty()).toArray(); // []
 }
 ```
 
@@ -166,14 +166,14 @@ import type { Repositories } from "@quickservicets/core";
 
 export async function combined(repos: Repositories) {
   // AND inside one lambda, or across chained where calls: the same result.
-  await repos.users.where((u) => u.role.eq("member").and(u.active.eq(true))).all(); // ["Cid"]
-  await repos.users.where((u) => u.role.eq("member")).where((u) => u.active.eq(true)).all(); // ["Cid"]
+  await repos.users.where((u) => u.role.eq("member").and(u.active.eq(true))).toArray(); // ["Cid"]
+  await repos.users.where((u) => u.role.eq("member")).where((u) => u.active.eq(true)).toArray(); // ["Cid"]
 
   // OR.
-  await repos.users.where((u) => u.role.eq("admin").or(u.email.contains("@globex.com"))).all(); // ["Dee", "Cid", "Ana"]
+  await repos.users.where((u) => u.role.eq("admin").or(u.email.contains("@globex.com"))).toArray(); // ["Dee", "Cid", "Ana"]
 
   // AND with a nested OR: active, and either 30 or older or an admin.
-  await repos.users.where((u) => u.active.eq(true).and(u.age.gte(30).or(u.role.eq("admin")))).all(); // ["Dee", "Cid", "Ana"]
+  await repos.users.where((u) => u.active.eq(true).and(u.age.gte(30).or(u.role.eq("admin")))).toArray(); // ["Dee", "Cid", "Ana"]
 }
 ```
 
@@ -187,10 +187,10 @@ OR works on every database adapter, including conditions on derived relation sid
 import type { Repositories } from "@quickservicets/core";
 
 export async function ordered(repos: Repositories) {
-  await repos.users.query().orderBy((u) => u.name).all(); // ["Ana", "Bob", "Cid", "Dee"]
-  await repos.users.query().orderByDescending((u) => u.age).all(); // ["Cid", "Ana", "Bob", "Dee"]
-  await repos.users.query().orderBy((u) => u.role).thenBy((u) => u.name).all(); // ["Ana", "Dee", "Bob", "Cid"]
-  await repos.users.query().orderBy((u) => u.role).thenByDescending((u) => u.age).all(); // ["Ana", "Dee", "Cid", "Bob"]
+  await repos.users.query().orderBy((u) => u.name).toArray(); // ["Ana", "Bob", "Cid", "Dee"]
+  await repos.users.query().orderByDescending((u) => u.age).toArray(); // ["Cid", "Ana", "Bob", "Dee"]
+  await repos.users.query().orderBy((u) => u.role).thenBy((u) => u.name).toArray(); // ["Ana", "Dee", "Bob", "Cid"]
+  await repos.users.query().orderBy((u) => u.role).thenByDescending((u) => u.age).toArray(); // ["Ana", "Dee", "Cid", "Bob"]
 }
 ```
 
@@ -202,14 +202,14 @@ repos.organizations.query().orderBy((o) => o.members); // Property 'members' doe
 
 ## Slicing: `skip` and `take`
 
-`skip(n)` leaves out the first `n` results and `take(n)` returns at most `n`. They apply to `all()`, `first()`, `firstOrDefault()` and `page()`, but not to `count()` and `any()`. A negative or fractional value throws a 400 `Invalid query`, with details such as `skip: Must be an integer of at least 0`.
+`skip(n)` leaves out the first `n` results and `take(n)` returns at most `n`. They apply to `toArray()`, `first()`, `firstOrDefault()` and `page()`, but not to `count()`, `any()` and `all()`. A negative or fractional value throws a 400 `Invalid query`, with details such as `skip: Must be an integer of at least 0`.
 
 ```ts check
 import type { Repositories } from "@quickservicets/core";
 
 export async function sliced(repos: Repositories) {
   const byName = repos.users.query().orderBy((u) => u.name);
-  await byName.skip(1).take(2).all(); // ["Bob", "Cid"]
+  await byName.skip(1).take(2).toArray(); // ["Bob", "Cid"]
   await byName.skip(1).take(2).count(); // 4
 }
 ```
@@ -222,7 +222,7 @@ export async function sliced(repos: Repositories) {
 import type { Repositories } from "@quickservicets/core";
 
 export async function selected(repos: Repositories) {
-  const admins = await repos.users.where((u) => u.role.eq("admin")).orderBy((u) => u.name).select("name", "email").all();
+  const admins = await repos.users.where((u) => u.role.eq("admin")).orderBy((u) => u.name).select("name", "email").toArray();
   // [{ id: "...", name: "Ana", email: "ana@acme.com" }, { id: "...", name: "Dee", email: "dee@globex.com" }]
   return admins.map((user) => `${user.name} <${user.email}>`);
 }
@@ -238,7 +238,7 @@ Unknown fields fail to type-check, and so do fields you left out: after `select(
 import type { Repositories } from "@quickservicets/core";
 
 export async function included(repos: Repositories) {
-  const projects = await repos.projects.query().orderBy((p) => p.name).include("organization").all();
+  const projects = await repos.projects.query().orderBy((p) => p.name).include("organization").toArray();
   const pairs = projects.map((project) => [project.name, project.organization?.name]); // [["App", "Globex"], ["Website", "Acme"]]
 
   const website = await repos.projects.where((p) => p.name.eq("Website")).include("organization.members").first();
@@ -292,14 +292,14 @@ curl localhost:3000/projects/missing
 import type { Repositories } from "@quickservicets/core";
 
 export async function relatedRecords(repos: Repositories, acmeId: string, globexId: string) {
-  const acme = await repos.organizations.related(acmeId, "members").all(); // ["Bob", "Ana"]
-  const admins = await repos.organizations.related(globexId, "members").where((u) => u.role.eq("admin")).all(); // ["Dee"]
+  const acme = await repos.organizations.related(acmeId, "members").toArray(); // ["Bob", "Ana"]
+  const admins = await repos.organizations.related(globexId, "members").where((u) => u.role.eq("admin")).toArray(); // ["Dee"]
   const members = await repos.organizations.related(globexId, "members").count(); // 2
   return { acme, admins, members };
 }
 ```
 
-The query is over the array's target entity (`User` here), so `where`, ordering, `select`, `include` and every terminal method work as on `repos.users`. Results come in the usual default order, not in the array's order; add `orderBy` for another one. When the record does not exist or its array is empty, the query has no records: `all()` returns `[]`, `count()` 0 and `any()` `false`.
+The query is over the array's target entity (`User` here), so `where`, ordering, `select`, `include` and every terminal method work as on `repos.users`. Results come in the usual default order, not in the array's order; add `orderBy` for another one. When the record does not exist or its array is empty, the query has no records: `toArray()` returns `[]`, `count()` 0, `any()` `false` and `all(condition)` `true`.
 
 `aggregate` tells the two cases apart: it returns `null` when the record does not exist, and over an empty array counts are `0` and the other aggregates `null`. An endpoint can therefore answer 404 without reading the record first:
 
@@ -330,12 +330,12 @@ repos.organizations.related(id, "name"); // Argument of type '"name"' is not ass
 
 A query does nothing until you call one of its terminal methods.
 
-### `all`
+### `toArray`
 
-Every match. To protect the server, `all()` loads at most one record more than `repositories.findAllMax` (10000 by default), after `skip` and `take`, and throws when that extra record is there:
+Every match, as an array. To protect the server, `toArray()` loads at most one record more than `repositories.toArrayMax` (10000 by default, `QS_REPOSITORIES_TO_ARRAY_MAX` overrides it), after `skip` and `take`, and throws when that extra record is there:
 
 ```text
-Query on User matched more than repositories.findAllMax (2) records
+Query on User matched more than repositories.toArrayMax (2) records
 ```
 
 Use `take(n)` or `page()` for large tables, or raise the limit in `quickservicets.config.ts`:
@@ -345,7 +345,7 @@ import { defineConfig, memoryAdapter } from "@quickservicets/core";
 
 export default defineConfig({
   database: memoryAdapter(),
-  repositories: { findAllMax: 50_000 },
+  repositories: { toArrayMax: 50_000 },
 });
 ```
 
@@ -363,19 +363,32 @@ export async function firsts(repos: Repositories) {
 }
 ```
 
-### `count` and `any`
+### `count`, `any` and `all`
 
-Both run without loading records:
+`toArray()` reads the records; `count()`, `any()` and `all()` answer about them without loading any:
+
+- `count()` is the number of matches.
+- `any()` is whether at least one record matches; `any(condition)` is whether at least one match also satisfies the condition.
+- `all(condition)` is whether every match satisfies the condition. It is `true` when nothing matches, and the database answers it in one round trip by counting the matches and the matches that satisfy the condition together.
+
+Like `count()`, `any()` and `all()` look at every match of the query's `where` conditions, ignoring `skip` and `take`.
 
 ```ts check
 import type { Repositories } from "@quickservicets/core";
 
 export async function counts(repos: Repositories) {
+  const admins = repos.users.where((u) => u.role.eq("admin"));
   const active = await repos.users.where((u) => u.active.eq(true)).count(); // 3
-  const hasAdmins = await repos.users.where((u) => u.role.eq("admin")).any(); // true
-  return { active, hasAdmins };
+  const hasAdmins = await admins.any(); // true
+  const hasYoungAdmin = await admins.any((u) => u.age.lt(30)); // true (Dee)
+  const adminsActive = await admins.all((u) => u.active.eq(true)); // true
+  const membersActive = await repos.users.where((u) => u.role.eq("member")).all((u) => u.active.eq(true)); // false (Bob)
+  const adminList = await admins.toArray(); // ["Dee", "Ana"]
+  return { active, hasAdmins, hasYoungAdmin, adminsActive, membersActive, adminList };
 }
 ```
+
+`all()` needs a condition: without one it fails to type-check, and at runtime it throws `all() needs a condition; use toArray() to read the records`.
 
 ### `aggregate`
 
@@ -458,6 +471,6 @@ export async function byIds(repos: Repositories, anaId: string, cidId: string, g
 
 - [Repositories and queries](/reference/api/): the signature of every `Repository` and `Query` method, including `related`.
 - [HTTP query parameters](/reference/http/): the matching filters on the generated list routes.
-- [Configuration](/reference/config/): `repositories.findAllMax` and `populate.maxDepth`.
+- [Configuration](/reference/config/): `repositories.toArrayMax` and `populate.maxDepth`.
 
 Next: [Hooks](/guides/hooks/).

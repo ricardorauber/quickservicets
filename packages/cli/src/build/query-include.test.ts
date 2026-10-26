@@ -33,12 +33,12 @@ async function setup(maxDepth?: number) {
 describe("include", () => {
   test("one, two and three segments", async () => {
     const { repos, finance, manage } = await setup(3);
-    const [one] = await repos.memberships!.where((m: any) => m.user.eq("ana")).include("profiles").all();
+    const [one] = await repos.memberships!.where((m: any) => m.user.eq("ana")).include("profiles").toArray();
     expect(one!.profiles[0].slug).toBe("finance");
     expect(one!.profiles[0].permissions).toEqual([manage.id]);
-    const [two] = await repos.memberships!.query().include("profiles.permissions").all();
+    const [two] = await repos.memberships!.query().include("profiles.permissions").toArray();
     expect(two!.profiles[0].permissions[0].action).toBe("manage");
-    const [three] = await repos.memberships!.query().include("profiles.permissions.module").all();
+    const [three] = await repos.memberships!.query().include("profiles.permissions.module").toArray();
     expect(three!.profiles[0].permissions[0].module.slug).toBe("billing");
     expect(three!.profiles[0].id).toBe(finance.id);
   });
@@ -46,7 +46,7 @@ describe("include", () => {
   test("paths past populate.maxDepth fail with the populate error", async () => {
     const { repos } = await setup();
     try {
-      await repos.memberships!.query().include("profiles.permissions.module").all();
+      await repos.memberships!.query().include("profiles.permissions.module").toArray();
       throw new Error("expected an error");
     } catch (error) {
       expect(error).toBeInstanceOf(HttpError);
@@ -83,7 +83,7 @@ test("deep includes and populate are typed at every level", async () => {
     `import type { GeneratedRepositories } from "./.generated/types.ts";
 declare const repos: GeneratedRepositories;
 export async function run() {
-  const memberships = await repos.memberships.where((m) => m.active.eq(true)).include("profiles.permissions.module").all();
+  const memberships = await repos.memberships.where((m) => m.active.eq(true)).include("profiles.permissions.module").toArray();
   const slug: string = memberships[0]!.profiles[0]!.permissions[0]!.module!.slug;
   const action: "manage" | "view" = memberships[0]!.profiles[0]!.permissions[0]!.action;
   const profiles = await repos.profiles.findByIds(["x"], { include: ["permissions.module"] });

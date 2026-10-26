@@ -52,7 +52,7 @@ export type Membership = {
 const send = (method: string, body?: unknown, headers: Record<string, string> = {}) => ({ method, headers: { "content-type": "application/json", ...headers }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 type Version = { entityId: string; version: number; operation: string; actor: string; requestId?: string; record: Record<string, unknown>; changed: string[] };
 const versionsOf = async (service: TestService, repo: string, entityId?: string) => {
-  const all = (await (service.repos as unknown as Record<string, { query(): { all(): Promise<Version[]> } }>)[repo]!.query().all()) as Version[];
+  const all = (await (service.repos as unknown as Record<string, { query(): { toArray(): Promise<Version[]> } }>)[repo]!.query().toArray()) as Version[];
   return all.filter((version) => entityId === undefined || version.entityId === entityId).sort((a, b) => a.version - b.version);
 };
 const failure = async (work: () => Promise<unknown>): Promise<Error> => {

@@ -17,8 +17,8 @@ export default queue<QueuePayloads["events"]>(({ payload }) => payload.type);
 `;
 const send = (method: string, body: unknown = {}) => ({ method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 type Message = { queue: string; payload: { id: string; type: string; cause: string; before: Record<string, unknown> | null; after: Record<string, unknown> | null; changed: string[] }; dedupeKey: string };
-type Repos = { queueMessages: { query(): { all(): Promise<Message[]> } } };
-const messages = async (service: TestService) => (await (service.repos as unknown as Repos).queueMessages.query().all()).sort((a, b) => a.payload.id.localeCompare(b.payload.id));
+type Repos = { queueMessages: { query(): { toArray(): Promise<Message[]> } } };
+const messages = async (service: TestService) => (await (service.repos as unknown as Repos).queueMessages.query().toArray()).sort((a, b) => a.payload.id.localeCompare(b.payload.id));
 
 describe("the @publish tag", () => {
   test("@publish created,updated sends creates and updates to the events queue, not deletes; @publish off sends nothing", async () => {

@@ -50,7 +50,7 @@ async function startHistory(entities: EntityModel[], options: Record<string, unk
 
 type Version = { entityId: string; version: number; operation: string; actor: string; tenant?: string; requestId?: string; record: Record<string, unknown>; changed: string[] };
 const versions = async (repos: Repos, key: string) =>
-  ((await repos[key]!.query().all()) as unknown as Version[]).sort((a, b) => a.entityId.localeCompare(b.entityId) || a.version - b.version);
+  ((await repos[key]!.query().toArray()) as unknown as Version[]).sort((a, b) => a.entityId.localeCompare(b.entityId) || a.version - b.version);
 
 describe("coverage", () => {
   const user = entityModel("User", { name: field({ type: "string" }) });
@@ -179,7 +179,7 @@ describe("versions", () => {
     };
     await expect(repos.users!.create({ name: "kept out" })).rejects.toThrow("history is down");
     adapter.insert = insert;
-    expect(await repos.users!.query().all()).toEqual([]);
+    expect(await repos.users!.query().toArray()).toEqual([]);
   });
 });
 

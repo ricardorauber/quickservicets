@@ -45,7 +45,7 @@ async function setup(factory: Factory) {
   return { adapter, repos: createRepositories(models, adapter) as unknown as Repos };
 }
 
-const countOf = async (repository: Repository) => (await repository.query().all()).length;
+const countOf = async (repository: Repository) => (await repository.query().toArray()).length;
 
 const failure = async (work: () => Promise<unknown>): Promise<Error> => {
   try {
@@ -70,7 +70,7 @@ describe.each(factories)("%s", (_, factory) => {
     const app = createApp({ models, crudRoutes: [], endpoints: [{ method: "POST", path: "/orders", hooks: [], handler }], hooks: new Map(), config });
     const response = await app.server.fetch(new Request("http://localhost/orders", { method: "POST" }));
     expect(response.status).toBe(500);
-    expect(await repos.orders!.query().all()).toEqual([]);
+    expect(await repos.orders!.query().toArray()).toEqual([]);
     expect((await repos.stocks!.findById(id))!.count).toBe(5);
     await adapter.disconnect();
   });
@@ -214,7 +214,7 @@ describe("the memory adapter", () => {
         throw new Error("x");
       }),
     );
-    expect((await repos.orders!.query().all()).map((record) => record.item).sort()).toEqual(["gone", "kept"]);
+    expect((await repos.orders!.query().toArray()).map((record) => record.item).sort()).toEqual(["gone", "kept"]);
 
     const order: string[] = [];
     let release!: () => void;

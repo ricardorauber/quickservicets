@@ -101,7 +101,7 @@ export default job(
     let deleted = 0;
     for (;;) {
       signal.throwIfAborted();
-      const batch = await repos.sessions.where((s) => s.expiresAt.lt(now)).take(BATCH_SIZE).all();
+      const batch = await repos.sessions.where((s) => s.expiresAt.lt(now)).take(BATCH_SIZE).toArray();
       if (batch.length === 0) break;
       for (const session of batch) await repos.sessions.delete(session.id);
       deleted += batch.length;

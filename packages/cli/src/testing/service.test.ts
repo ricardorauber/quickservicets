@@ -31,8 +31,8 @@ describe("starting a project", () => {
     try {
       const created = await service.fetch("/posts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "Hi" }) });
       expect(created.status).toBe(201);
-      const posts = (service.repos as unknown as { posts: { query(): { all(): Promise<{ title: string }[]> } } }).posts;
-      expect((await posts.query().all()).map((post) => post.title)).toEqual(["Hi"]);
+      const posts = (service.repos as unknown as { posts: { query(): { toArray(): Promise<{ title: string }[]> } } }).posts;
+      expect((await posts.query().toArray()).map((post) => post.title)).toEqual(["Hi"]);
       expect(((await (await service.fetch("/posts?limit=1")).json()) as { total: number }).total).toBe(1);
       expect(existsSync(join(service.root, ".generated/server.ts"))).toBe(true);
     } finally {

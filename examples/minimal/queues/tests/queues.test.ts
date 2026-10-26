@@ -19,7 +19,7 @@ function exampleFiles(): Record<string, string> {
 }
 
 const send = (body: unknown = {}) => ({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-type Rows<T> = { query(): { all(): Promise<T[]> }; findById(id: string): Promise<T | null> };
+type Rows<T> = { query(): { toArray(): Promise<T[]> }; findById(id: string): Promise<T | null> };
 type Message = { id: string; queue: string; status: string; attempt: number; result?: unknown; lastError?: { message: string } | null };
 type Repos = { outboxes: Rows<{ to: string; subject: string }>; queueMessages: Rows<Message> };
 const repos = (service: TestService) => service.repos as unknown as Repos;
@@ -39,7 +39,7 @@ test("a welcome request leads to one Outbox record, also when it is repeated", a
     await settle(async () => (await repos(service).queueMessages.findById(first.id))?.status === "completed");
     const again = (await (await service.fetch(`/users/${userId}/welcome`, send())).json()) as { id: string; deduplicated: boolean };
     expect(again).toEqual({ id: first.id, deduplicated: true });
-    expect((await repos(service).outboxes.query().all()).map((sent) => [sent.to, sent.subject])).toEqual([["ada@example.com", "Welcome, ada!"]]);
+    expect((await repos(service).outboxes.query().toArray()).map((sent) => [sent.to, sent.subject])).toEqual([["ada@example.com", "Welcome, ada!"]]);
   } finally {
     await service.stop();
   }
@@ -66,7 +66,7 @@ test("a failing address ends dead after its attempts and runs again with queues.
     await queues.retry(id);
     await settle(async () => (await message())?.status === "completed");
     expect(await message()).toMatchObject({ status: "completed", attempt: 1 });
-    expect((await repos(service).outboxes.query().all()).map((sent) => sent.to)).toEqual(["bob@example.com"]);
+    expect((await repos(service).outboxes.query().toArray()).map((sent) => sent.to)).toEqual(["bob@example.com"]);
   } finally {
     await service.stop();
   }
@@ -76,7 +76,7 @@ test("creating a user publishes user.created to the events queue, which queues/e
   const service = await startTestService({ files: exampleFiles() });
   try {
     await createUser(service, "cy@example.com");
-    const published = async () => (await repos(service).queueMessages.query().all()).filter((message) => message.queue === "events");
+    const published = async () => (await repos(service).queueMessages.query().toArray()).filter((message) => message.queue === "events");
     await settle(async () => (await published()).some((message) => message.status === "completed"));
     expect((await published()).map((message) => [message.status, message.result])).toEqual([["completed", { type: "user.created" }]]);
   } finally {
@@ -104,8 +104,8 @@ test("the memory broker replaces the database broker", async () => {
   try {
     const userId = await createUser(service, "dee@example.com");
     await service.fetch(`/users/${userId}/welcome`, send());
-    await settle(async () => (await repos(service).outboxes.query().all()).length === 1);
-    expect(await repos(service).queueMessages.query().all()).toEqual([]);
+    await settle(async () => (await repos(service).outboxes.query().toArray()).length === 1);
+    expect(await repos(service).queueMessages.query().toArray()).toEqual([]);
   } finally {
     await service.stop();
   }

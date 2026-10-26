@@ -91,7 +91,7 @@ describe("queue commands", () => {
 
 const post = (body: unknown = {}) => ({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 type Message = { id: string; status: string; attempt: number };
-type Repos = { queueMessages: { findById(id: string): Promise<Message | null>; query(): { all(): Promise<Message[]> } } };
+type Repos = { queueMessages: { findById(id: string): Promise<Message | null>; query(): { toArray(): Promise<Message[]> } } };
 const messages = (service: TestService) => (service.repos as unknown as Repos).queueMessages;
 const settle = async (check: () => Promise<boolean>) => {
   for (let attempt = 0; attempt < 400 && !(await check()); attempt++) await Bun.sleep(10);
@@ -130,13 +130,13 @@ export default async (_repos: unknown, req: ServiceRequest) => {
     try {
       const ids: string[] = [];
       for (let n = 0; n < 3; n++) ids.push(((await (await service.fetch("/send", post())).json()) as { id: string }).id);
-      await settle(async () => (await messages(service).query().all()).every((message) => message.status === "dead"));
+      await settle(async () => (await messages(service).query().toArray()).every((message) => message.status === "dead"));
       mail().fail = false;
       expect(await (await service.fetch("/retry", post({ id: ids[0] }))).json()).toEqual({ retried: 1 });
       await settle(async () => (await messages(service).findById(ids[0]!))?.status === "completed");
       expect(await messages(service).findById(ids[0]!)).toMatchObject({ status: "completed", attempt: 1 });
       expect(await (await service.fetch("/retry", post())).json()).toEqual({ retried: 2 });
-      await settle(async () => (await messages(service).query().all()).every((message) => message.status === "completed"));
+      await settle(async () => (await messages(service).query().toArray()).every((message) => message.status === "completed"));
       expect(mail().attempts).toEqual([1, 1, 1, 1, 1, 1]);
     } finally {
       await service.stop();

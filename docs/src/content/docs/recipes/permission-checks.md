@@ -419,7 +419,7 @@ curl localhost:3000/me -H "Authorization: Bearer bruno-secret"
 
 **Only some operations.** Scope the tag with operations, as `Invoice` does: `@authorized:create,update,replace,delete billing:manage`. One hook can appear only once per entity, so put the stricter rule on the operations that need it.
 
-**Permissions per organization.** When permissions depend on an organization, as in a multi-tenant app, add an `organization` query item and look for the user's active memberships in it: `repos.memberships.where((m) => m.user.eq(userId).and(m.organization.eq(orgId)).and(m.active.eq(true))).include("profiles.permissions.module").all()`.
+**Permissions per organization.** When permissions depend on an organization, as in a multi-tenant app, add an `organization` query item and look for the user's active memberships in it: `repos.memberships.where((m) => m.user.eq(userId).and(m.organization.eq(orgId)).and(m.active.eq(true))).include("profiles.permissions.module").toArray()`.
 
 **Overrides.** A custom endpoint that replaces a generated route keeps the entity's hooks by default. Tag the entity `@overrideHooks replace` when the override should run only its own.
 

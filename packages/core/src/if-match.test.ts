@@ -70,7 +70,7 @@ describe("the repository ifMatch option", () => {
     const org = (await repos.organizations.create({ name: "Acme" })) as UserRecord;
     for (const name of ["a", "b"]) await repos.users.create({ name, organization: org.id });
     await repos.organizations.delete(org.id, { ifMatch: etagOf(org) });
-    expect(await repos.users.query().all()).toEqual([]);
+    expect(await repos.users.query().toArray()).toEqual([]);
   });
 
   const adapters: [string, () => DatabaseAdapter, () => DatabaseAdapter][] = [];

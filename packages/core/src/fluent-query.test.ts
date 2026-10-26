@@ -8,8 +8,11 @@ import { memoryAdapter } from "./adapters/memory.ts";
 import { mongodbAdapter } from "./adapters/mongodb.ts";
 import { postgresAdapter } from "./adapters/postgres.ts";
 import { sqliteAdapter } from "./adapters/sqlite.ts";
+import { createApp } from "./app.ts";
+import { ConfigError } from "./config-error.ts";
+import { resolveConfig, type ServiceConfig } from "./config.ts";
 import { HttpError } from "./errors.ts";
-import { conditionsOf, createQuery, type QueryBackend, type QueryFields } from "./fluent-query.ts";
+import { conditionsOf, createQuery, type Query, type QueryBackend, type QueryFields } from "./fluent-query.ts";
 import { createServer } from "./http/server.ts";
 import type { EntityModel } from "./model.ts";
 import { createRepositories, type Repository } from "./repository.ts";
@@ -43,13 +46,16 @@ if (process.env.TEST_MONGODB_URL) {
 type UserRecord = { id: string; createdAt: Date; updatedAt: Date; email: string; age?: number | null; active: boolean; role: "admin" | "member"; secret?: string | null };
 type TeamRecord = { id: string; createdAt: Date; updatedAt: Date; name: string; users: string[] };
 
-async function setup(factory: Factory, findAllMax?: number) {
+/** The users a team's reference array lists, as a typed query. */
+const membersOf = (teams: Repository<TeamRecord>, id: string) => teams.related(id, "users") as unknown as Query<UserRecord>;
+
+async function setup(factory: Factory, toArrayMax?: number) {
   const adapter = factory();
   await adapter.connect(models);
   const client = (adapter as unknown as { client: never }).client;
   if (adapter.kind === "sqlite") await createSqliteTables(client, models);
   if (adapter.kind === "postgres") await resetPostgresTables(client, models);
-  const repos = createRepositories(models, adapter, { findAllMax }) as Record<string, Repository>;
+  const repos = createRepositories(models, adapter, { toArrayMax }) as Record<string, Repository>;
   const users = repos.users as unknown as Repository<UserRecord>;
   const teams = repos.teams as unknown as Repository<TeamRecord>;
   const ana = await users.create({ email: "ana@acme.com", age: 30, active: true, role: "admin", secret: "s" });
@@ -119,6 +125,15 @@ users.where((u) => u.age.gte("x"));
 users.where((u) => u.email.gte(1));
 // @ts-expect-error enums only take their values
 users.where((u) => u.role.eq("owner"));
+async function terminals() {
+  const records: User[] = await users.where((u) => u.role.eq("admin")).toArray();
+  const every: boolean = await users.where((u) => u.role.eq("admin")).all((u) => u.active.eq(true));
+  const some: boolean = await users.query().any((u) => u.age.gt(60));
+  // @ts-expect-error all needs a condition
+  await users.where((u) => u.role.eq("admin")).all();
+  return { records, every, some };
+}
+terminals;
 `,
   );
   const program = ts.createProgram([file], {
@@ -242,20 +257,78 @@ describe.each(factories)("%s", (_, factory) => {
 
   test("chained where and and narrow the results", async () => {
     const { adapter, users, teams, ana, bob } = await setup(factory);
-    const acmeActive = await users.where((u) => u.email.contains("ACME").and(u.active.eq(true))).all();
+    const acmeActive = await users.where((u) => u.email.contains("ACME").and(u.active.eq(true))).toArray();
     expect(acmeActive.map((record) => record.id)).toEqual([ana.id]);
-    const adults = await users.where((u) => u.active.eq(true)).where((u) => u.age.gte(18)).all();
+    const adults = await users.where((u) => u.active.eq(true)).where((u) => u.age.gte(18)).toArray();
     expect(adults.map((record) => record.email)).toEqual(["ana@acme.com"]);
-    expect((await teams.where((t) => t.users.contains(bob.id)).all()).map((record) => record.name)).toEqual(["data"]);
+    expect((await teams.where((t) => t.users.contains(bob.id)).toArray()).map((record) => record.name)).toEqual(["data"]);
     expect(await users.where((u) => u.createdAt.gt(new Date(0))).count()).toBe(3);
     await adapter.disconnect();
   });
 
-  test("all() at the cap returns every match and over it throws", async () => {
-    const { adapter, users } = await setup(factory, 2);
-    await expect(users.query().all()).rejects.toThrow("Query on User matched more than repositories.findAllMax (2) records");
-    expect(await users.where((u) => u.active.eq(true)).all()).toHaveLength(2);
-    expect(await users.query().take(2).all()).toHaveLength(2);
+  test("toArray() returns the matches and honors skip, take, select, include and the cap", async () => {
+    const { adapter, users, teams, ana, bob, cid } = await setup(factory, 2);
+    await expect(users.query().toArray()).rejects.toThrow("Query on User matched more than repositories.toArrayMax (2) records");
+    expect((await users.where((u) => u.active.eq(true)).toArray()).map((record) => record.id)).toEqual([bob.id, ana.id]);
+    expect((await users.where((u) => u.role.eq("admin")).toArray()).map((record) => record.id)).toEqual([ana.id]);
+    expect((await users.query().take(2).toArray()).map((record) => record.id)).toEqual([cid.id, bob.id]);
+    expect((await users.query().skip(1).take(1).toArray()).map((record) => record.id)).toEqual([bob.id]);
+    expect(await users.where((u) => u.role.eq("admin")).select("email").toArray()).toEqual([{ id: ana.id, email: "ana@acme.com" }]);
+    const [data] = await teams.where((t) => t.name.eq("data")).include("users").toArray();
+    expect((data!.users as unknown as UserRecord[]).map((member) => member.email).sort()).toEqual(["ana@acme.com", "bob@other.org"]);
+    await adapter.disconnect();
+  });
+
+  test("all(condition) is true, false and true without matches, without loading records", async () => {
+    const { adapter, users, teams, ana, bob } = await setup(factory);
+    const reads: string[] = [];
+    for (const method of ["findMany", "findById", "findRelated"] as const) {
+      const original = adapter[method] as ((...args: unknown[]) => unknown) | undefined;
+      if (original) (adapter as unknown as Record<string, unknown>)[method] = (...args: unknown[]) => (reads.push(method), original.apply(adapter, args));
+    }
+    const statements: string[] = [];
+    if (adapter.kind === "postgres") {
+      const client = (adapter as unknown as { client: { unsafe(query: string, params?: unknown[]): unknown } }).client;
+      const unsafe = client.unsafe.bind(client);
+      client.unsafe = (query, params) => (statements.push(query), unsafe(query, params));
+    }
+    const admins = users.where((u) => u.role.eq("admin"));
+    expect(await admins.all((u) => u.active.eq(true))).toBe(true);
+    if (adapter.kind === "postgres") expect(statements).toHaveLength(1);
+    await users.update(ana.id, { active: false });
+    expect(await admins.all((u) => u.active.eq(true))).toBe(false);
+    await users.update(ana.id, { role: "member", active: true });
+    expect(await admins.all((u) => u.active.eq(true))).toBe(true);
+    // Like count(), skip and take do not narrow the matches.
+    expect(await users.query().take(1).all((u) => u.active.eq(true))).toBe(false);
+    expect(await users.where((u) => u.email.contains("acme")).all((u) => u.email.contains("@"))).toBe(true);
+    const team = (await teams.where((t) => t.name.eq("data")).firstOrDefault())!;
+    reads.length = 0;
+    expect(await membersOf(teams, team.id).all((u) => u.active.eq(true))).toBe(true);
+    expect(await membersOf(teams, team.id).all((u) => u.id.eq(bob.id))).toBe(false);
+    expect(await membersOf(teams, Bun.randomUUIDv7()).all((u) => u.active.eq(false))).toBe(true);
+    expect(reads.filter((method) => method !== "findById")).toEqual([]);
+    await adapter.disconnect();
+  });
+
+  test("any() with and without a condition", async () => {
+    const { adapter, users, teams } = await setup(factory);
+    const reads: string[] = [];
+    const findMany = adapter.findMany.bind(adapter);
+    adapter.findMany = (...args) => (reads.push("findMany"), findMany(...args));
+    expect(await users.query().any((u) => u.age.gt(60))).toBe(false);
+    expect(await users.query().any((u) => u.age.gt(20))).toBe(true);
+    expect(await users.where((u) => u.role.eq("member")).any((u) => u.age.gt(20))).toBe(false);
+    expect(await users.where((u) => u.role.eq("admin")).any()).toBe(true);
+    expect(await users.where((u) => u.email.eq("nobody@x.co")).any()).toBe(false);
+    expect(await users.query().skip(5).any((u) => u.active.eq(false))).toBe(true);
+    const team = (await teams.where((t) => t.name.eq("data")).firstOrDefault())!;
+    reads.length = 0;
+    expect(await membersOf(teams, team.id).any((u) => u.role.eq("admin"))).toBe(true);
+    expect(await membersOf(teams, team.id).any((u) => u.active.eq(false))).toBe(false);
+    expect(reads).toEqual([]);
+    await users.create({ email: "old@acme.com", age: 61, active: true, role: "member" });
+    expect(await users.query().any((u) => u.age.gt(60))).toBe(true);
     await adapter.disconnect();
   });
 
@@ -284,12 +357,47 @@ describe.each(factories)("%s", (_, factory) => {
 
   test("records come back like other reads", async () => {
     const { adapter, users } = await setup(factory);
-    const [admin] = await users.where((u) => u.role.eq("admin")).all();
+    const [admin] = await users.where((u) => u.role.eq("admin")).toArray();
     expect(admin).not.toHaveProperty("secret");
     expect(admin!.createdAt).toBeInstanceOf(Date);
-    const ordered = await users.query().all();
+    const ordered = await users.query().toArray();
     expect(ordered.map((record) => record.email)).toEqual(["cid@acme.com", "bob@other.org", "ana@acme.com"]);
     await adapter.disconnect();
+  });
+});
+
+test("all() without a condition throws before reaching the database", async () => {
+  const calls: string[] = [];
+  const spy = { model: user, toArrayMax: 100, notFound: () => new Error("missing") } as unknown as QueryBackend;
+  for (const method of ["list", "count", "aggregate"] as const) (spy as unknown as Record<string, unknown>)[method] = async () => void calls.push(method);
+  const query = createQuery<UserRecord>(spy, { where: [], sort: [], skip: 0 });
+  await expect((query.all as unknown as () => Promise<boolean>)()).rejects.toThrow("all() needs a condition; use toArray() to read the records");
+  expect(calls).toEqual([]);
+});
+
+describe("the toArray cap in the config", () => {
+  const start = async (env: Record<string, string>, repositories?: Record<string, number>) => {
+    const config = resolveConfig({ database: memoryAdapter(), ...(repositories ? { repositories } : {}) } as ServiceConfig, env);
+    await config.database.connect(models);
+    return { config, app: createApp({ models, crudRoutes: [], endpoints: [], hooks: new Map(), config }) };
+  };
+
+  test("QS_REPOSITORIES_TO_ARRAY_MAX and repositories.toArrayMax cap toArray()", async () => {
+    const { config, app } = await start({ QS_REPOSITORIES_TO_ARRAY_MAX: "5" });
+    expect(config.repositories?.toArrayMax).toBe(5);
+    const users = app.repos.users as unknown as Repository<UserRecord>;
+    for (let index = 0; index < 5; index++) await users.create({ email: `u${index}@x.co`, active: true, role: "member" });
+    expect(await users.query().toArray()).toHaveLength(5);
+    await users.create({ email: "u5@x.co", active: true, role: "member" });
+    await expect(users.query().toArray()).rejects.toThrow("Query on User matched more than repositories.toArrayMax (5) records");
+    expect((await start({}, { toArrayMax: 7 })).config.repositories?.toArrayMax).toBe(7);
+  });
+
+  test("the old repositories.findAllMax key fails with the new name", () => {
+    expect(() => resolveConfig({ database: memoryAdapter(), repositories: { findAllMax: 5 } } as unknown as ServiceConfig, {})).toThrow(
+      "repositories.findAllMax was renamed to repositories.toArrayMax",
+    );
+    expect(() => resolveConfig({ database: memoryAdapter(), repositories: { findAllMax: 5 } } as unknown as ServiceConfig, {})).toThrow(ConfigError);
   });
 });
 
@@ -299,7 +407,7 @@ describe("paging errors", () => {
     const calls: string[] = [];
     const spy: QueryBackend = {
       model: user,
-      findAllMax: 100,
+      toArrayMax: 100,
       list: async () => {
         calls.push("list");
         return { data: [], total: 0 };

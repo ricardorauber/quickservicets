@@ -299,11 +299,11 @@ curl "localhost:3000/authors/01a146dd-4300-7506-a94f-802fd580f626/articles-by-pa
 {"data":[{"id":"01a146dd-4304-7424-990a-7394b95d9e6c","title":"Testing with Bun"},{"id":"01a146dd-4304-7423-b5a1-50e04d4f357b","title":"Typed query items"}],"page":2,"pages":3,"total":5}
 ```
 
-**A fixed slice.** For "the latest three", `take(3).all()` returns a plain array without a total. `skip` and `take` limit a query before `page()` pages it, so `take(30).page({ limit: 10, offset: 20 })` is the last page of the top 30.
+**A fixed slice.** For "the latest three", `take(3).toArray()` returns a plain array without a total. `skip` and `take` limit a query before `page()` pages it, so `take(30).page({ limit: 10, offset: 20 })` is the last page of the top 30.
 
 **Only the count.** `count()` and `any()` answer without loading records, for badges such as "12 drafts".
 
-**Very deep pages.** Offsets make the database skip rows, which grows slower on huge lists. When clients scroll forward only, let them send the last value they saw instead, as a `Date` query item, and filter by it: `where((a) => a.publishedAt.lt(before)).orderByDescending((a) => a.publishedAt).take(limit).all()`. Use a unique, ordered field, or add `thenBy` on one.
+**Very deep pages.** Offsets make the database skip rows, which grows slower on huge lists. When clients scroll forward only, let them send the last value they saw instead, as a `Date` query item, and filter by it: `where((a) => a.publishedAt.lt(before)).orderByDescending((a) => a.publishedAt).take(limit).toArray()`. Use a unique, ordered field, or add `thenBy` on one.
 
 ## Related
 

@@ -87,10 +87,10 @@ describe.each(factories)("%s", (_, factory) => {
     const { adapter, repos, ana, bob, acme } = await setup();
     const members = repos.organizations!.related(acme.id, "members");
     const admins = members.where((u: any) => u.role.eq("admin"));
-    expect((await admins.all()).map((user: any) => user.id)).toEqual([ana.id]);
+    expect((await admins.toArray()).map((user: any) => user.id)).toEqual([ana.id]);
     expect(await admins.count()).toBe(1);
     const leads = members.where((u: any) => u.projects.isEmpty(false));
-    expect((await leads.all()).map((user: any) => [user.email, user.projects.length])).toEqual([["bob@acme.com", 1]]);
+    expect((await leads.toArray()).map((user: any) => [user.email, user.projects.length])).toEqual([["bob@acme.com", 1]]);
     expect(((await leads.first()) as { id: string }).id).toBe(bob.id);
     expect(await members.aggregate((u: any) => ({ leadsOrAdmins: u.count(u.projects.isEmpty(false).or(u.role.eq("admin"))) }))).toEqual({ leadsOrAdmins: 2 });
     expect(await leads.aggregate((u: any) => ({ leads: u.count(), averageAge: u.age.avg() }))).toEqual({ leads: 1, averageAge: 20 });
@@ -117,9 +117,9 @@ const expect = <T extends true>() => {};
 export async function run(id: string) {
   const stats = await repos.organizations.related(id, "members").aggregate((u) => ({ members: u.count(), admins: u.count(u.role.eq("admin")), averageAge: u.age.avg() }));
   expect<Equal<typeof stats, { members: number; admins: number; averageAge: number | null } | null>>();
-  const admins: User[] = await repos.organizations.related(id, "members").where((u) => u.role.eq("admin")).all();
+  const admins: User[] = await repos.organizations.related(id, "members").where((u) => u.role.eq("admin")).toArray();
   const count: number = await repos.organizations.related(id, "members").where((u) => u.projects.isEmpty(false)).count();
-  const [first] = await repos.organizations.related(id, "members").include("projects").all();
+  const [first] = await repos.organizations.related(id, "members").include("projects").toArray();
   const projects: Project[] | undefined = first?.projects;
   // aggregate is nullable after every chained call, since the owner may be missing.
   // @ts-expect-error possibly null

@@ -122,7 +122,7 @@ history: {
 
 ```ts
 // endpoints/documents/[id]/history/get.ts
-export default async (repos: Repositories, req: ServiceRequest) => repos.documentHistory.where((version) => version.entityId.eq(req.params.id!)).all();
+export default async (repos: Repositories, req: ServiceRequest) => repos.documentHistory.where((version) => version.entityId.eq(req.params.id!)).toArray();
 ```
 
 7. A store: `store` replaces the tables with any object that has `write`, `list`, `get` and `prune`, such as one that archives versions to object storage; the build then adds no history tables.

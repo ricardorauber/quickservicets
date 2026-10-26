@@ -71,7 +71,7 @@ The native serves `GET /documents/[id]/history` and runs the daily `history/prun
 
 ```ts
 // endpoints/documents/[id]/history/get.ts
-export default async (repos: Repositories, req: ServiceRequest) => repos.documentHistory.where((version) => version.entityId.eq(req.params.id!)).all();
+export default async (repos: Repositories, req: ServiceRequest) => repos.documentHistory.where((version) => version.entityId.eq(req.params.id!)).toArray();
 ```
 
 ## Level 6: replace the implementation

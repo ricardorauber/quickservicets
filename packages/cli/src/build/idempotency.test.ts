@@ -64,7 +64,7 @@ export default async (_repos: unknown, req: { params: Record<string, string> }) 
 `,
 };
 const post = (path: string, body: unknown, headers: Record<string, string> = {}) => ({ method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
-type Repos = { orders: { query(): { all(): Promise<unknown[]> } }; idempotencyKeys: { query(): { all(): Promise<{ status: string }[]> } } };
+type Repos = { orders: { query(): { toArray(): Promise<unknown[]> } }; idempotencyKeys: { query(): { toArray(): Promise<{ status: string }[]> } } };
 const repos = (service: TestService) => service.repos as unknown as Repos;
 const runs = (name: string) => g.runs?.[name] ?? 0;
 
@@ -81,7 +81,7 @@ describe("replays", () => {
       expect(first.headers.get("idempotent-replayed")).toBeNull();
       expect(second.headers.get("location")).toBe(first.headers.get("location"));
       expect(await second.json()).toEqual(await first.json());
-      expect(await repos(service).orders.query().all()).toHaveLength(1);
+      expect(await repos(service).orders.query().toArray()).toHaveLength(1);
       expect(runs("orders")).toBe(1);
     } finally {
       await service.stop();
@@ -133,7 +133,7 @@ describe("scope and fingerprint", () => {
       ]);
       const other = await service.fetch("/orders", post("/orders", { item: "a", quantity: 1 }, { "idempotency-key": "k1", "x-user": "bob" }));
       expect([other.status, other.headers.get("idempotent-replayed")]).toEqual([201, null]);
-      expect(await repos(service).orders.query().all()).toHaveLength(2);
+      expect(await repos(service).orders.query().toArray()).toHaveLength(2);
     } finally {
       await service.stop();
     }

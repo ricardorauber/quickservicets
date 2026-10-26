@@ -93,7 +93,7 @@ export default defineConfig({ database: memoryAdapter(), events: {}, queues: { b
       expect(g.brokered["memory-test"]!.map((message) => message.payload.to ?? message.payload.type)).toEqual(["a@b.c", "user.created"]);
       expect(g.consumed![0]).toBe("a@b.c");
       // Nothing went to the database broker.
-      expect(await (service.repos as unknown as { queueMessages: { query(): { all(): Promise<unknown[]> } } }).queueMessages.query().all()).toEqual([]);
+      expect(await (service.repos as unknown as { queueMessages: { query(): { toArray(): Promise<unknown[]> } } }).queueMessages.query().toArray()).toEqual([]);
     } finally {
       await service.stop();
     }

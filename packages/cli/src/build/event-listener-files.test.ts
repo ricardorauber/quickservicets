@@ -25,7 +25,7 @@ const failure = async (work: () => Promise<unknown>): Promise<Error> => {
   }
   throw new Error("expected a failure");
 };
-const notes = (repos: unknown) => (repos as { notes: { query(): { all(): Promise<{ text: string }[]> } } }).notes.query().all();
+const notes = (repos: unknown) => (repos as { notes: { query(): { toArray(): Promise<{ text: string }[]> } } }).notes.query().toArray();
 
 describe("listener files", () => {
   test("events/welcome.ts creates a note after POST /users, typed from its pattern", async () => {

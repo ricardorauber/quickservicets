@@ -34,7 +34,7 @@ describe("type-checking", () => {
   const repoSnippet = (method: string) => ({
     page: "guides/queries.md",
     line: 10,
-    code: `import type { Repository } from "@quickservicets/core";\ntype User = { id: string; createdAt: Date; updatedAt: Date; email: string };\ndeclare const users: Repository<User>;\nexport const found = users.${method}((u) => u.email.eq("a")).all();`,
+    code: `import type { Repository } from "@quickservicets/core";\ntype User = { id: string; createdAt: Date; updatedAt: Date; email: string };\ndeclare const users: Repository<User>;\nexport const found = users.${method}((u) => u.email.eq("a")).toArray();`,
   });
 
   test("a broken snippet fails with page, line and message; the fixed one passes", () => {

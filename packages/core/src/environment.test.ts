@@ -34,7 +34,7 @@ describe("naming", () => {
     expect(envNameFor("jobs.limits.logLines")).toBe("QS_JOBS_LIMITS_LOG_LINES");
     expect(envNameFor("history.retention")).toBe("QS_HISTORY_RETENTION");
     expect(envNameFor("rate-limits.window")).toBe("QS_RATE_LIMITS_WINDOW");
-    expect(envNameFor("repositories.findAllMax")).toBe("QS_REPOSITORIES_FIND_ALL_MAX");
+    expect(envNameFor("repositories.toArrayMax")).toBe("QS_REPOSITORIES_TO_ARRAY_MAX");
     expect(envNameFor("server.publicUrl")).toBe("QS_SERVER_PUBLIC_URL");
   });
 

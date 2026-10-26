@@ -18,7 +18,7 @@ export default queue<{ to: string }>(async ({ payload }) => payload.to);
 `;
 const post = (body: unknown = {}) => ({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 type Message = { id: string; queue: string; status: string; attempt: number; maxAttempts: number; priority: number; payload: unknown; requestId?: string | null };
-type MessageRepos = { queueMessages: { findById(id: string): Promise<Message | null>; query(): { all(): Promise<Message[]> } } };
+type MessageRepos = { queueMessages: { findById(id: string): Promise<Message | null>; query(): { toArray(): Promise<Message[]> } } };
 const messages = (service: TestService) => (service.repos as unknown as MessageRepos).queueMessages;
 
 const BASE = {
@@ -139,8 +139,8 @@ export default async (repos: Repositories, req: ServiceRequest) => {
     try {
       expect((await service.fetch("/run-job", post())).status).toBe(200);
       expect((await service.fetch("/core", post())).status).toBe(200);
-      for (let attempt = 0; attempt < 200 && (await messages(service).query().all()).length < 2; attempt++) await Bun.sleep(5);
-      const payloads = (await messages(service).query().all()).map((message) => (message.payload as { to: string }).to).sort();
+      for (let attempt = 0; attempt < 200 && (await messages(service).query().toArray()).length < 2; attempt++) await Bun.sleep(5);
+      const payloads = (await messages(service).query().toArray()).map((message) => (message.payload as { to: string }).to).sort();
       expect(payloads).toEqual(["core@b.c", "job@b.c"]);
     } finally {
       await service.stop();
@@ -151,9 +151,9 @@ export default async (repos: Repositories, req: ServiceRequest) => {
     const service = await startTestService({ files });
     try {
       expect(await (await service.fetch("/in-transaction", post({ fail: true }))).json()).toEqual({ rolledBack: true });
-      expect(await messages(service).query().all()).toEqual([]);
+      expect(await messages(service).query().toArray()).toEqual([]);
       expect(await (await service.fetch("/in-transaction", post({ fail: false }))).json()).toEqual({ rolledBack: false });
-      expect((await messages(service).query().all()).map((message) => message.payload)).toEqual([{ to: "tx@b.c" }]);
+      expect((await messages(service).query().toArray()).map((message) => message.payload)).toEqual([{ to: "tx@b.c" }]);
     } finally {
       await service.stop();
     }

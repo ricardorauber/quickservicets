@@ -68,11 +68,11 @@ export interface RepositoryOptions {
   fileAccess?: FileAccessSettings;
   /** When set, objects and file records that are no longer used are deleted. */
   fileCleanup?: FileCleanupSettings;
-  /** Most records a fluent query's `all()` may return (default 10000). */
-  findAllMax?: number;
+  /** Most records a fluent query's `toArray()` may return (default 10000). */
+  toArrayMax?: number;
 }
 
-export const DEFAULT_FIND_ALL_MAX = 10000;
+export const DEFAULT_TO_ARRAY_MAX = 10000;
 const FIND_BY_IDS_BATCH = 100;
 
 export interface ListResult<T> {
@@ -491,10 +491,10 @@ export function createRepository(
     return resolved;
   };
 
-  const findAllMax = repositoryOptions.findAllMax ?? DEFAULT_FIND_ALL_MAX;
+  const toArrayMax = repositoryOptions.toArrayMax ?? DEFAULT_TO_ARRAY_MAX;
   const backend: QueryBackend = {
     model,
-    findAllMax,
+    toArrayMax,
     list: (query, populate, withTotal) => listRecords(query, { populate }, withTotal),
     count: async (where) => adapter.count(model, await resolve(where)),
     aggregate: async (where, aggregates) => {
@@ -528,7 +528,7 @@ export function createRepository(
     };
     return {
       model,
-      findAllMax,
+      toArrayMax,
       list: (query, populate, withTotal) => listRecords(query, { populate }, withTotal, (where) => findRelated(query, where, withTotal)),
       count: async (where) => {
         const resolved = await resolve(where);

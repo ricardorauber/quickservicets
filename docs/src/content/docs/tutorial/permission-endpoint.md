@@ -58,11 +58,11 @@ const handler: Endpoint<Query, boolean> = async (repos, req) => {
     const memberships = await repos.memberships
         .where((m) => m.user.eq(userId).and(m.organization.eq(organization)).and(m.active.eq(true)))
         .include("profiles.permissions.module")
-        .all()
+        .toArray()
     const teams = await repos.teams
         .where((t) => t.users.contains(userId).and(t.organization.eq(organization)).and(t.active.eq(true)))
         .include("profiles.permissions.module")
-        .all()
+        .toArray()
 
     const granted = new Set(
         [...memberships, ...teams]
@@ -154,12 +154,12 @@ declare const organization: string, userId: string;
 const memberships = await repos.memberships
     .where((m) => m.user.eq(userId).and(m.organization.eq(organization)).and(m.active.eq(true)))
     .include("profiles.permissions.module")
-    .all()
+    .toArray()
 ```
 
 - `m.user` and `m.organization` are references, so `eq` compares ids.
 - `.include("profiles.permissions.module")` replaces each id along the path with its record: the membership's profiles, their permissions and each permission's module. The result is typed at every level, so `membership.profiles[0].permissions[0].module.slug` type-checks.
-- `.all()` returns every match.
+- `.toArray()` returns every match.
 
 The teams query is the same, with `t.users.contains(userId)`: `users` is a reference array, and `contains` matches teams that hold the user's id.
 
@@ -377,7 +377,7 @@ Records hold references as ids. The `References` maps tell `include` what each i
 - [Repositories and queries](/reference/api/): every repository and query method.
 - [Errors](/reference/errors/): the `Invalid query` error and its messages.
 - [JSDoc tags](/reference/tags/#endpoint-tags): `@summary`, `@description` and the other endpoint tags.
-- [Configuration](/reference/config/): `populate.maxDepth` and `repositories.findAllMax`.
+- [Configuration](/reference/config/): `populate.maxDepth` and `repositories.toArrayMax`.
 
 ## Next
 

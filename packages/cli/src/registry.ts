@@ -200,7 +200,7 @@ export async function runCommand(resolved: ResolvedCommand, rest: readonly strin
         await config.database.connect(models, { defaultSchema: config.schema });
         connected = config;
       }
-      return createRepositories(models, config.database, { populateMaxDepth: config.populate.maxDepth, findAllMax: config.repositories?.findAllMax }) as unknown as Repositories;
+      return createRepositories(models, config.database, { populateMaxDepth: config.populate.maxDepth, toArrayMax: config.repositories?.toArrayMax }) as unknown as Repositories;
     },
   };
   try {

@@ -6,7 +6,7 @@ QuickService.ts builds REST services on Bun from TypeScript types: entities in `
 
 Workflow: `bunx quickservicets init <name> --db <database>` creates a project, you add entity types to `entities/`, `bun run build` (or `bun run dev`) generates `.generated/`, `bun run quickservicets migration add <Name>` and `bun run quickservicets migrate` create and apply the migrations, and the service answers on port 3000.
 
-The agent guide topics are in `packages/cli/agent-docs/`: `overview`, `quickstart`, `entities`, `endpoints-and-hooks`, `config-and-env`, `features`, `testing`, `deploy`, `troubleshooting`.
+The agent guide topics are in `packages/cli/agent-docs/`: `overview`, `quickstart`, `entities`, `endpoints-and-hooks`, `config-and-env`, `features`, `testing`, `deploy`, `troubleshooting`. The docs site serves them with every page as Markdown from [/llms.txt](/llms.txt).
 
 ## Using QuickService.ts in a project
 

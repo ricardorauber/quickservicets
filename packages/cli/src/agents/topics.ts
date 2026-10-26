@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-/** The folder of the agent guide topics, shipped with the CLI package. */
-export const AGENT_DOCS_DIR = join(import.meta.dir, "../../agent-docs");
+/** The folder of the agent guide topics, shipped with the CLI package (found from Node too, for the docs build). */
+export const AGENT_DOCS_DIR = join(dirname(fileURLToPath(import.meta.url)), "../../agent-docs");
 
 /** The agent guide topics, in reading order. */
 export const TOPIC_NAMES = [

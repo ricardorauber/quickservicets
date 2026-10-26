@@ -1,0 +1,18 @@
+---
+import Default from "@astrojs/starlight/components/Footer.astro";
+---
+
+<Default />
+<p class="llms">
+  For LLMs and coding agents: <a href="/llms.txt">llms.txt</a>, <a href="/llms-full.txt">llms-full.txt</a> and a
+  Markdown copy of every page at its path plus <code>.md</code>.
+</p>
+
+<style>
+  .llms {
+    margin-top: 1.5rem;
+    text-align: center;
+    font-size: var(--sl-text-xs);
+    color: var(--sl-color-gray-3);
+  }
+</style>

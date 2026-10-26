@@ -24,6 +24,7 @@ describe("AGENTS.md", () => {
     expect(lines.indexOf("## Using QuickService.ts in a project")).toBe(10);
     expect(lines[0]).toBe("# QuickService.ts");
     expect(markdown).toContain("`packages/cli/agent-docs/`");
+    expect(lines[8]).toContain("[/llms.txt](/llms.txt)");
     expect(markdown).toContain("### Use it when");
     expect(markdown).toContain("### Quickstart");
     expect(markdown).toContain("bunx quickservicets init my-api --db sqlite");

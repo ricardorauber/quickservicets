@@ -8,6 +8,7 @@ All notable changes to the published packages (`quickservicets`, `@quickservicet
 
 - Agent guide topics for coding agents in `@quickservicets/cli` (`agent-docs/`): overview, quickstart, entities, endpoints and hooks, config and environment, features, testing, deploy and troubleshooting, each a short page of steps, copyable commands and a "Do not" list.
 - The repository has an `AGENTS.md` generated from those topics, and a `CLAUDE.md` that imports it.
+- The docs site serves `llms.txt`, `llms-full.txt` and `llms-small.txt` (llmstxt.org) and a Markdown copy of every page at its path plus `.md`, linked from the footer.
 
 ### Fixed
 

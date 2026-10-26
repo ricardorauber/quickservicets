@@ -118,7 +118,7 @@ curl -X POST localhost:3000/posts -d '{"title":"Bye","status":"Draft","priority"
 Filters use the values too. After also creating a post with `"status": "published"`, `"priority": "high"` and the title `Launch`:
 
 ```bash
-curl "localhost:3000/posts?where[status][eq]=published&fields=title,status,priority"
+curl -g "localhost:3000/posts?where[status][eq]=published&fields=title,status,priority"
 ```
 
 ```json
@@ -131,7 +131,7 @@ curl "localhost:3000/posts?where[status][eq]=published&fields=title,status,prior
 ```
 
 ```bash
-curl "localhost:3000/posts?where[priority][eq]=2"
+curl -g "localhost:3000/posts?where[priority][eq]=2"
 ```
 
 ```json

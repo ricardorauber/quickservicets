@@ -214,7 +214,7 @@ curl -X PATCH localhost:3000/organizations/<acme-id> -d '{"modules":{"add":["<re
 `contains` finds the records whose array holds an id. `fields` keeps the response short:
 
 ```bash
-curl "localhost:3000/organizations?where[modules][contains]=<reports-id>&fields=slug,modules"
+curl -g "localhost:3000/organizations?where[modules][contains]=<reports-id>&fields=slug,modules"
 ```
 
 ```json

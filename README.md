@@ -10,6 +10,121 @@ The source lives at [github.com/ricardorauber/quickservicets](https://github.com
 
 This monorepo holds `@quickservicets/core` (runtime), `@quickservicets/cli` (the `quickservicets` command), `quickservicets` (which runs that command with `bunx quickservicets`) and examples in `examples/`.
 
+## A quick look
+
+### An entity is a type
+
+```ts
+// entities/User.ts
+export type User = {
+  /** @unique @format email */
+  email: string;
+  name?: string;
+  /** @default 'member' */
+  role: "member" | "admin";
+};
+```
+
+```ts
+// entities/Organization.ts
+import type { User } from "./User";
+
+/** @authorized:create,update,replace,delete admin */
+export type Organization = {
+  name: string;
+  /** @unique */
+  slug: string;
+  plan: "free" | "pro";
+  members: User[];
+  owner?: User;
+};
+```
+
+`bun run build` turns these into list, read, create, update, replace and delete routes, with validation, a migration, typed repositories and an OpenAPI document served at `/docs`.
+
+### The API answers right away
+
+```bash
+curl -X POST localhost:3000/users -d '{"email":"ana@x.co"}'
+# {"id":"01a1…","email":"ana@x.co","name":null,"role":"member",…}
+
+curl -g "localhost:3000/users?where[role][eq]=admin&sort=-createdAt&limit=10"
+curl "localhost:3000/organizations?populate=owner,members&fields=name,owner.email"
+curl -X POST localhost:3000/users -d '{"email":"not-an-email"}'
+# 400 VALIDATION_ERROR, naming the field and the rule
+```
+
+`-g` keeps curl from reading the square brackets of filters as a URL pattern.
+
+### Custom endpoints are files
+
+The folder path is the route, Next.js style, and the handler gets typed repositories:
+
+```ts
+// endpoints/organizations/[orgId]/stats/get.ts
+import { HttpError, type Endpoint } from "@quickservicets/core";
+
+/** @summary Organization stats */
+const handler: Endpoint<unknown, { members: number; admins: number }> = async (repos, req) => {
+  const organization = await repos.organizations.findById(req.params.orgId!);
+  if (!organization) throw new HttpError(404, "Organization not found");
+  const admins = await repos.users.where((u) => u.id.in(organization.members).and(u.role.eq("admin"))).count();
+  return { members: organization.members.length, admins };
+};
+
+export default handler;
+```
+
+### Tags run hooks
+
+`@authorized:create,update,replace,delete admin` on `Organization` runs this pre-hook before those routes:
+
+```ts
+// hooks/authorized.ts
+import { definePreHook, HttpError } from "@quickservicets/core";
+import { verifyToken } from "../lib/auth"; // your JWT or session check
+
+export default definePreHook(async (repos, req, _res, roles) => {
+  const email = await verifyToken(req.headers.get("authorization"));
+  const user = email ? await repos.users.where((u) => u.email.eq(email)).firstOrDefault() : null;
+  if (!user) throw new HttpError(401, "Authentication required");
+  if (roles.length > 0 && !roles.includes(user.role)) throw new HttpError(403, `Requires role: ${roles.join(" or ")}`);
+  req.context.user = user;
+});
+```
+
+### Jobs are files too
+
+```ts
+// jobs/daily-signups.ts
+import { job } from "@quickservicets/core";
+
+export default job("0 8 * * *", async ({ repos, log }) => {
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const signups = await repos.users.where((u) => u.createdAt.gt(since)).count();
+  log.info("Daily signups", { signups });
+  return { signups };
+});
+```
+
+Every run is recorded with its result, and `quickservicets job runs` lists them.
+
+### Everything else is a feature you switch on
+
+```ts
+// quickservicets.config.ts
+import { defineConfig, postgresAdapter } from "@quickservicets/core";
+
+export default defineConfig({
+  database: postgresAdapter({ url: process.env.DATABASE_URL! }),
+  events: {},  // entity write events with a transactional outbox
+  history: {}, // every version of the entities tagged @history
+  queues: {},  // database queues with retries, delays, priorities and a dead letter
+});
+```
+
+Security headers, CORS, request limits, timeouts, load shedding and rate limiting are on by default (`@rateLimit 5/min` tunes one route). History, Server-Sent Events change streams, health checks, idempotency keys, ETags, error reporting and feature flags are natives too. Each one works with `{}`, takes `QS_*` environment overrides, has entity and route tags, and can be replaced or ejected; the [features reference](docs/src/content/docs/reference/features/index.md) lists them.
+
 ## Documentation
 
 The developer documentation is a Starlight site in `docs/`:

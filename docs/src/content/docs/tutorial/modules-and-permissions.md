@@ -163,7 +163,7 @@ curl -X POST localhost:3000/modules -d '{"slug":"billing"}'
 After you also create a `view` permission for `billing`, filter by the enum value:
 
 ```bash
-curl "localhost:3000/permissions?where[action][eq]=view"
+curl -g "localhost:3000/permissions?where[action][eq]=view"
 ```
 
 ```json

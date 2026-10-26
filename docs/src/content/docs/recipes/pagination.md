@@ -252,7 +252,7 @@ curl -s localhost:3000/openapi.json | jq '.paths["/authors/{authorId}/articles"]
 `GET /articles` pages the same way and returns the same shape. It takes filters, sorting and field selection as [query parameters](/reference/http/), and its `limit` goes from 1 to 100 (default 20):
 
 ```bash
-curl "localhost:3000/articles?where[author][eq]=01a146dd-4300-7506-a94f-802fd580f626&where[published][eq]=true&sort=-publishedAt,title&fields=title,publishedAt&limit=2&offset=2"
+curl -g "localhost:3000/articles?where[author][eq]=01a146dd-4300-7506-a94f-802fd580f626&where[published][eq]=true&sort=-publishedAt,title&fields=title,publishedAt&limit=2&offset=2"
 ```
 
 ```json

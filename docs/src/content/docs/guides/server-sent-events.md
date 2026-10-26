@@ -69,7 +69,7 @@ Each write sends a message named `created`, `updated` or `deleted`, with the wri
 The stream takes the list route's `where[...]` filters, `fields` and `exclude`, and `events` (`?events=created,deleted`); `sort`, `limit` and `offset` answer 400. A create is sent when the new record matches, a delete when the deleted record matched, and an update when either side matches; an update whose record left the filter carries `matches: false`, so the client removes it from its list.
 
 ```bash
-curl -N "http://localhost:3000/tasks/changes?where[status][eq]=open"
+curl -g -N "http://localhost:3000/tasks/changes?where[status][eq]=open"
 ```
 
 ## Permissions

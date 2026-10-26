@@ -121,3 +121,15 @@ export function repositoryOnlyMentions(markdown: string): string[] {
   });
   return problems;
 }
+
+/**
+ * The `curl` commands of a page whose URL has square brackets (like `where[role][eq]`) but no `-g`, as `<line>: <command>`;
+ * without `-g`, curl reads the brackets as a URL pattern and fails before sending the request.
+ */
+export function globbedCurlCommands(markdown: string): string[] {
+  return markdown.split("\n").flatMap((line, index) => {
+    const command = /\bcurl\s(.*)/.exec(line)?.[1];
+    if (command === undefined || !/\?\S*\[/.test(command) || /(^|\s)-[A-Za-z]*g/.test(command)) return [];
+    return [`${index + 1}: ${line.trim()}`];
+  });
+}

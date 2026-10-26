@@ -181,7 +181,7 @@ entities/Post.ts: entity Post exposes "body" in @fields but it is hidden on list
 The list route also accepts filters and sorts only on fields it exposes, so clients cannot probe fields they cannot see:
 
 ```bash
-curl "localhost:3000/users?where[bio][eq]=Hi!"
+curl -g "localhost:3000/users?where[bio][eq]=Hi!"
 ```
 
 ```json

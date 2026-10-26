@@ -1,6 +1,6 @@
 {
   "name": "@quickservicets/core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "The QuickService.ts runtime: build typed, validated and documented REST APIs on Bun from TypeScript entity types.",
   "keywords": [
     "quickservicets",

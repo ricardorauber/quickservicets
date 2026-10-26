@@ -1,6 +1,6 @@
 {
   "name": "@quickservicets/cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "The quickservicets command: create, build, run and migrate QuickService.ts projects.",
   "keywords": [
     "quickservicets",

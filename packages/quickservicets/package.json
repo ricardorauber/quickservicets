@@ -1,6 +1,6 @@
 {
   "name": "quickservicets",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Run the QuickService.ts CLI with bunx quickservicets: create, build, run and migrate REST APIs on Bun from TypeScript entity types.",
   "keywords": [
     "quickservicets",

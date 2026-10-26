@@ -30,6 +30,14 @@ export interface QueueBrokerMessage {
   dedupeWindow?: string;
   /** The request that added it, when there is one. */
   requestId?: string;
+  /** The ids of the user and tenant of the request that added it, when it had them. */
+  actor?: QueueActor;
+}
+
+/** Who added a message: the ids of the request's user and tenant. */
+export interface QueueActor {
+  user?: string;
+  tenant?: string;
 }
 
 /** A message a broker hands to `handle`. */
@@ -41,6 +49,10 @@ export interface QueueReceivedMessage {
   attempt: number;
   enqueuedAt: Date;
   dedupeKey?: string;
+  /** The request that added it, when the broker keeps it. */
+  requestId?: string;
+  /** The user and tenant of the request that added it, when the broker keeps them. */
+  actor?: QueueActor;
 }
 
 /** How a run ended: completed with the consumer's return value, or failed with what it threw. */

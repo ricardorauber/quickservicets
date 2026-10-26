@@ -1,5 +1,6 @@
 import { UniqueViolationError, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
 import { withJobOperation } from "../operation-context.ts";
+import { jobRunsObserved, notifyJobRun } from "./observers.ts";
 import { queueClient } from "../features/queues/client.ts";
 import type { ResolvedConfig } from "../config.ts";
 import { parseSize } from "../files/limits.ts";
@@ -232,12 +233,22 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
         if (overlapping) {
           logEvent("job.started", run);
           logEvent("job.finished", run);
+          observed(run);
         }
         return run;
       })(),
     );
 
   const retryTimers = new Set<() => void>();
+
+  /** Tells the job run observers about a finished run, when there are any. */
+  const observed = (run: JobRun): void => {
+    if (!jobRunsObserved() || run.status === "running") return;
+    const known = jobs.has(run.job);
+    const willRetry = known && !closed && retryDelayOf(run, settingsOf(run.job)) !== undefined;
+    const error = run.error as { message: string; stack?: string } | undefined;
+    notifyJobRun({ job: run.job, runId: run.id, attempt: run.attempt, status: run.status, ...(error ? { error } : {}), willRetry });
+  };
 
   const retry = (finished: JobRun): void => {
     const delay = retryDelayOf(finished, settingsOf(finished.job));
@@ -338,6 +349,7 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
       await database.updateById(model, run.id, changes);
       const finished = { ...run, ...changes } as JobRun;
       logEvent("job.finished", finished);
+      observed(finished);
       retry(finished);
       return finished;
     })();
@@ -371,6 +383,7 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
           if (!(await database.updateById(model, record.id, changes, [condition("status", "running")]))) continue;
           const abandoned: JobRun = { ...record, ...changes };
           marked.push(abandoned);
+          observed(abandoned);
           if (known) retry(abandoned);
         }
         return marked;

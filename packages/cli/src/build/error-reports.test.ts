@@ -108,7 +108,7 @@ describe("manual reports", () => {
 
 describe("reporter failures", () => {
   test("a throwing reporter is logged and the next still receives the report; a reporter that never resolves does not delay the response", async () => {
-    const service = await startTestService({ files: { ...FILES, "quickservice.config.ts": config("{ reporter: [slowReporter, throwingReporter, memoryReporter] }") } });
+    const service = await startTestService({ files: { ...FILES, "quickservice.config.ts": config("{ reporter: [slowReporter, throwingReporter, memoryReporter] }", "lifecycle: { stopTimeout: \"1s\" }") } });
     try {
       const response = await service.fetch("/boom");
       expect(response.status).toBe(500);

@@ -8,6 +8,7 @@ import { handleShutdownSignals, type SignalTarget } from "./jobs/lifecycle.ts";
 import { createFeatureLifecycle, LifecycleError, logLifecycleFailure, notifyShutdownSignal, withTimeout, type FeatureLifecycle, type FeatureSetupContext } from "./lifecycle.ts";
 import { parseDuration } from "./jobs/job.ts";
 import { flushLogs, jsonLogger, safeLog } from "./logger.ts";
+import { reportStartupFailure } from "./error-reports.ts";
 import type { EntityModel } from "./model.ts";
 import type { ResolvedFeature } from "./features.ts";
 import { isPrimary, runsScheduledWork, runWorkers, workerIndex } from "./workers.ts";
@@ -76,9 +77,11 @@ export async function startService(options: StartServiceOptions): Promise<Runnin
     endpoints: options.endpoints,
     crudRoutes: options.crudRoutes,
   });
-  const fail = async (error: unknown, connected: boolean) => {
+  const fail = async (error: unknown, connected: boolean, phase?: string) => {
     if (error instanceof LifecycleError) logLifecycleFailure(logger, error);
     else safeLog(logger, "error", { timestamp: new Date().toISOString(), message: "service.failed", error: { message: (error as Error)?.message ?? String(error), stack: (error as Error)?.stack } });
+    // An error reporter set up before the failure gets it, and delivers it before the process exits.
+    await reportStartupFailure(error instanceof LifecycleError ? error.cause : error, error instanceof LifecycleError ? { feature: error.feature, phase: error.phase } : phase ? { phase } : {});
     await lifecycle.stop();
     if (connected) await disconnect(config);
     flushLogs();
@@ -91,7 +94,11 @@ export async function startService(options: StartServiceOptions): Promise<Runnin
   } catch (error) {
     return fail(error, false);
   }
-  await config.database.connect(options.models, { defaultSchema: config.schema, workers: config.server.workers });
+  try {
+    await config.database.connect(options.models, { defaultSchema: config.schema, workers: config.server.workers });
+  } catch (error) {
+    return fail(error, false, "connect");
+  }
   let app: App;
   try {
     app = createApp({

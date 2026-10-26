@@ -17,7 +17,7 @@ errors: {}
 
 It is not enabled by default: turn it on with `errors: {}` or `QS_ERRORS_ENABLED=true`, and off with `errors: false` or `QS_ERRORS_ENABLED=false`.
 
-**Runs after:** `security`
+**Runs after:** `security`, `queues`, `events`
 
 ## Options
 
@@ -26,6 +26,7 @@ It is not enabled by default: turn it on with `errors: {}` or `QS_ERRORS_ENABLED
 | `errors.reporter` | `ErrorReporter \| ErrorReporter[]` | — | `QS_ERRORS_REPORTER` | no | Receives every report: one reporter or a list, each an object with report(report) and an optional flush(timeoutMs); without it, consoleReporter() writes error.report log entries. |
 | `errors.release` | `string` | — | `QS_ERRORS_RELEASE` | no | The release of the service added to every report, like a version or a commit. |
 | `errors.tags.<name>` | `record of string` | — | `QS_ERRORS_TAGS_<NAME>` | no | The value of the tag. |
+| `errors.jobs` | `"final" \| "every"` | `"final"` | `QS_ERRORS_JOBS` | no | Which failed job runs and queue attempts are reported: final reports a run only when no retry follows, every reports each failed attempt. |
 | `errors.enabled` | `boolean` | `true` | `QS_ERRORS_ENABLED` | no | Turns the feature off when false. |
 
 ## Feature API

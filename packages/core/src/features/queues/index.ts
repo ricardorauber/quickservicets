@@ -25,7 +25,7 @@ import {
 import { brokerMethod, type QueueBroker, type QueueBrokerMessage, type QueueOutcomeReport, type QueueSettings } from "./broker.ts";
 import type { QueueDeadMessage, QueueEnqueueContext, QueueEnqueued, QueueEnqueueStep, QueueMessageEvent, QueueProcessed, QueueProcessStep, QueuesApi } from "./api.ts";
 import { consumerHandler } from "./handle.ts";
-import { queueClient } from "./client.ts";
+import { actorOfRequest, queueClient } from "./client.ts";
 import { queueCommands } from "./commands.ts";
 import { bindDatabaseBroker, databaseBroker, isDatabaseBroker } from "./database.ts";
 import { messagePlacement } from "./message-options.ts";
@@ -254,6 +254,7 @@ const queuesFeature = defineFeature({
         const options = source.req ? await withRequestDefaults(step.options, source.req) : step.options;
         const { runAt, priority, dedupeKey } = messagePlacement(options, Date.now());
         const settings = settingsOf(name);
+        const actor = source.actor ?? actorOfRequest(source.req);
         const message: QueueBrokerMessage = {
           queue: name,
           payload: stored,
@@ -263,6 +264,7 @@ const queuesFeature = defineFeature({
           ...(dedupeKey !== undefined ? { dedupeKey } : {}),
           ...(settings.dedupeWindow ? { dedupeWindow: settings.dedupeWindow } : {}),
           ...(source.requestId ? { requestId: source.requestId } : {}),
+          ...(actor ? { actor } : {}),
         };
         const added = await brokerOf().enqueue(message, { transactional: inTransaction() });
         if (ctx.options.afterEnqueue.length > 0) await runAfterHooks(ctx.options.afterEnqueue, { queue: name, id: added.id, deduplicated: added.deduplicated }, undefined);
@@ -364,5 +366,5 @@ export type { QueueMessage, QueueMessageStatus } from "./message.ts";
 export type { QueueAddOptions, QueueAddResult, QueueClient, QueueContext, QueueDefinition, QueueMessageInfo, QueueName, QueueOptions, QueuePayloadOf, QueuePayloads, Queues } from "./queue.ts";
 export { databaseBroker } from "./database.ts";
 export type { DatabaseBroker, DatabaseBrokerOptions } from "./database.ts";
-export type { QueueBroker, QueueBrokerContext, QueueBrokerMessage, QueueOutcome, QueueOutcomeReport, QueueReceivedMessage, QueueSettings, QueueStats } from "./broker.ts";
+export type { QueueActor, QueueBroker, QueueBrokerContext, QueueBrokerMessage, QueueOutcome, QueueOutcomeReport, QueueReceivedMessage, QueueSettings, QueueStats } from "./broker.ts";
 export type { QueueDeadMessage, QueueEnqueueContext, QueueEnqueued, QueueEnqueueStep, QueueMessageEvent, QueueProcessed, QueueProcessStep, QueuesApi } from "./api.ts";

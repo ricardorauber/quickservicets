@@ -120,6 +120,8 @@ const receivedOf = (row: QueueMessage): QueueReceivedMessage => ({
   attempt: row.attempt,
   enqueuedAt: new Date(row.enqueuedAt),
   ...(row.dedupeKey ? { dedupeKey: row.dedupeKey } : {}),
+  ...(row.requestId ? { requestId: row.requestId } : {}),
+  ...(row.actor && (row.actor.user || row.actor.tenant) ? { actor: { ...(row.actor.user ? { user: row.actor.user } : {}), ...(row.actor.tenant ? { tenant: row.actor.tenant } : {}) } } : {}),
 });
 
 const outcomeOf = (result: QueueOutcome): Outcome => ("failed" in result ? { kind: "failed", error: result.failed } : { kind: "completed", value: result.result });
@@ -526,6 +528,7 @@ export function databaseBroker(options: DatabaseBrokerOptions = {}): DatabaseBro
         maxAttempts: message.maxAttempts,
         enqueuedAt: now,
         ...(message.requestId ? { requestId: message.requestId } : {}),
+        ...(message.actor ? { actor: message.actor as StoredRecord[string] } : {}),
       };
       const wake = () => void afterCommit(() => wakeLoop(loops.get(name)));
       if (dedupeKey === undefined) {

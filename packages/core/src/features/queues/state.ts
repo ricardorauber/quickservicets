@@ -18,6 +18,8 @@ export interface AddSource {
   requestId?: string;
   /** The request of `req.queue.add`, whose per-request defaults apply. */
   req?: ServiceRequest;
+  /** The user and tenant of the request the code runs for, when `req` is not given. */
+  actor?: { user?: string; tenant?: string };
 }
 
 /** The running native, as its setup installs it. */

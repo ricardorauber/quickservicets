@@ -1,5 +1,6 @@
 import {
   afterCommit,
+  reportFailure,
   currentOperation,
   inTransaction,
   jsonLogger,
@@ -115,6 +116,13 @@ export function memoryEventBus(): MemoryEventBus {
               type: event.type,
               eventId: event.id,
               error: { message: (error as Error)?.message ?? String(error), ...(error instanceof Error ? { stack: error.stack } : {}) },
+            });
+            reportFailure(error, {
+              kind: "event",
+              tags: { event: event.type },
+              ...(event.actor.user !== undefined ? { user: { id: event.actor.user } } : {}),
+              ...(event.actor.tenant !== undefined ? { tenant: { id: event.actor.tenant } } : {}),
+              ...(event.requestId ? { requestId: event.requestId } : {}),
             });
           }
         });

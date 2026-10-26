@@ -24,6 +24,8 @@ export interface ErrorReport {
   tenant?: { id: string };
   job?: { name: string; runId: string; attempt?: number };
   queue?: { name: string; messageId: string; attempt?: number };
+  /** The id of the request the failing code ran for, outside a request report. */
+  requestId?: string;
   tags: Record<string, string>;
   environment: "production" | "development";
   release?: string;
@@ -68,5 +70,50 @@ export function reportError(error: unknown, extra: ReportErrorExtra = {}): void 
     slot[SINK]?.(error, extra);
   } catch {
     // Reporting never fails the caller.
+  }
+}
+
+/** What the framework knows about a failure outside a request: where it happened and for whom. */
+export interface FailureDetails {
+  kind: Exclude<ErrorReportKind, "request" | "manual">;
+  tags?: Record<string, string>;
+  user?: { id: string };
+  tenant?: { id: string };
+  requestId?: string;
+  job?: ErrorReport["job"];
+  queue?: ErrorReport["queue"];
+}
+
+type FailureSink = (error: unknown, details: FailureDetails) => void;
+type StartupSink = (error: unknown, details: { feature?: string; phase?: string }) => Promise<void>;
+
+const FAILURES = Symbol.for("quickservice.errors.failures");
+const STARTUP = Symbol.for("quickservice.errors.startup");
+const sinks = globalThis as unknown as { [FAILURES]?: FailureSink; [STARTUP]?: StartupSink };
+
+/** Sets (or removes) where `reportFailure` and `reportStartupFailure` send; the `errors` native sets them. */
+export function setFailureSinks(failures: FailureSink | undefined, startup: StartupSink | undefined): void {
+  sinks[FAILURES] = failures;
+  sinks[STARTUP] = startup;
+}
+
+/**
+ * Reports a failure outside a request, like a failed event listener or outbox delivery; natives call it. Does nothing
+ * while the `errors` native is disabled, and never throws.
+ */
+export function reportFailure(error: unknown, details: FailureDetails): void {
+  try {
+    sinks[FAILURES]?.(error, details);
+  } catch {
+    // Reporting never changes the outcome it describes.
+  }
+}
+
+/** Reports a startup failure and waits for the reporters to deliver it; resolves at once without the `errors` native. */
+export async function reportStartupFailure(error: unknown, details: { feature?: string; phase?: string }): Promise<void> {
+  try {
+    await sinks[STARTUP]?.(error, details);
+  } catch {
+    // The process exits with 1 either way.
   }
 }

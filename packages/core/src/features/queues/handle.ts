@@ -34,7 +34,8 @@ export function consumerHandler(options: ConsumerHandlerOptions): QueueBrokerCon
         queue: queueClient(),
       };
       const run = () => definition.handler(context);
-      const result = await (operationContextEnabled() ? withOperation({ queue: { name: message.queue, messageId: message.id } }, run) : run());
+      const operation = { queue: { name: message.queue, messageId: message.id }, ...(message.requestId ? { requestId: message.requestId } : {}) };
+      const result = await (operationContextEnabled() ? withOperation(operation, run) : run());
       return { completed: true, result };
     } catch (error) {
       return { failed: error };

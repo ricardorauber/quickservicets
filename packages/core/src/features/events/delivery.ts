@@ -1,6 +1,16 @@
-import { parseDuration, safeLog, type AnyEvent, type Condition, type DatabaseAdapter, type EntityModel, type FieldModel, type Logger, type StoredRecord } from "../public.ts";
+import { parseDuration, reportFailure, safeLog, type AnyEvent, type Condition, type DatabaseAdapter, type EntityModel, type FieldModel, type Logger, type StoredRecord } from "../public.ts";
 import { compilePattern, type CompiledPattern } from "./patterns.ts";
 import { sharedState } from "./state.ts";
+
+/** The user, tenant and request of an event, as failure reports carry them. */
+function actorOf(event: AnyEvent | undefined) {
+  if (!event) return {};
+  return {
+    ...(event.actor.user !== undefined ? { user: { id: event.actor.user } } : {}),
+    ...(event.actor.tenant !== undefined ? { tenant: { id: event.actor.tenant } } : {}),
+    ...(event.requestId ? { requestId: event.requestId } : {}),
+  };
+}
 
 /** The states of a delivery row. */
 export const DELIVERY_STATUSES = ["pending", "delivering", "delivered", "failed"] as const;
@@ -214,6 +224,7 @@ export function createDispatcher({ adapter, outboxModel, deliveryModel, settings
     if (attempt >= retries) {
       await adapter.updateById(deliveryModel, row.id, { status: "failed", lastError, lockedUntil: null, updatedAt: at }, [condition("attempt", "eq", attempt)]);
       log("error", "events.delivery.failed", { ...fields, error: { message: lastError } });
+      reportFailure(failure, { kind: "event", tags: { consumer: String(row.consumer), ...(event?.type ? { event: event.type } : {}) }, ...actorOf(event) });
       return;
     }
     const baseMs = parseDuration(consumer?.retryDelay ?? settings.retryDelay) ?? 10_000;

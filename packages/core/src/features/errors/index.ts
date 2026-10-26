@@ -4,16 +4,21 @@ import {
   HttpError,
   list,
   object,
+  observeJobRuns,
+  oneOf,
+  parseDuration,
   provider,
   record,
   safeLog,
   setErrorReportSink,
+  setFailureSinks,
   string,
   type ErrorMiddleware,
   type ErrorReport,
   type ErrorReporter,
   type ErrorReportKind,
   type ErrorReportRequest,
+  type FailureDetails,
   type Logger,
   type LogMasker,
   type ReportErrorExtra,
@@ -47,6 +52,9 @@ const options = object({
     .describe("Receives every report: one reporter or a list, each an object with report(report) and an optional flush(timeoutMs); without it, consoleReporter() writes error.report log entries."),
   release: string().optional().describe("The release of the service added to every report, like a version or a commit."),
   tags: record(string().describe("The value of the tag.")).describe("Tags added to every report, by name."),
+  jobs: oneOf(["final", "every"])
+    .default("final")
+    .describe("Which failed job runs and queue attempts are reported: final reports a run only when no retry follows, every reports each failed attempt."),
 });
 
 /** The headers a request report keeps. */
@@ -100,6 +108,33 @@ export function reportDispatcher(settings: { reporters: () => readonly ErrorRepo
     },
     /** The reports still being delivered. */
     pending: () => [...pending],
+    /**
+     * Waits for the pending reports, then calls `flush` of each reporter that has one, all within `budgetMs`; resolves
+     * false when the budget ran out.
+     */
+    async flush(budgetMs: number): Promise<boolean> {
+      const deadline = Date.now() + budgetMs;
+      const within = async (work: Promise<unknown>): Promise<boolean> => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const left = Math.max(0, deadline - Date.now());
+        const finished = await Promise.race([work.then(() => true, () => true), new Promise<boolean>((resolve) => (timer = setTimeout(() => resolve(false), left)))]);
+        clearTimeout(timer);
+        return finished;
+      };
+      if (!(await within(Promise.allSettled([...pending])))) return false;
+      for (const [index, reporter] of settings.reporters().entries()) {
+        if (!reporter.flush) continue;
+        let flushing: Promise<unknown>;
+        try {
+          flushing = Promise.resolve(reporter.flush(Math.max(0, deadline - Date.now())));
+        } catch (error) {
+          failed(index, error);
+          continue;
+        }
+        if (!(await within(flushing.catch((error: unknown) => failed(index, error))))) return false;
+      }
+      return true;
+    },
   };
 }
 
@@ -112,8 +147,8 @@ const errorsFeature = defineFeature({
   key: "errors",
   docs: { summary: "One interface that receives every unexpected error with its request, user and tenant, so a reporting service plugs in with one line." },
   options,
-  // Reports are masked like the log when security masking is on.
-  after: ["security"],
+  // Reports are masked like the log when security masking is on, and cover queue messages and events when they run.
+  after: ["security", "queues", "events"],
   setup(ctx) {
     consoleLogger = ctx.logger;
     const configured = (ctx.options.reporter as ErrorReporter | ErrorReporter[] | undefined) ?? consoleReporter();
@@ -122,7 +157,7 @@ const errorsFeature = defineFeature({
     const production = ctx.config.production;
     const security = ctx.config.features.some((feature) => feature.key === "security") ? ctx.feature("security") : undefined;
     const dispatcher = reportDispatcher({ reporters: () => reporters, logger: ctx.logger, mask: () => security?.masker() });
-    const build = (error: unknown, kind: ErrorReportKind, extra: ReportErrorExtra & { request?: ServiceRequest } = {}): ErrorReport => {
+    const build = (error: unknown, kind: ErrorReportKind, extra: ReportErrorExtra & Omit<Partial<FailureDetails>, "kind"> = {}): ErrorReport => {
       const req = extra.request;
       const user = extra.user ?? idOf(req?.user);
       const tenant = extra.tenant ?? idOf(req?.tenant);
@@ -132,6 +167,9 @@ const errorsFeature = defineFeature({
         ...(req ? { request: requestOf(req) } : {}),
         ...(user ? { user } : {}),
         ...(tenant ? { tenant } : {}),
+        ...(extra.job ? { job: extra.job } : {}),
+        ...(extra.queue ? { queue: extra.queue } : {}),
+        ...(extra.requestId ? { requestId: extra.requestId } : {}),
         tags: { ...(ctx.options.tags as Record<string, string>), ...(extra.tags ?? {}) },
         environment: production ? "production" : "development",
         ...(ctx.options.release !== undefined ? { release: ctx.options.release } : {}),
@@ -147,9 +185,50 @@ const errorsFeature = defineFeature({
       },
     };
     ctx.app.use(middleware);
-    setErrorReportSink((error, extra) => dispatcher.send(build(error, "manual", extra)));
-    ctx.app.onStop(() => {
+    const stopTimeout = parseDuration(ctx.config.lifecycle.stopTimeout) ?? 10_000;
+    const flush = async (budgetMs: number) => {
+      if (!(await dispatcher.flush(budgetMs))) safeLog(ctx.logger, "error", { timestamp: new Date().toISOString(), message: "error.flush.timeout", timeoutMs: budgetMs });
+    };
+    const failures = (error: unknown, details: FailureDetails) => dispatcher.send(build(error, details.kind, details));
+    // A later feature failing to start is reported from now on; the rest once the service started.
+    const startup = async (error: unknown, details: { feature?: string; phase?: string }) => {
+      dispatcher.send(build(error, "startup", { tags: { ...(details.feature ? { feature: details.feature } : {}), ...(details.phase ? { phase: details.phase } : {}) } }));
+      await flush(stopTimeout);
+    };
+    setFailureSinks(undefined, startup);
+    // Failed job runs: only those no retry follows, or every failed attempt.
+    const every = ctx.options.jobs === "every";
+    let stopObserving = () => {};
+    ctx.app.onStart(() => {
+      setErrorReportSink((error, extra) => dispatcher.send(build(error, "manual", extra)));
+      setFailureSinks(failures, startup);
+      stopObserving = observeJobRuns(onJobRun);
+    });
+    const onJobRun = (run: Parameters<Parameters<typeof observeJobRuns>[0]>[0]) => {
+      if (run.status !== "failed" && run.status !== "timedOut" && run.status !== "abandoned") return;
+      if (!every && run.willRetry) return;
+      const failure = Object.assign(new Error(run.error?.message ?? `Job ${run.job} ended ${run.status}`), { stack: run.error?.stack });
+      if (!run.error?.stack) delete (failure as { stack?: string }).stack;
+      dispatcher.send(build(failure, "job", { job: { name: run.job, runId: run.runId, attempt: run.attempt } }));
+    };
+    // Dead queue messages, and with every each failed attempt, with the user and tenant of the request that added them.
+    if (ctx.config.features.some((feature) => feature.key === "queues")) {
+      const queues = ctx.feature("queues");
+      const fromMessage = (message: { queue: string; id: string; attempt: number; requestId?: string; actor?: { user?: string; tenant?: string } }) => ({
+        queue: { name: message.queue, messageId: message.id, attempt: message.attempt },
+        ...(message.actor?.user !== undefined ? { user: { id: message.actor.user } } : {}),
+        ...(message.actor?.tenant !== undefined ? { tenant: { id: message.actor.tenant } } : {}),
+        ...(message.requestId ? { requestId: message.requestId } : {}),
+      });
+      queues.addHook("onDead", ({ message, error }) => void dispatcher.send(build(error, "queue", fromMessage(message))));
+      if (every) queues.addHook("afterProcess", ({ message, status, error }) => void (status === "failed" && dispatcher.send(build(error, "queue", fromMessage(message)))));
+    }
+    // On shutdown, the pending reports and the reporters' own buffers are delivered within the stop timeout.
+    ctx.app.onStop(async () => {
+      stopObserving();
       setErrorReportSink(undefined);
+      setFailureSinks(undefined, undefined);
+      await flush(Math.floor(stopTimeout * 0.9));
       consoleLogger = undefined;
     });
   },

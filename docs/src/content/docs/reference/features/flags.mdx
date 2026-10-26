@@ -48,6 +48,49 @@ It is not enabled by default: turn it on with `flags: {}` or `QS_FLAGS_ENABLED=t
 export default () => ({ ok: true });
 ```
 
+## Commands
+
+### `flags list`
+
+Prints each flag with its origin (config, database or both), on or off, its user and tenant counts and its percentage.
+
+```bash
+quickservice flags list
+```
+
+### `flags set`
+
+Creates or updates a flag of the database source, changing only the flags given, and prints its line.
+
+```bash
+quickservice flags set <name> [--on | --off] [--percentage <n>] [--users <a,b>] [--tenants <a,b>] [--description <text>]
+```
+
+**Arguments:**
+
+- `<name>`: The flag's name.
+
+**Flags:**
+
+- `--on` (`boolean`, default `false`): Turns the flag on.
+- `--off` (`boolean`, default `false`): Turns the flag off.
+- `--percentage` (`integer`): The share of users the flag is on for.
+- `--users` (`string[]`): The user ids the flag is on for, comma-separated.
+- `--tenants` (`string[]`): The tenant ids the flag is on for, comma-separated.
+- `--description` (`string`): What the flag turns on.
+
+### `flags remove`
+
+Deletes a flag of the database source; the config's rule of that name applies again.
+
+```bash
+quickservice flags remove <name>
+```
+
+**Arguments:**
+
+- `<name>`: The flag's name.
+
 ## Feature API
 
 Other features reach it with `ctx.feature("flags")` in their setup, listing `flags` in `requires` or `after`.

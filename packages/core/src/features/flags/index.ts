@@ -2,8 +2,11 @@ import {
   defineFeature,
   duration,
   entityRoutePath,
+  afterCommit,
   HttpError,
   integer,
+  observeWrites,
+  parseDuration,
   list,
   object,
   oneOf,
@@ -23,6 +26,8 @@ import {
 } from "../public.ts";
 import type { FlagContext, FlagsApi, RequestFlagEvaluator } from "./api.ts";
 import { evaluateRule, FLAG_NAME, FLAG_NAME_MESSAGE, idOf, type FlagResult, type FlagRule, type FlagSubject } from "./evaluate.ts";
+import { flagCommands } from "./commands.ts";
+import { featureFlagEntity, loadFlagRows, ruleOfRow } from "./store.ts";
 
 const options = object({
   source: oneOf(["config", "database"]).default("config").describe("Where the flags live: the rules of the config, or the FeatureFlag table with the config rules as defaults."),
@@ -140,6 +145,9 @@ const flagsFeature = defineFeature({
   key: "flags",
   docs: { summary: "Feature flags turned on per user, per tenant or for a percentage of users, read synchronously in any endpoint or hook." },
   options,
+  // The table of the database source; nothing with the config source.
+  entities: ({ options }) => (options.source === "database" ? [featureFlagEntity()] : []),
+  commands: flagCommands,
   tags: {
     flag: {
       on: ["entity", "endpoint"],
@@ -185,7 +193,50 @@ const flagsFeature = defineFeature({
     );
   },
   setup(ctx) {
-    const rules = configRules(ctx.options.rules as Record<string, unknown>);
+    const config = configRules(ctx.options.rules as Record<string, unknown>);
+    let rules: FlagRules = config;
+    if (ctx.options.source === "database") {
+      const model = ctx.models.find((candidate) => candidate.key === "FeatureFlag");
+      if (!model) throw new Error('flags.source is "database" but the FeatureFlag entity is missing; set flags: { source: "database" } in quickservice.config.ts, then run quickservice migration add');
+      const adapter = ctx.config.database;
+      /** The rows, applied over the config's rules: a row replaces the rule of its name. */
+      let rows = new Map<string, FlagRule>();
+      const apply = () => {
+        rules = new Map([...config, ...rows]);
+      };
+      const reload = async () => {
+        rows = await loadFlagRows(adapter, model);
+        apply();
+      };
+      let timer: ReturnType<typeof setInterval> | undefined;
+      ctx.app.onStart(async () => {
+        await reload();
+        timer = setInterval(() => {
+          reload().catch((error: unknown) =>
+            safeLog(ctx.logger, "error", { timestamp: new Date().toISOString(), message: "flags.refresh.failed", error: { message: (error as Error)?.message ?? String(error) } }),
+          );
+        }, parseDuration(ctx.options.refresh) ?? 30_000);
+      });
+      // Writes through this process's repositories apply once they commit; other processes see them at the next refresh.
+      const stopObserving = observeWrites({
+        entities: [model.key],
+        transactional: true,
+        write(change) {
+          const name = String((change.after ?? change.before)?.name ?? "");
+          if (change.after && !FLAG_NAME.test(name)) throw new HttpError(400, `Invalid flags.rules.${name}: ${FLAG_NAME_MESSAGE}`);
+          const previous = change.before ? String(change.before.name) : undefined;
+          void afterCommit(() => {
+            if (previous !== undefined) rows.delete(previous);
+            if (change.after) rows.set(name, ruleOfRow(change.after));
+            apply();
+          });
+        },
+      });
+      ctx.app.onStop(() => {
+        clearInterval(timer);
+        stopObserving();
+      });
+    }
     const evaluator = flagEvaluator(() => rules, ctx.logger);
     evaluators.set(ctx.options, evaluator);
     const gates = routeGates(ctx.models, ctx.options.gate);

@@ -28,7 +28,31 @@ export function upstreamAnswer(error: HttpClientError, production: boolean): Res
  */
 const httpFeature = defineFeature({
   key: "http",
-  docs: { summary: "A fluent, typed client for calling other HTTP services, with timeouts, size limits and clear errors by default." },
+  docs: {
+    summary: "A fluent, typed client for calling other HTTP services, with timeouts, size limits and clear errors by default.",
+    sections: [
+      {
+        title: "Named services",
+        text: "Every option of a service has its variable, with the service's name in upper case and hyphens as underscores: `QS_HTTP_SERVICES_<NAME>_URL`, `QS_HTTP_SERVICES_<NAME>_TIMEOUT`, `QS_HTTP_SERVICES_<NAME>_AUTH_BEARER`, `QS_HTTP_SERVICES_<NAME>_RETRY_ENABLED`, `QS_HTTP_SERVICES_<NAME>_CIRCUIT_BREAKER_FAILURES`; `QS_HTTP_SERVICES` sets the whole record as JSON. A variable replaces a per-request function of `headers` or `auth`.",
+      },
+      {
+        title: "Modifiers",
+        text: [
+          "A modifier wraps calls: `defineModifier((request, next) => ...)` receives the request (`method`, `url`, `headers`, `body`, `timeout`, `signal`, `attempt`, `service`), may change it, calls `next(request?)` any number of times and resolves the response or a replacement. Anything it throws other than an `HttpClientError` fails the call with `MODIFIER_FAILED`.",
+          "",
+          "Calls run a service's built-in modifiers in the order `retry`, `circuitBreaker`, `bulkhead`, `cache`, then the service's `modifiers` list, then the call's `.use()` modifiers, then the transport with the hooks around it.",
+          "",
+          "Registered names: `retry` (`withRetry`), `circuitBreaker` (`withCircuitBreaker`), `bulkhead` (`withBulkhead`) and `cache` (`withCache`); features add more with `ctx.feature(\"http\").modifier(name, modifier)`.",
+        ].join("\n"),
+      },
+      {
+        title: "HttpTransport",
+        text: "`transport` replaces how a request is sent: an object with `fetch(request, { signal, address })` that receives a standard `Request` for the original URL and the address SSRF protection validated (absent with `ssrf: false`), and resolves a standard `Response`. Redirects, size limits, logging and modifiers keep working above it, and `http.mock()` answers instead while it is active.",
+      },
+      { title: "Tags", text: "The client has no tags: calls are made from code, where every setting is a builder method or a service option." },
+      { title: "Files", text: "The client contributes no entities, endpoints, hooks, jobs or folders, so there are no files to override." },
+    ],
+  },
   options: httpOptions,
   enabledByDefault: true,
   after: ["security"],
@@ -90,6 +114,9 @@ const httpFeature = defineFeature({
       if (auth) maskSecrets(resolved as Record<string, unknown>, ["auth.bearer", "auth.basic.password", "auth.apiKey.value"].filter((path) => path.split(".").slice(1).reduce<unknown>((value, key) => (value as Record<string, unknown> | undefined)?.[key], auth) !== undefined));
       registered.set(full, serviceSettings(full, owner, resolved));
     },
+    beforeRequest: (fn) => ctx.addHook("beforeRequest", fn as never),
+    afterResponse: (fn) => ctx.addHook("afterResponse", fn as never),
+    onError: (fn) => ctx.addHook("onError", fn as never),
     modifier(name, modifier) {
       const owner = ctx.currentFeature();
       if (owner === undefined) throw new Error("http modifier() can only be called during setup");
@@ -122,6 +149,7 @@ export { withRetry } from "./retry.ts";
 export { withBulkhead, withCircuitBreaker } from "./resilience.ts";
 export { withCache } from "./cache.ts";
 export { mockHttp } from "./mock.ts";
+export type { HttpTransport } from "./transport.ts";
 export type { HttpMock, MockCall, MockHandler, MockReply, MockRequest, MockService } from "./mock.ts";
 export type { CacheOptions } from "./cache.ts";
 export type { BulkheadOptions, CircuitBreakerOptions, HttpState } from "./resilience.ts";

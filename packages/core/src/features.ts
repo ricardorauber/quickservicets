@@ -47,6 +47,8 @@ export interface FeatureDocs {
   /** One sentence on what the feature does. */
   summary: string;
   url?: string;
+  /** More sections of the feature's reference page, each a title and Markdown text, after the generated ones. */
+  sections?: readonly { title: string; text: string }[];
 }
 
 type AnyShape = Record<string, AnyOptionSchema>;

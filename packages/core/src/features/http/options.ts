@@ -1,4 +1,7 @@
-import { anyOf, boolean, CORE_VERSION, duration, integer, list, object, oneOf, record, secret, size, string, toggle, url, type Options, type OptionsInput } from "../public.ts";
+import { anyOf, boolean, CORE_VERSION, duration, hook, integer, list, object, oneOf, provider, record, secret, size, string, toggle, url, type Options, type OptionsInput } from "../public.ts";
+import type { HttpRequest, HttpResponse } from "./client.ts";
+import type { HttpClientError } from "./errors.ts";
+import type { HttpTransport } from "./transport.ts";
 
 /** What a service name looks like. */
 export const SERVICE_NAME = /^[a-z][a-z0-9-]*$/;
@@ -8,7 +11,8 @@ export const serviceOptions = object({
   url: url().describe("The service's base URL; call paths are joined to its path, like https://billing.internal/v1."),
   headers: record(string().describe("The value of the header."))
     .optional()
-    .describe("Headers sent with every call to the service, under the headers the call sets."),
+    .perRequest()
+    .describe("Headers sent with every call to the service, under the headers the call sets; a function of the call context (req, user, tenant and service) computes them on each call."),
   auth: object({
     bearer: secret().optional().describe("Sends the token as authorization: Bearer."),
     basic: object({
@@ -25,7 +29,8 @@ export const serviceOptions = object({
       .describe("Sends the key in a header."),
   })
     .optional()
-    .describe("How calls to the service authenticate: one of bearer, basic or apiKey."),
+    .perRequest()
+    .describe("How calls to the service authenticate: one of bearer, basic or apiKey; a function of the call context (req, user, tenant and service) computes it on each call."),
   timeout: duration().optional().describe("The timeout of calls to the service, instead of http.timeout."),
   propagate: list(oneOf(["user", "tenant", "authorization"]))
     .default([])
@@ -78,7 +83,8 @@ export type ServiceOptions = Options<typeof serviceOptions>;
 export type ServiceOptionsInput = OptionsInput<typeof serviceOptions>;
 
 /** The problem of a service's options beyond their schema: more than one authentication method. */
-export function serviceProblems(name: string, service: ServiceOptions): string[] {
+export function serviceProblems(name: string, service: Pick<ServiceOptions, "auth">): string[] {
+  if (typeof service.auth === "function") return [];
   const methods = ["bearer", "basic", "apiKey"].filter((method) => (service.auth as Record<string, unknown> | undefined)?.[method] !== undefined);
   return methods.length > 1 ? [`Invalid http.services.${name}.auth: use only one of bearer, basic or apiKey`] : [];
 }
@@ -100,6 +106,14 @@ export const httpOptions = object({
   log: oneOf(["all", "errors", "off"])
     .default("all")
     .describe("Which calls write an http.call log entry: all of them, only failed calls and statuses of 400 and above, or none."),
+  beforeRequest: hook<HttpRequest, undefined>().describe(
+    "Runs before every attempt next to the transport, with the request; it may return a changed request, and a throw cancels the call with that error.",
+  ),
+  afterResponse: hook<{ request: HttpRequest; response: HttpResponse; durationMs: number }, undefined>().describe("Runs after every attempt that got a response, with the request, the response and the duration."),
+  onError: hook<{ request: HttpRequest; error: HttpClientError }, undefined>().describe("Runs after every attempt that failed, with the request and the HttpClientError."),
+  transport: provider<HttpTransport>("HttpTransport", ["fetch"])
+    .optional()
+    .describe("Replaces how a request is sent: its fetch(request, context) gets a standard Request with the abort signal and the address SSRF protection validated, and resolves a Response."),
   services: record(serviceOptions)
     .keys(SERVICE_NAME, "a service name starts with a lowercase letter and uses lowercase letters, digits and -")
     .describe("The services the project calls, by name, each called with http.service(name)."),

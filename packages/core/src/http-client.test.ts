@@ -204,7 +204,7 @@ describe("enabling", () => {
     expect(() => http.get("http://example.test/")).toThrow("http is disabled (http: false in quickservicets.config.ts)");
     resetHttpConfig();
     expect(() => http.get("http://example.test/")).not.toThrow();
-    const script = `import { http } from "${join(import.meta.dir, "index.ts")}"; import { currentSettings, describeCall } from "${join(import.meta.dir, "features/http/client.ts")}"; const settings = currentSettings(); console.log(JSON.stringify([settings.options.timeout, describeCall({ method: "GET", url: new URL("http://x.test"), headers: [], query: [], modifiers: [] }, settings, {}).timeout, typeof http.get]));`;
+    const script = `import { http } from "${join(import.meta.dir, "index.ts")}"; import { currentSettings, describeCall } from "${join(import.meta.dir, "features/http/client.ts")}"; const settings = currentSettings(); console.log(JSON.stringify([settings.options.timeout, (await describeCall({ method: "GET", url: new URL("http://x.test"), headers: [], query: [], modifiers: [] }, settings, {})).timeout, typeof http.get]));`;
     const child = Bun.spawn(["bun", "-e", script], { stdout: "pipe", stderr: "pipe" });
     const [stdout] = await Promise.all([new Response(child.stdout).text(), child.exited]);
     expect(JSON.parse(stdout)).toEqual(["10s", 10_000, "function"]);

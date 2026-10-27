@@ -27,6 +27,10 @@ It is enabled by default; turn it off with `http: false` or `QS_HTTP_ENABLED=fal
 | `http.allow` | `string[]` | `[]` | `QS_HTTP_ALLOW` | no | Addresses, CIDR blocks (or loopback, private, linklocal) and host names like billing.internal or *.internal that SSRF protection lets through. |
 | `http.maxRedirects` | `integer` | `5` | `QS_HTTP_MAX_REDIRECTS` | no | How many redirects a call follows before it fails with TOO_MANY_REDIRECTS. |
 | `http.log` | `"all" \| "errors" \| "off"` | `"all"` | `QS_HTTP_LOG` | no | Which calls write an http.call log entry: all of them, only failed calls and statuses of 400 and above, or none. |
+| `http.beforeRequest` | `hook` | — | not overridable | no | Runs before every attempt next to the transport, with the request; it may return a changed request, and a throw cancels the call with that error. |
+| `http.afterResponse` | `hook` | — | not overridable | no | Runs after every attempt that got a response, with the request, the response and the duration. |
+| `http.onError` | `hook` | — | not overridable | no | Runs after every attempt that failed, with the request and the HttpClientError. |
+| `http.transport` | `HttpTransport` | — | not overridable | no | Replaces how a request is sent: its fetch(request, context) gets a standard Request with the abort signal and the address SSRF protection validated, and resolves a Response. |
 | `http.services.<name>.url` | `record of url` | — | `QS_HTTP_SERVICES_<NAME>_URL` | no | The service's base URL; call paths are joined to its path, like https://billing.internal/v1. |
 | `http.services.<name>.headers.<name>` | `record of record of string` | — | `QS_HTTP_SERVICES_<NAME>_HEADERS_<NAME>` | no | The value of the header. |
 | `http.services.<name>.auth.bearer` | `record of string` | — | `QS_HTTP_SERVICES_<NAME>_AUTH_BEARER` | no | Sends the token as authorization: Bearer. |
@@ -61,6 +65,16 @@ It is enabled by default; turn it off with `http: false` or `QS_HTTP_ENABLED=fal
 | `http.services.<name>.modifiers` | `record of string[]` | `[]` | `QS_HTTP_SERVICES_<NAME>_MODIFIERS` | no | Registered modifiers that wrap every call to the service, in order, inside the built-in ones. |
 | `http.enabled` | `boolean` | `true` | `QS_HTTP_ENABLED` | no | Turns the feature off when false. |
 
+## Hooks
+
+Hooks are functions (or lists of functions) written in the config; `before` hooks may change the value or cancel the step by throwing, `after` and `on` hooks observe.
+
+| Hook | Kind | Description |
+| --- | --- | --- |
+| `http.beforeRequest` | before | Runs before every attempt next to the transport, with the request; it may return a changed request, and a throw cancels the call with that error. |
+| `http.afterResponse` | after | Runs after every attempt that got a response, with the request, the response and the duration. |
+| `http.onError` | on | Runs after every attempt that failed, with the request and the HttpClientError. |
+
 ## Feature API
 
 Other features reach it with `ctx.feature("http")` in their setup, listing `http` in `requires` or `after`.
@@ -82,3 +96,51 @@ modifier(name: string, modifier: HttpModifier): void;
 
 Registers a named modifier during setup, which services list in `modifiers`; a name registered twice fails
 startup naming both owners.
+
+### `beforeRequest`
+
+```ts
+beforeRequest(fn: FeatureHook<HttpRequest, undefined>): void;
+```
+
+Appends a `beforeRequest` hook after the config's: it may return a changed request, and a throw cancels the call.
+
+### `afterResponse`
+
+```ts
+afterResponse(fn: FeatureHook<{ request: HttpRequest; response: HttpResponse; durationMs: number }, undefined>): void;
+```
+
+Appends an `afterResponse` hook, run after every attempt that got a response.
+
+### `onError`
+
+```ts
+onError(fn: FeatureHook<{ request: HttpRequest; error: HttpClientError }, undefined>): void;
+```
+
+Appends an `onError` hook, run after every attempt that failed.
+
+## Named services
+
+Every option of a service has its variable, with the service's name in upper case and hyphens as underscores: `QS_HTTP_SERVICES_<NAME>_URL`, `QS_HTTP_SERVICES_<NAME>_TIMEOUT`, `QS_HTTP_SERVICES_<NAME>_AUTH_BEARER`, `QS_HTTP_SERVICES_<NAME>_RETRY_ENABLED`, `QS_HTTP_SERVICES_<NAME>_CIRCUIT_BREAKER_FAILURES`; `QS_HTTP_SERVICES` sets the whole record as JSON. A variable replaces a per-request function of `headers` or `auth`.
+
+## Modifiers
+
+A modifier wraps calls: `defineModifier((request, next) => ...)` receives the request (`method`, `url`, `headers`, `body`, `timeout`, `signal`, `attempt`, `service`), may change it, calls `next(request?)` any number of times and resolves the response or a replacement. Anything it throws other than an `HttpClientError` fails the call with `MODIFIER_FAILED`.
+
+Calls run a service's built-in modifiers in the order `retry`, `circuitBreaker`, `bulkhead`, `cache`, then the service's `modifiers` list, then the call's `.use()` modifiers, then the transport with the hooks around it.
+
+Registered names: `retry` (`withRetry`), `circuitBreaker` (`withCircuitBreaker`), `bulkhead` (`withBulkhead`) and `cache` (`withCache`); features add more with `ctx.feature("http").modifier(name, modifier)`.
+
+## HttpTransport
+
+`transport` replaces how a request is sent: an object with `fetch(request, { signal, address })` that receives a standard `Request` for the original URL and the address SSRF protection validated (absent with `ssrf: false`), and resolves a standard `Response`. Redirects, size limits, logging and modifiers keep working above it, and `http.mock()` answers instead while it is active.
+
+## Tags
+
+The client has no tags: calls are made from code, where every setting is a builder method or a service option.
+
+## Files
+
+The client contributes no entities, endpoints, hooks, jobs or folders, so there are no files to override.

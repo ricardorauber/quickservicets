@@ -557,6 +557,7 @@ export function featurePage(native: FeatureDefinition): string {
           ...api.flatMap((member) => [`### \`${member.name}\``, "", "```ts", member.signature, "```", "", member.description, ""]),
         ]
       : []),
+    ...(native.docs?.sections ?? []).flatMap((section) => [`## ${section.title}`, "", section.text, ""]),
   ].join("\n");
 }
 

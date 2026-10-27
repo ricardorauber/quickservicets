@@ -553,6 +553,10 @@ Every option, tag, command and hook of `http` is on [its reference page](/refere
 | `http.allow` | `string[]` | `[]` | `QS_HTTP_ALLOW` | Addresses, CIDR blocks (or loopback, private, linklocal) and host names like billing.internal or *.internal that SSRF protection lets through. |
 | `http.maxRedirects` | `integer` | `5` | `QS_HTTP_MAX_REDIRECTS` | How many redirects a call follows before it fails with TOO_MANY_REDIRECTS. |
 | `http.log` | `"all" \| "errors" \| "off"` | `"all"` | `QS_HTTP_LOG` | Which calls write an http.call log entry: all of them, only failed calls and statuses of 400 and above, or none. |
+| `http.beforeRequest` | `hook` | — | not overridable | Runs before every attempt next to the transport, with the request; it may return a changed request, and a throw cancels the call with that error. |
+| `http.afterResponse` | `hook` | — | not overridable | Runs after every attempt that got a response, with the request, the response and the duration. |
+| `http.onError` | `hook` | — | not overridable | Runs after every attempt that failed, with the request and the HttpClientError. |
+| `http.transport` | `HttpTransport` | — | not overridable | Replaces how a request is sent: its fetch(request, context) gets a standard Request with the abort signal and the address SSRF protection validated, and resolves a Response. |
 | `http.services.<name>.url` | `record of url` | — | `QS_HTTP_SERVICES_<NAME>_URL` | The service's base URL; call paths are joined to its path, like https://billing.internal/v1. |
 | `http.services.<name>.headers.<name>` | `record of record of string` | — | `QS_HTTP_SERVICES_<NAME>_HEADERS_<NAME>` | The value of the header. |
 | `http.services.<name>.auth.bearer` | `record of string` | — | `QS_HTTP_SERVICES_<NAME>_AUTH_BEARER` | Sends the token as authorization: Bearer. |

@@ -1,6 +1,6 @@
-import { DEFAULT_MASKED_KEYS, jsonLogger, lastResolvedFeatures, parseDuration, resolveOptions, type Logger, type ServiceRequest } from "../public.ts";
+import { DEFAULT_MASKED_KEYS, jsonLogger, lastResolvedFeatures, OptionError, parseDuration, resolveOption, resolveOptions, runAfterHooks, runBeforeHooks, type FeatureHook, type Logger, type OptionFunction, type ServiceRequest } from "../public.ts";
 import { HttpClientError } from "./errors.ts";
-import { httpOptions, type HttpOptions, type ServiceOptions } from "./options.ts";
+import { httpOptions, serviceProblems, type HttpOptions, type ServiceOptions } from "./options.ts";
 import { sharedState } from "./state.ts";
 import { runChain } from "./modifiers.ts";
 import { withRetry, type RetryOptions } from "./retry.ts";
@@ -161,15 +161,20 @@ export function timeoutMs(value: number | string): number {
 }
 
 /** The request a call spec describes, with its headers, query and body applied. */
-export function describeCall(spec: CallSpec, settings: HttpSettings, binding: ClientBinding): HttpRequest {
+export async function describeCall(spec: CallSpec, settings: HttpSettings, binding: ClientBinding): Promise<HttpRequest> {
   const url = new URL(spec.url);
   for (const [name, value] of spec.query) url.searchParams.append(name, value);
   const headers = new Headers({ "user-agent": settings.options.userAgent });
   if (binding.requestId !== undefined) headers.set("x-request-id", binding.requestId);
   const service = spec.service === undefined ? undefined : serviceNamed(spec.service, settings);
   if (service) {
-    for (const [name, value] of Object.entries(service.headers ?? {})) headers.set(name, value);
-    const auth = service.auth;
+    // Headers and authentication may be functions of the request, called on every call through the service.
+    const context = { req: binding.req, user: binding.req?.user, tenant: binding.req?.tenant, service: service.name };
+    const serviceHeaders = (await resolveOption(service.headers as ServiceHeaders, context)) as Record<string, string> | undefined;
+    for (const [name, value] of Object.entries(serviceHeaders ?? {})) headers.set(name, value);
+    const auth = (await resolveOption(service.auth as ServiceAuth, context)) as ResolvedAuth | undefined;
+    const problems = typeof service.auth === "function" ? serviceProblems(service.name, { auth } as never) : [];
+    if (problems.length > 0) throw new OptionError(problems.join("\n"));
     if (auth?.bearer !== undefined) headers.set("authorization", `Bearer ${auth.bearer}`);
     else if (auth?.basic !== undefined) headers.set("authorization", `Basic ${btoa(`${auth.basic.username}:${auth.basic.password}`)}`);
     else if (auth?.apiKey !== undefined) headers.set(auth.apiKey.header, auth.apiKey.value);
@@ -226,14 +231,44 @@ function appendQuery(target: { append(name: string, value: string): void }, name
 /** Runs a call: the modifiers, then the transport. */
 export async function execute(spec: CallSpec, binding: ClientBinding): Promise<HttpResponse> {
   const settings = currentSettings();
-  const request = describeCall(spec, settings, binding);
+  const request = await describeCall(spec, settings, binding);
   const service = spec.service === undefined ? undefined : serviceNamed(spec.service, settings);
   // A call through a service trusts the service's own host; any other host is checked as usual.
   const trustedHost = service?.host;
   const chain = [...(service ? serviceModifiers(service, settings) : []), ...spec.modifiers];
-  const send = (attempt: HttpRequest) => transport(attempt, settings, trustedHost);
+  const send = (attempt: HttpRequest) => withHooks(attempt, settings, (changed) => transport(changed, settings, trustedHost));
   return chain.length === 0 ? send(request) : runChain(chain, request, send, () => maskedUrl(request.url, settings));
 }
+
+/**
+ * One attempt with the hooks around it: `beforeRequest` may change the request or cancel the call, `afterResponse`
+ * observes each response and `onError` each failure; a failing after-hook is logged and changes nothing.
+ */
+async function withHooks(request: HttpRequest, settings: HttpSettings, send: (request: HttpRequest) => Promise<HttpResponse>): Promise<HttpResponse> {
+  const { beforeRequest, afterResponse, onError } = settings.options as HttpOptions & HookLists;
+  const changed = beforeRequest.length > 0 ? await runBeforeHooks(beforeRequest, request, undefined) : request;
+  if (afterResponse.length === 0 && onError.length === 0) return send(changed);
+  const started = performance.now();
+  try {
+    const response = await send(changed);
+    await runAfterHooks(afterResponse, { request: changed, response, durationMs: performance.now() - started }, undefined);
+    return response;
+  } catch (error) {
+    if (error instanceof HttpClientError) await runAfterHooks(onError, { request: changed, error }, undefined);
+    throw error;
+  }
+}
+
+/** The hook lists of the resolved options. */
+interface HookLists {
+  beforeRequest: FeatureHook<HttpRequest, undefined>[];
+  afterResponse: FeatureHook<{ request: HttpRequest; response: HttpResponse; durationMs: number }, undefined>[];
+  onError: FeatureHook<{ request: HttpRequest; error: HttpClientError }, undefined>[];
+}
+
+type ServiceHeaders = Record<string, string> | undefined | OptionFunction<Record<string, string> | undefined>;
+type ResolvedAuth = { bearer?: string; basic?: { username: string; password: string }; apiKey?: { header: string; value: string } };
+type ServiceAuth = ResolvedAuth | undefined | OptionFunction<ResolvedAuth | undefined>;
 
 const builtInChains = new WeakMap<ServiceSettings, HttpModifier[]>();
 

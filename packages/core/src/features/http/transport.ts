@@ -156,8 +156,25 @@ interface Hop {
   body: HttpBody | undefined;
 }
 
-/** Sends one hop to its validated address, with the original host in the `host` header and as the TLS server name. */
-async function sendHop(hop: Hop, destination: Destination, signal: AbortSignal): Promise<Response> {
+/**
+ * Replaces how the client sends a request: `fetch` receives a standard `Request` for the original URL and the address
+ * SSRF protection validated (absent when it is off), and resolves a standard `Response`; redirects, size limits,
+ * logging and modifiers keep working above it.
+ */
+export interface HttpTransport {
+  fetch(request: Request, context: { signal: AbortSignal; address?: string }): Promise<Response>;
+}
+
+/**
+ * Sends one hop: through the configured transport, or to its validated address, with the original host in the
+ * `host` header and as the TLS server name.
+ */
+async function sendHop(hop: Hop, destination: Destination, signal: AbortSignal, custom: HttpTransport | undefined): Promise<Response> {
+  if (custom) {
+    const body = (hop.body ?? null) as RequestInit["body"];
+    const request = new Request(hop.url.href, { method: hop.method, headers: hop.headers, body, signal, redirect: "manual", ...(body instanceof ReadableStream ? { duplex: "half" } : {}) } as RequestInit);
+    return custom.fetch(request, { signal, ...(destination.address !== undefined ? { address: destination.address } : {}) });
+  }
   const headers = new Headers(hop.headers);
   const target = pinnedUrl(hop.url, destination.address);
   if (target !== hop.url.href) headers.set("host", hop.url.host);
@@ -205,7 +222,7 @@ export async function transport(request: HttpRequest, settings: HttpSettings, tr
     if (mockActive()) response = await answerFromMock(request, signal, request.service === undefined ? undefined : settings.services.get(request.service)?.url, url);
     else for (let redirects = 0; ; redirects++) {
       const destination = await checkDestination(hop.url, settings, trustedHost);
-      response = await sendHop(hop, destination, signal);
+      response = await sendHop(hop, destination, signal, settings.options.transport as HttpTransport | undefined);
       const location = response.headers.get("location");
       if (!REDIRECTS.has(response.status) || location === null) break;
       await response.body?.cancel().catch(() => undefined);

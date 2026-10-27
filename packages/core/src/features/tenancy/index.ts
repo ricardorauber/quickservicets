@@ -25,6 +25,7 @@ import {
 } from "../public.ts";
 import type { TenancyApi } from "./api.ts";
 import { isMissingTable, tenantScopes } from "./scopes.ts";
+import { connectionResolver, type ConnectionOption } from "./connections.ts";
 import { tenantPools, type TenantPool, type TenantPools } from "./pools.ts";
 import {
   cachedDirectory,
@@ -82,6 +83,16 @@ const options = object({
   })
     .default({ max: 50, connections: 2, idle: "5m", connectTimeout: "10s" })
     .describe("The connection pools of database-strategy tenants, per worker."),
+  connection: secret()
+    .optional()
+    .perRequest()
+    .describe(
+      "The connection of database-strategy tenants without their own: a text where `{tenant}` is replaced by the tenant id, like `postgres://app@db:5432/tenant_{tenant}`, or a function of the tenant.",
+    ),
+  connectionService: string().optional().describe("The http.services entry asked for a tenant's connection as GET /tenants/:id/connection, after the other sources."),
+  connectionCache: object({ ttl: duration().default("10m").describe("How long each worker keeps a resolved connection without a ttl of its own.") })
+    .default({ ttl: "10m" })
+    .describe("The per-worker cache of resolved connections."),
   scope: oneOf(["tenant", "shared"])
     .default("tenant")
     .describe("Whether an entity's records belong to one tenant or are shared by every tenant; set per entity with @tenancy shared."),
@@ -247,7 +258,12 @@ const tenancyFeature = defineFeature({
         connectTimeoutMs: parseDuration(poolOptions.connectTimeout) ?? 10_000,
       },
       logger: ctx.logger,
-      connectionOf: async (tenant) => tenant.connection,
+      connections: connectionResolver({
+        option: ctx.options.connection as ConnectionOption,
+        ...(ctx.options.connectionService ? { service: ctx.options.connectionService } : {}),
+        ttlMs: parseDuration(ctx.options.connectionCache.ttl) ?? 600_000,
+        logger: ctx.logger,
+      }),
     });
     poolsOf.set(ctx.options, pools);
     ctx.app.onStart(() => pools.start());
@@ -345,8 +361,7 @@ const tenancyFeature = defineFeature({
         req.tenant = { id, ...(tenant.plan !== undefined ? { plan: tenant.plan } : {}), attributes: tenant.attributes } as ServiceRequest["tenant"];
         const strategy = tenant.strategy ?? ctx.options.strategy;
         if (strategy === "database") {
-          const connection = await pools.connectionOf(tenant);
-          const lease = await pools.acquire(tenant, connection);
+          const lease = await pools.acquire(tenant);
           try {
             return await withDatabaseScope(scopeOfPool(tenant, lease.pool), next);
           } catch (error) {

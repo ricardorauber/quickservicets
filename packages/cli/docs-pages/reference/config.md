@@ -608,6 +608,9 @@ Every option, tag, command and hook of `tenancy` is on [its reference page](/ref
 | `tenancy.pools.connections` | `integer` | `2` | `QS_TENANCY_POOLS_CONNECTIONS` | Connections of each tenant database pool, per worker. |
 | `tenancy.pools.idle` | `duration` | `"5m"` | `QS_TENANCY_POOLS_IDLE` | How long an unused tenant database pool stays open. |
 | `tenancy.pools.connectTimeout` | `duration` | `"10s"` | `QS_TENANCY_POOLS_CONNECT_TIMEOUT` | How long opening a tenant database may take before the request answers 503. |
+| `tenancy.connection` | `string` | — | `QS_TENANCY_CONNECTION` | The connection of database-strategy tenants without their own: a text where `{tenant}` is replaced by the tenant id, like `postgres://app@db:5432/tenant_{tenant}`, or a function of the tenant. |
+| `tenancy.connectionService` | `string` | — | `QS_TENANCY_CONNECTION_SERVICE` | The http.services entry asked for a tenant's connection as GET /tenants/:id/connection, after the other sources. |
+| `tenancy.connectionCache.ttl` | `duration` | `"10m"` | `QS_TENANCY_CONNECTION_CACHE_TTL` | How long each worker keeps a resolved connection without a ttl of its own. |
 | `tenancy.scope` | `"tenant" \| "shared"` | `"tenant"` | `QS_TENANCY_SCOPE` | Whether an entity's records belong to one tenant or are shared by every tenant; set per entity with @tenancy shared. |
 | `tenancy.source` | `"database" \| "config" \| "service"` | `"database"` | `QS_TENANCY_SOURCE` | Where tenants are looked up: the Tenant table of the service's database, the tenants option, or another service through the HTTP client. |
 | `tenancy.tenants.<name>.plan` | `record of string` | — | `QS_TENANCY_TENANTS_<NAME>_PLAN` | The tenant's plan, in req.tenant.plan. |

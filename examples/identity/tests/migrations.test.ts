@@ -31,8 +31,17 @@ if (url) {
       await admin.unsafe(
         "insert into modules (id, created_at, updated_at, slug, active) values ('01a10000-0000-7000-8000-000000000001', now(), now(), 'billing', true)",
       );
-      expect(quickservicets("migrate")).toContain("Applied 20261020133355_DataRules");
+      expect(quickservicets("migrate", "JobRuns")).toContain("Applied 20261020133355_DataRules");
       expect(await uniqueIndexes()).toEqual(indexes);
+      // PhaseOneFeatures adds the plan column, with existing organizations on the free plan, and the tables of the
+      // history and idempotency natives.
+      await admin.unsafe(
+        "insert into organizations (id, created_at, updated_at, slug, legal_name, active) values ('01a10000-0000-7000-8000-000000000002', now(), now(), 'acme', 'Acme Ltd', true)",
+      );
+      expect(quickservicets("migrate")).toContain("Applied 20261027143638_PhaseOneFeatures");
+      expect(((await admin`select plan from organizations`) as { plan: string }[]).map((row) => row.plan)).toEqual(["free"]);
+      const tables = ((await admin`select tablename from pg_tables where schemaname = 'public' and tablename in ${admin(["idempotency_keys", "membership_history", "profile_history", "team_history"])} order by tablename`) as { tablename: string }[]).map((row) => row.tablename);
+      expect(tables).toEqual(["idempotency_keys", "membership_history", "profile_history", "team_history"]);
       expect(quickservicets("migrate")).toContain("Database is up to date (0 migrations applied)");
     } finally {
       await admin.close();

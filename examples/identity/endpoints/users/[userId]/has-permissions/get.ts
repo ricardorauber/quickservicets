@@ -13,6 +13,7 @@ type Query = {
 /**
  * @summary Check a user's permissions
  * @description Grants come from the user's active membership in the organization and from its active teams the user belongs to; `manage` also grants `view`.
+ * @rateLimit 30/min
  */
 const handler: Endpoint<Query, boolean> = async (repos, req) => {
     const { p, rule, organization } = req.queryItems

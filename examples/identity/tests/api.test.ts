@@ -3,12 +3,25 @@
  * Runs the generated app in-process on an in-memory database: `bun test` in examples/identity. When TEST_POSTGRES_URL is
  * set, every test runs again on PostgreSQL, in a new schema created with the project's migrations and dropped afterwards.
  */
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, setSystemTime, test } from "bun:test";
 import { SQL } from "bun";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createApp, localStorage, memoryAdapter, postgresAdapter, resolveConfig, schemaIdentifier, type App, type DatabaseAdapter, type EntityModel } from "@quickservicets/core";
+import {
+  createApp,
+  createFeatureLifecycle,
+  localStorage,
+  memoryAdapter,
+  postgresAdapter,
+  resolveConfig,
+  schemaIdentifier,
+  type App,
+  type DatabaseAdapter,
+  type EntityModel,
+  type FeatureLifecycle,
+} from "@quickservicets/core";
+import projectConfig from "../quickservicets.config.ts";
 
 const root = join(import.meta.dir, "..");
 type Json = Record<string, any>;
@@ -49,9 +62,10 @@ const databases: [string, (models: EntityModel[]) => Promise<TestDatabase>][] = 
   ...(process.env.TEST_POSTGRES_URL ? [["PostgreSQL", postgresDatabase] as [string, typeof postgresDatabase]] : []),
 ];
 
-let generated: { models: EntityModel[]; crudRoutes: any; endpoints: any; hooks: any; openApi: any; jobs: any };
-let fetchApp: (request: Request) => Promise<Response>;
+let generated: { models: EntityModel[]; crudRoutes: any; endpoints: any; hooks: any; openApi: any; jobs: any; featureFolders: any };
+let fetchApp: (request: Request, peer?: string) => Promise<Response>;
 let app: App;
+let lifecycle: FeatureLifecycle;
 
 beforeAll(async () => {
   const built = Bun.spawnSync(["bun", "run", "quickservicets", "build"], { cwd: root, stdout: "pipe", stderr: "pipe" });
@@ -59,34 +73,51 @@ beforeAll(async () => {
   const { models } = await import(join(root, ".generated/models.ts"));
   const { crudRoutes, endpoints, hooks } = await import(join(root, ".generated/routes.ts"));
   const { jobs } = await import(join(root, ".generated/jobs.ts"));
+  const { featureFolders } = await import(join(root, ".generated/features.ts"));
   const openApi = await Bun.file(join(root, ".generated/openapi.json")).json();
-  generated = { models, crudRoutes, endpoints, hooks, openApi, jobs };
+  generated = { models, crudRoutes, endpoints, hooks, openApi, jobs, featureFolders };
 });
 
-/** Connects the database and starts the app on it; the tests send it requests through `fetchApp` and run jobs with `app`. */
+let peers = 0;
+
+/**
+ * Connects the database and starts the project's app on it, with its config and native features, as the server does;
+ * the tests send it requests through `fetchApp` and run jobs with `app`.
+ */
 async function startApp(open: (models: EntityModel[]) => Promise<TestDatabase>): Promise<TestDatabase> {
-  const { models, crudRoutes, endpoints, hooks, openApi, jobs } = generated;
+  const { models, crudRoutes, endpoints, hooks, openApi, jobs, featureFolders } = generated;
   const opened = await open(models);
   const config = resolveConfig(
     {
+      ...projectConfig,
       database: opened.database,
-      populate: { maxDepth: 3 },
       storage: { default: localStorage({ dir: mkdtempSync(join(tmpdir(), "identity-uploads-")) }) },
       logger: { info() {}, warn() {}, error() {} },
     },
     {},
   );
-  app = createApp({ models, crudRoutes, endpoints, hooks, config, openApi, jobs });
-  fetchApp = (request) => app.server.fetch(request);
-  return opened;
+  lifecycle = createFeatureLifecycle({ features: config.features, config, models, featureFolders, endpoints, crudRoutes, worker: { index: 0, count: 1, runsScheduledWork: false } });
+  await lifecycle.setup();
+  app = createApp({ models, crudRoutes, endpoints, hooks, config, openApi, jobs, featureFolders, runtimeRoutes: lifecycle.routes, middleware: lifecycle.middleware, server: lifecycle.server });
+  await lifecycle.start({ repos: app.repos as never, server: app.server });
+  // Each request comes from its own address, so the rate limits only count the requests a test sends from one.
+  fetchApp = (request, peer = `10.9.${Math.floor(++peers / 250) % 250}.${peers % 250}`) => app.server.fetch(request, { peer });
+  return {
+    database: opened.database,
+    async close() {
+      await lifecycle.shutdown();
+      await lifecycle.stop();
+      await opened.close();
+    },
+  };
 }
 
-async function call(method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<Result> {
+async function call(method: string, path: string, body?: unknown, headers: Record<string, string> = {}, peer?: string): Promise<Result> {
   const init: RequestInit = { method, headers };
   if (body instanceof FormData) init.body = body;
   else if (typeof body === "string") init.body = body;
   else if (body !== undefined) init.body = JSON.stringify(body);
-  const response = await fetchApp(new Request(`http://x${path}`, init));
+  const response = await fetchApp(new Request(`http://x${path}`, init), peer);
   const text = await response.text();
   let parsed: Json = {};
   try {
@@ -160,7 +191,7 @@ const crudCases: CrudCase[] = [
   {
     path: "/organizations",
     entity: "Organization",
-    valid: async () => ({ slug: unique("o"), legalName: "Org", active: true }),
+    valid: async () => ({ slug: unique("o"), legalName: "Org", active: true, plan: "free" }),
     required: "legalName",
     wrongType: ["slug", 1, "Must be a string"],
     change: { name: "Renamed" },
@@ -619,6 +650,21 @@ describe.each(databases)("on %s", (_name, open) => {
       expect((await check(ana.id, q(org.id, `${reports.slug}:view`))).body).toBe(false);
     });
 
+    test("@rateLimit 30/min: the 31st check from one address within a minute answers 429 with Retry-After", async () => {
+      const { ana, org } = await world();
+      setSystemTime(new Date("2026-11-02T10:00:00Z"));
+      try {
+        const query = `p=billing:manage&rule=all&organization=${org.id}`;
+        for (let index = 0; index < 30; index++) expect((await call("GET", `/users/${ana.id}/has-permissions?${query}`, undefined, {}, "203.0.113.7")).status).toBe(200);
+        const limited = await call("GET", `/users/${ana.id}/has-permissions?${query}`, undefined, {}, "203.0.113.7");
+        expect([limited.status, limited.body.error.code]).toEqual([429, "RATE_LIMITED"]);
+        expect(Number(limited.headers.get("retry-after"))).toBeGreaterThan(0);
+        expect((await call("GET", `/users/${ana.id}/has-permissions?${query}`, undefined, {}, "203.0.113.8")).status).toBe(200);
+      } finally {
+        setSystemTime();
+      }
+    });
+
     test("users without grants, and unknown users, get false", async () => {
       const { org, billing } = await world();
       const loner = await create("/users", { email: `${unique("loner")}@x.co` });
@@ -685,6 +731,33 @@ describe.each(databases)("on %s", (_name, open) => {
       expect((await stats(empty.id, loner.id)).body).toEqual({ members: 0, activeMembers: 0, teams: 1, activeTeams: 1, profiles: 1 });
     });
 
+    test("organizations on the pro plan get the number of their active modules, through the detailed-stats flag", async () => {
+      const { org, ana } = await organization();
+      const [billing, reports, legacy] = await Promise.all([
+        create("/modules", { slug: unique("billing") }),
+        create("/modules", { slug: unique("reports") }),
+        create("/modules", { slug: unique("legacy"), active: false }),
+      ]);
+      await patch(`/organizations/${org.id}`, { modules: [billing.id, reports.id, legacy.id] });
+      expect((await stats(org.id, ana.id)).body).not.toHaveProperty("modules");
+      expect((await patch(`/organizations/${org.id}`, { plan: "pro" })).status).toBe(200);
+      expect((await stats(org.id, ana.id)).body).toEqual({ members: 3, activeMembers: 2, teams: 2, activeTeams: 1, profiles: 2, modules: 2 });
+      await patch(`/organizations/${org.id}`, { plan: "free" });
+      expect((await stats(org.id, ana.id)).body).not.toHaveProperty("modules");
+    });
+
+    test("@rateLimit 30/min: the 31st request from one address within a minute answers 429", async () => {
+      const { org, ana } = await organization();
+      setSystemTime(new Date("2026-11-02T11:00:00Z"));
+      try {
+        for (let index = 0; index < 30; index++) expect((await call("GET", `/organizations/${org.id}/stats`, undefined, { "x-user-id": ana.id }, "203.0.113.9")).status).toBe(200);
+        const limited = await call("GET", `/organizations/${org.id}/stats`, undefined, { "x-user-id": ana.id }, "203.0.113.9");
+        expect([limited.status, Number(limited.headers.get("retry-after")) > 0]).toEqual([429, true]);
+      } finally {
+        setSystemTime();
+      }
+    });
+
     test("an unknown organization answers 404", async () => {
       const { ana } = await organization();
       const result = await stats(MISSING, ana.id);
@@ -722,6 +795,58 @@ describe.each(databases)("on %s", (_name, open) => {
   // ---------------------------------------------------------------------------------------------------------------
   // Framework routes.
   // ---------------------------------------------------------------------------------------------------------------
+
+  // ---------------------------------------------------------------------------------------------------------------
+  // The native features: history, idempotency and health.
+  // ---------------------------------------------------------------------------------------------------------------
+
+  describe("history of permission changes", () => {
+    test("a membership's profile change is version 2, with the changed field, and version 1 stays readable", async () => {
+      const { membership, finance, analyst } = await world();
+      expect((await patch(`/memberships/${membership.id}`, { profiles: [finance.id, analyst.id] })).status).toBe(200);
+      const versions = await get(`/memberships/${membership.id}/history`);
+      expect(versions.status).toBe(200);
+      expect(versions.body.total).toBe(2);
+      const latest = versions.body.data[0];
+      expect([latest.version, latest.operation, latest.changed]).toEqual([2, "update", ["profiles"]]);
+      expect(latest.record.profiles).toEqual([finance.id, analyst.id]);
+      const first = await get(`/memberships/${membership.id}/history/1`);
+      expect([first.status, first.body.operation, first.body.record.profiles]).toEqual([200, "create", [finance.id]]);
+    });
+
+    test("profiles and teams keep their versions too", async () => {
+      const { finance, team, billingManage } = await world();
+      await patch(`/profiles/${finance.id}`, { permissions: [billingManage.id] });
+      await patch(`/teams/${team.id}`, { active: false });
+      expect((await get(`/profiles/${finance.id}/history`)).body.data.map((version: Json) => version.operation)).toEqual(["update", "create"]);
+      expect((await get(`/teams/${team.id}/history`)).body.data[0].changed).toEqual(["active"]);
+      expect((await get(`/modules/${MISSING}/history`)).status).toBe(404);
+    });
+  });
+
+  describe("idempotent organization creation", () => {
+    test("the same Idempotency-Key and body replay the first 201, and another body answers 422", async () => {
+      const key = unique("key");
+      const body = { slug: unique("idem"), legalName: "Idem Ltd" };
+      const first = await post("/organizations", body, { "idempotency-key": key });
+      const second = await post("/organizations", body, { "idempotency-key": key });
+      expect([first.status, second.status]).toEqual([201, 201]);
+      expect(second.body).toEqual(first.body);
+      expect([first.headers.get("idempotent-replayed"), second.headers.get("idempotent-replayed")]).toEqual([null, "true"]);
+      expect((await get(`/organizations?where[slug][eq]=${body.slug}`)).body.total).toBe(1);
+      const other = await post("/organizations", { ...body, legalName: "Other" }, { "idempotency-key": key });
+      expect(other.status).toBe(422);
+    });
+  });
+
+  describe("health routes", () => {
+    test("GET /health/ready checks the database, /health/live answers, and GET /health is gone", async () => {
+      const ready = await get("/health/ready");
+      expect([ready.status, ready.body.status, ready.body.checks.database.status]).toEqual([200, "ok", "ok"]);
+      expect((await get("/health/live")).status).toBe(200);
+      expect((await get("/health")).status).toBe(404);
+    });
+  });
 
   describe("framework routes", () => {
     test("unknown routes answer 404 Route not found", async () => {

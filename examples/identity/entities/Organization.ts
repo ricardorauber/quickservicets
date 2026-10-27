@@ -2,6 +2,7 @@ import type { Media } from "@quickservicets/core"
 import { Membership } from "./Membership"
 import { Module } from "./Module"
 
+/** @idempotent */
 export type Organization = {
     /** @unique @minLength 2 @maxLength 64 */
     slug: string
@@ -13,6 +14,11 @@ export type Organization = {
     logo?: Media;
     /** @default true */
     active: boolean
+    /**
+     * The subscription plan; organizations on pro get detailed stats.
+     * @default "free"
+     */
+    plan: "free" | "pro"
     modules: Module[]
     members: Membership[]
 }

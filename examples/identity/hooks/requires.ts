@@ -14,8 +14,13 @@ export default definePreHook(
     async (repos, req, _res, args) => {
         const userId = req.headers.get("x-user-id")
         if (!userId) throw new HttpError(401, "Missing x-user-id header")
+        // Stand-ins for authentication and tenancy: the caller is the x-user-id header, and the tenant is the
+        // organization of the route. A real service sets both from a verified token or session.
+        req.user = { id: userId }
         const orgId = req.params.orgId!
-        if (!(await repos.organizations.where((o) => o.id.eq(orgId)).any())) return
+        const organization = await repos.organizations.findById(orgId)
+        if (!organization) return
+        req.tenant = { id: organization.id, plan: organization.plan }
 
         const granted = await grantedPermissions(repos, userId, orgId)
         const missing = args.find((permission) => !granted.has(permission))

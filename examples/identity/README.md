@@ -18,7 +18,7 @@ A user's permissions in an organization are those of the profiles of their activ
 | `Module` | `slug` (unique), `active` (defaults to `true`) |
 | `Permission` | `module`, `action` (`manage` or `view`) |
 | `Profile` | `slug` (unique), `permissions` |
-| `Organization` | `slug` (unique), `legalName`, `name?`, `logo?`, `active`, `modules`, `members` |
+| `Organization` | `slug` (unique), `legalName`, `name?`, `logo?`, `active`, `plan` (`free` or `pro`, defaults to `free`), `modules`, `members` |
 | `Membership` | `organization`, `user`, `profiles`, `active` |
 | `Team` | `organization`, `name`, `picture?`, `users`, `profiles`, `active` |
 | `User` | `email` (unique), `name?`, `picture?`, `role` (`admin` or `basic`), `memberships`, `teams` |
@@ -27,7 +27,8 @@ A user's permissions in an organization are those of the profiles of their activ
 | --- | --- |
 | `entities/` | The entities above |
 | `lib/permissions.ts` | The grant rules, shared by the permission check and the `@requires` hook |
-| `endpoints/` | `GET /users/:userId/has-permissions`, `GET /organizations/:orgId/stats` and `GET /health` |
+| `lib/request-types.ts` | The fields of `req.user` and `req.tenant` |
+| `endpoints/` | `GET /users/:userId/has-permissions` and `GET /organizations/:orgId/stats` |
 | `hooks/requires.ts` | The `@requires <module>:<action>` pre-hook |
 | `jobs/` | The nightly job that deactivates the memberships of inactive organizations |
 | `migrations/` | The database migrations |
@@ -280,6 +281,88 @@ curl "localhost:3000/organizations/<acme-id>/stats" -H "x-user-id: <bruno-id>"
 
 An organization that does not exist answers `404 Organization not found`.
 
+### Native features
+
+The config turns on the native features an identity service needs, each with one key; `security` is on by default:
+
+```ts
+events: {},
+history: {},
+health: {},
+idempotency: {},
+flags: { rules: { "detailed-stats": ({ tenant }) => tenant?.plan === "pro" } },
+```
+
+> **Stand-ins.** The `requires` hook sets `req.user` from the `x-user-id` header and `req.tenant` from the organization of the route, so the flag and the history can read them. They stand in for real authentication and tenancy.
+
+### Who held which profile: history
+
+`Profile`, `Membership` and `Team` are tagged `@history`, so every change to who holds which permissions is kept, with who made it and when. Give Ana's Acme membership a second profile, then list its versions, newest first:
+
+```bash
+curl -X PATCH localhost:3000/memberships/<ana-acme-membership-id> -d '{"profiles":["<admin-id>","<viewer-id>"]}'
+curl localhost:3000/memberships/<ana-acme-membership-id>/history
+```
+
+```json
+{ "data": [{ "version": 2, "operation": "update", "changed": ["profiles"], "record": { "profiles": ["<admin-id>", "<viewer-id>"] } }, { "version": 1, "operation": "create" }], "total": 2, "limit": 20, "offset": 0 }
+```
+
+`GET /memberships/<id>/history/1` still answers the first version.
+
+### Creating an organization once: idempotency keys
+
+`Organization` is tagged `@idempotent`: a `POST /organizations` repeated with the same `Idempotency-Key`, like a retry after a timeout, answers the first response without creating a second organization:
+
+```bash
+curl -i -X POST localhost:3000/organizations -H "Idempotency-Key: 7f3c" -d '{"slug":"initech","legalName":"Initech LLC"}'
+curl -i -X POST localhost:3000/organizations -H "Idempotency-Key: 7f3c" -d '{"slug":"initech","legalName":"Initech LLC"}'
+```
+
+```txt
+HTTP/1.1 201 Created
+idempotent-replayed: true
+```
+
+The same key with another body answers `422`.
+
+### Detailed stats on the pro plan: a feature flag
+
+The `detailed-stats` flag is on for organizations whose `plan` is `pro`; the stats endpoint then adds `modules`, the number of the organization's active modules:
+
+```bash
+curl -X PATCH localhost:3000/organizations/<acme-id> -d '{"plan":"pro"}'
+curl "localhost:3000/organizations/<acme-id>/stats" -H "x-user-id: <bruno-id>"
+```
+
+```json
+{ "members": 2, "activeMembers": 2, "teams": 1, "activeTeams": 1, "profiles": 3, "modules": 3 }
+```
+
+### Rate limits on the permission checks
+
+`GET /users/:userId/has-permissions` and `GET /organizations/:orgId/stats` are tagged `@rateLimit 30/min`: the 31st request from one address within a minute answers `429` with `Retry-After`:
+
+```bash
+for i in $(seq 31); do curl -s -o /dev/null -w "%{http_code}\n" "localhost:3000/users/<ana-id>/has-permissions?p=billing:manage&rule=all&organization=<acme-id>"; done | tail -1
+```
+
+```text
+429
+```
+
+### Health probes
+
+`GET /health/live` answers while the process runs, and `GET /health/ready` checks the database, for Kubernetes and load balancers:
+
+```bash
+curl localhost:3000/health/ready
+```
+
+```json
+{ "status": "ok", "checks": { "database": { "status": "ok", "critical": true, "durationMs": 1 } } }
+```
+
 ### The nightly job
 
 `jobs/deactivate-memberships-of-inactive-organizations.ts` runs every day at 03:00 UTC, while the server runs, and sets `active: false` on the active memberships of inactive organizations. Its result is the number it changed. The schedule:
@@ -319,7 +402,7 @@ bun run test
 ```
 
 ```text
- 108 pass
+ 115 pass
  1 skip
  0 fail
 ```
@@ -332,11 +415,11 @@ TEST_POSTGRES_URL=postgres://postgres:postgres@localhost:5432/identity_test bun 
 ```
 
 ```text
- 216 pass
+ 230 pass
  0 fail
 ```
 
-They cover every route, the data rules, the `@requires` hook (401, 403 and allowed), the stats and their 404, and the job, which they run in-process through the app's job runner.
+They start the project's app with its native features and cover every route, the data rules, the `@requires` hook (401, 403 and allowed), the stats and their 404, the history of memberships, profiles and teams, idempotent organization creation, the plan flag, the rate limits, the health routes and the job, which they run in-process through the app's job runner.
 
 ## Production image
 
@@ -363,11 +446,11 @@ QuickService.ts listening on http://localhost:3000
 ```
 
 ```bash
-curl localhost:3000/health
+curl localhost:3000/health/ready
 ```
 
 ```json
-{ "ok": true }
+{ "status": "ok", "checks": { "database": { "status": "ok", "critical": true, "durationMs": 2 } } }
 ```
 
 Production mode turns off `/docs` and `/openapi.json`; the API reference is in the dev server.

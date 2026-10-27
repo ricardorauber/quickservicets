@@ -3,6 +3,7 @@ import { Organization } from "./Organization"
 import { Profile } from "./Profile"
 import { User } from "./User"
 
+/** @history */
 export type Team = {
     organization: Organization
     /** @minLength 1 @maxLength 120 */

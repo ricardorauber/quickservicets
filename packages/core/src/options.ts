@@ -172,7 +172,7 @@ type PlainValue<S> =
     : S extends { readonly __toggle: infer Shape extends Record<string, AnyOptionSchema> }
     ? Simplify<ResolvedShape<Shape> & { enabled: boolean }>
     : S extends { readonly __record: infer I }
-      ? Record<string, PlainValue<I>>
+      ? Record<string, WithFunction<I, PlainValue<I>>>
       : S extends ObjectOptionSchema<infer Shape>
         ? ResolvedShape<Shape>
         : S extends ListOptionSchema<infer I>
@@ -184,7 +184,7 @@ type InputValue<S> =
     : S extends { readonly __toggle: infer Shape extends Record<string, AnyOptionSchema> }
     ? boolean | Simplify<InputShape<Shape> & { enabled?: boolean }>
     : S extends { readonly __record: infer I }
-      ? Record<string, InputValue<I>>
+      ? Record<string, WithFunction<I, InputValue<I>>>
       : S extends ObjectOptionSchema<infer Shape>
         ? InputShape<Shape>
         : S extends ListOptionSchema<infer I>

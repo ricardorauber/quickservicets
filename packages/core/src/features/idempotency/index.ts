@@ -66,7 +66,11 @@ export async function fingerprintOf(req: ServiceRequest): Promise<string> {
 }
 
 /** The scope of a key: the key with the method, the route pattern and the user, hashed. */
-export const scopeOf = (key: string, req: ServiceRequest, user: string): string => sha256(JSON.stringify([key, req.method, req.route, user]));
+export const scopeOf = (key: string, req: ServiceRequest, user: string): string => {
+  // The tenant is part of the scope, so one key used by two tenants never replays across them.
+  const tenant = (req.tenant as { id?: unknown } | undefined)?.id;
+  return sha256(JSON.stringify(tenant === undefined ? [key, req.method, req.route, user] : [key, req.method, req.route, user, String(tenant)]));
+};
 
 const userOf = (req: ServiceRequest) => String((req.user as { id?: unknown } | undefined)?.id ?? "anonymous");
 

@@ -29,6 +29,8 @@ export type QueueMessage = {
   startedAt?: Date | null;
   finishedAt?: Date | null;
   requestId?: string | null;
+  /** The tenant the message was added for. */
+  tenant?: string | null;
   /** The ids of the user and tenant of the request that added it. */
   actor?: { user?: string | null; tenant?: string | null; scope?: string | null } | null;
 };
@@ -65,6 +67,7 @@ export function queueMessageEntity(): EntityModel {
     column({ name: "startedAt", type: "date", optional: true }),
     column({ name: "finishedAt", type: "date", optional: true }),
     column({ name: "requestId", type: "string", optional: true }),
+    column({ name: "tenant", type: "string", optional: true }),
     json({
       name: "actor",
       type: "object",

@@ -28,6 +28,11 @@ export async function followChanges(
     accepts?: (event: WriteEvent) => Promise<boolean>;
     /** Changes a message's data before it is written, or skips it with null (`beforeSend`). */
     transform?: (event: WriteEvent, data: unknown) => Promise<unknown>;
+    /**
+     * With tenancy: the tenant of the stream's request (null without one); the stream gets only the events whose
+     * `actor.tenant` is that tenant, live and replayed.
+     */
+    tenant?: string | null;
   },
 ): Promise<void> {
   const { entity, query, source } = options;
@@ -38,6 +43,7 @@ export async function followChanges(
   };
   /** Writes the message of an event when the stream accepts it and the transform keeps it. */
   const send = async (event: WriteEvent) => {
+    if (options.tenant !== undefined && (event.actor?.tenant ?? null) !== options.tenant) return;
     if (options.accepts && !(await options.accepts(event))) return;
     const message = await changeMessage(event, entity, query, options.files);
     if (!message) return;

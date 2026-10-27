@@ -17,7 +17,7 @@ export function scheduleError(schedule: unknown): string | undefined {
 }
 
 const DURATION_OPTIONS = ["retryDelay", "timeout", "retention"] as const;
-const OPTION_NAMES = ["retries", ...DURATION_OPTIONS, "timeZone", "overlap"];
+const OPTION_NAMES = ["retries", ...DURATION_OPTIONS, "timeZone", "overlap", "tenants", "tenantConcurrency"];
 
 /** Why job options are invalid, or undefined when they are valid. */
 export function jobOptionsError(options: unknown): string | undefined {
@@ -41,6 +41,11 @@ export function jobOptionsError(options: unknown): string | undefined {
   }
   if (overlap !== undefined && overlap !== "skip" && overlap !== "parallel") {
     return `invalid option overlap: expected "skip" or "parallel", got ${JSON.stringify(overlap)}`;
+  }
+  const { tenants, tenantConcurrency } = values;
+  if (tenants !== undefined && tenants !== "each") return `invalid option tenants: expected "each", got ${JSON.stringify(tenants)}`;
+  if (tenantConcurrency !== undefined && (typeof tenantConcurrency !== "number" || !Number.isInteger(tenantConcurrency) || tenantConcurrency < 1)) {
+    return `invalid option tenantConcurrency: expected an integer of at least 1, got ${JSON.stringify(tenantConcurrency)}`;
   }
   return undefined;
 }

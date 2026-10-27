@@ -169,6 +169,15 @@ provision(info: Partial<TenantInfo> & { id: string }): Promise<TenantProvisionRe
 
 Creates a tenant of the database source and migrates it; refuses an existing id with `Tenant <id> already exists`.
 
+### `run`
+
+```ts
+run<T>(id: string, fn: (context: TenantRunContext) => T | Promise<T>): Promise<T>;
+```
+
+Runs `fn({ tenant, repos })` inside the database scope of the tenant `id`, like `runForTenant`; rejects for unknown
+and suspended tenants.
+
 ### `migrate`
 
 ```ts

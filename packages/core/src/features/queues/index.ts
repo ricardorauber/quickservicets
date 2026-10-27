@@ -1,4 +1,5 @@
 import {
+  currentDatabaseScope,
   currentOperation,
   resolveRunRepositories,
   boolean,
@@ -269,6 +270,8 @@ const queuesFeature = defineFeature({
           ...(settings.dedupeWindow ? { dedupeWindow: settings.dedupeWindow } : {}),
           ...(source.requestId ? { requestId: source.requestId } : {}),
           ...(actor ? { actor } : {}),
+          // The tenant of the current scope (a request's, a job's, a consumer's), so the consumer runs for it too.
+          ...(currentDatabaseScope().tenant ? { tenant: currentDatabaseScope().tenant!.id } : {}),
         };
         const added = await brokerOf().enqueue(message, { transactional: inTransaction() });
         if (ctx.options.afterEnqueue.length > 0) await runAfterHooks(ctx.options.afterEnqueue, { queue: name, id: added.id, deduplicated: added.deduplicated }, undefined);

@@ -1,3 +1,4 @@
+import type { RunTenant } from "../public.ts";
 import type { Http, JobLogger, Repositories } from "../public.ts";
 
 /**
@@ -76,6 +77,8 @@ export interface QueueContext<Payload = unknown> {
   queue: QueueClient;
   /** The outgoing HTTP client, sending the message's id as `x-request-id`; present while the `http` native is enabled. */
   http: Http;
+  /** The tenant the message was added for; the consumer runs in its scope. */
+  tenant?: RunTenant;
 }
 
 /** Per-queue settings; each one overrides the matching `queues` option. */

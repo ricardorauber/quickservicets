@@ -5,6 +5,8 @@ import {
   setRepositoryResolver,
   withDatabaseScope,
   repositoriesFor,
+  setTenantRuns,
+  runForTenant,
   tenantRepositories,
   type DatabaseScope,
   boolean,
@@ -30,7 +32,7 @@ import { connectionResolver, type ConnectionOption } from "./connections.ts";
 import { tenancyCommands } from "./commands.ts";
 import { provision, tenantOperations, type TenantOperations, type TenantProvisionResult, type TenantWriter } from "./tenants.ts";
 import { resolve } from "node:path";
-import { tenantPools, type TenantPool, type TenantPools } from "./pools.ts";
+import { tenantPools, type PoolLease, type TenantPool, type TenantPools } from "./pools.ts";
 import {
   cachedDirectory,
   configDirectory,
@@ -304,6 +306,31 @@ const tenancyFeature = defineFeature({
       },
     });
     ctx.app.onStop(() => pools.closeAll(parseDuration(ctx.config.lifecycle.stopTimeout) ?? 10_000));
+    /**
+     * Runs `fn` inside the database scope of a tenant: a pool of its own database, or its schema of the service's
+     * database; missing tables answer 503 Tenant is not ready.
+     */
+    const enter = async <T>(tenant: TenantInfo, fn: (scope: DatabaseScope) => T | Promise<T>): Promise<T> => {
+      const strategy = tenant.strategy ?? ctx.options.strategy;
+      let lease: PoolLease | undefined;
+      try {
+        let scope: DatabaseScope;
+        if (strategy === "database") {
+          lease = await pools.acquire(tenant);
+          scope = scopeOfPool(tenant, lease.pool);
+        } else {
+          scope = scopes.schema(tenant);
+        }
+        if (!(await scopes.provisioned(scope))) throw scopes.notReady(tenant);
+        const entered = scope;
+        return await withDatabaseScope(entered, () => fn(entered));
+      } catch (error) {
+        if (isMissingTable(error)) throw scopes.notReady(tenant);
+        throw error;
+      } finally {
+        lease?.release();
+      }
+    };
     /** The scope of a database-strategy tenant, kept with its pool. */
     const poolScopes = new WeakMap<TenantPool, DatabaseScope>();
     const scopeOfPool = (tenant: TenantInfo, pool: TenantPool): DatabaseScope => {
@@ -395,31 +422,27 @@ const tenancyFeature = defineFeature({
         }
         const tenant = await lookUp(directory, id);
         req.tenant = { id, ...(tenant.plan !== undefined ? { plan: tenant.plan } : {}), attributes: tenant.attributes } as ServiceRequest["tenant"];
-        const strategy = tenant.strategy ?? ctx.options.strategy;
-        if (strategy === "database") {
-          const lease = await pools.acquire(tenant);
-          try {
-            const scope = scopeOfPool(tenant, lease.pool);
-            if (!(await scopes.provisioned(scope))) throw scopes.notReady(tenant);
-            return await withDatabaseScope(scope, next);
-          } catch (error) {
-            if (isMissingTable(error)) throw scopes.notReady(tenant);
-            throw error;
-          } finally {
-            lease.release();
-          }
-        }
-        const scope = scopes.schema(tenant);
-        if (!(await scopes.provisioned(scope))) throw scopes.notReady(tenant);
-        try {
-          return await withDatabaseScope(scope, next);
-        } catch (error) {
-          if (isMissingTable(error)) throw scopes.notReady(tenant);
-          throw error;
-        }
+        return enter(tenant, () => next());
       },
     };
     ctx.app.use(resolveTenant);
+    // Jobs, queue consumers, listeners and deliveries run for a tenant through the same scopes.
+    setTenantRuns({
+      async run(id, fn) {
+        let tenant: TenantInfo | undefined;
+        try {
+          tenant = await directory.find(id);
+        } catch (error) {
+          throw new Error(`Tenant directory is unavailable: ${(error as Error)?.message ?? String(error)}`);
+        }
+        if (!tenant) throw new Error(`Unknown tenant ${id}`);
+        if (tenant.status === "suspended") throw new Error(`Tenant ${id} is suspended`);
+        const info = tenant;
+        return enter(info, (scope) => fn({ tenant: { id: info.id, ...(info.plan !== undefined ? { plan: info.plan } : {}), status: info.status, attributes: info.attributes }, repos: scope.repos }));
+      },
+      list: () => directory.list(),
+      close: () => pools.closeAll(0),
+    });
   },
   // Operations on tenant data say so, and take the tenant header when the header source is on.
   openapi(doc, { models, options, routes }) {
@@ -449,6 +472,7 @@ const tenancyFeature = defineFeature({
       stats: () => poolsOf.get(ctx.options)!.stats(),
       provision: (info) => runningOf.get(ctx.options)!.provision(info),
       migrate: (id) => runningOf.get(ctx.options)!.migrate(id),
+      run: (id, fn) => runForTenant(id, fn),
     };
   },
 });

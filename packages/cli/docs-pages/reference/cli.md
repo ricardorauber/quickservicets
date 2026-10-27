@@ -165,7 +165,7 @@ quickservicets migration script [from] [to] [--output <file>]
 Runs a job now in the CLI process as a `manual` run, printing its status, duration and result or error; exits with 1 unless it succeeds. `--force` runs it even while another run of the job is running.
 
 ```bash
-quickservicets job run <name> [--force]
+quickservicets job run <name> [--force] [--tenant <id>]
 ```
 
 ## `job list`

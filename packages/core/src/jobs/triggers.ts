@@ -31,6 +31,8 @@ export interface OnDemandRequest {
   force?: boolean;
   /** Called with the claimed record, before it is executed. */
   onClaimed?: (run: JobRun) => void;
+  /** For a job with `tenants: "each"`: runs it for this tenant only. */
+  tenant?: string;
 }
 
 /**
@@ -47,6 +49,7 @@ export async function runOnDemand(runner: JobRunner, request: OnDemandRequest): 
       attempt: 1,
       force: request.force === true,
       ...(request.onClaimed ? { onClaimed: request.onClaimed } : {}),
+      ...(request.tenant !== undefined ? { tenant: request.tenant } : {}),
     });
     if (run) return run;
   }

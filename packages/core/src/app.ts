@@ -26,6 +26,7 @@ import { configureRepositories, repositoriesFor, repositoryLookup, type Reposito
 import { configureRunRepositories, resolveRunRepositories, type RepositoryResolver } from "./repository-resolver.ts";
 import { configureDatabaseScopes, currentDatabaseScope } from "./database-scope.ts";
 import { guardTenantRepositories } from "./tenant-repositories.ts";
+import { configureTenantRuns } from "./tenant-runs.ts";
 
 /** A generated CRUD route with its resolved hook list. */
 export interface CrudRouteEntry {
@@ -217,6 +218,7 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
     : undefined;
   const resolver = settings.repositories ?? scoped;
   configureRunRepositories(repos, resolver);
+  configureTenantRuns(settings.tenantRuns);
   const hooksByRoute = new Map(crudRoutes.map((entry) => [`${entry.method} ${entry.path}`, entry.hooks]));
   const uploads = { storage: config.storage, files: config.files };
   // The file route runs the entity's read hooks in proxy mode; a valid signature is the only check in signed mode.

@@ -1,4 +1,4 @@
-import { contextFlags, contextHttp, operationContextEnabled, safeLog, systemClock, withOperation, type JobClock, type JobLogFields, type JobLogger, type Logger, type Repositories } from "../public.ts";
+import { contextFlags, contextHttp, operationContextEnabled, runForTenant, safeLog, systemClock, withOperation, type JobClock, type JobLogFields, type JobLogger, type Logger, type Repositories } from "../public.ts";
 import type { QueueBrokerContext, QueueReceivedMessage } from "./broker.ts";
 import { queueClient } from "./client.ts";
 import type { QueueContext, QueueDefinition } from "./queue.ts";
@@ -44,7 +44,8 @@ export function consumerHandler(options: ConsumerHandlerOptions): QueueBrokerCon
         ...(contextFlags() ? { flags: contextFlags() } : {}),
         ...httpOf(message.id),
       } as QueueContext;
-      const run = () => definition.handler(context);
+      // A message added for a tenant runs in that tenant's scope; an unknown or suspended tenant fails the attempt.
+      const run = () => (message.tenant !== undefined ? runForTenant(message.tenant, ({ tenant, repos }) => definition.handler({ ...context, tenant, repos: repos as never })) : definition.handler(context));
       const operation = { queue: { name: message.queue, messageId: message.id }, ...(message.requestId ? { requestId: message.requestId } : {}) };
       const result = await (operationContextEnabled() ? withOperation(operation, run) : run());
       return { completed: true, result };

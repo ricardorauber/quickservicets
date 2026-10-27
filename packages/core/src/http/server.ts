@@ -9,6 +9,7 @@ import { normalizeAddress } from "../cidr.ts";
 import type { FileHeaders } from "../files/access.ts";
 import { readBodyText } from "./body.ts";
 import type { RepositoryResolver } from "../repository-resolver.ts";
+import type { TenantRuns } from "../tenant-runs.ts";
 
 export type HandlerResult<Result> = Result | Response | undefined;
 
@@ -51,6 +52,8 @@ export interface ServerSettings {
   repositories?: RepositoryResolver;
   /** Set by `enableDatabaseScopes()` during setup: the core's database functions follow the current database scope. */
   databaseScopes?: boolean;
+  /** Set by `setTenantRuns()` during setup: how jobs, consumers and listeners run for a tenant. */
+  tenantRuns?: TenantRuns;
 }
 
 export interface ServerOptions extends ServerSettings {

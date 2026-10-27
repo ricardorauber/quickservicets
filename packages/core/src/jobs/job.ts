@@ -1,3 +1,4 @@
+import type { RunTenant } from "../tenant-runs.ts";
 import type { Repositories } from "../hooks.ts";
 import type { StorageAdapter } from "../storage/storage.ts";
 import type { Http } from "../features/http/client.ts";
@@ -25,6 +26,10 @@ export interface JobOptions {
   timeZone?: string;
   /** What a run does while the previous one is still running: `skip` it or run in `parallel`. */
   overlap?: "skip" | "parallel";
+  /** `each` runs the job once per active tenant, with `ctx.tenant` and the tenant's `ctx.repos` (needs `tenancy`). */
+  tenants?: "each";
+  /** How many tenants an `each` run handles at once (default 2). */
+  tenantConcurrency?: number;
 }
 
 /** What started a run: its schedule, the CLI, or application code. */
@@ -66,6 +71,8 @@ export interface JobContext {
   queue: QueueClient;
   /** The outgoing HTTP client, sending the run's id as `x-request-id`; present while the `http` native is enabled. */
   http: Http;
+  /** The tenant this closure runs for, in jobs with `tenants: "each"`. */
+  tenant?: RunTenant;
 }
 
 export type JobFn = (ctx: JobContext) => unknown | Promise<unknown>;
@@ -105,7 +112,7 @@ export function parseDuration(value: unknown): number | undefined {
 }
 
 /** The settings a job runs with: its own options, else the `jobs` config defaults. */
-export type JobSettings = Required<JobOptions>;
+export type JobSettings = Required<Omit<JobOptions, "tenants" | "tenantConcurrency">>;
 
 /** Applies a job's options over the `jobs` config defaults. */
 export function jobSettings(

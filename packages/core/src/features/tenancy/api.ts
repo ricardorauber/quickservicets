@@ -1,6 +1,7 @@
 import type { TenantInfo } from "./directory.ts";
 import type { PoolStats } from "./pools.ts";
 import type { TenantProvisionResult } from "./tenants.ts";
+import type { TenantRunContext } from "../public.ts";
 
 /** The feature API of `tenancy`, reached with `ctx.feature("tenancy")` from a feature that lists `tenancy` in `requires` or `after`. */
 export interface TenancyApi {
@@ -17,6 +18,11 @@ export interface TenancyApi {
   stats(): PoolStats;
   /** Creates a tenant of the database source and migrates it; refuses an existing id with `Tenant <id> already exists`. */
   provision(info: Partial<TenantInfo> & { id: string }): Promise<TenantProvisionResult>;
+  /**
+   * Runs `fn({ tenant, repos })` inside the database scope of the tenant `id`, like `runForTenant`; rejects for unknown
+   * and suspended tenants.
+   */
+  run<T>(id: string, fn: (context: TenantRunContext) => T | Promise<T>): Promise<T>;
   /** Applies the pending migrations to one tenant; rejects with `Unknown tenant <id>` for an unknown one. */
   migrate(id: string): Promise<TenantProvisionResult>;
 }

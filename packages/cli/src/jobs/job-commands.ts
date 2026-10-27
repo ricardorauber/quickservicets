@@ -1,5 +1,7 @@
 import {
   createApp,
+  createFeatureLifecycle,
+  tenantRuns,
   jobRunEntity,
   jobSettings,
   loadConfig,
@@ -52,11 +54,17 @@ async function withJobApp<T>(
   work: (app: App, model: EntityModel) => Promise<T>,
 ): Promise<T> {
   const models = parseProjectEntities(projectRoot, config.features);
+  // With tenancy, the features are set up so jobs can run for each tenant in its scope.
+  const tenancy = config.features.some((feature) => feature.key === "tenancy");
+  const lifecycle = tenancy ? createFeatureLifecycle({ features: config.features, config, models, worker: { index: 0, count: 1, runsScheduledWork: false }, generatedDir: join(projectRoot, ".generated") }) : undefined;
+  await lifecycle?.setup();
   await config.database.connect(models, { defaultSchema: config.schema });
   try {
-    const app = createApp({ models, crudRoutes: [], endpoints: [], hooks: new Map(), config, jobs });
+    const app = createApp({ models, crudRoutes: [], endpoints: [], hooks: new Map(), config, jobs, ...(lifecycle ? { middleware: lifecycle.middleware, server: lifecycle.server } : {}) });
     return await work(app, models.find((model) => model.key === "JobRun" && model.system) ?? jobRunEntity());
   } finally {
+    await tenantRuns()?.close?.();
+    await lifecycle?.stop();
     await config.database.disconnect();
   }
 }
@@ -64,12 +72,12 @@ async function withJobApp<T>(
 const eq = (field: string, value: unknown) => ({ field, op: "eq" as const, value });
 
 /** `quickservicets job run <name> [--force]`: runs the job in this process as a `manual` run and reports its final outcome. */
-export async function runJobCommand(projectRoot: string, name: string | undefined, options: { force?: boolean } = {}): Promise<JobCommandResult> {
+export async function runJobCommand(projectRoot: string, name: string | undefined, options: { force?: boolean; tenant?: string } = {}): Promise<JobCommandResult> {
   const config = await loadConfig(projectRoot);
   const jobs = await loadJobRegistry(projectRoot, config.features);
   const job = assertKnown(jobs, name);
   return withJobApp(projectRoot, config, jobs, async ({ jobRunner }, model) => {
-    const claimed = await runOnDemand(jobRunner, { job, trigger: "manual", at: new Date(), force: options.force });
+    const claimed = await runOnDemand(jobRunner, { job, trigger: "manual", at: new Date(), force: options.force, ...(options.tenant !== undefined ? { tenant: options.tenant } : {}) });
     await jobRunner.idle();
     // Retries are new records of the same run time; the latest attempt holds the final outcome.
     const { data } = await config.database.findMany(model, {

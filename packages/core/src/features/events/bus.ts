@@ -1,4 +1,7 @@
 import {
+  tenantRuns,
+  runForTenant,
+  currentDatabaseScope,
   afterCommit,
   reportFailure,
   currentOperation,
@@ -199,7 +202,8 @@ export const events: Events = {
         shared.inTransactionLookup!.reset();
       };
     }
-    const unsubscribe = shared.bus!.subscribe(pattern, listener as EventListener) ?? (() => {});
+    const tenantListener: EventListener = (event) => inEventTenant(event, () => (listener as EventListener)(event));
+    const unsubscribe = shared.bus!.subscribe(pattern, tenantListener) ?? (() => {});
     shared.unsubscribes.push(unsubscribe);
     return unsubscribe;
   },
@@ -247,12 +251,23 @@ export function stopBus(): void {
   shared.enabled = false;
 }
 
+/**
+ * Runs `fn` in the scope of the event's tenant (`actor.tenant`) when tenancy runs and the caller is not in it already,
+ * so listeners and deliveries of a tenant's events read and write that tenant's data.
+ */
+export function inEventTenant<T>(event: AnyEvent, fn: () => T | Promise<T>): Promise<T> | T {
+  const tenant = event.actor?.tenant;
+  if (tenant === undefined || !tenantRuns() || currentDatabaseScope().tenant?.id === tenant) return fn();
+  return runForTenant(tenant, () => fn());
+}
+
 /** The actor and request id of the current operation. */
 function operationFields(): { actor: EventActor; requestId?: string } {
   const operation = currentOperation();
   const actor: EventActor = {};
   const user = (operation?.req?.user as { id?: unknown } | undefined)?.id;
-  const tenant = (operation?.req?.tenant as { id?: unknown } | undefined)?.id;
+  // Outside requests (jobs, consumers), the tenant of the current database scope.
+  const tenant = (operation?.req?.tenant as { id?: unknown } | undefined)?.id ?? currentDatabaseScope().tenant?.id;
   if (user !== undefined) actor.user = String(user);
   if (tenant !== undefined) actor.tenant = String(tenant);
   if (operation?.job) actor.job = operation.job.name;

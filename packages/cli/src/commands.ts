@@ -200,14 +200,17 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
   }),
   defineCommand({
     name: "job run",
-    usage: "quickservicets job run <name> [--force]",
+    usage: "quickservicets job run <name> [--force] [--tenant <id>]",
     description:
       "Runs a job now in the CLI process as a `manual` run, printing its status, duration and result or error; exits with 1 unless it succeeds. `--force` runs it even while another run of the job is running.",
     args: [{ name: "name" }],
-    flags: object({ force: boolean().default(false).describe("Runs the job even while another run of it is running.") }),
+    flags: object({
+      force: boolean().default(false).describe("Runs the job even while another run of it is running."),
+      tenant: string().optional().describe("Runs a job with tenants: \"each\" for this tenant only."),
+    }),
     async run({ args, flags, cwd, output }) {
       const { runJobCommand } = await import("./jobs/job-commands.ts");
-      return print({ output, result: () => {} }, await runJobCommand(cwd, args.name, { force: flags.force }));
+      return print({ output, result: () => {} }, await runJobCommand(cwd, args.name, { force: flags.force, ...(flags.tenant !== undefined ? { tenant: flags.tenant } : {}) }));
     },
   }),
   defineCommand({

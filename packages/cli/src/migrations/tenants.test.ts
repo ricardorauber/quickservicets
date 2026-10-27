@@ -143,3 +143,20 @@ describe("tenants commands", () => {
     expect(readFileSync(join(docs, "features/tenancy.mdx"), "utf8")).toContain("tenants create");
   });
 });
+
+describe("jobs for each tenant", () => {
+  test("job run <name> --tenant <id> runs a tenants: each job for that tenant only", async () => {
+    const { cli, insertTenant } = await project("tenancy: {}", {
+      ...ENTITIES,
+      "jobs/report.ts": 'import { job } from "@quickservicets/core";\nexport default job({ every: "1h" }, async (ctx) => ({ tenant: ctx.tenant?.id }), { tenants: "each" });\n',
+    });
+    await cli("migrate");
+    insertTenant("acme");
+    insertTenant("globex");
+    await cli("migrate", "--all-tenants");
+    const one = await cli("job", "run", "report", "--tenant", "acme");
+    expect([one.code, one.out[1]]).toEqual([0, 'Result: {"tenants":1,"failed":[]}']);
+    const all = await cli("job", "run", "report");
+    expect([all.code, all.out[1]]).toEqual([0, 'Result: {"tenants":2,"failed":[]}']);
+  });
+});

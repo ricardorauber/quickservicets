@@ -123,6 +123,7 @@ const receivedOf = (row: QueueMessage): QueueReceivedMessage => ({
   enqueuedAt: new Date(row.enqueuedAt),
   ...(row.dedupeKey ? { dedupeKey: row.dedupeKey } : {}),
   ...(row.requestId ? { requestId: row.requestId } : {}),
+  ...(row.tenant ? { tenant: row.tenant } : {}),
   ...(row.actor && (row.actor.user || row.actor.tenant) ? { actor: { ...(row.actor.user ? { user: row.actor.user } : {}), ...(row.actor.tenant ? { tenant: row.actor.tenant } : {}) } } : {}),
 });
 
@@ -529,6 +530,7 @@ export function databaseBroker(options: DatabaseBrokerOptions = {}): DatabaseBro
         maxAttempts: message.maxAttempts,
         enqueuedAt: now,
         ...(message.requestId ? { requestId: message.requestId } : {}),
+        ...(message.tenant ? { tenant: message.tenant } : {}),
         ...(message.actor ? { actor: message.actor as StoredRecord[string] } : {}),
       };
       const wake = () => void afterCommit(() => wakeLoop(loops.get(name)));

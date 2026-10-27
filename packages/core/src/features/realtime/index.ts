@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import {
+  tenantRuns,
   addOutboxPatterns,
   defineFeature,
   defineSse,
@@ -268,6 +269,8 @@ const realtimeFeature = defineFeature({
                 ...(req.lastEventId !== undefined ? { lastEventId: req.lastEventId } : {}),
                 ...(accepts ? { accepts } : {}),
                 ...(transform ? { transform } : {}),
+                // With tenancy, a stream sees only its own tenant's changes (or, without a tenant, only untenanted ones).
+                ...(tenantRuns() ? { tenant: (req.tenant as { id?: string } | undefined)?.id ?? null } : {}),
               }),
             );
             return runner.run(follow, repos, req, res);

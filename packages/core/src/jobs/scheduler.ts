@@ -1,3 +1,4 @@
+import { tenantRuns } from "../tenant-runs.ts";
 import { UniqueViolationError, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
 import { withJobOperation } from "../operation-context.ts";
 import { jobRunsObserved, notifyJobRun } from "./observers.ts";
@@ -65,6 +66,8 @@ export interface RunRequest {
   force?: boolean;
   /** Called by `run()` with the claimed record, before it is executed. */
   onClaimed?: (run: JobRun) => void;
+  /** For a job with `tenants: "each"`: runs it for this tenant only. */
+  tenant?: string;
 }
 
 /** A run being executed in this instance. */
@@ -131,6 +134,41 @@ export function storableResult(value: unknown, limit: number | string): { result
   return { result: JSON.parse(json) as unknown };
 }
 
+/** The outcome of a `tenants: "each"` run in which some tenants failed: the run fails with this result. */
+class TenantRunsFailed extends Error {
+  constructor(readonly result: { tenants: number; failed: string[] }) {
+    super(`${result.failed.length} of ${result.tenants} tenants failed: ${result.failed.join(", ")}`);
+  }
+}
+
+/**
+ * Runs a `tenants: "each"` job once per active tenant (or for `only`), at most `tenantConcurrency` at once, each inside
+ * the tenant's scope with `ctx.tenant` and its `ctx.repos`, going on after a tenant fails.
+ */
+async function eachTenant(definition: JobDefinition, context: JobContext, log: JobLogger, only: string | undefined): Promise<unknown> {
+  const runs = tenantRuns();
+  if (!runs) throw new Error('A job with tenants: "each" needs the tenancy native; add tenancy: {} to quickservicets.config.ts');
+  const ids: string[] = [];
+  if (only !== undefined) ids.push(only);
+  else for await (const tenant of runs.list()) if (tenant.status === "active") ids.push(tenant.id);
+  const failed: string[] = [];
+  let next = 0;
+  const worker = async () => {
+    while (next < ids.length) {
+      const id = ids[next++]!;
+      try {
+        await runs.run(id, ({ tenant, repos }) => definition.run({ ...context, tenant, repos: repos as unknown as JobContext["repos"] }));
+      } catch (error) {
+        failed.push(id);
+        log.error(`Tenant ${id} failed: ${(error as Error)?.message ?? String(error)}`, { tenant: id });
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, definition.options.tenantConcurrency ?? 2) }, worker));
+  const result = { tenants: ids.length, failed: failed.sort() };
+  return failed.length > 0 ? new TenantRunsFailed(result) : result;
+}
+
 /** The stored form of a thrown value; the stack is left out in production. */
 export function runError(error: unknown, production: boolean): { message: string; stack?: string } {
   if (!(error instanceof Error)) return { message: String(error) };
@@ -171,6 +209,8 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
   const model = options.model ?? jobRunEntity();
   const clock = options.clock ?? systemClock;
   const active = new Map<string, ActiveRun>();
+  /** The one tenant a run of a `tenants: "each"` job is for, by run id. */
+  const onlyTenant = new Map<string, string>();
   const pending = new Set<Promise<unknown>>();
   const timestamp = () => new Date(clock.now()).toISOString();
 
@@ -336,11 +376,18 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
           );
         }
         interrupters.set(run.id, settle);
+        const perTenant = definition.options.tenants === "each";
+        const tenantOnly = onlyTenant.get(run.id);
+        onlyTenant.delete(run.id);
         Promise.resolve()
-          .then(() => withJobOperation({ name: run.job, runId: run.id }, () => definition.run(context)))
+          .then(() => withJobOperation({ name: run.job, runId: run.id }, () => (perTenant ? eachTenant(definition, context, log, tenantOnly) : definition.run(context))))
           .then(
             (value) => {
               if (settled) return;
+              if (value instanceof TenantRunsFailed) {
+                settle({ status: "failed", result: masked(value.result), error: { message: value.message } });
+                return;
+              }
               const { result, note } = storableResult(value, config.limits.result);
               if (note) log.warn(note);
               settle({ status: "success", ...(result !== undefined ? { result: masked(result) } : {}) });
@@ -428,6 +475,7 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
           const claimed = await claim(request);
           if (claimed) request.onClaimed?.(claimed);
           if (!claimed || claimed.status !== "running") return claimed;
+          if (request.tenant !== undefined) onlyTenant.set(claimed.id, request.tenant);
           return execute(claimed);
         })(),
       );

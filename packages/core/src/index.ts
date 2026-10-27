@@ -18,6 +18,8 @@ export type { ResolvedConfig, ServiceConfig } from "./config.ts";
 export { configuredModels, configureRepositories, createRepositories, createRepository, READ_METHODS, readRepository, repositoriesFor, repositoryFor, repositoryLookup, repositoryPlans } from "./repository.ts";
 export { configureRunRepositories, resolveRunRepositories, setRepositoryResolver } from "./repository-resolver.ts";
 export { guardTenantRepositories, tenantRepositories, TenantRequiredError } from "./tenant-repositories.ts";
+export { configureTenantRuns, runForTenant, setTenantRuns, tenantRuns } from "./tenant-runs.ts";
+export type { RunTenant, TenantRunContext, TenantRuns } from "./tenant-runs.ts";
 export { configureDatabaseScopes, currentDatabaseScope, databaseScopesEnabled, enableDatabaseScopes, scopedAdapter, scopeKeyOf, sharesConnection, withDatabaseScope } from "./database-scope.ts";
 export type { DatabaseScope, DatabaseScopeInput, ScopeTenant } from "./database-scope.ts";
 export type { RepositoryResolver, RepositoryResolverOptions, RunTarget } from "./repository-resolver.ts";

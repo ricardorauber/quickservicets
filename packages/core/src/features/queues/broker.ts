@@ -32,6 +32,8 @@ export interface QueueBrokerMessage {
   requestId?: string;
   /** The ids of the user and tenant of the request that added it, when it had them. */
   actor?: QueueActor;
+  /** The tenant the message was added for; its consumer runs in that tenant's scope. */
+  tenant?: string;
 }
 
 /** Who added a message: the ids of the request's user and tenant. */
@@ -55,6 +57,8 @@ export interface QueueReceivedMessage {
   requestId?: string;
   /** The user and tenant of the request that added it, when the broker keeps them. */
   actor?: QueueActor;
+  /** The tenant the message was added for, when the broker keeps it. */
+  tenant?: string;
 }
 
 /** How a run ended: completed with the consumer's return value, or failed with what it threw. */

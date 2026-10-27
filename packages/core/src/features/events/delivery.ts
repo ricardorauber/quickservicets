@@ -1,3 +1,4 @@
+import { inEventTenant } from "./bus.ts";
 import { parseDuration, reportFailure, safeLog, type AnyEvent, type Condition, type DatabaseAdapter, type EntityModel, type FieldModel, type Logger, type StoredRecord } from "../public.ts";
 import { compilePattern, type CompiledPattern } from "./patterns.ts";
 import { sharedState } from "./state.ts";
@@ -197,7 +198,7 @@ export function createDispatcher({ adapter, outboxModel, deliveryModel, settings
           error: (entry) => logger.error({ ...entry, consumer: consumer.name, event: event.id }),
         };
         await Promise.race([
-          Promise.resolve().then(() => consumer.handler(event, { attempt, signal: controller.signal, log: consumerLog })),
+          Promise.resolve().then(() => inEventTenant(event, () => consumer.handler(event, { attempt, signal: controller.signal, log: consumerLog }))),
           new Promise((_, reject) => {
             timeout = setTimeout(() => {
               const error = new Error(`Delivery to ${consumer.name} timed out after ${settings.timeout}`);

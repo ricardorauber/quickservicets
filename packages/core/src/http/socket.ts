@@ -21,7 +21,77 @@ export interface Socket<Out = unknown, D extends object = Record<string, unknown
   data: D;
   /** 0 connecting, 1 open, 2 closing, 3 closed. */
   readonly readyState: number;
+  /** Joins a room; throws `Invalid room name <name>` or `Socket joined too many rooms (max <n>)`. */
+  subscribe(room: string): void;
+  /** Leaves a room. */
+  unsubscribe(room: string): void;
+  /** Sends to every socket of a room but this one, encoded as `send` does. */
+  publish(room: string, data: Out | string | Uint8Array): void;
+  /** The rooms the socket joined. */
+  readonly rooms: readonly string[];
 }
+
+/** What `sockets.publish` takes besides the room and the data. */
+export interface PublishOptions {
+  /** The id of a socket of the room that does not receive the message. */
+  except?: string;
+  /** The tenant whose room receives it, for code running outside a tenant (with tenancy). */
+  tenant?: string;
+}
+
+/** Which sockets `sockets.disconnect` closes: those matching every given field. */
+export interface DisconnectFilter {
+  user?: string;
+  sessionId?: string;
+  tenant?: string;
+  room?: string;
+  /** The close code (default 4001). */
+  code?: number;
+  /** The close reason (default `Disconnected`). */
+  reason?: string;
+}
+
+/** Publishing to rooms and closing sockets from any code of the service. */
+export interface Sockets {
+  /** Sends to every socket of a room (minus `except`), on this worker at once and on the others through the transport. */
+  publish(room: string, data: unknown, options?: PublishOptions): void;
+  /** Closes the local sockets matching the filter, and asks the other workers to close theirs; returns the local count. */
+  disconnect(filter: DisconnectFilter): number;
+  /** The number of this worker's sockets in a room. */
+  count(room: string, options?: { tenant?: string }): number;
+}
+
+/** What a room name must look like. */
+export const ROOM_NAME = /^[A-Za-z0-9][A-Za-z0-9:_./-]{0,199}$/;
+
+/** Throws `Invalid room name <name>` unless the name is a room name. */
+export function assertRoomName(room: unknown): asserts room is string {
+  if (typeof room !== "string" || !ROOM_NAME.test(room)) throw new Error(`Invalid room name ${String(room)}`);
+}
+
+const HUB = Symbol.for("quickservicets.socket.hub");
+const hubSlot = globalThis as unknown as { [HUB]?: Sockets };
+
+/** Sets (or, with undefined, removes) the sockets the `sockets` API reaches; the `realtime` native sets it. */
+export function setSocketHub(hub: Sockets | undefined): void {
+  hubSlot[HUB] = hub;
+}
+
+/**
+ * Publishes to rooms and closes sockets from any code: endpoints, jobs, listeners, queue consumers. Without the
+ * `realtime` native serving sockets, publishing reaches no one and the counts are 0.
+ */
+export const sockets: Sockets = {
+  publish(room, data, options) {
+    assertRoomName(room);
+    hubSlot[HUB]?.publish(room, data, options);
+  },
+  disconnect: (filter) => hubSlot[HUB]?.disconnect(filter) ?? 0,
+  count(room, options) {
+    assertRoomName(room);
+    return hubSlot[HUB]?.count(room, options) ?? 0;
+  },
+};
 
 /** What every handler of a socket receives besides the socket: the upgrade request's values, kept for the socket's life. */
 export interface SocketContext {

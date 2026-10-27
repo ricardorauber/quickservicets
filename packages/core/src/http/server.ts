@@ -155,7 +155,19 @@ export function deferRequestLog(response: Response, finished: Promise<Record<str
 }
 
 /** The Bun server that accepted each request, for upgrading it to a WebSocket. */
-const servers = new WeakMap<Request, { upgrade(request: Request, options?: { data?: unknown; headers?: Record<string, string> }): boolean }>();
+const servers = new WeakMap<Request, BunServer>();
+
+/** The part of a Bun server the core uses for WebSockets. */
+export interface BunServer {
+  upgrade(request: Request, options?: { data?: unknown; headers?: Record<string, string> }): boolean;
+  /** Sends to every socket subscribed to the topic; resolves the bytes sent. */
+  publish(topic: string, data: string | Uint8Array): number;
+}
+
+/** The Bun server that accepted a request, while it serves WebSockets; undefined for a request built in a test. */
+export function bunServerOf(request: Request): BunServer | undefined {
+  return servers.get(request);
+}
 /** The requests upgraded to a WebSocket: the server answers them with nothing, and writes no request log entry for them. */
 const upgraded = new WeakSet<Request>();
 
@@ -372,7 +384,7 @@ export function createServer({ routes, repos, config: serverConfig, jobs = noReq
       // Worker processes share the port; on Linux the kernel spreads the connections across them.
       const options = {
         port,
-        fetch: (request: Request, server: { requestIP(request: Request): { address: string } | null; upgrade(request: Request, options?: { data?: unknown }): boolean }) => {
+        fetch: (request: Request, server: BunServer & { requestIP(request: Request): { address: string } | null }) => {
           // The peer address is read from the server only when a request asks for it.
           peers.set(request, server);
           if (websocket) servers.set(request, server);

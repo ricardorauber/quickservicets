@@ -44,14 +44,14 @@ export type {
   ServiceRequest,
   ServiceResponse,
 } from "./hooks.ts";
-export { createServer, deferRequestLog, peerAddress, toResponse, upgradeRequest } from "./http/server.ts";
-export { defineSocket, isSocketDefinition, setSocketRunner, socketEndpoint, withMessageValidator } from "./http/socket.ts";
-export type { AnySocketHandlers, MessageValidator, Socket, SocketContext, SocketDefinition, SocketHandlers, SocketRunner, SocketTypes, TypedSocketHandlers } from "./http/socket.ts";
+export { bunServerOf, createServer, deferRequestLog, peerAddress, toResponse, upgradeRequest } from "./http/server.ts";
+export { assertRoomName, defineSocket, isSocketDefinition, ROOM_NAME, setSocketHub, setSocketRunner, socketEndpoint, sockets, withMessageValidator } from "./http/socket.ts";
+export type { AnySocketHandlers, DisconnectFilter, MessageValidator, PublishOptions, Sockets, Socket, SocketContext, SocketDefinition, SocketHandlers, SocketRunner, SocketTypes, TypedSocketHandlers } from "./http/socket.ts";
 export { compileMessageValidator } from "./http/socket-messages.ts";
 export type { MessageSchema } from "./http/socket-messages.ts";
 export { bodyPolicyOf, bodyTooLarge, bodyTooSlow, readBodyBytes, readBodyChunks, readBodyText, setBodyPolicy } from "./http/body.ts";
 export type { BodyPolicy } from "./http/body.ts";
-export type { EntityTags, Endpoint, FetchOptions, HandlerResult, Route, Server, ServerOptions, ServerSettings } from "./http/server.ts";
+export type { BunServer, EntityTags, Endpoint, FetchOptions, HandlerResult, Route, Server, ServerOptions, ServerSettings } from "./http/server.ts";
 export { Router, patternOf, splitPath } from "./http/router.ts";
 export type { RouteMatch, RoutePattern } from "./http/router.ts";
 export { executedHooks, operationForRoute, resolveRouteHooks, withHooks } from "./http/pipeline.ts";

@@ -198,8 +198,9 @@ const authFeature = defineFeature({
     ],
   },
   options,
-  // The document marks the routes these natives add, so their openapi functions run first.
-  after: ["health", "history", "realtime"],
+  // The document marks the routes these natives add, so their openapi functions run first; realtime runs after auth
+  // (it closes the sockets of revoked sessions) and documents change streams with the security of the list route.
+  after: ["health", "history"],
   request: { auth: (req) => authOf.get(req) },
   openapi(doc, { models, options, routes, config }) {
     // A required function may need a user on any route without @auth, so the document marks them all.

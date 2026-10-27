@@ -25,6 +25,8 @@ import {
   parseRate,
   parseSize,
   setSocketRunner,
+  setSocketHub,
+  sockets,
   taggedRoutes,
   type OptionFunction,
   type Repositories,
@@ -71,6 +73,7 @@ const options = object({
     maxMessageSize: size().default("1MB").describe("The largest frame a socket accepts; a larger one closes the socket with 1009, and one over twice the limit ends the connection."),
     idleTimeout: duration().default("120s").describe("How long a socket may stay silent before it is closed, at most 960s; Bun pings to keep live connections open."),
     messages: rate().default("100/10s").describe("The frames each socket may send per window; exceeding it closes the socket with 1008 Too many messages."),
+    maxRooms: integer().min(1).default(100).describe("The most rooms one socket joins; one more subscribe throws Socket joined too many rooms."),
   }).describe("Serves the ws.ts endpoints as WebSockets, upgraded after the handler middlewares and the endpoint's pre-hooks."),
 });
 
@@ -180,9 +183,10 @@ function changeSource(ctx: FeatureSetupContext<{ sse: { pollInterval: string; bu
 }
 
 /** Serves the `ws.ts` endpoints while `websockets` is on; Bun gets a WebSocket handler only when such a route exists. */
-function setUpSockets(ctx: FeatureSetupContext<{ websockets: { enabled: boolean; origins?: string[] | OptionFunction<string[]>; maxConnections: number; maxMessageSize: string | number; idleTimeout: string; messages: string } }>): void {
+function setUpSockets(ctx: FeatureSetupContext<{ websockets: { enabled: boolean; origins?: string[] | OptionFunction<string[]>; maxConnections: number; maxMessageSize: string | number; idleTimeout: string; messages: string; maxRooms: number } }>): void {
   const options = ctx.options.websockets;
   setSocketRunner(undefined);
+  setSocketHub(undefined);
   if (!options.enabled) return;
   const hasSockets = taggedRoutes().some((route) => route.kind === "websocket");
   if (!hasSockets) return;
@@ -197,14 +201,24 @@ function setUpSockets(ctx: FeatureSetupContext<{ websockets: { enabled: boolean;
     origins: options.origins ?? (security?.cors?.enabled ? security.cors.origins : undefined),
     proxy: security?.proxy,
     logger: ctx.logger,
+    maxRooms: options.maxRooms,
+    tenantRooms: ctx.config.features.some((feature) => feature.key === "tenancy"),
   });
   setSocketRunner(server.run);
+  setSocketHub(server.sockets);
+  // Revoking a session closes its sockets.
+  if (ctx.config.features.some((feature) => feature.key === "auth")) {
+    ctx.feature("auth").onRevoke((target) =>
+      void server.sockets.disconnect({ ...("sessionId" in target ? { sessionId: target.sessionId } : { user: target.userId }), code: 4401, reason: "Session revoked" }),
+    );
+  }
   ctx.app.configureServer({ websocket: server.handler as never });
   // Open sockets close before the listener does, so a shutdown never waits on them.
   ctx.app.onShutdown(() => server.closeAll(CLOSE_CODES.goingAway, "Server shutting down"));
   ctx.app.onStop(() => {
     server.closeAll(CLOSE_CODES.goingAway, "Server shutting down");
     setSocketRunner(undefined);
+    setSocketHub(undefined);
   });
 }
 
@@ -222,8 +236,8 @@ const realtimeFeature = defineFeature({
       ? [`Invalid realtime.websockets.idleTimeout: expected at most ${MAX_SOCKET_IDLE_SECONDS}s (the Bun limit), got ${resolved.websockets.idleTimeout}`]
       : [];
   },
-  // Change streams follow the write events when the events native is on.
-  after: ["events"],
+  // Change streams follow the write events when the events native is on; sockets of revoked sessions close.
+  after: ["events", "auth"],
   request: { lastEventId: lastEventIdOf },
   tags: {
     changes: {
@@ -351,6 +365,7 @@ const realtimeFeature = defineFeature({
     publish(entity, event) {
       published?.publish({ ...event, entity });
     },
+    sockets: () => sockets,
   }),
   openapi(doc, { models, options }) {
     return options.sse.enabled ? documentChanges(doc, changeEntities(models, options.sse.changes as ChangeCoverage)) : doc;

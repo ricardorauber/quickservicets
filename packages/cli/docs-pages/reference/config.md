@@ -477,6 +477,7 @@ Every option, tag, command and hook of `realtime` is on [its reference page](/re
 | `realtime.websockets.maxMessageSize` | `size` | `"1MB"` | `QS_REALTIME_WEBSOCKETS_MAX_MESSAGE_SIZE` | The largest frame a socket accepts; a larger one closes the socket with 1009, and one over twice the limit ends the connection. |
 | `realtime.websockets.idleTimeout` | `duration` | `"120s"` | `QS_REALTIME_WEBSOCKETS_IDLE_TIMEOUT` | How long a socket may stay silent before it is closed, at most 960s; Bun pings to keep live connections open. |
 | `realtime.websockets.messages` | `rate` | `"100/10s"` | `QS_REALTIME_WEBSOCKETS_MESSAGES` | The frames each socket may send per window; exceeding it closes the socket with 1008 Too many messages. |
+| `realtime.websockets.maxRooms` | `integer` | `100` | `QS_REALTIME_WEBSOCKETS_MAX_ROOMS` | The most rooms one socket joins; one more subscribe throws Socket joined too many rooms. |
 | `realtime.enabled` | `boolean` | `true` | `QS_REALTIME_ENABLED` | Turns the feature off when false. |
 
 #### `@changes`

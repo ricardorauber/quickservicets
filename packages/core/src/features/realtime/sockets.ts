@@ -1,4 +1,7 @@
 import {
+  assertRoomName,
+  bunServerOf,
+  currentTenant,
   HttpError,
   normalizeOrigin,
   OriginMatcher,
@@ -9,7 +12,10 @@ import {
   safeLog,
   tenantRuns,
   upgradeRequest,
+  type DisconnectFilter,
   type Logger,
+  type PublishOptions,
+  type Sockets,
   type OptionFunction,
   type Rate,
   type Repositories,
@@ -34,6 +40,24 @@ export interface SocketSettings {
   origins: readonly string[] | OptionFunction<string[]> | undefined;
   proxy: { enabled?: boolean; trust?: readonly string[] } | undefined;
   logger: Logger;
+  /** The most rooms one socket joins. */
+  maxRooms: number;
+  /** Whether rooms are kept apart per tenant (the `tenancy` native is on). */
+  tenantRooms: boolean;
+}
+
+/** What `ws.send` and `publish` send for a value: strings and bytes as they are, anything else as JSON text. */
+export const encodeFrame = (data: unknown): string | Uint8Array => (typeof data === "string" || data instanceof Uint8Array ? data : JSON.stringify(data));
+
+/** The part of a Bun server the rooms use. */
+interface BunPublisher {
+  publish(topic: string, data: string | Uint8Array): number;
+}
+
+/** What the sockets of a worker share: how room names become topics, the room limit and the Bun server. */
+interface RoomContext {
+  topicOf(room: string, tenant: string | undefined): string;
+  maxRooms: number;
 }
 
 /** What Bun keeps with each upgraded socket. */
@@ -47,6 +71,9 @@ interface BunSocket {
   readyState: number;
   send(data: string | Uint8Array): number;
   close(code?: number, reason?: string): void;
+  subscribe(topic: string): void;
+  unsubscribe(topic: string): void;
+  publish(topic: string, data: string | Uint8Array): number;
 }
 
 /** One open socket of this worker, with the upgrade request's context and its counters. */
@@ -60,13 +87,46 @@ export class OpenSocket implements Socket {
   windowStart = 0;
   windowCount = 0;
   closeCode: number | undefined;
+  /** The rooms the socket joined, by name. */
+  readonly joined = new Set<string>();
 
   constructor(
     readonly definition: SocketDefinition,
     readonly ctx: SocketContext,
     readonly route: string,
     readonly requestId: string,
+    private readonly rooms_: RoomContext,
+    /** The session of the upgrade request's credentials, for disconnects by session. */
+    readonly sessionId: string | undefined,
   ) {}
+
+  /** The tenant id of the socket, if any. */
+  get tenantId(): string | undefined {
+    return (this.ctx.tenant as { id?: string } | undefined)?.id;
+  }
+
+  get rooms(): readonly string[] {
+    return [...this.joined];
+  }
+
+  subscribe(room: string): void {
+    assertRoomName(room);
+    if (this.joined.has(room)) return;
+    if (this.joined.size >= this.rooms_.maxRooms) throw new Error(`Socket joined too many rooms (max ${this.rooms_.maxRooms})`);
+    this.joined.add(room);
+    this.ws?.subscribe(this.rooms_.topicOf(room, this.tenantId));
+  }
+
+  unsubscribe(room: string): void {
+    assertRoomName(room);
+    if (!this.joined.delete(room)) return;
+    this.ws?.unsubscribe(this.rooms_.topicOf(room, this.tenantId));
+  }
+
+  publish(room: string, data: unknown): void {
+    assertRoomName(room);
+    this.ws?.publish(this.rooms_.topicOf(room, this.tenantId), encodeFrame(data));
+  }
 
   get user() {
     return this.ctx.user;
@@ -84,8 +144,7 @@ export class OpenSocket implements Socket {
   send(data: unknown): void {
     if (!this.ws) return;
     this.messagesOut += 1;
-    if (typeof data === "string" || data instanceof Uint8Array) this.ws.send(data);
-    else this.ws.send(JSON.stringify(data));
+    this.ws.send(encodeFrame(data));
   }
 
   close(code: number = CLOSE_CODES.normal, reason?: string): void {
@@ -104,6 +163,8 @@ export interface SocketServer {
   readonly open: ReadonlySet<OpenSocket>;
   /** Closes every open socket with a code and a reason. */
   closeAll(code: number, reason: string): void;
+  /** Publishing, disconnecting and counting for any code of the worker. */
+  readonly sockets: Sockets;
 }
 
 type Handler = (ws: Socket, value: never, ctx: SocketContext) => unknown;
@@ -148,6 +209,15 @@ const errorOf = (error: unknown) => ({ message: (error as Error)?.message ?? Str
 
 export function socketServer(settings: SocketSettings): SocketServer {
   const open = new Set<OpenSocket>();
+  /** The Bun server that accepted the sockets, known from the first upgrade. */
+  let bunServer: BunPublisher | undefined;
+  const rooms: RoomContext = {
+    // With tenancy, every room lives in its tenant's namespace (`-:` without a tenant), so tenants never share one.
+    topicOf: settings.tenantRooms ? (room, tenant) => `${tenant ?? "-"}:${room}` : (room) => room,
+    maxRooms: settings.maxRooms,
+  };
+  /** The tenant a publish from code is for: the option, else the tenant whose scope the code runs in. */
+  const tenantOf = (options: PublishOptions | { tenant?: string } | undefined) => options?.tenant ?? currentTenant()?.id;
   const ownOrigin = ownOriginReader(settings.proxy);
   const fixed = Array.isArray(settings.origins) ? new OriginMatcher(settings.origins) : undefined;
   const computed = typeof settings.origins === "function" ? settings.origins : undefined;
@@ -178,7 +248,8 @@ export function socketServer(settings: SocketSettings): SocketServer {
     if (origin !== null && !(await originAllowed(req, origin))) throw new HttpError(403, "Origin not allowed");
     if (open.size >= settings.maxConnections) throw new HttpError(503, "Too many open sockets", { headers: { "retry-after": "5" } });
     const ctx: SocketContext = { params: req.params, query: req.query, user: req.user, tenant: req.tenant, repos, log: settings.logger, req };
-    const socket = new OpenSocket(definition, ctx, req.route, req.id);
+    const socket = new OpenSocket(definition, ctx, req.route, req.id, rooms, req.auth?.sessionId);
+    bunServer ??= bunServerOf(req.raw);
     if (!upgradeRequest(req.raw, { socket } satisfies SocketData)) throw new HttpError(400, "Invalid WebSocket upgrade");
     // The server answers the upgraded request itself; this response is never sent.
     return new Response(null, { status: 200 });
@@ -285,10 +356,45 @@ export function socketServer(settings: SocketSettings): SocketServer {
     },
   };
 
+  const matches = (socket: OpenSocket, filter: DisconnectFilter) =>
+    (filter.user === undefined || (socket.user as { id?: string } | undefined)?.id === filter.user) &&
+    (filter.sessionId === undefined || socket.sessionId === filter.sessionId) &&
+    (filter.tenant === undefined || socket.tenantId === filter.tenant) &&
+    (filter.room === undefined || socket.joined.has(filter.room));
+
+  const sockets: Sockets = {
+    publish(room, data, options) {
+      assertRoomName(room);
+      const topic = rooms.topicOf(room, tenantOf(options));
+      const frame = encodeFrame(data);
+      const except = options?.except !== undefined ? [...open].find((socket) => socket.id === options.except && socket.joined.has(room)) : undefined;
+      // A socket's own publish reaches the room's other sockets; Bun's publish reaches all of them.
+      if (except?.ws) except.ws.publish(topic, frame);
+      else bunServer?.publish(topic, frame);
+    },
+    disconnect(filter) {
+      let count = 0;
+      for (const socket of [...open]) {
+        if (!matches(socket, filter)) continue;
+        socket.close(filter.code ?? 4001, filter.reason ?? "Disconnected");
+        count += 1;
+      }
+      return count;
+    },
+    count(room, options) {
+      assertRoomName(room);
+      const tenant = settings.tenantRooms ? tenantOf(options) : undefined;
+      let count = 0;
+      for (const socket of open) if (socket.joined.has(room) && (!settings.tenantRooms || socket.tenantId === tenant)) count += 1;
+      return count;
+    },
+  };
+
   return {
     run,
     handler,
     open,
+    sockets,
     closeAll(code, reason) {
       for (const socket of [...open]) socket.close(code, reason);
     },

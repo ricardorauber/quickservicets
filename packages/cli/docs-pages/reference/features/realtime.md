@@ -14,7 +14,7 @@ realtime: {}
 
 It is not enabled by default: turn it on with `realtime: {}` or `QS_REALTIME_ENABLED=true`, and off with `realtime: false` or `QS_REALTIME_ENABLED=false`.
 
-**Runs after:** `events`
+**Runs after:** `events`, `auth`
 
 ## Options
 
@@ -36,6 +36,7 @@ It is not enabled by default: turn it on with `realtime: {}` or `QS_REALTIME_ENA
 | `realtime.websockets.maxMessageSize` | `size` | `"1MB"` | `QS_REALTIME_WEBSOCKETS_MAX_MESSAGE_SIZE` | no | The largest frame a socket accepts; a larger one closes the socket with 1009, and one over twice the limit ends the connection. |
 | `realtime.websockets.idleTimeout` | `duration` | `"120s"` | `QS_REALTIME_WEBSOCKETS_IDLE_TIMEOUT` | no | How long a socket may stay silent before it is closed, at most 960s; Bun pings to keep live connections open. |
 | `realtime.websockets.messages` | `rate` | `"100/10s"` | `QS_REALTIME_WEBSOCKETS_MESSAGES` | no | The frames each socket may send per window; exceeding it closes the socket with 1008 Too many messages. |
+| `realtime.websockets.maxRooms` | `integer` | `100` | `QS_REALTIME_WEBSOCKETS_MAX_ROOMS` | no | The most rooms one socket joins; one more subscribe throws Socket joined too many rooms. |
 | `realtime.enabled` | `boolean` | `true` | `QS_REALTIME_ENABLED` | no | Turns the feature off when false. |
 
 ## Tags
@@ -91,3 +92,11 @@ publish(entity: string, event: WriteEvent): void;
 ```
 
 Sends a change to the open change streams of an entity on this worker, without a write.
+
+### `sockets`
+
+```ts
+sockets(): Sockets;
+```
+
+Publishing to socket rooms, disconnecting sockets and counting them, as `sockets` of `@quickservicets/core` does.

@@ -99,7 +99,7 @@ export async function changeMessage(event: WriteEvent, entity: EntityModel, quer
   return { event: operation, id: event.id, data: { id: event.recordId, type: event.type, record, ...(operation === "updated" && !after ? { matches: false as const } : {}) } };
 }
 
-type Operation = { tags?: string[]; parameters?: { name: string; in: string }[]; responses?: Record<string, { content?: Record<string, { schema?: { properties?: { data?: { items?: unknown } } } }> }> };
+type Operation = { "x-auth"?: unknown; security?: unknown; tags?: string[]; parameters?: { name: string; in: string }[]; responses?: Record<string, { content?: Record<string, { schema?: { properties?: { data?: { items?: unknown } } } }> }> };
 
 /** Documents each change stream route with its query parameters and a `text/event-stream` response. */
 export function documentChanges(doc: OpenApiDoc, entities: readonly EntityModel[]): OpenApiDoc {
@@ -131,7 +131,12 @@ export function documentChanges(doc: OpenApiDoc, entities: readonly EntityModel[
             },
           },
           "400": { description: "Invalid query", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          // Whoever may not list the records may not follow them: the list route's answers and security apply.
+          ...(list.responses?.["401"] ? { "401": list.responses["401"] } : {}),
+          ...(list.responses?.["403"] ? { "403": list.responses["403"] } : {}),
         },
+        ...(list["x-auth"] !== undefined ? { "x-auth": structuredClone(list["x-auth"]) } : {}),
+        ...(list.security !== undefined ? { security: structuredClone(list.security) } : {}),
       },
     };
   }

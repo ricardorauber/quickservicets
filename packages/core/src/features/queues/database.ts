@@ -1,5 +1,7 @@
 import { hostname } from "node:os";
 import {
+  assertWritable,
+  scopedAdapter,
   UniqueViolationError,
   afterCommit,
   heartbeatInterval,
@@ -472,8 +474,7 @@ export function databaseBroker(options: DatabaseBrokerOptions = {}): DatabaseBro
     void cleanup().catch((error: unknown) => log("error", "queue.cleanup.failed", { error: { message: (error as Error)?.message ?? String(error) } }));
 
   /** Inserts a message unless another one holds its dedupe slot; resolves null then. */
-  const insertOrSkip = async (row: StoredRecord): Promise<StoredRecord | null> => {
-    const adapter = adapterOf();
+  const insertOrSkip = async (row: StoredRecord, adapter: DatabaseAdapter = adapterOf()): Promise<StoredRecord | null> => {
     if (adapter.insertOrSkip) return adapter.insertOrSkip(modelOf(), row, "dedupeSlot");
     try {
       return await adapter.insert(modelOf(), row);
@@ -495,8 +496,8 @@ export function databaseBroker(options: DatabaseBrokerOptions = {}): DatabaseBro
   };
 
   /** Frees the slot of a message that no longer deduplicates, unless it changed since it was read. */
-  const release = (holder: StoredRecord, slot: string, now: Date) =>
-    adapterOf().updateById(modelOf(), holder.id, { dedupeSlot: null, updatedAt: now }, [condition("dedupeSlot", "eq", slot), condition("status", "eq", holder.status)]);
+  const release = (holder: StoredRecord, slot: string, now: Date, adapter: DatabaseAdapter = adapterOf()) =>
+    adapter.updateById(modelOf(), holder.id, { dedupeSlot: null, updatedAt: now }, [condition("dedupeSlot", "eq", slot), condition("status", "eq", holder.status)]);
 
   const pause = () => {
     claiming = false;
@@ -531,26 +532,29 @@ export function databaseBroker(options: DatabaseBrokerOptions = {}): DatabaseBro
         ...(message.actor ? { actor: message.actor as StoredRecord[string] } : {}),
       };
       const wake = () => void afterCommit(() => wakeLoop(loops.get(name)));
+      // The database of the current scope (a tenant's, say), so the insert joins the transaction open there.
+      const db = scopedAdapter(adapterOf());
+      assertWritable(db);
       if (dedupeKey === undefined) {
         // Inside a transaction the insert joins it, so the message exists only once the transaction commits.
-        await adapterOf().insert(modelOf(), row);
+        await db.insert(modelOf(), row);
         wake();
         return { id: row.id, deduplicated: false };
       }
       const slot = slotOf(name, dedupeKey);
       // The unique slot lets one of several concurrent adds insert; the others find the message holding it.
       for (let round = 0; round < 5; round++) {
-        if (await insertOrSkip({ ...row, dedupeKey, dedupeSlot: slot })) {
+        if (await insertOrSkip({ ...row, dedupeKey, dedupeSlot: slot }, db)) {
           wake();
           return { id: row.id, deduplicated: false };
         }
-        const holder = await adapterOf().findOne(modelOf(), [condition("dedupeSlot", "eq", slot)]);
+        const holder = await db.findOne(modelOf(), [condition("dedupeSlot", "eq", slot)]);
         if (!holder) continue;
         if (deduplicates(holder, now, message.dedupeWindow)) {
           log("info", "queue.message.deduplicated", { queue: name, dedupeKey, messageId: holder.id });
           return { id: holder.id, deduplicated: true };
         }
-        await release(holder, slot, now);
+        await release(holder, slot, now, db);
       }
       throw new Error(`Queue message for ${name} with dedupe key ${dedupeKey} could not be added; try again`);
     },

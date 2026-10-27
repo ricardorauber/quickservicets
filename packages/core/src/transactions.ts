@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { DatabaseAdapter } from "./adapter.ts";
+import { databaseScopesEnabled, scopedAdapter, scopeKeyOf, sharesConnection } from "./database-scope.ts";
 import { jsonLogger, safeLog, type Logger } from "./logger.ts";
 
 /** One open transaction: the adapter it runs on and the callbacks queued for its end. */
@@ -51,7 +52,8 @@ async function runCallbacks(callbacks: readonly (() => unknown)[], message: stri
  */
 export async function runInTransaction<T>(adapter: DatabaseAdapter, fn: () => Promise<T>): Promise<T> {
   const current = scopes.getStore();
-  if (current && current.adapter === adapter) return fn();
+  if (current && (current.adapter === adapter || sharesConnection(current.adapter, adapter))) return fn();
+  if (current && databaseScopesEnabled()) throw crossScopeWrite(adapter, current.adapter);
   const scope: TransactionScope = { adapter, afterCommit: [], onRollback: [] };
   let result: T;
   try {
@@ -70,7 +72,7 @@ export async function runInTransaction<T>(adapter: DatabaseAdapter, fn: () => Pr
  * Resolves with `fn`'s result once the `afterCommit` callbacks ran.
  */
 export function transaction<T>(fn: () => Promise<T>): Promise<T> {
-  const adapter = settings.adapter;
+  const adapter = settings.adapter && scopedAdapter(settings.adapter);
   if (!adapter) return Promise.reject(new Error("transaction() needs a running service: no database is configured yet"));
   return publicTransaction(adapter, fn);
 }
@@ -108,6 +110,19 @@ export function afterCommit(fn: () => unknown): Promise<void> {
  */
 export function onRollback(fn: () => unknown): void {
   scopes.getStore()?.onRollback.push(fn);
+}
+
+const crossScopeWrite = (target: DatabaseAdapter, open: DatabaseAdapter) =>
+  new Error(`Cannot write to ${scopeKeyOf(target)} inside a transaction of ${scopeKeyOf(open)}; they use different databases`);
+
+/**
+ * Throws when a write through `adapter` would happen inside a transaction of another database scope that does not
+ * share its connection, since that transaction could not include it. Does nothing while database scopes are off.
+ */
+export function assertWritable(adapter: DatabaseAdapter): void {
+  if (!databaseScopesEnabled()) return;
+  const current = scopes.getStore();
+  if (current && !sharesConnection(current.adapter, adapter)) throw crossScopeWrite(adapter, current.adapter);
 }
 
 /** Whether the caller runs inside a transaction. */

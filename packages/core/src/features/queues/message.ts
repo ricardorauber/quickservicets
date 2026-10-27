@@ -30,7 +30,7 @@ export type QueueMessage = {
   finishedAt?: Date | null;
   requestId?: string | null;
   /** The ids of the user and tenant of the request that added it. */
-  actor?: { user?: string | null; tenant?: string | null } | null;
+  actor?: { user?: string | null; tenant?: string | null; scope?: string | null } | null;
 };
 
 const column = (field: NestedFieldModel): FieldModel => ({ ...field, storage: "column" });
@@ -72,6 +72,7 @@ export function queueMessageEntity(): EntityModel {
       fields: [
         { name: "user", type: "string", optional: true },
         { name: "tenant", type: "string", optional: true },
+        { name: "scope", type: "string", optional: true },
       ],
     }),
   ];

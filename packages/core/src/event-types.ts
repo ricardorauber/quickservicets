@@ -7,6 +7,8 @@ export interface EventActor {
   tenant?: string;
   job?: string;
   queue?: string;
+  /** The database scope the event was created in (`tenant:<id>` for tenants), when not the root one. */
+  scope?: string;
 }
 
 /** The operations of write events. */

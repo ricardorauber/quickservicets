@@ -1,4 +1,5 @@
 import {
+  currentOperation,
   resolveRunRepositories,
   boolean,
   defineFeature,
@@ -255,7 +256,9 @@ const queuesFeature = defineFeature({
         const options = source.req ? await withRequestDefaults(step.options, source.req) : step.options;
         const { runAt, priority, dedupeKey } = messagePlacement(options, Date.now());
         const settings = settingsOf(name);
-        const actor = source.actor ?? actorOfRequest(source.req);
+        const scope = currentOperation()?.scope;
+        const requestActor = source.actor ?? actorOfRequest(source.req);
+        const actor = scope ? { ...requestActor, scope } : requestActor;
         const message: QueueBrokerMessage = {
           queue: name,
           payload: stored,

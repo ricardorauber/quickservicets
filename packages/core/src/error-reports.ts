@@ -26,6 +26,8 @@ export interface ErrorReport {
   queue?: { name: string; messageId: string; attempt?: number };
   /** The id of the request the failing code ran for, outside a request report. */
   requestId?: string;
+  /** The database scope the failing code ran in (`tenant:<id>` for tenants), when not the root one. */
+  scope?: string;
   tags: Record<string, string>;
   environment: "production" | "development";
   release?: string;

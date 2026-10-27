@@ -49,6 +49,8 @@ export interface ServerSettings {
    * middlewares); set with `setRepositoryResolver` during setup. Without it, every request gets `repos`.
    */
   repositories?: RepositoryResolver;
+  /** Set by `enableDatabaseScopes()` during setup: the core's database functions follow the current database scope. */
+  databaseScopes?: boolean;
 }
 
 export interface ServerOptions extends ServerSettings {

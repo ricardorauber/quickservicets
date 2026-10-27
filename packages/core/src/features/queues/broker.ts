@@ -38,6 +38,8 @@ export interface QueueBrokerMessage {
 export interface QueueActor {
   user?: string;
   tenant?: string;
+  /** The database scope the message was added in (`tenant:<id>` for tenants), when not the root one. */
+  scope?: string;
 }
 
 /** A message a broker hands to `handle`. */

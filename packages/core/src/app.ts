@@ -23,7 +23,8 @@ import { patternOf } from "./http/router.ts";
 import { DOCS_PATH, OPENAPI_PATH } from "./http/docs.ts";
 import { projectResult, type Projection } from "./projection.ts";
 import { configureRepositories, repositoriesFor, repositoryLookup, type RepositoryRegistry } from "./repository.ts";
-import { configureRunRepositories, resolveRunRepositories } from "./repository-resolver.ts";
+import { configureRunRepositories, resolveRunRepositories, type RepositoryResolver } from "./repository-resolver.ts";
+import { configureDatabaseScopes, currentDatabaseScope } from "./database-scope.ts";
 
 /** A generated CRUD route with its resolved hook list. */
 export interface CrudRouteEntry {
@@ -207,7 +208,13 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
   });
   // The startup registry: every request and run gets it unless a feature set a repository resolver.
   const repos = repositoriesFor(config.database);
-  configureRunRepositories(repos, settings.repositories);
+  configureDatabaseScopes(config.database, repos, settings.databaseScopes === true);
+  // With database scopes on, requests and runs use the current scope's repositories unless a resolver chooses others.
+  const scoped: RepositoryResolver | undefined = settings.databaseScopes
+    ? { owner: "core", request: () => currentDatabaseScope().repos, run: () => currentDatabaseScope().repos }
+    : undefined;
+  const resolver = settings.repositories ?? scoped;
+  configureRunRepositories(repos, resolver);
   const hooksByRoute = new Map(crudRoutes.map((entry) => [`${entry.method} ${entry.path}`, entry.hooks]));
   const uploads = { storage: config.storage, files: config.files };
   // The file route runs the entity's read hooks in proxy mode; a valid signature is the only check in signed mode.
@@ -272,6 +279,7 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
     middleware: stagesOf(config, middleware),
     requestProperties: requestPropertiesOf(config),
     ...settings,
+    ...(resolver ? { repositories: resolver } : {}),
   });
   const jobScheduler = createJobScheduler(jobs, jobRunner, { enabled: config.jobs.enabled, logger, clock });
   // Projects without jobs have no run records to clean.

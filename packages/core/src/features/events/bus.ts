@@ -257,6 +257,7 @@ function operationFields(): { actor: EventActor; requestId?: string } {
   if (tenant !== undefined) actor.tenant = String(tenant);
   if (operation?.job) actor.job = operation.job.name;
   if (operation?.queue) actor.queue = operation.queue.name;
+  if (operation?.scope) actor.scope = operation.scope;
   return { actor, ...(operation?.requestId ? { requestId: operation.requestId } : {}) };
 }
 

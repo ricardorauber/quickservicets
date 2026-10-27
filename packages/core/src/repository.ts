@@ -1,4 +1,4 @@
-import { publicTransaction, runInTransaction } from "./transactions.ts";
+import { assertWritable, publicTransaction, runInTransaction } from "./transactions.ts";
 import { etagOf, ifMatch as ifMatchTag, preconditionFailed } from "./entity-tags.ts";
 import { observersOf, reportChange } from "./write-observers.ts";
 import {
@@ -406,6 +406,7 @@ export function createRepository(
   };
 
   const write = async (id: string, changes: Record<string, unknown>, options?: WriteOptions, queue: StoredObject[] = []): Promise<EntityRecord> => {
+    assertWritable(adapter);
     const observed = observersOf(model);
     const conditional = options?.ifMatch !== undefined;
     if (writesDirectly && !observed?.inTransaction && !conditional) {
@@ -449,6 +450,7 @@ export function createRepository(
   };
 
   const createRecord = async (id: string, managed: Record<string, unknown>, data: unknown, options?: ReadOptions) => {
+      assertWritable(adapter);
       const value = await validate(data, "create");
       for (const field of model.fields) {
         if (value[field.name] === undefined && field.default !== undefined) {
@@ -710,6 +712,7 @@ export function createRepository(
     },
 
     async delete(id, options) {
+      assertWritable(adapter);
       const observed = observersOf(model);
       if (options?.ifMatch !== undefined) {
         // The check, a conditional write holding the record, and the delete plan run in one transaction.

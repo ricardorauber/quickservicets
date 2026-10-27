@@ -132,6 +132,11 @@ export interface DatabaseAdapter {
   ping?(): Promise<void>;
   /** Locks a record until the current transaction ends, for read-modify-write updates (optional). */
   lockForUpdate?(entity: EntityModel, id: string): Promise<void>;
+  /**
+   * Whether this adapter and `other` reach the same connection, so a transaction started on one includes the writes
+   * made through the other (optional; false when absent). Views of one adapter answer true for each other.
+   */
+  sharesConnectionWith?(other: DatabaseAdapter): boolean;
 }
 
 const FIND_ALL_BATCH = 1000;

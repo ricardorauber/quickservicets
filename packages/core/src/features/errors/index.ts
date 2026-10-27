@@ -1,4 +1,5 @@
 import {
+  currentOperation,
   anyOf,
   defineFeature,
   HttpError,
@@ -219,6 +220,7 @@ const errorsFeature = defineFeature({
       const req = extra.request;
       const user = extra.user ?? idOf(req?.user);
       const tenant = extra.tenant ?? idOf(req?.tenant);
+      const scope = currentOperation()?.scope;
       return {
         error: errorOf(error, production),
         kind,
@@ -228,6 +230,7 @@ const errorsFeature = defineFeature({
         ...(extra.job ? { job: extra.job } : {}),
         ...(extra.queue ? { queue: extra.queue } : {}),
         ...(extra.requestId ? { requestId: extra.requestId } : {}),
+        ...(scope ? { scope } : {}),
         tags: { ...staticTags, ...(extra.tags ?? {}) },
         environment: production ? "production" : "development",
         ...(ctx.options.release !== undefined ? { release: ctx.options.release } : {}),

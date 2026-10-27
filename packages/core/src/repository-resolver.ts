@@ -1,6 +1,7 @@
 import type { ServiceRequest } from "./hooks.ts";
 import type { RepositoryRegistry } from "./repository.ts";
 import { activeSetup } from "./setup-phase.ts";
+import { currentDatabaseScope, databaseScopesEnabled } from "./database-scope.ts";
 
 /** What a job run, a queue message or a listener run is for, as `resolveRunRepositories` receives it. */
 export interface RunTarget {
@@ -58,6 +59,7 @@ export function configureRunRepositories(root: RepositoryRegistry, resolver: Rep
 export function resolveRunRepositories(run: RunTarget = {}, fallback?: () => RepositoryRegistry): RepositoryRegistry {
   const resolver = runs.resolver;
   if (resolver?.run) return resolver.run(run);
+  if (databaseScopesEnabled()) return currentDatabaseScope().repos;
   if (fallback) return fallback();
   if (!runs.root) throw new Error("resolveRunRepositories() needs a running service: no repositories are configured yet");
   return runs.root;

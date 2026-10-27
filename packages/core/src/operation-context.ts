@@ -8,6 +8,8 @@ export interface OperationInfo {
   req?: ServiceRequest;
   job?: { name: string; runId: string };
   queue?: { name: string; messageId: string };
+  /** The key of the database scope the code runs in, set by `withDatabaseScope` (`tenant:<id>` for tenants). */
+  scope?: string;
 }
 
 const operations = new AsyncLocalStorage<OperationInfo>();

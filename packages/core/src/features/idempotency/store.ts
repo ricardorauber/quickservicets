@@ -1,4 +1,4 @@
-import { UniqueViolationError, safeLog, type Condition, type DatabaseAdapter, type EntityModel, type FieldModel, type Logger, type StoredRecord } from "../public.ts";
+import { UniqueViolationError, safeLog, scopedAdapter, type Condition, type DatabaseAdapter, type EntityModel, type FieldModel, type Logger, type StoredRecord } from "../public.ts";
 
 /** A response kept for replays: its status, a few headers and its text body. */
 export interface StoredResponse {
@@ -64,8 +64,11 @@ export function idempotencyKeyEntity(): EntityModel {
 const condition = (field: string, op: "eq" | "lt" | "lte" | "gt", value: unknown): Condition => ({ field, op, value }) as Condition;
 
 /** The idempotency keys in the project's database. */
-export function databaseStore(adapter: DatabaseAdapter, model: EntityModel, logger: Logger, now: () => number = Date.now) {
+export function databaseStore(rootAdapter: DatabaseAdapter, model: EntityModel, logger: Logger, now: () => number = Date.now) {
+  // Keys live in the database of the current scope, so a tenant's keys stay in its own database.
+  const db = () => scopedAdapter(rootAdapter);
   const insertOrSkip = async (row: StoredRecord): Promise<StoredRecord | null> => {
+    const adapter = db();
     if (adapter.insertOrSkip) return adapter.insertOrSkip(model, row, "scope");
     try {
       return await adapter.insert(model, row);
@@ -95,18 +98,18 @@ export function databaseStore(adapter: DatabaseAdapter, model: EntityModel, logg
         };
         const inserted = await insertOrSkip(record);
         if (inserted) return { kind: "new", record: inserted as unknown as IdempotencyRecord };
-        const existing = (await adapter.findOne(model, [condition("scope", "eq", input.scope)])) as unknown as IdempotencyRecord | null;
+        const existing = (await db().findOne(model, [condition("scope", "eq", input.scope)])) as unknown as IdempotencyRecord | null;
         if (!existing) continue;
         // An expired record is never replayed, even before the cleanup removes it.
         if (new Date(existing.expiresAt).getTime() <= at) {
-          await adapter.deleteById(model, existing.id);
+          await db().deleteById(model, existing.id);
           continue;
         }
         if (existing.fingerprint !== input.fingerprint) return { kind: "reused", record: existing };
         if (existing.status === "done") return { kind: "replay", record: existing };
         if (existing.lockedUntil && new Date(existing.lockedUntil).getTime() > at) return { kind: "inUse", record: existing };
         // The process that ran it stopped: take it over, unless another request did first.
-        const taken = await adapter.updateById(model, existing.id, { lockedUntil: new Date(at + LOCK_MS), expiresAt: new Date(at + input.ttlMs), updatedAt: new Date(at) }, [
+        const taken = await db().updateById(model, existing.id, { lockedUntil: new Date(at + LOCK_MS), expiresAt: new Date(at + input.ttlMs), updatedAt: new Date(at) }, [
           condition("status", "eq", "running"),
           condition("lockedUntil", "eq", existing.lockedUntil),
         ]);
@@ -117,7 +120,7 @@ export function databaseStore(adapter: DatabaseAdapter, model: EntityModel, logg
     /** Stores the response of a running record, kept until `ttlMs` from now. */
     async complete(record: IdempotencyRecord, response: StoredResponse, ttlMs: number): Promise<IdempotencyRecord | null> {
       const at = now();
-      const done = await adapter.updateById(
+      const done = await db().updateById(
         model,
         record.id,
         { status: "done", response: response as unknown as StoredRecord[string], expiresAt: new Date(at + ttlMs), lockedUntil: null, updatedAt: new Date(at) },
@@ -127,21 +130,21 @@ export function databaseStore(adapter: DatabaseAdapter, model: EntityModel, logg
     },
     /** Deletes a record, so a retry of its scope runs again. */
     async release(record: IdempotencyRecord): Promise<void> {
-      await adapter.deleteById(model, record.id);
+      await db().deleteById(model, record.id);
     },
     /** Deletes the expired records in batches; each deletion counts once across instances. */
     async cleanup(): Promise<number> {
       let deleted = 0;
       let after: string | undefined;
       for (;;) {
-        const { data } = await adapter.findMany(model, {
+        const { data } = await db().findMany(model, {
           where: [condition("expiresAt", "lt", new Date(now())), ...(after ? [condition("id", "gt", after)] : [])],
           sort: [{ field: "id", direction: "asc" }],
           limit: CLEANUP_BATCH,
           offset: 0,
           withTotal: false,
         });
-        for (const row of data) if (await adapter.deleteById(model, row.id)) deleted++;
+        for (const row of data) if (await db().deleteById(model, row.id)) deleted++;
         if (data.length < CLEANUP_BATCH) break;
         after = data.at(-1)!.id;
       }

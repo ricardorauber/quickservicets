@@ -1,6 +1,6 @@
-import { DEFAULT_MASKED_KEYS, defineFeature, maskSecrets, resolveOptions, safeLog, type ErrorMiddleware } from "../public.ts";
+import { DEFAULT_MASKED_KEYS, defineFeature, maskSecrets, resolveOptions, safeLog, setContextHttp, type ErrorMiddleware } from "../public.ts";
 import type { HttpApi } from "./api.ts";
-import { configServices, running, serviceSettings, type RunningHttp, type ServiceSettings } from "./client.ts";
+import { clientOf, configServices, requestClient, running, serviceSettings, type RunningHttp, type ServiceSettings } from "./client.ts";
 import { HttpClientError } from "./errors.ts";
 import { httpOptions, serviceOptions, serviceProblems, type HttpOptions, type ServiceOptions } from "./options.ts";
 import { allowProblems } from "./ssrf.ts";
@@ -23,6 +23,8 @@ const httpFeature = defineFeature({
   options: httpOptions,
   enabledByDefault: true,
   after: ["security"],
+  // `req.http` is created on first read only, so a request that makes no call pays nothing.
+  request: { http: requestClient },
   validate: (options) => [
     ...allowProblems(options.allow),
     ...Object.entries(options.services as Record<string, ServiceOptions>).flatMap(([name, service]) => serviceProblems(name, service)),
@@ -42,8 +44,12 @@ const httpFeature = defineFeature({
     };
     services.set(ctx.options, settings.services as Map<string, ServiceSettings>);
     running.current = settings;
+    // Jobs and queue consumers get a client sending their run or message id.
+    const contextClient = (requestId: string) => clientOf({ requestId });
+    setContextHttp(contextClient);
     ctx.app.onStop(() => {
       if (running.current === settings) running.current = undefined;
+      setContextHttp(undefined);
     });
     // An outgoing call that fails and escapes a handler answers 502, or 504 for a timeout, instead of 500.
     const middleware: ErrorMiddleware = {

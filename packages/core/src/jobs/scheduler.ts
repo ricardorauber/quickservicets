@@ -2,6 +2,7 @@ import { UniqueViolationError, type DatabaseAdapter, type StoredRecord } from ".
 import { withJobOperation } from "../operation-context.ts";
 import { jobRunsObserved, notifyJobRun } from "./observers.ts";
 import { contextFlags } from "../context-flags.ts";
+import { contextHttp } from "../context-http.ts";
 import { queueClient } from "../features/queues/client.ts";
 import type { ResolvedConfig } from "../config.ts";
 import { parseSize } from "../files/limits.ts";
@@ -294,6 +295,7 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
     };
     const log: JobLogger = { info: write("info"), warn: write("warn"), error: write("error") };
     const flags = contextFlags();
+    const client = contextHttp(run.id);
     const context = {
       repos,
       files,
@@ -303,6 +305,7 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
       queue: queueClient(),
       // `ctx.flags` exists while the `flags` native runs; its type comes from the generated flag types.
       ...(flags ? { flags } : {}),
+      ...(client ? { http: client } : {}),
     } as JobContext;
     const done = (async (): Promise<JobRun> => {
       logEvent("job.started", run);

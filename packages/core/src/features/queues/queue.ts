@@ -1,4 +1,4 @@
-import type { JobLogger, Repositories } from "../public.ts";
+import type { Http, JobLogger, Repositories } from "../public.ts";
 
 /**
  * The payload type of every queue of the project, by queue name; the build fills it in `.generated/types.ts` from the
@@ -74,6 +74,8 @@ export interface QueueContext<Payload = unknown> {
   log: JobLogger;
   /** Adds more messages. */
   queue: QueueClient;
+  /** The outgoing HTTP client, sending the message's id as `x-request-id`; present while the `http` native is enabled. */
+  http: Http;
 }
 
 /** Per-queue settings; each one overrides the matching `queues` option. */

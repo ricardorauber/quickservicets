@@ -1,5 +1,6 @@
 import type { Repositories } from "../hooks.ts";
 import type { StorageAdapter } from "../storage/storage.ts";
+import type { Http } from "../features/http/client.ts";
 import type { QueueClient } from "../features/queues/queue.ts";
 import type { Schedule } from "./schedule.ts";
 
@@ -63,6 +64,8 @@ export interface JobContext {
   run: JobRunInfo;
   /** Adds messages to the project's queues; throws while the `queues` native is not enabled. */
   queue: QueueClient;
+  /** The outgoing HTTP client, sending the run's id as `x-request-id`; present while the `http` native is enabled. */
+  http: Http;
 }
 
 export type JobFn = (ctx: JobContext) => unknown | Promise<unknown>;

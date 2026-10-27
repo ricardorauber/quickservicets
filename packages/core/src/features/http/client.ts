@@ -1,4 +1,4 @@
-import { DEFAULT_MASKED_KEYS, jsonLogger, lastResolvedFeatures, parseDuration, resolveOptions, type Logger } from "../public.ts";
+import { DEFAULT_MASKED_KEYS, jsonLogger, lastResolvedFeatures, parseDuration, resolveOptions, type Logger, type ServiceRequest } from "../public.ts";
 import { HttpClientError } from "./errors.ts";
 import { httpOptions, type HttpOptions, type ServiceOptions } from "./options.ts";
 import { sharedState } from "./state.ts";
@@ -64,6 +64,8 @@ export interface CallSpec {
 export interface ClientBinding {
   /** Sent as `x-request-id` unless the call sets it. */
   requestId?: string;
+  /** The request whose user, tenant and credentials calls through services propagate. */
+  req?: ServiceRequest;
 }
 
 /** A named service, from the config or added by a feature. */
@@ -148,6 +150,8 @@ export function describeCall(spec: CallSpec, settings: HttpSettings, binding: Cl
     if (auth?.bearer !== undefined) headers.set("authorization", `Bearer ${auth.bearer}`);
     else if (auth?.basic !== undefined) headers.set("authorization", `Basic ${btoa(`${auth.basic.username}:${auth.basic.password}`)}`);
     else if (auth?.apiKey !== undefined) headers.set(auth.apiKey.header, auth.apiKey.value);
+    // Only calls through a service bound to a request carry who the request is for.
+    if (binding.req) propagate(headers, service.propagate, binding.req);
   }
   let body: HttpBody | undefined;
   if (spec.body?.kind === "json") {
@@ -174,6 +178,20 @@ export function describeCall(spec: CallSpec, settings: HttpSettings, binding: Cl
     attempt: 1,
     ...(spec.service !== undefined ? { service: spec.service } : {}),
   };
+}
+
+/** Sets the propagated request values a service asks for, each only when the request has it. */
+function propagate(headers: Headers, what: readonly string[], req: ServiceRequest): void {
+  const idOf = (value: unknown) => {
+    const id = (value as { id?: unknown } | undefined)?.id;
+    return id === undefined || id === null ? undefined : String(id);
+  };
+  const values: [string, string | undefined][] = [
+    ["x-user-id", what.includes("user") ? idOf(req.user) : undefined],
+    ["x-tenant-id", what.includes("tenant") ? idOf(req.tenant) : undefined],
+    ["authorization", what.includes("authorization") ? (req.headers.get("authorization") ?? undefined) : undefined],
+  ];
+  for (const [name, value] of values) if (value !== undefined) headers.set(name, value);
 }
 
 function appendQuery(target: { append(name: string, value: string): void }, name: string, value: HttpQueryValue): void {
@@ -437,6 +455,19 @@ export interface Http extends HttpMethods {
 /** A client bound to `binding`. */
 export function clientOf(binding: ClientBinding): Http {
   return { ...methodsOf(binding), service: (name) => serviceMethodsOf(name, binding) };
+}
+
+const created = sharedState("request-clients", () => ({ count: 0 }));
+
+/** `req.http`: a client bound to the request, created when the request first reads it. */
+export function requestClient(req: ServiceRequest): Http {
+  created.count++;
+  return clientOf({ requestId: req.id, req });
+}
+
+/** How many request-bound clients this process created; for tests. */
+export function requestClientsCreated(): number {
+  return created.count;
 }
 
 /** The outgoing HTTP client, with the options of the `http` native. */

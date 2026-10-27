@@ -49,6 +49,7 @@ export { reportError, reportFailure, reportStartupFailure, setErrorReportSink, s
 export type { ErrorReport, ErrorReporter, ErrorReportKind, ErrorReportRequest, FailureDetails, ReportErrorExtra } from "./error-reports.ts";
 export { observeJobRuns } from "./jobs/observers.ts";
 export { contextFlags, setContextFlags } from "./context-flags.ts";
+export { contextHttp, setContextHttp } from "./context-http.ts";
 export type { ContextFlagEvaluator, FlagTarget } from "./context-flags.ts";
 export type { ObservedJobRun } from "./jobs/observers.ts";
 export { defineSse, isSseDefinition, setSseRunner, sseEndpoint } from "./http/sse.ts";
@@ -253,7 +254,7 @@ import flagsNative, { type FlagsApi } from "./features/flags/index.ts";
 import idempotencyNative, { type IdempotencyApi } from "./features/idempotency/index.ts";
 import healthNative, { type HealthApi, type HealthStatusChangedEvent } from "./features/health/index.ts";
 import queuesNative, { type QueueClient, type QueueMessageEvent, type QueuesApi } from "./features/queues/index.ts";
-import httpNative, { type HttpApi } from "./features/http/index.ts";
+import httpNative, { type Http, type HttpApi } from "./features/http/index.ts";
 import { registerNative as registerShippedNative, type FeatureConfig as NativeConfig } from "./features.ts";
 registerShippedNative(securityNative);
 registerShippedNative(eventsNative);
@@ -372,6 +373,11 @@ declare module "./hooks.ts" {
   interface RequestExtensions {
     /** Adds messages to the project's queues, carrying the request's id; present while the `queues` native is enabled. */
     queue: QueueClient;
+    /**
+     * The outgoing HTTP client bound to the request: every call sends the request's id as `x-request-id`, and calls
+     * through services propagate what they ask for; present while the `http` native is enabled.
+     */
+    http: Http;
     /** The `Last-Event-ID` header, or the `lastEventId` query parameter without it; present while the `realtime` native is enabled. */
     lastEventId: string | undefined;
   }

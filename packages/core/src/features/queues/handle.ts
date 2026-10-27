@@ -1,4 +1,4 @@
-import { contextFlags, operationContextEnabled, safeLog, systemClock, withOperation, type JobClock, type JobLogFields, type JobLogger, type Logger, type Repositories } from "../public.ts";
+import { contextFlags, contextHttp, operationContextEnabled, safeLog, systemClock, withOperation, type JobClock, type JobLogFields, type JobLogger, type Logger, type Repositories } from "../public.ts";
 import type { QueueBrokerContext, QueueReceivedMessage } from "./broker.ts";
 import { queueClient } from "./client.ts";
 import type { QueueContext, QueueDefinition } from "./queue.ts";
@@ -12,6 +12,12 @@ export interface ConsumerHandlerOptions {
   clock?: JobClock;
   /** Changes the payload before the consumer runs; a throw fails the attempt. */
   beforeProcess?: (message: QueueReceivedMessage, payload: unknown) => unknown | Promise<unknown>;
+}
+
+/** `ctx.http` of a consumer, sending the message's id, while the `http` native runs. */
+function httpOf(messageId: string): { http?: QueueContext["http"] } {
+  const client = contextHttp(messageId);
+  return client ? { http: client } : {};
 }
 
 /** The `handle` of a broker's start context: runs a message's consumer with its context, inside its operation. */
@@ -34,6 +40,7 @@ export function consumerHandler(options: ConsumerHandlerOptions): QueueBrokerCon
         queue: queueClient(),
         // `ctx.flags` exists while the `flags` native runs; its type comes from the generated flag types.
         ...(contextFlags() ? { flags: contextFlags() } : {}),
+        ...httpOf(message.id),
       } as QueueContext;
       const run = () => definition.handler(context);
       const operation = { queue: { name: message.queue, messageId: message.id }, ...(message.requestId ? { requestId: message.requestId } : {}) };

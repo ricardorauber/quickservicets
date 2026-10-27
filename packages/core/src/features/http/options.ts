@@ -1,4 +1,4 @@
-import { boolean, CORE_VERSION, duration, integer, list, object, record, secret, size, string, url, type Options, type OptionsInput } from "../public.ts";
+import { boolean, CORE_VERSION, duration, integer, list, object, oneOf, record, secret, size, string, url, type Options, type OptionsInput } from "../public.ts";
 
 /** What a service name looks like. */
 export const SERVICE_NAME = /^[a-z][a-z0-9-]*$/;
@@ -27,6 +27,10 @@ export const serviceOptions = object({
     .optional()
     .describe("How calls to the service authenticate: one of bearer, basic or apiKey."),
   timeout: duration().optional().describe("The timeout of calls to the service, instead of http.timeout."),
+  propagate: list(oneOf(["user", "tenant", "authorization"]))
+    .default([])
+    .describe("What calls through req.http carry from the request: user sends x-user-id, tenant sends x-tenant-id, authorization forwards the incoming authorization header."),
+  log: oneOf(["all", "errors", "off"]).optional().describe("Which calls to the service write http.call entries, instead of http.log."),
 });
 
 /** The resolved options of one named service. */
@@ -55,6 +59,9 @@ export const httpOptions = object({
     .default([])
     .describe("Addresses, CIDR blocks (or loopback, private, linklocal) and host names like billing.internal or *.internal that SSRF protection lets through."),
   maxRedirects: integer().min(0).max(20).default(5).describe("How many redirects a call follows before it fails with TOO_MANY_REDIRECTS."),
+  log: oneOf(["all", "errors", "off"])
+    .default("all")
+    .describe("Which calls write an http.call log entry: all of them, only failed calls and statuses of 400 and above, or none."),
   services: record(serviceOptions)
     .keys(SERVICE_NAME, "a service name starts with a lowercase letter and uses lowercase letters, digits and -")
     .describe("The services the project calls, by name, each called with http.service(name)."),

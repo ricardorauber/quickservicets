@@ -190,6 +190,9 @@ export async function transport(request: HttpRequest, settings: HttpSettings, tr
     if (request.signal?.aborted) return fail("ABORTED", `${method} ${url} was aborted`, request.signal.reason);
     return fail("NETWORK", `${method} ${url} failed: ${reasonOf(error)}`, error);
   };
+  const startedAt = performance.now();
+  let status = 0;
+  let failed: HttpClientError | undefined;
   try {
     let hop: Hop = { url: new URL(request.url), method, headers: new Headers(request.headers), body: request.body };
     let response: Response;
@@ -202,16 +205,57 @@ export async function transport(request: HttpRequest, settings: HttpSettings, tr
       if (redirects >= settings.options.maxRedirects) throw fail("TOO_MANY_REDIRECTS", `Too many redirects from ${url}`);
       hop = redirected(hop, response.status, new URL(location, hop.url));
     }
+    status = response.status;
     const tooLarge = () => fail("RESPONSE_TOO_LARGE", `Response from ${url} is larger than ${sizeText(settings.options.maxResponseSize)}`);
     const body = await readLimited(response, limit, tooLarge);
     const answered = hop.url.href;
     const invalid = (cause: unknown) => new HttpClientError({ code: "INVALID_RESPONSE", message: `${method} ${maskedUrl(answered, settings)} answered invalid JSON`, method, url: maskedUrl(answered, settings), cause, ...service });
     return new BufferedResponse(response.status, response.headers, answered, body, invalid);
   } catch (error) {
-    throw failure(error);
+    failed = failure(error);
+    throw failed;
   } finally {
     clearTimeout(timer);
+    logCall(settings, request, { url, status: failed && failed.code !== "RESPONSE_TOO_LARGE" ? 0 : status, durationMs: performance.now() - startedAt, ...(failed ? { error: failed.code } : {}) });
   }
+}
+
+/** What one attempt ended with, for its log entry. */
+export interface CallOutcome {
+  /** The masked URL. */
+  url: string;
+  status: number;
+  durationMs: number;
+  /** The `HttpClientError` code of a failed attempt. */
+  error?: string;
+  /** Whether a response cache answered, for calls through one. */
+  cache?: string;
+  attempt?: number;
+}
+
+/**
+ * Writes the `http.call` entry of one attempt: method, masked URL, service, status, duration, attempt, request id and
+ * error code, never headers or bodies; `info` below 400 and `warn` otherwise, as the `log` option allows.
+ */
+export function logCall(settings: HttpSettings, request: HttpRequest, outcome: CallOutcome): void {
+  const service = request.service === undefined ? undefined : settings.services.get(request.service);
+  const mode = service?.log ?? settings.options.log;
+  const bad = outcome.error !== undefined || outcome.status >= 400;
+  if (mode === "off" || (mode === "errors" && !bad)) return;
+  const requestId = request.headers.get("x-request-id");
+  safeLog(settings.logger, bad ? "warn" : "info", {
+    timestamp: new Date().toISOString(),
+    message: "http.call",
+    method: request.method,
+    url: outcome.url,
+    ...(request.service !== undefined ? { service: request.service } : {}),
+    status: outcome.status,
+    durationMs: Math.round(outcome.durationMs * 1000) / 1000,
+    attempt: outcome.attempt ?? request.attempt,
+    ...(requestId !== null ? { requestId } : {}),
+    ...(outcome.error !== undefined ? { error: outcome.error } : {}),
+    ...(outcome.cache !== undefined ? { cache: outcome.cache } : {}),
+  });
 }
 
 /**

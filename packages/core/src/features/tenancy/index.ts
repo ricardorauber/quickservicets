@@ -4,6 +4,7 @@ import {
   enableDatabaseScopes,
   setRepositoryResolver,
   withDatabaseScope,
+  repositoriesFor,
   tenantRepositories,
   type DatabaseScope,
   boolean,
@@ -26,6 +27,9 @@ import {
 import type { TenancyApi } from "./api.ts";
 import { isMissingTable, tenantScopes } from "./scopes.ts";
 import { connectionResolver, type ConnectionOption } from "./connections.ts";
+import { tenancyCommands } from "./commands.ts";
+import { provision, tenantOperations, type TenantOperations, type TenantProvisionResult, type TenantWriter } from "./tenants.ts";
+import { resolve } from "node:path";
 import { tenantPools, type TenantPool, type TenantPools } from "./pools.ts";
 import {
   cachedDirectory,
@@ -119,6 +123,25 @@ const options = object({
     .default({ ttl: "5m", negativeTtl: "30s", staleTtl: "1h", maxEntries: 10000 })
     .describe("The per-worker cache of tenant lookups."),
 });
+
+/** Provisioning and migrating tenants of each setup, for the feature API and `provisionTenant`. */
+const runningOf = new WeakMap<object, Pick<TenancyApi, "provision" | "migrate">>();
+let running: Pick<TenancyApi, "provision" | "migrate"> | undefined;
+
+/**
+ * Creates a tenant of the database source and migrates it, like `quickservicets tenants create`, from a running service
+ * (a sign-up endpoint, say); refuses an existing id with `Tenant <id> already exists`.
+ */
+export function provisionTenant(info: Partial<TenantInfo> & { id: string }): Promise<TenantProvisionResult> {
+  if (!running) return Promise.reject(new Error("provisionTenant() needs a running service with tenancy enabled"));
+  return running.provision(info);
+}
+
+/** Applies the pending migrations to one tenant, like `quickservicets migrate --tenant <id>`, from a running service. */
+export function migrateTenant(id: string): Promise<TenantProvisionResult> {
+  if (!running) return Promise.reject(new Error("migrateTenant() needs a running service with tenancy enabled"));
+  return running.migrate(id);
+}
 
 /** The tenant database pools of each setup, for the feature API. */
 const poolsOf = new WeakMap<object, TenantPools>();
@@ -216,6 +239,7 @@ const tenancyFeature = defineFeature({
   // The Tenant table of the database source; nothing with the other sources.
   entities: ({ options }) => (options.source === "database" ? [tenantEntity()] : []),
   after: ["http"],
+  commands: tenancyCommands,
   tags: {
     tenancy: {
       on: ["entity", "endpoint"],
@@ -267,6 +291,18 @@ const tenancyFeature = defineFeature({
     });
     poolsOf.set(ctx.options, pools);
     ctx.app.onStart(() => pools.start());
+    // Provisioning and migrating tenants from code use the project's migration files.
+    const projectRoot = resolve(ctx.generated("."), "..", "..");
+    let operations: TenantOperations | undefined;
+    const operationsOf = () => (operations ??= tenantOperations({ config: ctx.config, models: ctx.models, projectRoot, logger: ctx.logger }));
+    runningOf.set(ctx.options, {
+      provision: (info) => provision(operationsOf(), repositoriesFor(root).tenants as unknown as TenantWriter, info as Record<string, unknown> & { id: string }),
+      async migrate(id) {
+        const tenant = await operationsOf().directory.find(id);
+        if (!tenant) throw new Error(`Unknown tenant ${id}`);
+        return { id, status: tenant.status, applied: await operationsOf().migrate(tenant) };
+      },
+    });
     ctx.app.onStop(() => pools.closeAll(parseDuration(ctx.config.lifecycle.stopTimeout) ?? 10_000));
     /** The scope of a database-strategy tenant, kept with its pool. */
     const poolScopes = new WeakMap<TenantPool, DatabaseScope>();
@@ -363,7 +399,9 @@ const tenancyFeature = defineFeature({
         if (strategy === "database") {
           const lease = await pools.acquire(tenant);
           try {
-            return await withDatabaseScope(scopeOfPool(tenant, lease.pool), next);
+            const scope = scopeOfPool(tenant, lease.pool);
+            if (!(await scopes.provisioned(scope))) throw scopes.notReady(tenant);
+            return await withDatabaseScope(scope, next);
           } catch (error) {
             if (isMissingTable(error)) throw scopes.notReady(tenant);
             throw error;
@@ -372,6 +410,7 @@ const tenancyFeature = defineFeature({
           }
         }
         const scope = scopes.schema(tenant);
+        if (!(await scopes.provisioned(scope))) throw scopes.notReady(tenant);
         try {
           return await withDatabaseScope(scope, next);
         } catch (error) {
@@ -402,11 +441,14 @@ const tenancyFeature = defineFeature({
   },
   api: (ctx): TenancyApi => {
     const state = statesOf.get(ctx.options)!;
+    running = runningOf.get(ctx.options);
     return {
       exempt: (pattern) => state.exemptions.add(pattern),
       find: (id) => state.directory.find(id),
       list: () => state.directory.list(),
       stats: () => poolsOf.get(ctx.options)!.stats(),
+      provision: (info) => runningOf.get(ctx.options)!.provision(info),
+      migrate: (id) => runningOf.get(ctx.options)!.migrate(id),
     };
   },
 });
@@ -420,4 +462,7 @@ export { cachedDirectory, configDirectory, databaseDirectory, directoryClock, se
 export type { CachedDirectory, DirectoryCacheOptions, TenantDirectory, TenantInfo } from "./directory.ts";
 export { crossTenancyReferences, markTenancy, SHARED_ENTITY_KEYS, withoutTenancyMarks } from "./models.ts";
 export { maskConnections, tenantPools } from "./pools.ts";
+export { appliedTenantMigrations, migrateTenantDatabase, migrationFiles, MONGO_MIGRATIONS_COLLECTION } from "./migrate.ts";
+export { assertDatabaseSource, provision, strategyOf, tenancyOptionsOf, tenantOperations } from "./tenants.ts";
+export type { TenancyOptions, TenantOperations, TenantProvisionResult, TenantWriter } from "./tenants.ts";
 export type { PoolCloseReason, PoolLease, PoolSettings, PoolStats, TenantPool, TenantPools } from "./pools.ts";

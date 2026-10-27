@@ -4,7 +4,12 @@ import type { Repositories } from "./hooks.ts";
 /** Options of a migration statement. */
 export interface MigrationSqlOptions {
   /** The explicit schema whose table the statement changes. */
-  schema: string;
+  schema?: string;
+  /**
+   * Set (with the `tenancy` native) on statements that change a table every tenant shares: they run only in the
+   * service's own database, while the statements without a marker run in each tenant's schema or database.
+   */
+  shared?: true;
 }
 
 /** What a migration's `up` and `down` functions receive. */

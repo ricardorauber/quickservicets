@@ -1,5 +1,6 @@
 import { currentDatabaseScope, HttpError, safeLog, schemaIdentifier, tenantRepositories, type DatabaseAdapter, type DatabaseScope, type EntityModel, type Logger } from "../public.ts";
 import type { TenantInfo } from "./directory.ts";
+import { MONGO_MIGRATIONS_COLLECTION } from "./migrate.ts";
 
 /** The names `withSchema` accepts. */
 const SCHEMA_NAME = /^[a-z][a-z0-9-]*$/;
@@ -45,7 +46,19 @@ export function tenantScopes(options: TenantScopesOptions) {
     safeLog(options.logger, "error", { timestamp: new Date().toISOString(), message: "tenancy.schema.conflict", tenant: tenant.id, schema: name });
     return new HttpError(500, "Internal server error");
   };
+  // MongoDB creates collections on first use, so a tenant database without its migration history is not provisioned.
+  const checked = new Map<string, { ready: boolean; at: number }>();
   return {
+    /** Whether the tenant of a scope is migrated: always on SQL databases, where missing tables fail by themselves. */
+    async provisioned(scope: DatabaseScope): Promise<boolean> {
+      const adapter = scope.adapter as DatabaseAdapter & { db?: { listCollections(filter: object): { toArray(): Promise<unknown[]> } } };
+      if (adapter.kind !== "mongodb") return true;
+      const known = checked.get(scope.key);
+      if (known && (known.ready || Date.now() - known.at < 30_000)) return known.ready;
+      const ready = (await adapter.db!.listCollections({ name: MONGO_MIGRATIONS_COLLECTION }).toArray()).length > 0;
+      checked.set(scope.key, { ready, at: Date.now() });
+      return ready;
+    },
     /** The scope of a tenant whose data lives in a schema of the service's database. */
     schema(tenant: TenantInfo): DatabaseScope {
       const name = schemaNameOf(tenant, options.template);

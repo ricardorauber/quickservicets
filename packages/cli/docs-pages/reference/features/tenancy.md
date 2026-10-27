@@ -67,6 +67,63 @@ It is not enabled by default: turn it on with `tenancy: {}` or `QS_TENANCY_ENABL
 export type Plan = { name: string };
 ```
 
+## Commands
+
+### `tenants list`
+
+Prints each tenant with its status, strategy, schema name or database, and plan; --pending adds its number of pending migrations.
+
+```bash
+quickservicets tenants list [--pending]
+```
+
+**Flags:**
+
+- `--pending` (`boolean`, default `false`): Adds the number of migrations each tenant has not applied.
+
+### `tenants create`
+
+Adds a tenant of the database source as suspended, migrates its schema or database, then makes it active.
+
+```bash
+quickservicets tenants create <id> [--plan <plan>] [--strategy <schema|database>] [--schema <name>] [--connection <value>]
+```
+
+**Arguments:**
+
+- `<id>` (required): The tenant's id: lowercase letters, digits and dashes.
+
+**Flags:**
+
+- `--plan` (`string`): The tenant's plan.
+- `--strategy` (`"schema" \| "database"`): Where the tenant's data lives, over tenancy.strategy.
+- `--schema` (`string`): The tenant's schema name, over the tenancy.schema template.
+- `--connection` (`string`): The connection of a database-strategy tenant; it is never printed.
+
+### `tenants suspend`
+
+Suspends a tenant of the database source: its requests answer 403.
+
+```bash
+quickservicets tenants suspend <id>
+```
+
+**Arguments:**
+
+- `<id>` (required): The tenant's id.
+
+### `tenants resume`
+
+Makes a suspended tenant of the database source active again.
+
+```bash
+quickservicets tenants resume <id>
+```
+
+**Arguments:**
+
+- `<id>` (required): The tenant's id.
+
 ## Feature API
 
 Other features reach it with `ctx.feature("tenancy")` in their setup, listing `tenancy` in `requires` or `after`.
@@ -103,3 +160,19 @@ stats(): PoolStats;
 ```
 
 The tenant database pools of this worker: open, the limit, openings in progress and tenants failing to open.
+
+### `provision`
+
+```ts
+provision(info: Partial<TenantInfo> & { id: string }): Promise<TenantProvisionResult>;
+```
+
+Creates a tenant of the database source and migrates it; refuses an existing id with `Tenant <id> already exists`.
+
+### `migrate`
+
+```ts
+migrate(id: string): Promise<TenantProvisionResult>;
+```
+
+Applies the pending migrations to one tenant; rejects with `Unknown tenant <id>` for an unknown one.

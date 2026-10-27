@@ -71,10 +71,10 @@ quickservicets build
 
 ## `migrate`
 
-Applies pending migrations, or migrates up or down to the target migration.
+Applies pending migrations, or migrates up or down to the target migration; with tenancy, --tenant and --all-tenants migrate tenants.
 
 ```bash
-quickservicets migrate [target] [--force]
+quickservicets migrate [target] [--force] [--tenant <id> | --all-tenants [--concurrency <n>] [--continue-on-error]]
 ```
 
 **JSON (`--json`):**
@@ -511,3 +511,78 @@ quickservicets flags remove <name>
 **Arguments:**
 
 - `<name>`: The flag's name.
+
+### `tenancy`
+
+#### `tenants list`
+
+Prints each tenant with its status, strategy, schema name or database, and plan; --pending adds its number of pending migrations.
+
+```bash
+quickservicets tenants list [--pending]
+```
+
+**Flags:**
+
+- `--pending` (`boolean`, default `false`): Adds the number of migrations each tenant has not applied.
+
+**JSON (`--json`):**
+
+```json
+{
+  "ok": true,
+  "tenants": [
+    {
+      "id": "string",
+      "status": "string",
+      "strategy": "string",
+      "schema": "string?",
+      "plan": "string?",
+      "pending": "number?"
+    }
+  ]
+}
+```
+
+#### `tenants create`
+
+Adds a tenant of the database source as suspended, migrates its schema or database, then makes it active.
+
+```bash
+quickservicets tenants create <id> [--plan <plan>] [--strategy <schema|database>] [--schema <name>] [--connection <value>]
+```
+
+**Arguments:**
+
+- `<id>` (required): The tenant's id: lowercase letters, digits and dashes.
+
+**Flags:**
+
+- `--plan` (`string`): The tenant's plan.
+- `--strategy` (`"schema" \| "database"`): Where the tenant's data lives, over tenancy.strategy.
+- `--schema` (`string`): The tenant's schema name, over the tenancy.schema template.
+- `--connection` (`string`): The connection of a database-strategy tenant; it is never printed.
+
+#### `tenants suspend`
+
+Suspends a tenant of the database source: its requests answer 403.
+
+```bash
+quickservicets tenants suspend <id>
+```
+
+**Arguments:**
+
+- `<id>` (required): The tenant's id.
+
+#### `tenants resume`
+
+Makes a suspended tenant of the database source active again.
+
+```bash
+quickservicets tenants resume <id>
+```
+
+**Arguments:**
+
+- `<id>` (required): The tenant's id.

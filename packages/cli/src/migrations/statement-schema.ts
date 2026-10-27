@@ -1,4 +1,6 @@
-import { schemaIdentifier, SQLITE_DEFAULT_SCHEMA_TOKEN, type EntityModel, type SqlDialect } from "@quickservicets/core";
+import { buildDrizzleSchema, schemaIdentifier, SQLITE_DEFAULT_SCHEMA_TOKEN, type EntityModel, type SqlDialect } from "@quickservicets/core";
+import { getTableConfig as pgTableConfig } from "drizzle-orm/pg-core";
+import { getTableConfig as sqliteTableConfig } from "drizzle-orm/sqlite-core";
 import type { DrizzleSnapshot } from "./snapshot.ts";
 
 /** Finds the explicit schema whose table a generated statement changes, or undefined for default-schema tables. */
@@ -53,5 +55,38 @@ export function statementSchemaResolver(
     if (!first) return undefined;
     const name = first.startsWith(SQLITE_REBUILD_PREFIX) ? first.slice(SQLITE_REBUILD_PREFIX.length) : first;
     return objects.get(name) ?? tableSchema({ name });
+  };
+}
+
+/**
+ * Tells whether a generated statement changes a table (or an index of one) of a shared default-schema model, which
+ * with tenancy lives once in the service's database instead of in every tenant's schema or database.
+ */
+export function sharedStatementResolver(dialect: SqlDialect, models: EntityModel[][], snapshots: DrizzleSnapshot[]): (statement: string) => boolean {
+  const shared = new Map<string, EntityModel>();
+  for (const model of models.flat()) if (model.tenancy === "shared" && !model.link) shared.set(model.key, model);
+  if (shared.size === 0) return () => false;
+  const schema = buildDrizzleSchema([...shared.values()], dialect, { sqliteDefaultPrefix: SQLITE_DEFAULT_SCHEMA_TOKEN });
+  const config = (table: unknown) => (dialect === "sqlite" ? sqliteTableConfig(table as never) : pgTableConfig(table as never)) as { name: string; schema?: string };
+  const names = new Set<string>();
+  for (const [key, table] of Object.entries(schema.tables)) if (!shared.get(key)?.schema) names.add(config(table).name);
+  for (const [key, table] of Object.entries(schema.junctions)) if (!shared.get(key.slice(0, key.lastIndexOf(".")))?.schema) names.add(config(table).name);
+  const objects = new Set(names);
+  for (const snapshot of snapshots) {
+    for (const table of Object.values(snapshot.tables)) {
+      if (!names.has(table.name) || (dialect === "postgres" && typeof table.schema === "string" && table.schema !== "" && table.schema !== "public")) continue;
+      for (const [key, index] of Object.entries(table.indexes)) objects.add((index as { name?: string }).name ?? key);
+    }
+  }
+  if (dialect === "postgres") {
+    return (statement) => {
+      const first = /"([^"]+)"(\s*\.\s*")?/.exec(statement);
+      return Boolean(first && !first[2] && objects.has(first[1]!));
+    };
+  }
+  return (statement) => {
+    const first = /`([^`]+)`/.exec(statement)?.[1];
+    if (!first) return false;
+    return objects.has(first.startsWith(SQLITE_REBUILD_PREFIX) ? first.slice(SQLITE_REBUILD_PREFIX.length) : first);
   };
 }

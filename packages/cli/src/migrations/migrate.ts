@@ -2,7 +2,10 @@ import type { Database } from "bun:sqlite";
 import type { SQL } from "bun";
 import {
   createRepositories,
+  jsonLogger,
   loadConfig,
+  tenantOperations,
+  type TenantInfo,
   MIGRATIONS_TABLE,
   renameLegacyMigrationTables,
   schemaIdentifier,
@@ -70,6 +73,8 @@ interface MigrationDriver {
   /** Runs one migration step and records it in the history. */
   runStep(migration: MigrationFile, direction: Direction, module: MigrationModule, repos: Repositories): Promise<void>;
   warnings: string[];
+  /** Set with tenancy: tenant statements are skipped and counted. */
+  tenancy?: { skipped: number };
 }
 
 function toQuery(query: TemplateStringsArray | string, values: unknown[], placeholder: (index: number) => string) {
@@ -80,12 +85,17 @@ function toQuery(query: TemplateStringsArray | string, values: unknown[], placeh
 function isSqlOptions(value: unknown): value is MigrationSqlOptions {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const keys = Object.keys(value);
-  return keys.length === 1 && keys[0] === "schema" && typeof (value as MigrationSqlOptions).schema === "string";
+  if (keys.length !== 1) return false;
+  if (keys[0] === "schema") return typeof (value as MigrationSqlOptions).schema === "string";
+  return keys[0] === "shared" && (value as MigrationSqlOptions).shared === true;
 }
 
-/** Separates the `{ schema }` options of `ctx.sql(statement, { schema })` from bound values. */
-export function splitSqlOptions(query: TemplateStringsArray | string, values: unknown[]): { values: unknown[]; schema?: string } {
-  if (typeof query === "string" && values.length === 1 && isSqlOptions(values[0])) return { values: [], schema: values[0].schema };
+/** Separates the `{ schema }` or `{ shared: true }` options of `ctx.sql(statement, options)` from bound values. */
+export function splitSqlOptions(query: TemplateStringsArray | string, values: unknown[]): { values: unknown[]; schema?: string; shared?: true } {
+  if (typeof query === "string" && values.length === 1 && isSqlOptions(values[0])) {
+    const options = values[0];
+    return options.schema !== undefined ? { values: [], schema: options.schema } : { values: [], shared: true };
+  }
   return { values };
 }
 
@@ -166,6 +176,8 @@ interface SqlStep {
   defaultSchema: string;
   db: unknown;
   repos: Repositories;
+  /** With tenancy: the statements without a marker belong to tenants and are skipped here, counted in `skipped`. */
+  tenancy?: { skipped: number };
 }
 
 /**
@@ -180,7 +192,11 @@ async function runSqlStep(step: SqlStep, migration: MigrationFile, direction: Di
   /** Per marked schema: the default schemas recorded there before this step, and what is left after it. */
   const marked = new Map<string, { recorded: string[] | undefined; after: string[]; runs: boolean; removed: boolean }>();
   const sql = (async (query: TemplateStringsArray | string, ...values: unknown[]) => {
-    const { values: params, schema } = splitSqlOptions(query, values);
+    const { values: params, schema, shared } = splitSqlOptions(query, values);
+    if (step.tenancy && schema === undefined && !shared) {
+      step.tenancy.skipped++;
+      return undefined;
+    }
     if (schema !== undefined) {
       let state = marked.get(schema);
       if (!state) {
@@ -238,7 +254,7 @@ function sqliteDriver(client: Database, defaultSchema: string | null): Migration
     },
   };
   const db = drizzleSqlite(client);
-  return {
+  const driver: MigrationDriver = {
     warnings: [],
     async ensureHistory() {
       client.run(`create table if not exists ${HISTORY_TABLE} (id text primary key, name text not null, applied_at integer not null)`);
@@ -255,7 +271,7 @@ function sqliteDriver(client: Database, defaultSchema: string | null): Migration
     async runStep(migration, direction, module, repos) {
       client.run("begin");
       try {
-        const step = { runner, history: HISTORY_TABLE, defaultSchema: defaultSchema ?? "", db, repos };
+        const step = { runner, history: HISTORY_TABLE, defaultSchema: defaultSchema ?? "", db, repos, ...(driver.tenancy ? { tenancy: driver.tenancy } : {}) };
         await runSqlStep(step, migration, direction, module);
         client.run("commit");
       } catch (error) {
@@ -264,11 +280,12 @@ function sqliteDriver(client: Database, defaultSchema: string | null): Migration
       }
     },
   };
+  return driver;
 }
 
 function postgresDriver(client: SQL, defaultSchema: string | null): MigrationDriver {
   const db = drizzlePostgres({ client });
-  return {
+  const driver: MigrationDriver = {
     warnings: [],
     async ensureHistory() {
       // quickservicets-allow-unsafe: the history table name is a constant
@@ -305,11 +322,12 @@ function postgresDriver(client: SQL, defaultSchema: string | null): MigrationDri
           // quickservicets-allow-unsafe: runs the statements of migration files, with their values as parameters
           rows: async <T>(text: string, params: unknown[] = []) => (await tx.unsafe(numbered(text), params)) as T[],
         };
-        const step = { runner, history: HISTORY_TABLE, defaultSchema: defaultSchema ?? "", db, repos };
+        const step = { runner, history: HISTORY_TABLE, defaultSchema: defaultSchema ?? "", db, repos, ...(driver.tenancy ? { tenancy: driver.tenancy } : {}) };
         await runSqlStep(step, migration, direction, module);
       });
     },
   };
+  return driver;
 }
 
 function mongoDriver(adapter: MongodbAdapter): MigrationDriver {
@@ -337,8 +355,10 @@ function mongoDriver(adapter: MongodbAdapter): MigrationDriver {
 
 function driverFor(config: ResolvedConfig): MigrationDriver {
   const adapter = config.database as { kind?: string; client?: unknown };
-  if (adapter.kind === "sqlite") return sqliteDriver(adapter.client as Database, config.schema);
-  if (adapter.kind === "postgres") return postgresDriver(adapter.client as SQL, config.schema);
+  const tenancy = config.features.some((feature) => feature.key === "tenancy");
+  const withTenancy = (driver: MigrationDriver) => (tenancy ? Object.assign(driver, { tenancy: { skipped: 0 } }) : driver);
+  if (adapter.kind === "sqlite") return withTenancy(sqliteDriver(adapter.client as Database, config.schema));
+  if (adapter.kind === "postgres") return withTenancy(postgresDriver(adapter.client as SQL, config.schema));
   if (adapter.kind === "mongodb") return mongoDriver(config.database as MongodbAdapter);
   throw new BuildError(`Migrations are not supported for the ${adapter.kind ?? "configured"} adapter`);
 }
@@ -441,6 +461,75 @@ export async function migrate(projectRoot: string, options: MigrateOptions = {})
       result.messages.push(`${direction === "up" ? "Applied" : "Reverted"} ${migration.id}`);
     }
     if (steps.length === 0) result.messages.push("Database is up to date (0 migrations applied)");
+    if (driver.tenancy && driver.tenancy.skipped > 0) result.messages.push(`Skipped ${driver.tenancy.skipped} tenant statements; run quickservicets migrate --all-tenants`);
     return result;
   });
+}
+
+export interface TenantMigrateOptions {
+  /** One tenant to migrate. */
+  tenant?: string;
+  /** Migrate the service's database, then every tenant. */
+  allTenants?: boolean;
+  /** Tenants migrated at once (default 4). */
+  concurrency?: number;
+  /** Keep migrating the other tenants after one fails. */
+  continueOnError?: boolean;
+}
+
+export interface TenantMigrateResult {
+  messages: string[];
+  /** The tenants whose migration failed. */
+  failed: string[];
+}
+
+/**
+ * `quickservicets migrate --tenant <id>` and `--all-tenants`: applies the tenant statements of every pending migration
+ * in each tenant's schema or database, with the history kept next to its tables.
+ */
+export async function migrateTenants(projectRoot: string, options: TenantMigrateOptions): Promise<TenantMigrateResult> {
+  const messages: string[] = [];
+  if (options.allTenants) messages.push(...(await migrate(projectRoot)).messages);
+  const config = await loadConfig(projectRoot);
+  if (!config.features.some((feature) => feature.key === "tenancy")) throw new BuildError("migrate --tenant and --all-tenants need tenancy: {} in quickservicets.config.ts");
+  const models = parseEntities(projectRoot, config.features);
+  await config.database.connect(models, { defaultSchema: config.schema });
+  const failed: string[] = [];
+  try {
+    const operations = tenantOperations({ config, models, projectRoot, logger: config.logger ?? jsonLogger });
+    const migrateOne = async (tenant: TenantInfo) => {
+      const applied = await operations.migrate(tenant);
+      if (applied.length === 0) messages.push(`${tenant.id}: Up to date`);
+      for (const id of applied) messages.push(`${tenant.id}: Applied ${id}`);
+    };
+    if (options.tenant !== undefined) {
+      const tenant = await operations.directory.find(options.tenant);
+      if (!tenant) throw new BuildError(`Unknown tenant ${options.tenant}`);
+      await migrateOne(tenant);
+      return { messages, failed };
+    }
+    const tenants: TenantInfo[] = [];
+    for await (const tenant of operations.directory.list()) tenants.push(tenant);
+    let next = 0;
+    let stopped = false;
+    let migrated = 0;
+    const worker = async () => {
+      while (!stopped && next < tenants.length) {
+        const tenant = tenants[next++]!;
+        try {
+          await migrateOne(tenant);
+          migrated++;
+        } catch (error) {
+          failed.push(tenant.id);
+          messages.push(`${tenant.id}: Failed: ${(error as Error)?.message ?? String(error)}`);
+          if (!options.continueOnError) stopped = true;
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.max(1, options.concurrency ?? 4) }, worker));
+    messages.push(`Migrated ${migrated} tenants, ${failed.length} failed`);
+    return { messages, failed };
+  } finally {
+    await config.database.disconnect();
+  }
 }

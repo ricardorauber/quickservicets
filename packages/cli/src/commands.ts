@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { boolean, defineCommand, MIGRATIONS_TABLE_RENAMED, object, string, type CommandContext, type CommandDefinition, type JsonFields } from "@quickservicets/core";
+import { boolean, defineCommand, integer, MIGRATIONS_TABLE_RENAMED, object, string, type CommandContext, type CommandDefinition, type JsonFields } from "@quickservicets/core";
 
 /** The commands of the `quickservicets` CLI, for help texts and the reference documentation. */
 export interface CommandDoc {
@@ -108,13 +108,25 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
   }),
   defineCommand({
     name: "migrate",
-    usage: "quickservicets migrate [target] [--force]",
-    description: "Applies pending migrations, or migrates up or down to the target migration.",
+    usage: "quickservicets migrate [target] [--force] [--tenant <id> | --all-tenants [--concurrency <n>] [--continue-on-error]]",
+    description: "Applies pending migrations, or migrates up or down to the target migration; with tenancy, --tenant and --all-tenants migrate tenants.",
     args: [{ name: "target", description: "The migration to migrate up or down to, or 0 to revert every migration." }],
-    flags: object({ force: boolean().default(false).describe("Reverts migrations in production.") }),
+    flags: object({
+      force: boolean().default(false).describe("Reverts migrations in production."),
+      tenant: string().optional().describe("Applies the tenant statements of pending migrations to this tenant's schema or database."),
+      allTenants: boolean().default(false).describe("Migrates the service's database, then every tenant."),
+      concurrency: integer().min(1).default(4).describe("Tenants migrated at once with --all-tenants."),
+      continueOnError: boolean().default(false).describe("Keeps migrating the other tenants after one fails."),
+    }),
     json: { applied: ["string"], reverted: ["string"], messages: ["string"], warnings: ["string"] },
     async run({ args, flags, cwd, output, result: report }) {
-      const { migrate, MigrationError } = await import("./migrations/migrate.ts");
+      const { migrate, migrateTenants, MigrationError } = await import("./migrations/migrate.ts");
+      if (flags.tenant !== undefined || flags.allTenants) {
+        const tenants = await migrateTenants(cwd, { ...(flags.tenant !== undefined ? { tenant: flags.tenant } : {}), allTenants: flags.allTenants, concurrency: flags.concurrency, continueOnError: flags.continueOnError });
+        report({ applied: [], reverted: [], messages: tenants.messages, warnings: [] });
+        for (const message of tenants.messages) output.log(message);
+        return tenants.failed.length > 0 ? 1 : 0;
+      }
       const printWarnings = (warnings: string[]) => {
         for (const warning of warnings) output.error(`Warning: ${warning}`);
       };

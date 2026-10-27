@@ -1,4 +1,5 @@
 import { tenantRuns } from "../tenant-runs.ts";
+import { reportFailure } from "../error-reports.ts";
 import { UniqueViolationError, type DatabaseAdapter, type StoredRecord } from "../adapter.ts";
 import { withJobOperation } from "../operation-context.ts";
 import { jobRunsObserved, notifyJobRun } from "./observers.ts";
@@ -157,7 +158,15 @@ async function eachTenant(definition: JobDefinition, context: JobContext, log: J
     while (next < ids.length) {
       const id = ids[next++]!;
       try {
-        await runs.run(id, ({ tenant, repos }) => definition.run({ ...context, tenant, repos: repos as unknown as JobContext["repos"] }));
+        await runs.run(id, async ({ tenant, repos }) => {
+          try {
+            return await definition.run({ ...context, tenant, repos: repos as unknown as JobContext["repos"] });
+          } catch (error) {
+            // Reported from the tenant's scope, so the report names the tenant.
+            reportFailure(error, { kind: "job", job: { name: context.run.job, runId: context.run.id, attempt: context.run.attempt } });
+            throw error;
+          }
+        });
       } catch (error) {
         failed.push(id);
         log.error(`Tenant ${id} failed: ${(error as Error)?.message ?? String(error)}`, { tenant: id });

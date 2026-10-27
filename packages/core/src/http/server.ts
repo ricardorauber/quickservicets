@@ -54,6 +54,10 @@ export interface ServerSettings {
   databaseScopes?: boolean;
   /** Set by `setTenantRuns()` during setup: how jobs, consumers and listeners run for a tenant. */
   tenantRuns?: TenantRuns;
+  /** Adds `tenant: <id>` to the request log entry of every request with `req.tenant`. */
+  requestLogTenant?: boolean;
+  /** Wraps the service's logger (after masking), like adding the current tenant to every entry. */
+  wrapLogger?: (logger: Logger) => Logger;
 }
 
 export interface ServerOptions extends ServerSettings {
@@ -230,7 +234,7 @@ function withRequestProperties(req: ServiceRequest, properties: ReadonlyMap<stri
   return req;
 }
 
-export function createServer({ routes, repos, config: serverConfig, jobs = noRequestJobs, middleware, requestProperties, clientIp, maxRequestBodySize, idleTimeout, mask, entityTags, repositories }: ServerOptions): Server {
+export function createServer({ routes, repos, config: serverConfig, jobs = noRequestJobs, middleware, requestProperties, clientIp, maxRequestBodySize, idleTimeout, mask, entityTags, repositories, requestLogTenant }: ServerOptions): Server {
   // Development error responses show the stack with known secret values masked.
   const config = mask ? { ...serverConfig, redact: (text: string) => mask.text(text) } : serverConfig;
   const handlerStage = middleware?.handler ?? [];
@@ -333,6 +337,7 @@ export function createServer({ routes, repos, config: serverConfig, jobs = noReq
         status: response.status,
         durationMs: Math.round((performance.now() - startedAt) * 1000) / 1000,
         hooks: state.req ? executedHooks(state.req) : [],
+        ...(requestLogTenant && state.req?.tenant ? { tenant: (state.req.tenant as { id?: string }).id } : {}),
         ...extra,
       });
     if (deferred) void deferred.then(write, () => write({}));

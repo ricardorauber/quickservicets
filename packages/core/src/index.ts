@@ -20,7 +20,7 @@ export { configureRunRepositories, resolveRunRepositories, setRepositoryResolver
 export { guardTenantRepositories, tenantRepositories, TenantRequiredError } from "./tenant-repositories.ts";
 export { configureTenantRuns, runForTenant, setTenantRuns, tenantRuns } from "./tenant-runs.ts";
 export type { RunTenant, TenantRunContext, TenantRuns } from "./tenant-runs.ts";
-export { configureDatabaseScopes, currentDatabaseScope, databaseScopesEnabled, enableDatabaseScopes, scopedAdapter, scopeKeyOf, sharesConnection, systemTarget, withDatabaseScope } from "./database-scope.ts";
+export { configureDatabaseScopes, currentDatabaseScope, currentTenant, databaseScopesEnabled, enableDatabaseScopes, scopedAdapter, scopeKeyOf, sharesConnection, systemTarget, withDatabaseScope } from "./database-scope.ts";
 export type { DatabaseScope, DatabaseScopeInput, ScopeTenant } from "./database-scope.ts";
 export type { RepositoryResolver, RepositoryResolverOptions, RunTarget } from "./repository-resolver.ts";
 export type { EntityPlan, EntityRecord, ListResult, Many, One, Populated, PopulatePath, ReadOptions, ReadRepository, ReferencePath, RelatedField, RelatedRecord, RelatedReferences, Repository, RepositoryOptions, RepositoryRegistry, WriteOptions } from "./repository.ts";

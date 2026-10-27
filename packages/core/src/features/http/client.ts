@@ -1,4 +1,4 @@
-import { DEFAULT_MASKED_KEYS, jsonLogger, lastResolvedFeatures, OptionError, parseDuration, resolveOption, resolveOptions, runAfterHooks, runBeforeHooks, type FeatureHook, type Logger, type OptionFunction, type ServiceRequest } from "../public.ts";
+import { currentTenant, DEFAULT_MASKED_KEYS, jsonLogger, lastResolvedFeatures, OptionError, parseDuration, resolveOption, resolveOptions, runAfterHooks, runBeforeHooks, type FeatureHook, type Logger, type OptionFunction, type ServiceRequest } from "../public.ts";
 import { HttpClientError } from "./errors.ts";
 import { httpOptions, serviceProblems, type HttpOptions, type ServiceOptions } from "./options.ts";
 import { sharedState } from "./state.ts";
@@ -180,6 +180,11 @@ export async function describeCall(spec: CallSpec, settings: HttpSettings, bindi
     else if (auth?.apiKey !== undefined) headers.set(auth.apiKey.header, auth.apiKey.value);
     // Only calls through a service bound to a request carry who the request is for.
     if (binding.req) propagate(headers, service.propagate, binding.req);
+    else if (service.propagate.includes("tenant")) {
+      // A job or consumer running for a tenant carries it like a request of that tenant would.
+      const tenant = currentTenant();
+      if (tenant) headers.set("x-tenant-id", tenant.id);
+    }
   }
   let body: HttpBody | undefined;
   if (spec.body?.kind === "json") {

@@ -192,7 +192,8 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
     : allJobs;
   prepareFeatureTargets(models, endpoints, crudRoutes);
   // A feature masking logs (the security native) wraps the logger of the server, the jobs and the file cleanup.
-  const logger = settings.mask ? maskedLogger(config.logger ?? jsonLogger, settings.mask) : (config.logger ?? jsonLogger);
+  const masked = settings.mask ? maskedLogger(config.logger ?? jsonLogger, settings.mask) : (config.logger ?? jsonLogger);
+  const logger = settings.wrapLogger ? settings.wrapLogger(masked) : masked;
   const fileAccess = { storage: config.storage, files: config.files, publicUrl: config.server.publicUrl, ...(settings.fileHeaders ? { fileHeaders: settings.fileHeaders } : {}) };
   const fileCleanup = {
     storage: config.storage,

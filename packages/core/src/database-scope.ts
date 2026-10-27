@@ -108,6 +108,16 @@ export function systemTarget(adapter: DatabaseAdapter, model: EntityModel): { ad
   return scope.systemRows?.(model) ?? { adapter: scope.adapter, model };
 }
 
+/**
+ * The tenant the current code runs for (`{ id }` of the active tenant scope), read from the scope without a directory
+ * lookup, or undefined outside tenant scopes and while scopes are off.
+ */
+export function currentTenant(): { id: string } | undefined {
+  if (!scopes) return undefined;
+  const id = scopes.getStore()?.tenant?.id;
+  return id === undefined ? undefined : { id };
+}
+
 /** The scope key an adapter was used with, or a generic name for an adapter no scope used. */
 export function scopeKeyOf(adapter: DatabaseAdapter): string {
   return keys.get(adapter) ?? "another database";

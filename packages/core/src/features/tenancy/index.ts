@@ -7,6 +7,10 @@ import {
   repositoriesFor,
   setTenantRuns,
   inTransaction,
+  currentTenant,
+  safeLog,
+  type LogEntry,
+  type Logger,
   runForTenant,
   tenantRepositories,
   type DatabaseScope,
@@ -165,7 +169,7 @@ const poolsOf = new WeakMap<object, TenantPools>();
 const statesOf = new WeakMap<object, { exemptions: TenantExemptions; directory: CachedDirectory }>();
 
 /** The active tenant of an id, or the answer for an unknown, suspended or unreachable one. */
-async function lookUp(directory: CachedDirectory, id: string) {
+async function lookUp(directory: CachedDirectory, id: string, logger: Logger) {
   let tenant;
   try {
     tenant = await directory.find(id);
@@ -173,8 +177,15 @@ async function lookUp(directory: CachedDirectory, id: string) {
     if (error instanceof TenantDirectoryUnavailableError) throw directoryUnavailable();
     throw error;
   }
-  if (!tenant) throw tenantNotFound();
-  if (tenant.status === "suspended") throw tenantSuspended();
+  const log = (message: string) => safeLog(logger, "info", { timestamp: new Date().toISOString(), message, tenant: id });
+  if (!tenant) {
+    log("tenancy.unknown");
+    throw tenantNotFound();
+  }
+  if (tenant.status === "suspended") {
+    log("tenancy.suspended");
+    throw tenantSuspended();
+  }
   return tenant;
 }
 
@@ -461,23 +472,42 @@ const tenancyFeature = defineFeature({
         const credential = (req.tenant as { id?: unknown } | undefined)?.id;
         const fromCredentials = credential === undefined ? undefined : String(credential);
         let id: string | undefined;
+        let resolvedFrom: TenantSource | undefined;
         for (const source of from) {
           const value = await read[source](req, fromCredentials);
           if (value === undefined) continue;
           if (!TENANT_ID.test(value)) throw invalidTenant();
           if (fromCredentials !== undefined && value !== fromCredentials) throw tenantMismatch();
-          id ??= value;
+          if (id === undefined) {
+            id = value;
+            resolvedFrom = source;
+          }
         }
         if (id === undefined) {
           if (decision.required) throw tenantRequired();
           return next();
         }
-        const tenant = await lookUp(directory, id);
+        const tenant = await lookUp(directory, id, ctx.logger);
+        safeLog(ctx.logger, "debug", { timestamp: new Date().toISOString(), message: "tenancy.resolved", tenant: id, source: resolvedFrom });
         req.tenant = { id, ...(tenant.plan !== undefined ? { plan: tenant.plan } : {}), attributes: tenant.attributes } as ServiceRequest["tenant"];
         return enter(tenant, () => next());
       },
     };
     ctx.app.use(resolveTenant);
+    // Log entries written for a tenant say so: the request log entry, and every entry written inside a tenant scope.
+    const withTenant = (write: (entry: LogEntry) => void) => (entry: LogEntry) => {
+      const tenant = currentTenant();
+      write(tenant && (entry as { tenant?: unknown }).tenant === undefined ? { ...entry, tenant: tenant.id } : entry);
+    };
+    ctx.app.configureServer({
+      requestLogTenant: true,
+      wrapLogger: (logger) => ({
+        info: withTenant((entry) => logger.info(entry)),
+        warn: withTenant((entry) => logger.warn(entry)),
+        error: withTenant((entry) => logger.error(entry)),
+        ...(logger.debug ? { debug: withTenant((entry) => logger.debug!(entry)) } : {}),
+      }),
+    });
     // Jobs, queue consumers, listeners and deliveries run for a tenant through the same scopes.
     setTenantRuns({
       async run(id, fn) {

@@ -1,5 +1,6 @@
 import {
   currentOperation,
+  currentTenant,
   anyOf,
   defineFeature,
   HttpError,
@@ -219,7 +220,8 @@ const errorsFeature = defineFeature({
     const build = (error: unknown, kind: ErrorReportKind, extra: ReportErrorExtra & Omit<Partial<FailureDetails>, "kind"> = {}): ErrorReport => {
       const req = extra.request;
       const user = extra.user ?? idOf(req?.user);
-      const tenant = extra.tenant ?? idOf(req?.tenant);
+      // Outside requests (jobs, consumers, listeners), the tenant of the current scope.
+      const tenant = extra.tenant ?? idOf(req?.tenant) ?? currentTenant();
       const scope = currentOperation()?.scope;
       return {
         error: errorOf(error, production),
@@ -288,10 +290,10 @@ const errorsFeature = defineFeature({
     // Dead queue messages, and with every each failed attempt, with the user and tenant of the request that added them.
     if (ctx.config.features.some((feature) => feature.key === "queues")) {
       const queues = ctx.feature("queues");
-      const fromMessage = (message: { queue: string; id: string; attempt: number; requestId?: string; actor?: { user?: string; tenant?: string } }) => ({
+      const fromMessage = (message: { queue: string; id: string; attempt: number; requestId?: string; tenant?: string; actor?: { user?: string; tenant?: string } }) => ({
         queue: { name: message.queue, messageId: message.id, attempt: message.attempt },
         ...(message.actor?.user !== undefined ? { user: { id: message.actor.user } } : {}),
-        ...(message.actor?.tenant !== undefined ? { tenant: { id: message.actor.tenant } } : {}),
+        ...((message.tenant ?? message.actor?.tenant) !== undefined ? { tenant: { id: (message.tenant ?? message.actor?.tenant)! } } : {}),
         ...(message.requestId ? { requestId: message.requestId } : {}),
       });
       queues.addHook("onDead", ({ message, error }) => void submit(build(error, "queue", fromMessage(message))));

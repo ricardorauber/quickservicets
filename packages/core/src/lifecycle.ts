@@ -231,8 +231,13 @@ interface Registered {
 export function createFeatureLifecycle({ features, config, models, featureFolders = {}, worker, generatedDir = join(process.cwd(), ".generated"), extendContext, endpoints = [], crudRoutes = [], around = (_feature, _phase, run) => run() }: FeatureLifecycleOptions): FeatureLifecycle {
   const baseLogger = config.logger ?? jsonLogger;
   let masked: Logger | undefined;
-  // Once a feature gives the server a masker, every entry logged through the features' loggers is masked too.
-  const current = () => (server.mask ? (masked ??= maskedLogger(baseLogger, server.mask)) : baseLogger);
+  let wrapped: Logger | undefined;
+  // Once a feature gives the server a masker, every entry logged through the features' loggers is masked too, and a
+  // logger wrapper (like the tenant of the current scope) applies to them as well.
+  const current = () => {
+    const base = server.mask ? (masked ??= maskedLogger(baseLogger, server.mask)) : baseLogger;
+    return server.wrapLogger ? (wrapped ??= server.wrapLogger(base)) : base;
+  };
   const logger: Logger = { info: (entry) => current().info(entry), warn: (entry) => current().warn(entry), error: (entry) => current().error(entry), debug: (entry) => current().debug?.(entry) };
   const startTimeout = parseDuration(config.lifecycle.startTimeout) ?? 30_000;
   const stopTimeout = parseDuration(config.lifecycle.stopTimeout) ?? 10_000;

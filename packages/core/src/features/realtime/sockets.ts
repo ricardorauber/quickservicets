@@ -17,7 +17,9 @@ import {
   safeLog,
   tenantRuns,
   upgradeRequest,
+  runAfterHooks,
   type DisconnectFilter,
+  type FeatureHook,
   type Logger,
   type PublishOptions,
   type Sockets,
@@ -49,7 +51,45 @@ export interface SocketSettings {
   maxRooms: number;
   /** Whether rooms are kept apart per tenant (the `tenancy` native is on). */
   tenantRooms: boolean;
+  /** The limits of one upgrade: its route's `@socket` options and the per-request message rate (default: the global ones). */
+  limitsFor?: (req: ServiceRequest) => SocketLimits | Promise<SocketLimits>;
+  /** The hooks around connecting, messages, rooms and closing; empty lists cost nothing. */
+  hooks?: Partial<SocketHooks>;
 }
+
+/** The limits of one socket. */
+export interface SocketLimits {
+  maxMessageSize: number;
+  messages: Rate;
+  /** The origins allowed for its route, when its `@socket` tag lists them. */
+  origins?: readonly string[] | OptionFunction<string[]>;
+}
+
+/** What `beforeConnect` hooks receive: a throw refuses the upgrade with that error. */
+export interface SocketConnect {
+  req: ServiceRequest;
+  user: ServiceRequest["user"];
+  tenant: ServiceRequest["tenant"];
+  route: string;
+}
+
+/** The hooks of the WebSocket endpoints. */
+export interface SocketHooks {
+  beforeConnect: readonly FeatureHook<SocketConnect, undefined>[];
+  afterConnect: readonly FeatureHook<{ ws: Socket }, undefined>[];
+  /** May return changed data, or null to drop the frame. */
+  beforeMessage: readonly FeatureHook<{ ws: Socket; data: unknown } | unknown, undefined>[];
+  /** Returning false makes `subscribe` throw `Not allowed to join <room>`; runs synchronously. */
+  beforeSubscribe: readonly FeatureHook<{ ws: Socket; room: string } | boolean, undefined>[];
+  /** May return changed data, or null to drop the publish. */
+  beforePublish: readonly FeatureHook<{ room: string; data: unknown; ws?: Socket } | unknown, undefined>[];
+  onClose: readonly FeatureHook<{ ws: Socket; code: number; reason: string; durationMs: number }, undefined>[];
+}
+
+const NO_HOOKS: SocketHooks = { beforeConnect: [], afterConnect: [], beforeMessage: [], beforeSubscribe: [], beforePublish: [], onClose: [] };
+
+/** Whether a hook's result is its whole step (the hook returned what it received) rather than a changed value. */
+const isStep = (value: unknown, keys: readonly string[]) => typeof value === "object" && value !== null && keys.every((key) => key in value);
 
 /** What `ws.send` and `publish` send for a value: strings and bytes as they are, anything else as JSON text. */
 export const encodeFrame = (data: unknown): string | Uint8Array => (typeof data === "string" || data instanceof Uint8Array ? data : JSON.stringify(data));
@@ -64,7 +104,9 @@ interface RoomContext {
   topicOf(room: string, tenant: string | undefined): string;
   maxRooms: number;
   /** Publishes a socket's frame to the other sockets of its topic, here and through the transport. */
-  publishFrom(socket: OpenSocket, topic: string, frame: string | Uint8Array): void;
+  publishFrom(socket: OpenSocket, room: string, topic: string, data: unknown): void;
+  /** Runs the `beforeSubscribe` hooks; false refuses the room. */
+  mayJoin(socket: OpenSocket, room: string): boolean;
 }
 
 /** What Bun keeps with each upgraded socket. */
@@ -106,6 +148,8 @@ export class OpenSocket implements Socket {
     private readonly rooms_: RoomContext,
     /** The session of the upgrade request's credentials, for disconnects by session. */
     readonly sessionId: string | undefined,
+    /** The frame size and message rate of this socket. */
+    readonly limits: SocketLimits,
   ) {}
 
   /** The tenant id of the socket, if any. */
@@ -121,6 +165,7 @@ export class OpenSocket implements Socket {
     assertRoomName(room);
     if (this.joined.has(room)) return;
     if (this.joined.size >= this.rooms_.maxRooms) throw new Error(`Socket joined too many rooms (max ${this.rooms_.maxRooms})`);
+    if (!this.rooms_.mayJoin(this, room)) throw new Error(`Not allowed to join ${room}`);
     this.joined.add(room);
     this.ws?.subscribe(this.rooms_.topicOf(room, this.tenantId));
   }
@@ -133,7 +178,7 @@ export class OpenSocket implements Socket {
 
   publish(room: string, data: unknown): void {
     assertRoomName(room);
-    this.rooms_.publishFrom(this, this.rooms_.topicOf(room, this.tenantId), encodeFrame(data));
+    this.rooms_.publishFrom(this, room, this.rooms_.topicOf(room, this.tenantId), data);
   }
 
   get user() {
@@ -223,15 +268,41 @@ const errorOf = (error: unknown) => ({ message: (error as Error)?.message ?? Str
 
 export function socketServer(settings: SocketSettings): SocketServer {
   const open = new Set<OpenSocket>();
+  const hooks: SocketHooks = { ...NO_HOOKS, ...settings.hooks };
+  const defaults: SocketLimits = { maxMessageSize: settings.maxMessageSize, messages: settings.messages };
+  /** Runs the `beforePublish` hooks, then publishes the data (or nothing when a hook returns null). */
+  const publishing = (room: string, data: unknown, ws: Socket | undefined, send: (data: unknown) => void) => {
+    if (hooks.beforePublish.length === 0) return send(data);
+    void (async () => {
+      let current = data;
+      for (const fn of hooks.beforePublish) {
+        const result = await fn(ws ? { room, data: current, ws } : { room, data: current }, undefined);
+        if (result === null) return;
+        if (result !== undefined) current = isStep(result, ["room", "data"]) ? (result as { data: unknown }).data : result;
+      }
+      send(current);
+    })().catch((error: unknown) => safeLog(settings.logger, "error", { timestamp: new Date().toISOString(), message: "feature.hook.failed", feature: "realtime", hook: "websockets.beforePublish", error: errorOf(error) }));
+  };
   /** The Bun server that accepted the sockets, known from the first upgrade. */
   let bunServer: BunPublisher | undefined;
   const rooms: RoomContext = {
     // With tenancy, every room lives in its tenant's namespace (`-:` without a tenant), so tenants never share one.
     topicOf: settings.tenantRooms ? (room, tenant) => `${tenant ?? "-"}:${room}` : (room) => room,
     maxRooms: settings.maxRooms,
-    publishFrom(socket, topic, frame) {
-      socket.ws?.publish(topic, frame);
-      toTransport("publish", (current) => current.publish({ origin, room: topic, ...encodeEnvelopeData(frame), except: socket.id }));
+    publishFrom(socket, room, topic, data) {
+      publishing(room, data, socket, (value) => {
+        const frame = encodeFrame(value);
+        socket.ws?.publish(topic, frame);
+        toTransport("publish", (current) => current.publish({ origin, room: topic, ...encodeEnvelopeData(frame), except: socket.id }));
+      });
+    },
+    mayJoin(socket, room) {
+      for (const fn of hooks.beforeSubscribe) {
+        const result = fn({ ws: socket, room }, undefined);
+        if (result instanceof Promise) throw new Error("beforeSubscribe hooks must return synchronously");
+        if (result === false) return false;
+      }
+      return true;
     },
   };
   /** The tenant a publish from code is for: the option, else the tenant whose scope the code runs in. */
@@ -240,10 +311,16 @@ export function socketServer(settings: SocketSettings): SocketServer {
   const fixed = Array.isArray(settings.origins) ? new OriginMatcher(settings.origins) : undefined;
   const computed = typeof settings.origins === "function" ? settings.origins : undefined;
 
-  const originAllowed = async (req: ServiceRequest, header: string) => {
+  const originAllowed = async (req: ServiceRequest, header: string, routeOrigins?: readonly string[] | OptionFunction<string[]>) => {
     const origin = normalizeOrigin(header);
     if (origin === undefined) return false;
-    if (origin === ownOrigin(req) || fixed?.allows(origin)) return true;
+    if (origin === ownOrigin(req)) return true;
+    // A route's @socket origins replace the global ones for it.
+    if (routeOrigins !== undefined) {
+      const list = typeof routeOrigins === "function" ? ((await resolveOption(routeOrigins, { req })) ?? []) : routeOrigins;
+      return new OriginMatcher(list).allows(origin);
+    }
+    if (fixed?.allows(origin)) return true;
     if (!computed) return false;
     return new OriginMatcher((await resolveOption(computed, { req })) ?? []).allows(origin);
   };
@@ -262,11 +339,13 @@ export function socketServer(settings: SocketSettings): SocketServer {
     if ((req.headers.get("upgrade") ?? "").toLowerCase() !== "websocket") {
       throw new HttpError(426, "This route needs a WebSocket connection", { code: "UPGRADE_REQUIRED", headers: { upgrade: "websocket" } });
     }
+    const limits = settings.limitsFor ? await settings.limitsFor(req) : defaults;
     const origin = req.headers.get("origin");
-    if (origin !== null && !(await originAllowed(req, origin))) throw new HttpError(403, "Origin not allowed");
+    if (origin !== null && !(await originAllowed(req, origin, limits.origins))) throw new HttpError(403, "Origin not allowed");
     if (open.size >= settings.maxConnections) throw new HttpError(503, "Too many open sockets", { headers: { "retry-after": "5" } });
+    for (const fn of hooks.beforeConnect) await fn({ req, user: req.user, tenant: req.tenant, route: req.route }, undefined);
     const ctx: SocketContext = { params: req.params, query: req.query, user: req.user, tenant: req.tenant, repos, log: settings.logger, req };
-    const socket = new OpenSocket(definition, ctx, req.route, req.id, rooms, req.auth?.sessionId);
+    const socket = new OpenSocket(definition, ctx, req.route, req.id, rooms, req.auth?.sessionId, limits);
     bunServer ??= bunServerOf(req.raw);
     if (!upgradeRequest(req.raw, { socket } satisfies SocketData)) throw new HttpError(400, "Invalid WebSocket upgrade");
     // The server answers the upgraded request itself; this response is never sent.
@@ -284,33 +363,50 @@ export function socketServer(settings: SocketSettings): SocketServer {
       socket.ws = ws as unknown as BunSocket;
       open.add(socket);
       const { open: onOpen } = socket.definition.handlers;
-      if (!onOpen) return;
-      try {
-        await call(socket, (ctx) => onOpen(socket, ctx));
-      } catch (error) {
-        failed(socket, "open", error);
-        socket.close(CLOSE_CODES.internal, "Internal error");
+      if (onOpen) {
+        try {
+          await call(socket, (ctx) => onOpen(socket, ctx));
+        } catch (error) {
+          failed(socket, "open", error);
+          socket.close(CLOSE_CODES.internal, "Internal error");
+          return;
+        }
       }
+      if (hooks.afterConnect.length > 0) await runAfterHooks(hooks.afterConnect, { ws: socket }, undefined);
     },
     async message(ws, message) {
       const socket = ws.data.socket;
       socket.messagesIn += 1;
       const now = performance.now();
-      if (now - socket.windowStart >= settings.messages.windowMs) {
+      const { limits } = socket;
+      if (now - socket.windowStart >= limits.messages.windowMs) {
         socket.windowStart = now;
         socket.windowCount = 0;
       }
       socket.windowCount += 1;
-      if (socket.windowCount > settings.messages.count) {
+      if (socket.windowCount > limits.messages.count) {
         socket.close(CLOSE_CODES.policy, "Too many messages");
         return;
       }
       const size = typeof message === "string" ? Buffer.byteLength(message) : message.byteLength;
-      if (size > settings.maxMessageSize) {
+      if (size > limits.maxMessageSize) {
         socket.close(CLOSE_CODES.tooBig, "Message too big");
         return;
       }
-      const data = typeof message === "string" ? message : new Uint8Array(message.buffer, message.byteOffset, message.byteLength);
+      let data: string | Uint8Array = typeof message === "string" ? message : new Uint8Array(message.buffer, message.byteOffset, message.byteLength);
+      if (hooks.beforeMessage.length > 0) {
+        try {
+          for (const fn of hooks.beforeMessage) {
+            const result = await fn({ ws: socket, data }, undefined);
+            if (result === null) return;
+            if (result !== undefined) data = (isStep(result, ["ws", "data"]) ? (result as { data: unknown }).data : result) as string | Uint8Array;
+          }
+        } catch (error) {
+          failed(socket, "beforeMessage", error);
+          socket.close(CLOSE_CODES.internal, "Internal error");
+          return;
+        }
+      }
       const { handlers } = socket.definition;
       const typed = socket.definition.messages !== undefined || handlers.on !== undefined;
       let decoded: DecodedFrame;
@@ -365,12 +461,14 @@ export function socketServer(settings: SocketSettings): SocketServer {
         closeCode,
       });
       const { close } = socket.definition.handlers;
-      if (!close) return;
-      try {
-        await call(socket, (ctx) => close(socket, closeCode, reason, ctx));
-      } catch (error) {
-        failed(socket, "close", error);
+      if (close) {
+        try {
+          await call(socket, (ctx) => close(socket, closeCode, reason, ctx));
+        } catch (error) {
+          failed(socket, "close", error);
+        }
       }
+      if (hooks.onClose.length > 0) await runAfterHooks(hooks.onClose, { ws: socket, code: closeCode, reason, durationMs: Math.round(performance.now() - socket.openedAt) }, undefined);
     },
   };
 
@@ -416,9 +514,11 @@ export function socketServer(settings: SocketSettings): SocketServer {
     publish(room, data, options) {
       assertRoomName(room);
       const topic = rooms.topicOf(room, tenantOf(options));
-      const frame = encodeFrame(data);
-      deliver(topic, frame, options?.except);
-      toTransport("publish", (current) => current.publish({ origin, room: topic, ...encodeEnvelopeData(frame), ...(options?.except !== undefined ? { except: options.except } : {}) }));
+      publishing(room, data, undefined, (value) => {
+        const frame = encodeFrame(value);
+        deliver(topic, frame, options?.except);
+        toTransport("publish", (current) => current.publish({ origin, room: topic, ...encodeEnvelopeData(frame), ...(options?.except !== undefined ? { except: options.except } : {}) }));
+      });
     },
     disconnect(filter) {
       const count = disconnectLocal(filter);

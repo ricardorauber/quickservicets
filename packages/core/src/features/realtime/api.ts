@@ -1,3 +1,4 @@
+import type { SocketHooks } from "./sockets.ts";
 import type { FeatureHook, RequestTenant, RequestUser, ServiceRequest, Sockets, SocketTransport, WriteEvent } from "../public.ts";
 
 /** What `sse.beforeDeliver` hooks receive for each change and stream: returning false skips it for that stream. */
@@ -27,6 +28,11 @@ export interface RealtimeApi {
   publish(entity: string, event: WriteEvent): void;
   /** Publishing to socket rooms, disconnecting sockets and counting them, as `sockets` of `@quickservicets/core` does. */
   sockets(): Sockets;
+  /**
+   * Appends a WebSocket hook (`beforeConnect`, `afterConnect`, `beforeMessage`, `beforeSubscribe`, `beforePublish` or
+   * `onClose`) after the config's.
+   */
+  addHook<K extends keyof SocketHooks>(name: K, fn: SocketHooks[K][number]): void;
   /** Replaces the local transport during setup; a second source (the config or another feature) fails startup naming both. */
   setTransport(transport: SocketTransport): void;
 }

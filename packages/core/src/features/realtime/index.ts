@@ -28,6 +28,8 @@ import {
   localTransport,
   setSocketHub,
   type SocketTransport,
+  type Socket,
+  resolveOption,
   sockets,
   taggedRoutes,
   type OptionFunction,
@@ -44,7 +46,7 @@ import { CHANGE_EVENTS, changeEntities, changesPath, documentChanges, parseChang
 import { followChanges } from "./follow.ts";
 import { outboxSource, ringBufferSource, type ChangeSource } from "./source.ts";
 import { openStream, type HeartbeatTimer, type OpenStream } from "./stream.ts";
-import { CLOSE_CODES, socketServer } from "./sockets.ts";
+import { CLOSE_CODES, socketServer, type SocketConnect, type SocketHooks, type SocketLimits } from "./sockets.ts";
 import { postgresTransport, socketChannel } from "./postgres-transport.ts";
 
 const options = object({
@@ -75,7 +77,10 @@ const options = object({
     maxConnections: integer().min(1).default(10000).describe("The most sockets one worker keeps open; more upgrades answer 503 with Retry-After: 5."),
     maxMessageSize: size().default("1MB").describe("The largest frame a socket accepts; a larger one closes the socket with 1009, and one over twice the limit ends the connection."),
     idleTimeout: duration().default("120s").describe("How long a socket may stay silent before it is closed, at most 960s; Bun pings to keep live connections open."),
-    messages: rate().default("100/10s").describe("The frames each socket may send per window; exceeding it closes the socket with 1008 Too many messages."),
+    messages: rate()
+      .default("100/10s")
+      .perRequest()
+      .describe("The frames each socket may send per window; exceeding it closes the socket with 1008 Too many messages. A function of the upgrade request, its user and tenant decides it per connection."),
     maxRooms: integer().min(1).default(100).describe("The most rooms one socket joins; one more subscribe throws Socket joined too many rooms."),
     transport: anyOf(oneOf(["local", "postgres"]), provider<SocketTransport>("SocketTransport", ["start", "publish", "disconnect", "stop"]))
       .default("local")
@@ -88,6 +93,12 @@ const options = object({
     })
       .default({ channel: "quickservicets_sockets", maxPayload: 7900 })
       .describe("The settings of the postgres transport."),
+    beforeConnect: hook<SocketConnect, undefined>().describe("Runs before an upgrade, after the pre-hooks, with the request, its user and tenant and the route; a thrown HttpError refuses the upgrade with it."),
+    afterConnect: hook<{ ws: Socket }, undefined>().describe("Runs once a socket is open and its open handler ran; a failure is logged."),
+    beforeMessage: hook<{ ws: Socket; data: unknown }, undefined>().describe("Runs for each frame before its handler; it returns changed data, or null to drop the frame."),
+    beforeSubscribe: hook<{ ws: Socket; room: string } | boolean, undefined>().describe("Runs synchronously when a socket joins a room; returning false makes subscribe throw Not allowed to join, followed by the room."),
+    beforePublish: hook<{ room: string; data: unknown; ws?: Socket }, undefined>().describe("Runs before each publish to a room, with the socket that publishes, if any; it returns changed data, or null to drop the publish."),
+    onClose: hook<{ ws: Socket; code: number; reason: string; durationMs: number }, undefined>().describe("Runs after a socket closed, with the close code, the reason and how long it was open; a failure is logged."),
   }).describe("Serves the ws.ts endpoints as WebSockets, upgraded after the handler middlewares and the endpoint's pre-hooks."),
 });
 
@@ -219,12 +230,38 @@ type SocketOptions = {
     maxConnections: number;
     maxMessageSize: string | number;
     idleTimeout: string;
-    messages: string;
+    messages: string | OptionFunction<string>;
     maxRooms: number;
     transport: "local" | "postgres" | SocketTransport;
     postgres: { channel: string; maxPayload: string | number };
   };
 };
+
+/**
+ * The limits of each upgrade: its route's `@socket` options over the global ones, and the message rate of a function,
+ * decided once per connection; a route's options are read once.
+ */
+function socketLimits(options: SocketOptions["websockets"]): (req: ServiceRequest) => Promise<SocketLimits> {
+  const routes = new Map<string, { maxMessageSize: number; messages: string | OptionFunction<string>; origins?: string[] | OptionFunction<string[]>; tagged: boolean }>();
+  return async (req) => {
+    const key = `${req.method} ${req.route}`;
+    let route = routes.get(key);
+    if (!route) {
+      const target = realtimeFeature.optionsFor(req);
+      const scoped = target.websockets as unknown as SocketOptions["websockets"];
+      const tag = target.on !== undefined;
+      route = {
+        maxMessageSize: parseSize(scoped.maxMessageSize) ?? 1_048_576,
+        messages: scoped.messages,
+        ...(tag && scoped.origins !== options.origins && scoped.origins !== undefined ? { origins: scoped.origins } : {}),
+        tagged: tag,
+      };
+      routes.set(key, route);
+    }
+    const rate = typeof route.messages === "function" ? await resolveOption(route.messages, { req }) : route.messages;
+    return { maxMessageSize: route.maxMessageSize, messages: parseRate(rate), ...(route.origins !== undefined ? { origins: route.origins } : {}) };
+  };
+}
 
 /**
  * Serves the `ws.ts` endpoints while `websockets` is on: Bun gets a WebSocket handler only when such a route exists,
@@ -260,12 +297,14 @@ function setUpSockets(ctx: FeatureSetupContext<SocketOptions>): void {
     maxConnections: options.maxConnections,
     maxMessageSize: parseSize(options.maxMessageSize) ?? 1_048_576,
     idleTimeout: Math.ceil((parseDuration(options.idleTimeout) ?? 120_000) / 1000),
-    messages: parseRate(options.messages),
+    messages: parseRate(typeof options.messages === "string" ? options.messages : "100/10s"),
     origins: options.origins ?? (security?.cors?.enabled ? security.cors.origins : undefined),
     proxy: security?.proxy,
     logger: ctx.logger,
     maxRooms: options.maxRooms,
     tenantRooms: ctx.config.features.some((feature) => feature.key === "tenancy"),
+    limitsFor: socketLimits(options),
+    hooks: options as unknown as Partial<SocketHooks>,
   });
   state.server = server;
   setSocketHub(server.sockets);
@@ -306,7 +345,48 @@ function setUpSockets(ctx: FeatureSetupContext<SocketOptions>): void {
  */
 const realtimeFeature = defineFeature({
   key: "realtime",
-  docs: { summary: "Server-Sent Events endpoints from sse.ts files and WebSocket endpoints from ws.ts files, with limits per worker and per socket." },
+  docs: {
+    summary: "Server-Sent Events endpoints from sse.ts files and WebSocket endpoints from ws.ts files, with limits per worker and per socket.",
+    sections: [
+      {
+        title: "The sockets API",
+        text: [
+          "`sockets` of `@quickservicets/core` (and `ctx.feature(\"realtime\").sockets()` in a feature) reaches the sockets from any code:",
+          "",
+          "- `sockets.publish(room, data, { except?, tenant? })` sends to every socket of a room, here at once and on other workers through `websockets.transport`.",
+          "- `sockets.disconnect({ user?, sessionId?, tenant?, room?, code?, reason? })` closes the matching sockets (default code 4001) and returns the local count.",
+          "- `sockets.count(room, { tenant? })` counts this worker's sockets in a room.",
+          "",
+          "A socket offers `send`, `close`, `subscribe`, `unsubscribe`, `publish`, `rooms`, `id`, `user`, `tenant`, `params`, `data` and `readyState`.",
+        ].join("\n"),
+      },
+      {
+        title: "Close codes",
+        text: [
+          "| Code | Reason |",
+          "| --- | --- |",
+          "| 1001 | Server shutting down |",
+          "| 1008 | Too many messages |",
+          "| 1009 | Message too big |",
+          "| 1011 | Internal error (a handler threw an error other than `HttpError`) |",
+          "| 4001 | Disconnected (`sockets.disconnect`) |",
+          "| 4401 | Session revoked |",
+        ].join("\n"),
+      },
+      {
+        title: "Error codes",
+        text: [
+          "| Status | Code | Message |",
+          "| --- | --- | --- |",
+          "| 403 | `FORBIDDEN` | Origin not allowed |",
+          "| 426 | `UPGRADE_REQUIRED` | This route needs a WebSocket connection |",
+          "| 503 | `SERVICE_UNAVAILABLE` | Too many open sockets |",
+          "",
+          "Typed sockets answer the error frames `INVALID_MESSAGE` and `UNKNOWN_MESSAGE_TYPE`.",
+        ].join("\n"),
+      },
+    ],
+  },
   options,
   validate(resolved) {
     const idle = resolved.websockets.enabled ? parseDuration(resolved.websockets.idleTimeout) : undefined;
@@ -318,6 +398,19 @@ const realtimeFeature = defineFeature({
   after: ["events", "auth", "health"],
   request: { lastEventId: lastEventIdOf },
   tags: {
+    socket: {
+      on: ["endpoint"],
+      scope: "websockets",
+      options: ["maxMessageSize", "messages", "origins"],
+      description:
+        "Gives one ws.ts route its own limits: `@socket messages=10/s` its message rate, `@socket maxMessageSize=64KB` a smaller frame limit (at most the global one), and `@socket origins=https://game.example` the browser origins allowed to connect.",
+      example: "/** @socket messages=10/s origins=https://game.example */\nexport default defineSocket({ message: (ws, data) => ws.send(data) });",
+      check: (tag, options) => {
+        const global = parseSize((options.websockets as { maxMessageSize: string | number }).maxMessageSize) ?? 0;
+        const own = tag.maxMessageSize === undefined ? undefined : parseSize(tag.maxMessageSize as string | number);
+        return own !== undefined && own > global ? "maxMessageSize is above realtime.websockets.maxMessageSize" : undefined;
+      },
+    },
     changes: {
       on: ["entity"],
       scope: "sse",
@@ -448,6 +541,12 @@ const realtimeFeature = defineFeature({
       if (state?.open) state.used = true;
       return state?.server?.sockets ?? sockets;
     },
+    addHook(name, fn) {
+      const hooks = ["beforeConnect", "afterConnect", "beforeMessage", "beforeSubscribe", "beforePublish", "onClose"];
+      if (!hooks.includes(name)) throw new Error(`Unknown hook ${name} of realtime.websockets`);
+      if (typeof fn !== "function") throw new Error(`Hook ${name} of realtime must be a function`);
+      (ctx.options.websockets as unknown as Record<string, unknown[]>)[name]!.push(fn);
+    },
     setTransport(transport) {
       const state = socketStates.get(ctx.options);
       const caller = ctx.currentFeature() ?? "a feature";
@@ -473,6 +572,7 @@ export type { ChangeCoverage, ChangeEvent, ChangeMessage, ChangeQuery } from "./
 export { followChanges, MAX_REPLAY, RETRY_MS } from "./follow.ts";
 export { postgresTransport, socketChannel } from "./postgres-transport.ts";
 export type { PostgresTransport, PostgresTransportOptions } from "./postgres-transport.ts";
+export type { SocketConnect, SocketHooks, SocketLimits } from "./sockets.ts";
 export type { ResetReason } from "./follow.ts";
 export { eventIdFloor, isEventId, outboxSource, POLL_OVERLAP_MS, ringBufferSource, timeOfEventId } from "./source.ts";
 export type { ChangeSource } from "./source.ts";

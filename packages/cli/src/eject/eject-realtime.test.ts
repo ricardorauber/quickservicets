@@ -32,8 +32,17 @@ test("quickservicets eject realtime turns the native into features/realtime/, an
   const lines = await eject(root, "realtime");
   expect(lines).toContain("features/realtime/ now replaces the realtime native.");
   expect(existsSync(join(root, "features/realtime/index.ts"))).toBe(true);
-  const service = await startTestService({ files: filesOf(root) });
+  // A socket route too, so the ejected native's WebSocket support is checked with the streams.
+  const echo = 'import { defineSocket } from "@quickservicets/core";\nexport default defineSocket({ message: (ws, data) => ws.send(`echo ${String(data)}`) });\n';
+  const service = await startTestService({ files: { ...filesOf(root), "endpoints/echo/ws.ts": echo } });
   try {
+    const { url } = await service.listen();
+    const socket = new WebSocket(`${url.replace("http", "ws")}/echo`);
+    const reply = new Promise<string>((resolve) => socket.addEventListener("message", (event) => resolve(String(event.data))));
+    await new Promise((resolve) => socket.addEventListener("open", resolve));
+    socket.send("hi");
+    expect(await reply).toBe("echo hi");
+    socket.close();
     expect(await firstMessage(await service.fetch("/clock"))).toMatch(/^data: \{"now":"/);
     const changes = await service.fetch("/tasks/changes?where[status][eq]=open");
     const read = firstMessage(changes);

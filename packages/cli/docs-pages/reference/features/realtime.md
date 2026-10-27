@@ -35,14 +35,35 @@ It is not enabled by default: turn it on with `realtime: {}` or `QS_REALTIME_ENA
 | `realtime.websockets.maxConnections` | `integer` | `10000` | `QS_REALTIME_WEBSOCKETS_MAX_CONNECTIONS` | no | The most sockets one worker keeps open; more upgrades answer 503 with Retry-After: 5. |
 | `realtime.websockets.maxMessageSize` | `size` | `"1MB"` | `QS_REALTIME_WEBSOCKETS_MAX_MESSAGE_SIZE` | no | The largest frame a socket accepts; a larger one closes the socket with 1009, and one over twice the limit ends the connection. |
 | `realtime.websockets.idleTimeout` | `duration` | `"120s"` | `QS_REALTIME_WEBSOCKETS_IDLE_TIMEOUT` | no | How long a socket may stay silent before it is closed, at most 960s; Bun pings to keep live connections open. |
-| `realtime.websockets.messages` | `rate` | `"100/10s"` | `QS_REALTIME_WEBSOCKETS_MESSAGES` | no | The frames each socket may send per window; exceeding it closes the socket with 1008 Too many messages. |
+| `realtime.websockets.messages` | `rate` | `"100/10s"` | `QS_REALTIME_WEBSOCKETS_MESSAGES` | yes | The frames each socket may send per window; exceeding it closes the socket with 1008 Too many messages. A function of the upgrade request, its user and tenant decides it per connection. |
 | `realtime.websockets.maxRooms` | `integer` | `100` | `QS_REALTIME_WEBSOCKETS_MAX_ROOMS` | no | The most rooms one socket joins; one more subscribe throws Socket joined too many rooms. |
 | `realtime.websockets.transport` | `"local" \| "postgres" \| SocketTransport` | `"local"` | `QS_REALTIME_WEBSOCKETS_TRANSPORT` | no | How room messages and disconnects reach the sockets of other workers and replicas: "local" keeps them in this process, "postgres" uses LISTEN and NOTIFY on the project's PostgreSQL database, and a SocketTransport delivers them its own way. |
 | `realtime.websockets.postgres.channel` | `string` | `"quickservicets_sockets"` | `QS_REALTIME_WEBSOCKETS_POSTGRES_CHANNEL` | no | The notification channel of the postgres transport; with _ and the default schema added when one is set (quickservicets_sockets_tenant_a for tenant-a). |
 | `realtime.websockets.postgres.maxPayload` | `size` | `7900` | `QS_REALTIME_WEBSOCKETS_POSTGRES_MAX_PAYLOAD` | no | The largest envelope the postgres transport sends, under PostgreSQL's 8000-byte limit; larger messages reach local sockets only. |
+| `realtime.websockets.beforeConnect` | `hook` | — | not overridable | no | Runs before an upgrade, after the pre-hooks, with the request, its user and tenant and the route; a thrown HttpError refuses the upgrade with it. |
+| `realtime.websockets.afterConnect` | `hook` | — | not overridable | no | Runs once a socket is open and its open handler ran; a failure is logged. |
+| `realtime.websockets.beforeMessage` | `hook` | — | not overridable | no | Runs for each frame before its handler; it returns changed data, or null to drop the frame. |
+| `realtime.websockets.beforeSubscribe` | `hook` | — | not overridable | no | Runs synchronously when a socket joins a room; returning false makes subscribe throw Not allowed to join, followed by the room. |
+| `realtime.websockets.beforePublish` | `hook` | — | not overridable | no | Runs before each publish to a room, with the socket that publishes, if any; it returns changed data, or null to drop the publish. |
+| `realtime.websockets.onClose` | `hook` | — | not overridable | no | Runs after a socket closed, with the close code, the reason and how long it was open; a failure is logged. |
 | `realtime.enabled` | `boolean` | `true` | `QS_REALTIME_ENABLED` | no | Turns the feature off when false. |
 
 ## Tags
+
+### `@socket`
+
+Gives one ws.ts route its own limits: `@socket messages=10/s` its message rate, `@socket maxMessageSize=64KB` a smaller frame limit (at most the global one), and `@socket origins=https://game.example` the browser origins allowed to connect.
+
+**Applies to:** endpoints
+
+**Syntax:** `@socket [maxMessageSize=…] [messages=…] [origins=…]` or `@socket off`
+
+**Options:** `realtime.websockets.maxMessageSize`, `realtime.websockets.messages`, `realtime.websockets.origins`
+
+```ts
+/** @socket messages=10/s origins=https://game.example */
+export default defineSocket({ message: (ws, data) => ws.send(data) });
+```
 
 ### `@changes`
 
@@ -67,6 +88,12 @@ Hooks are functions (or lists of functions) written in the config; `before` hook
 | --- | --- | --- |
 | `realtime.sse.beforeDeliver` | before | Runs for each change and open change stream with the request, its user and tenant, the event and the entity; returning false skips the change for that stream, and a throw skips it and is logged. |
 | `realtime.sse.beforeSend` | before | Runs before each change message is written with the request, the event and the data; it returns changed data, or null to skip the message. |
+| `realtime.websockets.beforeConnect` | before | Runs before an upgrade, after the pre-hooks, with the request, its user and tenant and the route; a thrown HttpError refuses the upgrade with it. |
+| `realtime.websockets.afterConnect` | after | Runs once a socket is open and its open handler ran; a failure is logged. |
+| `realtime.websockets.beforeMessage` | before | Runs for each frame before its handler; it returns changed data, or null to drop the frame. |
+| `realtime.websockets.beforeSubscribe` | before | Runs synchronously when a socket joins a room; returning false makes subscribe throw Not allowed to join, followed by the room. |
+| `realtime.websockets.beforePublish` | before | Runs before each publish to a room, with the socket that publishes, if any; it returns changed data, or null to drop the publish. |
+| `realtime.websockets.onClose` | on | Runs after a socket closed, with the close code, the reason and how long it was open; a failure is logged. |
 
 ## Feature API
 
@@ -104,6 +131,15 @@ sockets(): Sockets;
 
 Publishing to socket rooms, disconnecting sockets and counting them, as `sockets` of `@quickservicets/core` does.
 
+### `addHook`
+
+```ts
+addHook<K extends keyof SocketHooks>(name: K, fn: SocketHooks[K][number]): void;
+```
+
+Appends a WebSocket hook (`beforeConnect`, `afterConnect`, `beforeMessage`, `beforeSubscribe`, `beforePublish` or
+`onClose`) after the config's.
+
 ### `setTransport`
 
 ```ts
@@ -111,3 +147,34 @@ setTransport(transport: SocketTransport): void;
 ```
 
 Replaces the local transport during setup; a second source (the config or another feature) fails startup naming both.
+
+## The sockets API
+
+`sockets` of `@quickservicets/core` (and `ctx.feature("realtime").sockets()` in a feature) reaches the sockets from any code:
+
+- `sockets.publish(room, data, { except?, tenant? })` sends to every socket of a room, here at once and on other workers through `websockets.transport`.
+- `sockets.disconnect({ user?, sessionId?, tenant?, room?, code?, reason? })` closes the matching sockets (default code 4001) and returns the local count.
+- `sockets.count(room, { tenant? })` counts this worker's sockets in a room.
+
+A socket offers `send`, `close`, `subscribe`, `unsubscribe`, `publish`, `rooms`, `id`, `user`, `tenant`, `params`, `data` and `readyState`.
+
+## Close codes
+
+| Code | Reason |
+| --- | --- |
+| 1001 | Server shutting down |
+| 1008 | Too many messages |
+| 1009 | Message too big |
+| 1011 | Internal error (a handler threw an error other than `HttpError`) |
+| 4001 | Disconnected (`sockets.disconnect`) |
+| 4401 | Session revoked |
+
+## Error codes
+
+| Status | Code | Message |
+| --- | --- | --- |
+| 403 | `FORBIDDEN` | Origin not allowed |
+| 426 | `UPGRADE_REQUIRED` | This route needs a WebSocket connection |
+| 503 | `SERVICE_UNAVAILABLE` | Too many open sockets |
+
+Typed sockets answer the error frames `INVALID_MESSAGE` and `UNKNOWN_MESSAGE_TYPE`.

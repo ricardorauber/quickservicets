@@ -5,6 +5,7 @@ import { sharedState } from "./state.ts";
 import { runChain } from "./modifiers.ts";
 import { withRetry, type RetryOptions } from "./retry.ts";
 import { withCache, type CacheOptions } from "./cache.ts";
+import { mockHttp, type HttpMock } from "./mock.ts";
 import { stateOf, withBulkhead, withCircuitBreaker, type BulkheadOptions, type CircuitBreakerOptions, type HttpState } from "./resilience.ts";
 import { maskedUrl, transport } from "./transport.ts";
 
@@ -508,11 +509,16 @@ export interface Http extends HttpMethods {
   service(name: ServiceName): HttpServiceMethods;
   /** The circuit breaker and bulkhead state of a name (a service's, by default) in this worker. */
   state(name: string): HttpState;
+  /**
+   * Answers every outgoing call of the process from canned handlers until `restore()`, for tests; throws while
+   * another mock is active.
+   */
+  mock(): HttpMock;
 }
 
 /** A client bound to `binding`. */
 export function clientOf(binding: ClientBinding): Http {
-  return { ...methodsOf(binding), service: (name) => serviceMethodsOf(name, binding), state: stateOf };
+  return { ...methodsOf(binding), service: (name) => serviceMethodsOf(name, binding), state: stateOf, mock: mockHttp };
 }
 
 const created = sharedState("request-clients", () => ({ count: 0 }));

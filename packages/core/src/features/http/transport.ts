@@ -2,6 +2,7 @@ import { isIP } from "node:net";
 import { checkServerIdentity, type PeerCertificate } from "node:tls";
 import { formatSize, maskUrl, parseSize, safeLog } from "../public.ts";
 import type { HttpBody, HttpRequest, HttpResponse, HttpSettings } from "./client.ts";
+import { answerFromMock, mockActive, MOCK_TIMEOUT } from "./mock.ts";
 import { allowList, blockedCategory, isReservedName, RESERVED_NAME, resolveHost, type AllowList } from "./ssrf.ts";
 import { HttpClientError } from "./errors.ts";
 
@@ -189,7 +190,7 @@ export async function transport(request: HttpRequest, settings: HttpSettings, tr
       // Checks raise errors without the call's method and service; they are the call's.
       return error.method === "" ? new HttpClientError({ code: error.code, message: error.message, method, url: error.url, ...service }) : error;
     }
-    if (timedOut) return fail("TIMEOUT", `${method} ${url} timed out after ${formatTimeoutText(request.timeout)}`, error);
+    if (timedOut || (error as Record<symbol, unknown> | undefined)?.[MOCK_TIMEOUT] === true) return fail("TIMEOUT", `${method} ${url} timed out after ${formatTimeoutText(request.timeout)}`, error);
     if (request.signal?.aborted) return fail("ABORTED", `${method} ${url} was aborted`, request.signal.reason);
     return fail("NETWORK", `${method} ${url} failed: ${reasonOf(error)}`, error);
   };
@@ -199,7 +200,10 @@ export async function transport(request: HttpRequest, settings: HttpSettings, tr
   try {
     let hop: Hop = { url: new URL(request.url), method, headers: new Headers(request.headers), body: request.body };
     let response: Response;
-    for (let redirects = 0; ; redirects++) {
+    // While a mock is active it answers instead of the network: no resolution and no SSRF check, since nothing leaves
+    // the process.
+    if (mockActive()) response = await answerFromMock(request, signal, request.service === undefined ? undefined : settings.services.get(request.service)?.url, url);
+    else for (let redirects = 0; ; redirects++) {
       const destination = await checkDestination(hop.url, settings, trustedHost);
       response = await sendHop(hop, destination, signal);
       const location = response.headers.get("location");

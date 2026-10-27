@@ -121,6 +121,8 @@ export type { ModifierFunction } from "./modifiers.ts";
 export { withRetry } from "./retry.ts";
 export { withBulkhead, withCircuitBreaker } from "./resilience.ts";
 export { withCache } from "./cache.ts";
+export { mockHttp } from "./mock.ts";
+export type { HttpMock, MockCall, MockHandler, MockReply, MockRequest, MockService } from "./mock.ts";
 export type { CacheOptions } from "./cache.ts";
 export type { BulkheadOptions, CircuitBreakerOptions, HttpState } from "./resilience.ts";
 export type { RetryOptions } from "./retry.ts";

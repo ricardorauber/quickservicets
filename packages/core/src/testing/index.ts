@@ -9,3 +9,5 @@ export { contractClock, QUEUE_BROKER_CHECKS, runQueueBrokerContract } from "./qu
 export type { QueueBrokerCheck, QueueBrokerContractOptions } from "./queue-broker-contract.ts";
 export { useTestResolver } from "../features/http/ssrf.ts";
 export type { TestResolverMap } from "../features/http/ssrf.ts";
+export { mockHttp } from "../features/http/mock.ts";
+export type { HttpMock, MockCall, MockHandler } from "../features/http/mock.ts";

@@ -660,7 +660,8 @@ type ConfigValue = { state: "off" } | { state: "absent" } | { state: "on"; input
  * `enabledByDefault`, or by an enabled feature that lists it in `enables`, and disabled by `false`, by no key, or by
  * `enabled: false`. Requirements are checked, and the enabled features are ordered after what they depend on.
  */
-export function resolveFeatures(config: Record<string, unknown>, definitions: readonly FeatureDefinition[] = activeFeatureDefinitions()): ResolvedFeatures {
+export function resolveFeatures(config: Record<string, unknown>, given?: readonly FeatureDefinition[]): ResolvedFeatures {
+  const definitions = given ?? activeFeatureDefinitions();
   const problems: string[] = [];
   const byKey = new Map(definitions.map((definition) => [definition.key, definition]));
   const values = new Map<string, ConfigValue>();
@@ -750,7 +751,7 @@ export function resolveFeatures(config: Record<string, unknown>, definitions: re
     resolvedOptions.set(definition, options);
   }
   for (const key of replacedNatives()) resolvedOptions.delete(natives.get(key)!);
-  return {
+  const result: ResolvedFeatures = {
     features: ordered.map((definition) => ({
       key: definition.key,
       options: enabled.get(definition.key)!,
@@ -761,6 +762,20 @@ export function resolveFeatures(config: Record<string, unknown>, definitions: re
     disabledFeatures: definitions.filter((definition) => !enabled.has(definition.key)).map((definition) => definition.key),
     enabledBy,
   };
+  // Only a resolution of the registered features is the process's configuration; tests pass their own definitions.
+  if (given === undefined) lastResolution = result;
+  return result;
+}
+
+/** The features of the last configuration resolved in this process. */
+let lastResolution: ResolvedFeatures | undefined;
+
+/**
+ * The features of the last configuration resolved in this process, or undefined before any was (scripts, unit tests):
+ * code that runs outside a service, like an outgoing call, reads its feature's options and whether it is enabled here.
+ */
+export function lastResolvedFeatures(): ResolvedFeatures | undefined {
+  return lastResolution;
 }
 
 /** Orders features after the enabled features they require, enable or follow, keeping the given order otherwise. */

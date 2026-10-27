@@ -115,7 +115,7 @@ describe("jobs", () => {
     ["timeout", { timeout: "soon" }],
     ["retryDelay", { retryDelay: 30 }],
     ["retention", { retention: "30 days" }],
-    ["shutdownGrace", { shutdownGrace: "10ms" }],
+    ["shutdownGrace", { shutdownGrace: "10 seconds" }],
     ["timeZone", { timeZone: "Mars/Base" }],
     ["retries", { retries: -1 }],
     ["retries", { retries: 1.5 }],

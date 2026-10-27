@@ -371,7 +371,7 @@ export { securityFeature };
 export type { ClientIpResolver, RateLimitRefusal, SecurityApi, SecurityRefusal } from "./api.ts";
 export type { ExemptibleItem } from "./exempt.ts";
 export { memoryRateLimitStore, slidingWindowHit } from "./store.ts";
-export { maskEntry, maskText, maskUrl } from "./masking.ts";
+export { DEFAULT_MASKED_KEYS, maskEntry, maskText, maskUrl } from "./masking.ts";
 export type { MaskingRules } from "./masking.ts";
 export { databaseRateLimitStore } from "./db-store.ts";
 export type { DatabaseRateLimitStore } from "./db-store.ts";

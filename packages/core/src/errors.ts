@@ -28,7 +28,9 @@ export const CODES_BY_STATUS: Readonly<Record<number, string>> = {
   429: "RATE_LIMITED",
   431: "REQUEST_HEADER_FIELDS_TOO_LARGE",
   500: "INTERNAL_ERROR",
+  502: "BAD_GATEWAY",
   503: "SERVICE_UNAVAILABLE",
+  504: "GATEWAY_TIMEOUT",
 };
 
 export function codeForStatus(status: number): string {

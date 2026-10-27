@@ -145,7 +145,7 @@ export default defineFeature({
     const resolved = resolveConfig({ database: memoryAdapter() }, {});
     const lifecycle = createFeatureLifecycle({ features: resolved.features, config: resolved, models: [], worker: { index: 0, count: 1, runsScheduledWork: true } });
     await lifecycle.setup();
-    expect(lifecycle.middleware.filter((entry) => entry.middleware.stage === "error")).toEqual([]);
+    expect(lifecycle.middleware.filter((entry) => entry.middleware.stage === "error" && entry.owner === "errors")).toEqual([]);
     await lifecycle.stop();
     const service = await startTestService({ files: { ...FILES, "quickservicets.config.ts": config(undefined) } });
     try {

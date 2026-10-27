@@ -97,7 +97,7 @@ describe("option validation", () => {
     expect((await failure(() => build(typo))).message).toBe("entities/Post.ts: invalid @audit: unknown option greting (did you mean greeting?)");
     const invalid = project({ "entities/Post.ts": "/** @audit retention=soon */\nexport type Post = { a: string };\n" });
     expect((await failure(() => build(invalid))).message).toBe(
-      'entities/Post.ts: invalid @audit: retention: expected a duration like 30s, 10m or 30d (units s, m, h, d), got "soon"',
+      'entities/Post.ts: invalid @audit: retention: expected a duration like 30s, 10m or 30d (units ms, s, m, h, d), got "soon"',
     );
   });
 

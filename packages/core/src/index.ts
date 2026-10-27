@@ -222,6 +222,7 @@ export {
   resolveFeatures,
   scopedOptionSchema,
   hookOptionNames,
+  lastResolvedFeatures,
 } from "./features.ts";
 export { prepareFeatureTargets, taggedRoutes, tagsOf } from "./feature-targets.ts";
 export type { OptionsTarget, TaggedRoute } from "./feature-targets.ts";
@@ -252,6 +253,7 @@ import flagsNative, { type FlagsApi } from "./features/flags/index.ts";
 import idempotencyNative, { type IdempotencyApi } from "./features/idempotency/index.ts";
 import healthNative, { type HealthApi, type HealthStatusChangedEvent } from "./features/health/index.ts";
 import queuesNative, { type QueueClient, type QueueMessageEvent, type QueuesApi } from "./features/queues/index.ts";
+import httpNative from "./features/http/index.ts";
 import { registerNative as registerShippedNative, type FeatureConfig as NativeConfig } from "./features.ts";
 registerShippedNative(securityNative);
 registerShippedNative(eventsNative);
@@ -263,10 +265,11 @@ registerShippedNative(historyNative);
 registerShippedNative(realtimeNative);
 registerShippedNative(errorsNative);
 registerShippedNative(flagsNative);
+registerShippedNative(httpNative);
 export { addOutboxPatterns, events, eventsFeature, listen, memoryEventBus, readOutbox, tailOutbox } from "./features/events/index.ts";
 export type { ConsumerOptions, DeliveryContext, DeliveryStatus, OutboxRecord } from "./features/events/index.ts";
 export type { EventBus, EventListener, Events, EventsApi, ListenerContext, ListenerFile, ListenerPhase, ListenOptions, MemoryEventBus } from "./features/events/index.ts";
-export { maskEntry, maskText, maskUrl, memoryRateLimitStore, securityFeature, slidingWindowHit } from "./features/security/index.ts";
+export { DEFAULT_MASKED_KEYS, maskEntry, maskText, maskUrl, memoryRateLimitStore, securityFeature, slidingWindowHit } from "./features/security/index.ts";
 export type { ClientIpResolver, ExemptibleItem, MaskingRules, MemoryRateLimitStore, RateLimitRefusal, SecurityRefusal, RateLimitHit, RateLimitResult, RateLimitStore, SecurityApi, WindowCounts } from "./features/security/index.ts";
 
 export { databaseBroker, isQueueDefinition, QUEUE_MESSAGE_STATUSES, queue, queueMessageEntity, queues, queuesFeature } from "./features/queues/index.ts";
@@ -333,6 +336,8 @@ export { realtimeFeature } from "./features/realtime/index.ts";
 export type { ChangeDelivery, ChangeSend, ChangeSource, RealtimeApi } from "./features/realtime/index.ts";
 export { consoleReporter, errorsFeature, setSamplingRandom } from "./features/errors/index.ts";
 export type { ErrorsApi } from "./features/errors/index.ts";
+export { http, HttpClientError, httpFeature, HttpRequestBuilder } from "./features/http/index.ts";
+export type { Http, HttpBody, HttpClientErrorCode, HttpClientErrorInit, HttpMethods, HttpModifier, HttpQueryValue, HttpRequest, HttpResponse } from "./features/http/index.ts";
 export { bucketOf, evaluateRule, flagsFeature } from "./features/flags/index.ts";
 export type { FlagContext, FlagEvaluation, FlagProvider, FlagProviderContext, FlagReason, FlagResult, FlagRule, FlagRuleFunction, FlagsApi, FlagSubject, RequestFlagEvaluator } from "./features/flags/index.ts";
 export type {
@@ -394,6 +399,8 @@ declare module "./features.ts" {
     errors?: NativeConfig<typeof errorsNative>;
     /** Feature flags per user, tenant or percentage; see the `flags` reference page. */
     flags?: NativeConfig<typeof flagsNative>;
+    /** The outgoing HTTP client, enabled by default; see the `http` reference page. */
+    http?: NativeConfig<typeof httpNative>;
   }
   interface FeatureApis {
     events: EventsApi;

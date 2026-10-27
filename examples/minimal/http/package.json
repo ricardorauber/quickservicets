@@ -1,0 +1,13 @@
+{
+  "name": "minimal-http",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "quickservicets build",
+    "test": "bun test tests"
+  },
+  "dependencies": {
+    "@quickservicets/core": "workspace:*",
+    "@quickservicets/cli": "workspace:*"
+  }
+}

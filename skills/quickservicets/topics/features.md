@@ -1,8 +1,8 @@
 # Features
 
-The native features (security, events, queues, health, idempotency, etag, history, realtime, errors, flags) and how to turn them on, off and customize them.
+The native features (security, events, queues, health, idempotency, etag, history, realtime, errors, flags, http) and how to turn them on, off and customize them.
 
-Natives ship inside `@quickservicets/core`; nothing extra is installed. `security` is on by default; every other native is off until you turn it on.
+Natives ship inside `@quickservicets/core`; nothing extra is installed. `security` and `http` are on by default; every other native is off until you turn it on.
 
 | Key | What it does | Tags and commands |
 | --- | --- | --- |
@@ -16,6 +16,7 @@ Natives ship inside `@quickservicets/core`; nothing extra is installed. `securit
 | `realtime` | Server-Sent Events from `sse.ts` files and change streams | `@changes` |
 | `errors` | One reporter interface for every unexpected error | `@report` |
 | `flags` | Feature flags per user, tenant or percentage, `req.flags` | `@flag`; `quickservicets flags list` |
+| `http` | The outgoing HTTP client `http.get(url).send()`, with timeouts, size limits and clear errors (502 or 504 when one escapes) | |
 
 ## Turn one on
 

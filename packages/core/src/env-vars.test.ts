@@ -7,7 +7,7 @@ import { boolean, integer, list, oneOf, secret, string, url } from "./options.ts
 
 const declaration = { DATABASE_URL: url().protocols(["postgres"]), STRIPE_KEY: secret(), REPORT_HOUR: integer().min(0).max(23).default(6) };
 const resolve = (variables: Record<string, string>, config: Record<string, unknown> = {}) =>
-  resolveConfig({ database: memoryAdapter(), env: declaration, security: false, ...config } as ServiceConfig, variables);
+  resolveConfig({ database: memoryAdapter(), env: declaration, security: false, http: false, ...config } as ServiceConfig, variables);
 const failure = (run: () => unknown): Error => {
   try {
     run();

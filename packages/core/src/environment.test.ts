@@ -18,7 +18,7 @@ const audit = defineFeature({ docs: { summary: "Test native." },
 afterEach(() => unregisterNative("audit"));
 
 // The default security native is off, so the feature lists hold only the test natives.
-const resolve = (env: Record<string, string>, config: Record<string, unknown> = {}) => resolveConfig({ database: memoryAdapter(), security: false, ...config } as ServiceConfig, env);
+const resolve = (env: Record<string, string>, config: Record<string, unknown> = {}) => resolveConfig({ database: memoryAdapter(), security: false, http: false, ...config } as ServiceConfig, env);
 const failure = (run: () => unknown): Error => {
   try {
     run();

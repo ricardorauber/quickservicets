@@ -89,11 +89,11 @@ export function isJobDefinition(value: unknown): value is JobDefinition {
 }
 
 /** Milliseconds per duration unit. */
-export const DURATION_UNITS = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
+export const DURATION_UNITS = { ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
 
 const DURATION = /^(\d+)([a-z]+)$/;
 
-/** A duration like `30s`, `10m`, `2h` or `30d` in milliseconds, or undefined when it is not one. */
+/** A duration like `500ms`, `30s`, `10m`, `2h` or `30d` in milliseconds, or undefined when it is not one. */
 export function parseDuration(value: unknown): number | undefined {
   if (typeof value !== "string") return undefined;
   const match = DURATION.exec(value);

@@ -289,7 +289,7 @@ export function integer(): BoundedOptionSchema<number> {
 export function boolean(): OptionSchema<boolean> {
   return node("boolean") as never;
 }
-/** A duration like `30s`, `10m`, `2h` or `30d`. */
+/** A duration like `500ms`, `30s`, `10m`, `2h` or `30d`. */
 export function duration(): OptionSchema<string> {
   return node("duration") as never;
 }

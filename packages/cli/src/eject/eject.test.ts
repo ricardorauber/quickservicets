@@ -128,8 +128,8 @@ describe("destinations and keys", () => {
     const single = project();
     await capture(["eject", "audit", "--file", "jobs/prune.ts"], single);
     expect((await capture(["eject", "audit", "--file", "jobs/prune.ts"], single)).err).toEqual(["jobs/audit/prune.ts already exists; use --force to overwrite"]);
-    expect(await capture(["eject", "nope"], single)).toEqual({ code: 1, out: [], err: ["nope is not an enabled native feature; enabled natives: security, audit"] });
-    expect((await capture(["eject", "audit"], project(""))).err).toEqual(["audit is not an enabled native feature; enabled natives: security"]);
+    expect(await capture(["eject", "nope"], single)).toEqual({ code: 1, out: [], err: ["nope is not an enabled native feature; enabled natives: security, http, audit"] });
+    expect((await capture(["eject", "audit"], project(""))).err).toEqual(["audit is not an enabled native feature; enabled natives: security, http"]);
   });
 });
 

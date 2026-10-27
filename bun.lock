@@ -85,6 +85,13 @@
         "@quickservicets/core": "workspace:*",
       },
     },
+    "examples/minimal/http": {
+      "name": "minimal-http",
+      "dependencies": {
+        "@quickservicets/cli": "workspace:*",
+        "@quickservicets/core": "workspace:*",
+      },
+    },
     "examples/minimal/idempotency": {
       "name": "minimal-idempotency",
       "dependencies": {
@@ -796,6 +803,8 @@
     "minimal-health": ["minimal-health@workspace:examples/minimal/health"],
 
     "minimal-history": ["minimal-history@workspace:examples/minimal/history"],
+
+    "minimal-http": ["minimal-http@workspace:examples/minimal/http"],
 
     "minimal-idempotency": ["minimal-idempotency@workspace:examples/minimal/idempotency"],
 

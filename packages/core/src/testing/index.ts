@@ -13,3 +13,5 @@ export { mockHttp } from "../features/http/mock.ts";
 export type { HttpMock, MockCall, MockHandler } from "../features/http/mock.ts";
 export { runTenantIsolationSuite } from "./tenant-isolation.ts";
 export type { IsolationAdapter, TenantIsolationOptions } from "./tenant-isolation.ts";
+export { testAuth } from "../features/auth/test-provider.ts";
+export type { TestAuthOptions } from "../features/auth/test-provider.ts";

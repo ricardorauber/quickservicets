@@ -648,3 +648,13 @@ Every option, tag, command and hook of `tenancy` is on [its reference page](/ref
 /** @tenancy shared */
 export type Plan = { name: string };
 ```
+
+### `auth`
+
+One authentication contract for every provider: the first provider that accepts a request's credentials fills req.user, req.auth and optionally req.tenant.
+
+Every option, tag, command and hook of `auth` is on [its reference page](/reference/features/auth/).
+
+| Key | Type | Default | Environment variable | Description |
+| --- | --- | --- | --- | --- |
+| `auth.enabled` | `boolean` | `true` | `QS_AUTH_ENABLED` | Turns the feature off when false. |

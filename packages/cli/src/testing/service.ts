@@ -4,12 +4,14 @@ import { dirname, join } from "node:path";
 import {
   createApp,
   createFeatureLifecycle,
+  defineFeature,
   LifecycleError,
   memoryAdapter,
   notifyShutdownSignal,
   registerProjectFeatures,
   resolveConfig,
   type App,
+  type AuthProvider,
   type LifecyclePhase,
   type Repositories,
   type ServiceConfig,
@@ -22,6 +24,26 @@ export interface TestServiceOptions {
   files: Record<string, string>;
   /** The environment variables of the build and the service (default: none). */
   env?: Record<string, string>;
+  /**
+   * Authentication providers registered with the `auth` native for the test, like `testAuth()` of
+   * `@quickservicets/core/testing`; the project's config must enable `auth`.
+   */
+  auth?: AuthProvider | readonly AuthProvider[];
+}
+
+/** The key of the project feature that registers the providers of the `auth` option. */
+const TEST_AUTH_FEATURE = "test-auth";
+
+/** A project feature that registers the given providers with the `auth` native during its setup. */
+function testAuthFeature(providers: readonly AuthProvider[]) {
+  return defineFeature({
+    key: TEST_AUTH_FEATURE,
+    enabledByDefault: true,
+    requires: [{ name: "auth", hint: "the auth option of startTestService registers its providers with it" }],
+    setup(ctx) {
+      for (const provider of providers) ctx.feature("auth").provider(provider);
+    },
+  });
 }
 
 /** A project running in the test process. */
@@ -108,7 +130,7 @@ function writeProject(files: Record<string, string>): string {
  * features' setups and `onStart` callbacks run, but no port is opened. Rejects with the build output or the startup
  * error, removing the folder.
  */
-export async function startTestService({ files, env = {} }: TestServiceOptions): Promise<TestService> {
+export async function startTestService({ files, env = {}, auth }: TestServiceOptions): Promise<TestService> {
   const root = writeProject(files);
   const tracker = new Map<unknown, TimerOwner>();
   let started: { app: App; stop(): Promise<void> } | undefined;
@@ -125,7 +147,8 @@ export async function startTestService({ files, env = {} }: TestServiceOptions):
     const { jobs } = await import(join(generated, "jobs.ts"));
     const { features, featureFolders } = await import(join(generated, "features.ts"));
     const openApi = (await import(join(generated, "openapi.json"))).default;
-    registerProjectFeatures(features);
+    const providers = auth === undefined ? [] : Array.isArray(auth) ? auth : [auth as AuthProvider];
+    registerProjectFeatures(providers.length > 0 ? [...features, { folder: TEST_AUTH_FEATURE, definition: testAuthFeature(providers) }] : features);
     const config = resolveConfig({ ...projectConfig, database: memoryAdapter() }, { ...env }, root);
     installTimerTracking(tracker);
     const lifecycle = createFeatureLifecycle({

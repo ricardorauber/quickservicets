@@ -49,7 +49,7 @@ Read the topic that matches the task before writing code:
 - `topics/entities.md`: How to write entity files: names, field types, JSDoc tags, references and relations.
 - `topics/endpoints-and-hooks.md`: How to add custom routes in `endpoints/`, share request logic with hooks in `hooks/`, and query records with the repositories.
 - `topics/config-and-env.md`: How to configure a project in `quickservicets.config.ts`, `.env` and `QS_*` variables, and check an environment.
-- `topics/features.md`: The native features (security, events, queues, health, idempotency, etag, history, realtime, errors, flags, http, tenancy) and how to turn them on, off and customize them.
+- `topics/features.md`: The native features (security, events, queues, health, idempotency, etag, history, realtime, errors, flags, http, tenancy, auth) and how to turn them on, off and customize them.
 - `topics/testing.md`: How to test a QuickService.ts project with `bun test` and `startTestService`, on the memory database and without opening a port.
 - `topics/deploy.md`: How to build, migrate and run a QuickService.ts service in production, in a container or on a host with Bun.
 - `topics/troubleshooting.md`: The ten most common QuickService.ts errors, with the exact message and the fix for each.

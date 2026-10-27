@@ -53,6 +53,7 @@ test("reads records through the repositories", async () => {
 ```
 
 - `startTestService({ files, env })` takes the files by project-relative path and the environment, like `{ STRIPE_KEY: "sk_test", QS_QUEUES_ENABLED: "true" }`. The service sees only the variables in `env`, not `.env`, so pass every variable the config requires.
+- With the `auth` native on, `startTestService({ files, auth: testAuth() })` (`testAuth` from `@quickservicets/core/testing`) signs requests in from the `x-test-user: <id>;roles=a,b;tenant=<id>` header, so tests reach protected routes without a real provider.
 - It always uses the memory database, whatever the config says, so tests need no migrations and no database server.
 - Each call starts a fresh service with an empty database; start one per test file, or per test when tests must not share records.
 - `service.fetch("/tasks?limit=5", init)` takes a path, not a full URL.

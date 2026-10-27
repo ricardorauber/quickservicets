@@ -1,0 +1,92 @@
+import type { ServiceRequest } from "../public.ts";
+
+/** How a request proved who it is. */
+export type AuthMethod = "bearer" | "cookie" | "apiKey" | "certificate" | "test";
+
+/** The user an authentication provider found, as it returns it. */
+export interface AuthResultUser {
+  id: string;
+  roles?: string[];
+  email?: string;
+  name?: string;
+  /** Any other claims of the credentials, like the token's payload. */
+  claims?: Record<string, unknown>;
+}
+
+/** What an authentication provider returns for credentials it accepts. */
+export interface AuthResult {
+  user: AuthResultUser;
+  /** The tenant the credentials belong to; the `tenancy` native then refuses a request for another tenant. */
+  tenant?: { id: string };
+  method: AuthMethod;
+  /** The session the credentials belong to, so it can be revoked. */
+  sessionId?: string;
+  /** When the credentials expire. */
+  expiresAt?: Date;
+  /** The scopes the credentials grant, like a token's `scope` claim. */
+  scopes?: string[];
+}
+
+/** Where a request carries the credentials a provider reads. */
+export interface AuthCredentials {
+  /** Header names, like `authorization`. */
+  headers?: readonly string[];
+  /** Cookie names, like `session`. */
+  cookies?: readonly string[];
+  /** Query parameter names, like `access_token`. */
+  query?: readonly string[];
+}
+
+/** What a session revocation names: one session, or every session of a user. */
+export type RevokeTarget = { sessionId: string } | { userId: string };
+
+/**
+ * One way of signing users in: the `auth` native calls `authenticate` for requests that carry one of its credentials,
+ * in registration order, until a provider returns a result.
+ */
+export interface AuthProvider {
+  /** A unique name, like `keycloak`. */
+  name: string;
+  /** The header, cookie and query parameter names the provider reads. */
+  credentials: AuthCredentials;
+  /**
+   * Returns the user of the request's credentials, null when they are not this provider's, or throws an `AuthError`
+   * for expired, malformed or revoked credentials.
+   */
+  authenticate(req: ServiceRequest): AuthResult | null | Promise<AuthResult | null>;
+  /** The `WWW-Authenticate` value the provider offers, like `Bearer realm="api"`. */
+  challenge?: string;
+  /** Revokes a session, or every session of a user. */
+  revoke?(target: RevokeTarget): void | Promise<void>;
+}
+
+/** What `req.auth` holds for an authenticated request. */
+export interface RequestAuth {
+  /** The name of the provider that accepted the credentials. */
+  provider: string;
+  method: AuthMethod;
+  sessionId: string | undefined;
+  expiresAt: Date | undefined;
+  scopes: string[] | undefined;
+}
+
+/**
+ * Thrown by a provider for credentials that are its own but cannot be accepted (expired, malformed or revoked): the
+ * request answers 401 `Invalid credentials`.
+ */
+export class AuthError extends Error {
+  /** Why the credentials were refused, as the log entry says; never sent to the client. */
+  readonly reason: string;
+
+  constructor(reason = "invalid") {
+    super(reason);
+    this.name = "AuthError";
+    this.reason = reason;
+  }
+}
+
+/** The feature API of `auth`, reached with `ctx.feature("auth")` from a feature that lists it in `requires`, `after` or `enables`. */
+export interface AuthApi {
+  /** Registers an authentication provider; providers are tried in registration order. Only available during setup. */
+  provider(provider: AuthProvider): void;
+}

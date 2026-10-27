@@ -1,0 +1,14 @@
+{
+  "name": "minimal-auth",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "quickservicets build",
+    "start": "bun .generated/server.ts",
+    "test": "bun test tests"
+  },
+  "dependencies": {
+    "@quickservicets/core": "workspace:*",
+    "@quickservicets/cli": "workspace:*"
+  }
+}

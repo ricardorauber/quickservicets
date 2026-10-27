@@ -53,8 +53,8 @@ export function handler(req: ServiceRequest): string {
   const id: string = req.user?.id ?? "";
   return req.example.greet(id);
 }
-// @ts-expect-error the user has no name field
-export const wrong = (req: ServiceRequest) => req.user?.name;
+// @ts-expect-error the user has no nickname field
+export const wrong = (req: ServiceRequest) => req.user?.nickname;
 // @ts-expect-error greet takes a string
 export const badGreet = (req: ServiceRequest) => req.example.greet(1);
 `;

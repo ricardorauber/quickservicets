@@ -263,6 +263,7 @@ import healthNative, { type HealthApi, type HealthStatusChangedEvent } from "./f
 import queuesNative, { type QueueClient, type QueueMessageEvent, type QueuesApi } from "./features/queues/index.ts";
 import httpNative, { type Http, type HttpApi } from "./features/http/index.ts";
 import tenancyNative, { type TenancyApi } from "./features/tenancy/index.ts";
+import authNative, { type AuthApi, type RequestAuth } from "./features/auth/index.ts";
 import { registerNative as registerShippedNative, type FeatureConfig as NativeConfig } from "./features.ts";
 registerShippedNative(securityNative);
 registerShippedNative(eventsNative);
@@ -276,6 +277,9 @@ registerShippedNative(errorsNative);
 registerShippedNative(flagsNative);
 registerShippedNative(httpNative);
 registerShippedNative(tenancyNative);
+registerShippedNative(authNative);
+export { AuthError, authFeature } from "./features/auth/index.ts";
+export type { AuthApi, AuthCredentials, AuthMethod, AuthProvider, AuthResult, AuthResultUser, RequestAuth, RevokeTarget } from "./features/auth/index.ts";
 export { addOutboxPatterns, events, eventsFeature, listen, memoryEventBus, readOutbox, tailOutbox } from "./features/events/index.ts";
 export type { ConsumerOptions, DeliveryContext, DeliveryStatus, OutboxRecord } from "./features/events/index.ts";
 export type { EventBus, EventListener, Events, EventsApi, ListenerContext, ListenerFile, ListenerPhase, ListenOptions, MemoryEventBus } from "./features/events/index.ts";
@@ -395,6 +399,11 @@ declare module "./hooks.ts" {
     http: Http;
     /** The `Last-Event-ID` header, or the `lastEventId` query parameter without it; present while the `realtime` native is enabled. */
     lastEventId: string | undefined;
+    /**
+     * How the request authenticated (the provider, the method, the session, the expiry and the scopes), or undefined for
+     * an anonymous request; present while the `auth` native is enabled.
+     */
+    auth: RequestAuth | undefined;
   }
 }
 
@@ -424,6 +433,8 @@ declare module "./features.ts" {
     http?: NativeConfig<typeof httpNative>;
     /** Multi-tenancy: the tenant of every request; see the `tenancy` reference page. */
     tenancy?: NativeConfig<typeof tenancyNative>;
+    /** One authentication contract for every provider; see the `auth` reference page. */
+    auth?: NativeConfig<typeof authNative>;
   }
   interface FeatureApis {
     events: EventsApi;
@@ -437,6 +448,7 @@ declare module "./features.ts" {
     flags: FlagsApi;
     http: HttpApi;
     tenancy: TenancyApi;
+    auth: AuthApi;
   }
 }
 
@@ -448,5 +460,18 @@ declare module "./hooks.ts" {
     plan?: string;
     /** The texts the tenant carries in the tenant directory. */
     attributes: Record<string, string>;
+  }
+}
+
+declare module "./hooks.ts" {
+  interface RequestUser {
+    /** The user's id, set by an authentication provider through the `auth` native. */
+    id: string;
+    /** The user's roles; the `auth` native sets an empty list when the provider gives none. */
+    roles?: string[];
+    email?: string;
+    name?: string;
+    /** Any other claims of the credentials; the `auth` native sets an empty object when the provider gives none. */
+    claims?: Record<string, unknown>;
   }
 }

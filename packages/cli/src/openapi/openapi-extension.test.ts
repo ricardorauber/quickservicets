@@ -50,11 +50,11 @@ describe("feature and project functions", () => {
 
   test("oauth2 and OpenID Connect schemes are written as given; a flow without tokenUrl fails naming it", async () => {
     const flows = { authorizationCode: { authorizationUrl: "https://id.example.com/authorize", tokenUrl: "https://id.example.com/token", scopes: { read: "Read" } } };
-    native("auth", (doc) => {
+    native("sso", (doc) => {
       addSecurityScheme(doc, "oauth", { type: "oauth2", flows });
       addSecurityScheme(doc, "oidc", { type: "openIdConnect", openIdConnectUrl: "https://id.example.com/.well-known/openid-configuration" });
     });
-    const root = project("auth: {}");
+    const root = project("sso: {}");
     await build(root);
     expect(documentOf(root).components!.securitySchemes).toMatchObject({
       oauth: { type: "oauth2", flows },
@@ -66,8 +66,8 @@ describe("feature and project functions", () => {
   });
 
   test("requireSecurity in the project's function marks GET operations only", async () => {
-    native("auth", (doc) => void addSecurityScheme(doc, "oidc", { type: "openIdConnect", openIdConnectUrl: "https://id.example.com/.well-known/openid-configuration" }));
-    const root = project("auth: {}", 'openapi: (doc) => requireSecurity(doc, "oidc", { scopes: ["read"], operations: (method) => method === "get" })');
+    native("sso", (doc) => void addSecurityScheme(doc, "oidc", { type: "openIdConnect", openIdConnectUrl: "https://id.example.com/.well-known/openid-configuration" }));
+    const root = project("sso: {}", 'openapi: (doc) => requireSecurity(doc, "oidc", { scopes: ["read"], operations: (method) => method === "get" })');
     await build(root);
     const paths = documentOf(root).paths as Record<string, Record<string, { security?: unknown }>>;
     expect(paths["/users"]!.get!.security).toEqual([{ oidc: ["read"] }]);

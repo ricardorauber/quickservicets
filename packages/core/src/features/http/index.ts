@@ -1,7 +1,8 @@
-import { DEFAULT_MASKED_KEYS, defineFeature, safeLog, type ErrorMiddleware } from "../public.ts";
-import { running, type RunningHttp } from "./client.ts";
+import { DEFAULT_MASKED_KEYS, defineFeature, maskSecrets, resolveOptions, safeLog, type ErrorMiddleware } from "../public.ts";
+import type { HttpApi } from "./api.ts";
+import { configServices, running, serviceSettings, type RunningHttp, type ServiceSettings } from "./client.ts";
 import { HttpClientError } from "./errors.ts";
-import { httpOptions, type HttpOptions } from "./options.ts";
+import { httpOptions, serviceOptions, serviceProblems, type HttpOptions, type ServiceOptions } from "./options.ts";
 import { allowProblems } from "./ssrf.ts";
 
 /** The answer an endpoint gives an `HttpClientError` it lets escape. */
@@ -22,7 +23,10 @@ const httpFeature = defineFeature({
   options: httpOptions,
   enabledByDefault: true,
   after: ["security"],
-  validate: (options) => allowProblems(options.allow),
+  validate: (options) => [
+    ...allowProblems(options.allow),
+    ...Object.entries(options.services as Record<string, ServiceOptions>).flatMap(([name, service]) => serviceProblems(name, service)),
+  ],
   setup(ctx) {
     if (!ctx.options.ssrf && ctx.config.production) {
       safeLog(ctx.logger, "warn", { timestamp: new Date().toISOString(), message: "http.ssrf.disabled", hint: "outgoing calls may reach internal networks and cloud metadata endpoints" });
@@ -34,7 +38,9 @@ const httpFeature = defineFeature({
       logger: ctx.logger,
       production: ctx.config.production,
       maskKeys: masking?.enabled && masking.keys ? masking.keys : DEFAULT_MASKED_KEYS,
+      services: configServices(ctx.options as HttpOptions),
     };
+    services.set(ctx.options, settings.services as Map<string, ServiceSettings>);
     running.current = settings;
     ctx.app.onStop(() => {
       if (running.current === settings) running.current = undefined;
@@ -48,12 +54,33 @@ const httpFeature = defineFeature({
     };
     ctx.app.use(middleware);
   },
+  api: (ctx): HttpApi => ({
+    addService(name, input) {
+      const owner = ctx.currentFeature();
+      if (owner === undefined) throw new Error("http addService() can only be called during setup");
+      const full = name === owner || name.startsWith(`${owner}/`) ? name : `${owner}/${name}`;
+      const registered = services.get(ctx.options)!;
+      const taken = registered.get(full);
+      if (taken) throw new Error(`Service ${full} is declared by ${taken.owner} and ${owner}`);
+      const resolved = resolveOptions(serviceOptions, input, `http.services.${full}`) as ServiceOptions;
+      const problems = serviceProblems(full, resolved);
+      if (problems.length > 0) throw new Error(problems.join("\n"));
+      const auth = resolved.auth as Record<string, unknown> | undefined;
+      if (auth) maskSecrets(resolved as Record<string, unknown>, ["auth.bearer", "auth.basic.password", "auth.apiKey.value"].filter((path) => path.split(".").slice(1).reduce<unknown>((value, key) => (value as Record<string, unknown> | undefined)?.[key], auth) !== undefined));
+      registered.set(full, serviceSettings(full, owner, resolved));
+    },
+  }),
 });
+
+/** The services of each running configuration, which features add to. */
+const services = new WeakMap<object, Map<string, ServiceSettings>>();
 
 export default httpFeature;
 export { httpFeature };
 export { http, HttpRequestBuilder } from "./client.ts";
-export type { Http, HttpBody, HttpMethods, HttpModifier, HttpQueryValue, HttpRequest, HttpResponse } from "./client.ts";
+export type { HttpApi } from "./api.ts";
+export type { ServiceOptions, ServiceOptionsInput } from "./options.ts";
+export type { Http, HttpBody, HttpMethods, HttpServiceMethods, HttpServiceNames, ServiceName, HttpModifier, HttpQueryValue, HttpRequest, HttpResponse } from "./client.ts";
 export { HttpClientError } from "./errors.ts";
 export { blockedCategory, useTestResolver } from "./ssrf.ts";
 export type { TestResolverMap } from "./ssrf.ts";

@@ -35,7 +35,7 @@ import { runBuildSteps, type BuildStepResult } from "./build-steps.ts";
 import { activeFeatureTags, assertNoHookConflicts, useFeatureTags } from "../entities/feature-tags.ts";
 import { validateHookReferences } from "../hooks/validate-hook-references.ts";
 import { hasPendingChanges, sqlDialectOf } from "../migrations/add.ts";
-import { envVarsLines, generateTypesFile, queuePayloadLines, type PublishedQueueEntry, type QueueTypeEntry } from "./generate-types.ts";
+import { envVarsLines, generateTypesFile, queuePayloadLines, serviceNameLines, type PublishedQueueEntry, type QueueTypeEntry } from "./generate-types.ts";
 import { overrideWarnings, publishProblems, publishTargets, type PublishTarget } from "./queue-publish.ts";
 import { extractQueryItems } from "../endpoints/query-items.ts";
 import { describeEndpoints } from "../openapi/endpoint-docs.ts";
@@ -434,7 +434,7 @@ async function buildProject(projectRoot: string, config: ResolvedConfig, options
 
   const files: Record<string, string> = {
     "models.ts": `${HEADER}\nimport type { EntityModel } from "@quickservicets/core";\n\nexport const models: EntityModel[] = ${JSON.stringify(models, null, 2)};\n`,
-    "types.ts": [generateTypesFile(models, envVarsLines(variables)), ...featureTypeLines(featureKeys), ...queuePayloadLines(queueTypes(folderFiles), publishedQueues(publishing))].join("\n"),
+    "types.ts": [generateTypesFile(models, envVarsLines(variables)), ...featureTypeLines(featureKeys), ...queuePayloadLines(queueTypes(folderFiles), publishedQueues(publishing)), ...serviceNameLines(Object.keys((config.features.find((feature) => feature.key === "http")?.options.services as Record<string, unknown> | undefined) ?? {}))].join("\n"),
     "features.ts": generateFeaturesFile(HEADER, featureKeys, folderFiles.map((entry) => ({ ...entry, specifier: importPath(entry.file) }))),
     "routes.ts": generateRoutesFile(models, resolved, hooks),
     "jobs.ts": generateJobsFile(jobs),

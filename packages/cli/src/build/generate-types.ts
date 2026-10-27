@@ -271,3 +271,12 @@ export function queuePayloadLines(queues: readonly QueueTypeEntry[], published: 
     "",
   ];
 }
+
+/**
+ * The `HttpServiceNames` entries of the config's `http.services`, so `http.service()` takes those names; nothing
+ * without services.
+ */
+export function serviceNameLines(names: readonly string[]): string[] {
+  if (names.length === 0) return [];
+  return ['declare module "@quickservicets/core" {', "  interface HttpServiceNames {", ...names.map((name) => `    ${JSON.stringify(name)}: true;`), "  }", "}", ""];
+}

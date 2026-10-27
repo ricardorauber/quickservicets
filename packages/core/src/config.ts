@@ -16,7 +16,7 @@ import { maskSecrets } from "./secrets.ts";
 import type { AnyOptionSchema } from "./options.ts";
 import type { Middleware } from "./middleware.ts";
 import type { OpenApiDoc, ProjectOpenApiContext } from "./openapi.ts";
-import { activeFeatureDefinitions, assertFeatureFolders, loadProjectFeatures, resolveFeatures, type NativeFeatures, type ResolvedFeature } from "./features.ts";
+import { activeFeatureDefinitions, assertFeatureFolders, loadProjectFeatures, maskedFeatureKeys, resolveFeatures, type NativeFeatures, type ResolvedFeature } from "./features.ts";
 
 export const CONFIG_FILE = "quickservicets.config.ts";
 export const DEFAULT_PORT = 3000;
@@ -345,6 +345,8 @@ export function resolveConfig(
   const envValues = readVariables(variables, env);
   const resolved: ResolvedConfig = {
     ...config,
+    // The config keys of features print their secrets masked, like the features' resolved options.
+    ...maskedFeatureKeys(config as unknown as Record<string, unknown>, features),
     features,
     disabledFeatures,
     enabledBy,

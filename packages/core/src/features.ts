@@ -861,6 +861,24 @@ export async function loadProjectFeatures(projectRoot: string): Promise<FeatureD
   return registeredProjectFeatures();
 }
 
+/**
+ * A shallow copy of each enabled feature's config key, whose serialized and printed forms show `[secret]` for its
+ * secret options, so the resolved configuration never prints them.
+ */
+export function maskedFeatureKeys(config: Readonly<Record<string, unknown>>, features: readonly ResolvedFeature[]): Record<string, unknown> {
+  const masked: Record<string, unknown> = {};
+  for (const feature of features) {
+    const value = config[feature.key];
+    if (typeof value !== "object" || value === null || Array.isArray(value)) continue;
+    const paths = secretPaths(feature.definition.schema, value);
+    if (paths.length === 0) continue;
+    const copy = { ...(value as Record<string, unknown>) };
+    maskSecrets(copy, paths);
+    masked[feature.key] = copy;
+  }
+  return masked;
+}
+
 /** The paths of a schema's secret options, relative to it, record entries of `value` included. */
 function secretPaths(schema: AnyOptionSchema, value?: unknown): string[] {
   return optionLeaves(schema, "", value)

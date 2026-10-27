@@ -253,7 +253,7 @@ import flagsNative, { type FlagsApi } from "./features/flags/index.ts";
 import idempotencyNative, { type IdempotencyApi } from "./features/idempotency/index.ts";
 import healthNative, { type HealthApi, type HealthStatusChangedEvent } from "./features/health/index.ts";
 import queuesNative, { type QueueClient, type QueueMessageEvent, type QueuesApi } from "./features/queues/index.ts";
-import httpNative from "./features/http/index.ts";
+import httpNative, { type HttpApi } from "./features/http/index.ts";
 import { registerNative as registerShippedNative, type FeatureConfig as NativeConfig } from "./features.ts";
 registerShippedNative(securityNative);
 registerShippedNative(eventsNative);
@@ -337,7 +337,7 @@ export type { ChangeDelivery, ChangeSend, ChangeSource, RealtimeApi } from "./fe
 export { consoleReporter, errorsFeature, setSamplingRandom } from "./features/errors/index.ts";
 export type { ErrorsApi } from "./features/errors/index.ts";
 export { http, HttpClientError, httpFeature, HttpRequestBuilder } from "./features/http/index.ts";
-export type { Http, HttpBody, HttpClientErrorCode, HttpClientErrorInit, HttpMethods, HttpModifier, HttpQueryValue, HttpRequest, HttpResponse } from "./features/http/index.ts";
+export type { Http, HttpApi, HttpBody, HttpClientErrorCode, HttpClientErrorInit, HttpMethods, HttpServiceMethods, HttpServiceNames, ServiceName, ServiceOptions, ServiceOptionsInput, HttpModifier, HttpQueryValue, HttpRequest, HttpResponse } from "./features/http/index.ts";
 export { bucketOf, evaluateRule, flagsFeature } from "./features/flags/index.ts";
 export type { FlagContext, FlagEvaluation, FlagProvider, FlagProviderContext, FlagReason, FlagResult, FlagRule, FlagRuleFunction, FlagsApi, FlagSubject, RequestFlagEvaluator } from "./features/flags/index.ts";
 export type {
@@ -412,5 +412,6 @@ declare module "./features.ts" {
     realtime: RealtimeApi;
     errors: ErrorsApi;
     flags: FlagsApi;
+    http: HttpApi;
   }
 }

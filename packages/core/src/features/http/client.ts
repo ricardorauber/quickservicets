@@ -1,6 +1,6 @@
 import { DEFAULT_MASKED_KEYS, jsonLogger, lastResolvedFeatures, parseDuration, resolveOptions, type Logger } from "../public.ts";
 import { HttpClientError } from "./errors.ts";
-import { httpOptions, type HttpOptions } from "./options.ts";
+import { httpOptions, type HttpOptions, type ServiceOptions } from "./options.ts";
 import { sharedState } from "./state.ts";
 import { maskedUrl, transport } from "./transport.ts";
 
@@ -56,12 +56,23 @@ export interface CallSpec {
   timeout?: number | string;
   signal?: AbortSignal;
   modifiers: readonly HttpModifier[];
+  /** The named service the call goes through. */
+  service?: string;
 }
 
 /** Who a client calls for: the global client calls for nobody. */
 export interface ClientBinding {
   /** Sent as `x-request-id` unless the call sets it. */
   requestId?: string;
+}
+
+/** A named service, from the config or added by a feature. */
+export interface ServiceSettings extends ServiceOptions {
+  name: string;
+  /** Who declared it: `http.services` or the key of the feature that added it. */
+  owner: string;
+  /** The host (and port) of its base URL, which SSRF protection trusts for calls through the service. */
+  host: string;
 }
 
 /** The runtime settings of the running native, installed by its setup. */
@@ -71,7 +82,24 @@ export interface RunningHttp {
   production: boolean;
   /** The query parameter names whose values are masked in logged and reported URLs. */
   maskKeys: readonly string[];
+  /** The named services, by name. */
+  services: ReadonlyMap<string, ServiceSettings>;
 }
+
+/** The services of the config's `http.services`, by name. */
+export function configServices(options: HttpOptions): Map<string, ServiceSettings> {
+  const services = new Map<string, ServiceSettings>();
+  for (const [name, service] of Object.entries(options.services as Record<string, ServiceOptions>)) services.set(name, serviceSettings(name, "http.services", service));
+  return services;
+}
+
+/** A service's settings from its resolved options. */
+export function serviceSettings(name: string, owner: string, service: ServiceOptions): ServiceSettings {
+  // The options object keeps its masking of secrets: the settings read through it.
+  return Object.assign(Object.create(service) as ServiceOptions, { name, owner, host: new URL(service.url).host.toLowerCase() }) as ServiceSettings;
+}
+
+const derivedServices = new WeakMap<object, Map<string, ServiceSettings>>();
 
 /** The settings every call reads. */
 export type HttpSettings = RunningHttp;
@@ -95,7 +123,9 @@ export function currentSettings(): HttpSettings {
   const current = running.current;
   if (current && (!feature || current.options === feature.options)) return current;
   const options = (feature?.options as HttpOptions | undefined) ?? (defaults.options ??= resolveOptions(httpOptions, {}, "http") as HttpOptions);
-  return { options, logger: jsonLogger, production: false, maskKeys: DEFAULT_MASKED_KEYS };
+  let services = derivedServices.get(options);
+  if (!services) derivedServices.set(options, (services = configServices(options)));
+  return { options, logger: jsonLogger, production: false, maskKeys: DEFAULT_MASKED_KEYS, services };
 }
 
 /** Milliseconds of a duration or a number of milliseconds; throws for anything else. */
@@ -111,6 +141,14 @@ export function describeCall(spec: CallSpec, settings: HttpSettings, binding: Cl
   for (const [name, value] of spec.query) url.searchParams.append(name, value);
   const headers = new Headers({ "user-agent": settings.options.userAgent });
   if (binding.requestId !== undefined) headers.set("x-request-id", binding.requestId);
+  const service = spec.service === undefined ? undefined : serviceNamed(spec.service, settings);
+  if (service) {
+    for (const [name, value] of Object.entries(service.headers ?? {})) headers.set(name, value);
+    const auth = service.auth;
+    if (auth?.bearer !== undefined) headers.set("authorization", `Bearer ${auth.bearer}`);
+    else if (auth?.basic !== undefined) headers.set("authorization", `Basic ${btoa(`${auth.basic.username}:${auth.basic.password}`)}`);
+    else if (auth?.apiKey !== undefined) headers.set(auth.apiKey.header, auth.apiKey.value);
+  }
   let body: HttpBody | undefined;
   if (spec.body?.kind === "json") {
     headers.set("content-type", "application/json");
@@ -131,9 +169,10 @@ export function describeCall(spec: CallSpec, settings: HttpSettings, binding: Cl
     url: url.href,
     headers,
     body,
-    timeout: timeoutMs(spec.timeout ?? settings.options.timeout),
+    timeout: timeoutMs(spec.timeout ?? service?.timeout ?? settings.options.timeout),
     signal: spec.signal,
     attempt: 1,
+    ...(spec.service !== undefined ? { service: spec.service } : {}),
   };
 }
 
@@ -147,7 +186,16 @@ function appendQuery(target: { append(name: string, value: string): void }, name
 export async function execute(spec: CallSpec, binding: ClientBinding): Promise<HttpResponse> {
   const settings = currentSettings();
   const request = describeCall(spec, settings, binding);
-  return transport(request, settings);
+  // A call through a service trusts the service's own host; any other host is checked as usual.
+  const trustedHost = spec.service === undefined ? undefined : serviceNamed(spec.service, settings).host;
+  return transport(request, settings, trustedHost);
+}
+
+/** The service of a name; throws for a name nobody declared. */
+export function serviceNamed(name: string, settings: HttpSettings = currentSettings()): ServiceSettings {
+  const service = settings.services.get(name);
+  if (!service) throw new Error(`Unknown service ${name}; add it to http.services in quickservicets.config.ts`);
+  return service;
 }
 
 /** The largest body an `HttpClientError` keeps. */
@@ -286,7 +334,7 @@ export class HttpRequestBuilder {
 
   async #ok(): Promise<HttpResponse> {
     const response = await this.response();
-    if (!response.ok) throw await statusError(response, this.#spec.method, undefined);
+    if (!response.ok) throw await statusError(response, this.#spec.method, this.#spec.service);
     return response;
   }
 
@@ -296,7 +344,7 @@ export class HttpRequestBuilder {
    */
   async send<T = unknown>(): Promise<NoInfer<T>> {
     const response = await this.#ok();
-    return parseBody(await response.bytes(), response.headers.get("content-type"), (cause) => invalidResponse(this.#spec.method, response.url, cause)) as T;
+    return parseBody(await response.bytes(), response.headers.get("content-type"), (cause) => invalidResponse(this.#spec.method, response.url, cause, this.#spec.service)) as T;
   }
 
   /** Runs the call and resolves the body of a 2xx response as text. */
@@ -341,11 +389,58 @@ export function methodsOf(binding: ClientBinding): HttpMethods {
   return { get: start("GET"), post: start("POST"), put: start("PUT"), patch: start("PATCH"), delete: start("DELETE"), head: start("HEAD") };
 }
 
-/** The outgoing HTTP client: `http.get(url).send()`. */
-export interface Http extends HttpMethods {}
+/**
+ * The service names `http.service()` takes: those of `http.services`, filled in by the build, and the
+ * `<feature>/<name>` services features add.
+ */
+export interface HttpServiceNames {}
+
+/** A name `http.service()` takes. */
+export type ServiceName = Extract<keyof HttpServiceNames, string> | `${string}/${string}`;
+
+/** The methods of a service client, each taking a path that starts with `/`. */
+export interface HttpServiceMethods {
+  get(path: string): HttpRequestBuilder;
+  post(path: string): HttpRequestBuilder;
+  put(path: string): HttpRequestBuilder;
+  patch(path: string): HttpRequestBuilder;
+  delete(path: string): HttpRequestBuilder;
+  head(path: string): HttpRequestBuilder;
+}
+
+/** A path joined to a base URL: `https://api.x/v1` and `/invoices?x=1` give `https://api.x/v1/invoices?x=1`. */
+export function joinPath(base: string, path: string): URL {
+  const url = new URL(base);
+  const joined = new URL(path, "http://path.invalid");
+  url.pathname = `${url.pathname.replace(/\/+$/, "")}${joined.pathname}`;
+  url.search = joined.search;
+  url.hash = "";
+  return url;
+}
+
+/** The six methods of the client of service `name`, bound to `binding`. */
+export function serviceMethodsOf(name: string, binding: ClientBinding): HttpServiceMethods {
+  const service = serviceNamed(name);
+  const start = (method: string) => (path: string) => {
+    if (typeof path !== "string" || !path.startsWith("/") || path.startsWith("//")) throw new TypeError(`http.service("${name}") takes a path starting with /, got ${String(path)}`);
+    return new HttpRequestBuilder({ method, url: joinPath(serviceNamed(name).url, path), headers: [], query: [], modifiers: [], service: service.name }, binding);
+  };
+  return { get: start("GET"), post: start("POST"), put: start("PUT"), patch: start("PATCH"), delete: start("DELETE"), head: start("HEAD") };
+}
+
+/** The outgoing HTTP client: `http.get(url).send()`, or `http.service(name).get(path).send()`. */
+export interface Http extends HttpMethods {
+  /** The client of a named service: paths join its base URL, and calls carry its headers, authentication and timeout. */
+  service(name: ServiceName): HttpServiceMethods;
+}
+
+/** A client bound to `binding`. */
+export function clientOf(binding: ClientBinding): Http {
+  return { ...methodsOf(binding), service: (name) => serviceMethodsOf(name, binding) };
+}
 
 /** The outgoing HTTP client, with the options of the `http` native. */
-export const http: Http = methodsOf({});
+export const http: Http = clientOf({});
 
 export { HttpClientError } from "./errors.ts";
 export { maskedUrl } from "./transport.ts";

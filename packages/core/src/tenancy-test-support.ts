@@ -74,6 +74,7 @@ export async function startTestApp(options: TestAppOptions = {}): Promise<TestAp
     info: (entry) => void logs.push({ level: "info", ...entry }),
     warn: (entry) => void logs.push({ level: "warn", ...entry }),
     error: (entry) => void logs.push({ level: "error", ...entry }),
+    debug: (entry) => void logs.push({ level: "debug", ...entry }),
   };
   const database = options.database ?? memoryAdapter();
   const models = options.models ?? [];

@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { DatabaseAdapter } from "./adapter.ts";
+import type { EntityModel } from "./model.ts";
 import { currentOperation, operationContextEnabled, withOperation } from "./operation-context.ts";
 import { repositoriesFor, type RepositoryRegistry } from "./repository.ts";
 import { activeSetup } from "./setup-phase.ts";
@@ -19,6 +20,12 @@ export interface DatabaseScope {
   adapter: DatabaseAdapter;
   repos: RepositoryRegistry;
   tenant?: ScopeTenant;
+  /**
+   * Where the core writes its own rows (queue messages, outbox events and deliveries) for this scope, when not through
+   * `adapter`: a tenant with a database of its own stages them there inside its transactions and writes them to the
+   * service's database otherwise.
+   */
+  systemRows?: (model: EntityModel) => { adapter: DatabaseAdapter; model: EntityModel };
 }
 
 /** What `withDatabaseScope` takes: a scope whose `repos` default to `repositoriesFor(adapter)`. */
@@ -88,6 +95,17 @@ export function currentDatabaseScope(): DatabaseScope {
 export function scopedAdapter(adapter: DatabaseAdapter): DatabaseAdapter {
   if (!scopes) return adapter;
   return scopes.getStore()?.adapter ?? adapter;
+}
+
+/**
+ * Where a core row of `model` (a queue message, an outbox row) goes from the current scope: `adapter` (the root one a
+ * native captured) outside scopes, the scope's own target when it has one, the scope's adapter otherwise.
+ */
+export function systemTarget(adapter: DatabaseAdapter, model: EntityModel): { adapter: DatabaseAdapter; model: EntityModel } {
+  if (!scopes) return { adapter, model };
+  const scope = scopes.getStore();
+  if (!scope) return { adapter, model };
+  return scope.systemRows?.(model) ?? { adapter: scope.adapter, model };
 }
 
 /** The scope key an adapter was used with, or a generic name for an adapter no scope used. */

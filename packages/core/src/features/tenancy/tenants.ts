@@ -3,6 +3,7 @@ import { connectionResolver, type ConnectionOption } from "./connections.ts";
 import { configDirectory, databaseDirectory, serviceDirectory, tenantInfoOf, type TenantDirectory, type TenantInfo } from "./directory.ts";
 import { appliedTenantMigrations, migrateTenantDatabase, migrationFiles } from "./migrate.ts";
 import { schemaNameOf } from "./scopes.ts";
+import { stagingModels } from "./relay.ts";
 
 /** The resolved options of the `tenancy` native that its commands and provisioning read. */
 export interface TenancyOptions {
@@ -54,6 +55,8 @@ export function tenantOperations(input: { config: ResolvedConfig; models: readon
         ? configDirectory(options.tenants)
         : serviceDirectory(options.service!);
   const tenantModels = input.models.filter((model) => model.tenancy === "tenant");
+  // A tenant database of its own stages the queue and outbox rows of its transactions (when those natives run).
+  const staging = stagingModels(input.models);
   const connections = connectionResolver({
     option: options.connection,
     ...(options.connectionService ? { service: options.connectionService } : {}),
@@ -68,7 +71,7 @@ export function tenantOperations(input: { config: ResolvedConfig; models: readon
     }
     if (!root.forConnection) throw new Error(`tenancy strategy "database" needs an adapter with forConnection(); the ${root.kind ?? "configured"} adapter has none`);
     const adapter = root.forConnection(await connections.resolve(tenant));
-    await adapter.connect([...tenantModels]);
+    await adapter.connect([...tenantModels, ...staging]);
     return { adapter, close: () => adapter.disconnect() };
   };
   return {
@@ -79,7 +82,7 @@ export function tenantOperations(input: { config: ResolvedConfig; models: readon
     async migrate(tenant) {
       const target = await open(tenant);
       try {
-        return (await migrateTenantDatabase(input.projectRoot, { adapter: target.adapter, ...(target.schema ? { schema: target.schema } : {}), models: tenantModels })).applied;
+        return (await migrateTenantDatabase(input.projectRoot, { adapter: target.adapter, ...(target.schema ? { schema: target.schema } : { staging }), models: tenantModels })).applied;
       } finally {
         await target.close();
       }

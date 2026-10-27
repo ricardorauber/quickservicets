@@ -6,6 +6,7 @@ import {
   withDatabaseScope,
   repositoriesFor,
   setTenantRuns,
+  inTransaction,
   runForTenant,
   tenantRepositories,
   type DatabaseScope,
@@ -32,6 +33,7 @@ import { connectionResolver, type ConnectionOption } from "./connections.ts";
 import { tenancyCommands } from "./commands.ts";
 import { provision, tenantOperations, type TenantOperations, type TenantProvisionResult, type TenantWriter } from "./tenants.ts";
 import { resolve } from "node:path";
+import { RELAY_MIN_AGE_MS, relayState, stagedModel, stagingModels, tenantRelay } from "./relay.ts";
 import { tenantPools, type PoolLease, type TenantPool, type TenantPools } from "./pools.ts";
 import {
   cachedDirectory,
@@ -99,6 +101,17 @@ const options = object({
   connectionCache: object({ ttl: duration().default("10m").describe("How long each worker keeps a resolved connection without a ttl of its own.") })
     .default({ ttl: "10m" })
     .describe("The per-worker cache of resolved connections."),
+  relay: object({
+    interval: duration()
+      .default("1m")
+      .describe(
+        "How often each worker relays the queue and outbox rows that database-strategy tenants staged in their open pools; delivery is at least once, delayed by up to this interval after a crash, so consumers must be idempotent.",
+      ),
+  })
+    .default({ interval: "1m" })
+    .describe(
+      "The relay of queue messages and outbox rows that database-strategy tenants stage in their own database: delivery is at least once, delayed by up to relay.interval after a crash, so consumers must be idempotent.",
+    ),
   scope: oneOf(["tenant", "shared"])
     .default("tenant")
     .describe("Whether an entity's records belong to one tenant or are shared by every tenant; set per entity with @tenancy shared."),
@@ -241,6 +254,7 @@ const tenancyFeature = defineFeature({
   // The Tenant table of the database source; nothing with the other sources.
   entities: ({ options }) => (options.source === "database" ? [tenantEntity()] : []),
   after: ["http"],
+  jobs: "./jobs",
   commands: tenancyCommands,
   tags: {
     tenancy: {
@@ -273,9 +287,14 @@ const tenancyFeature = defineFeature({
     setRepositoryResolver(() => currentDatabaseScope().repos, { run: () => currentDatabaseScope().repos });
     const scopes = tenantScopes({ root, models: ctx.models, defaultSchema: ctx.config.schema, template: ctx.options.schema, logger: ctx.logger });
     const poolOptions = ctx.options.pools;
+    // The queue and outbox rows of a tenant database's transactions are staged there and relayed to the shared tables.
+    const coreModels = new Map(stagingModels(ctx.models).map((model) => [model.key.slice("Staged".length), ctx.models.find((candidate) => candidate.key === model.key.slice("Staged".length))!]));
+    const relayer = tenantRelay({ root, models: coreModels, logger: ctx.logger });
     const pools = tenantPools({
       root,
-      tenantModels: ctx.models.filter((model) => model.tenancy === "tenant"),
+      tenantModels: [...ctx.models.filter((model) => model.tenancy === "tenant"), ...stagingModels(ctx.models)],
+      // Rows a crash left between a commit and its relay move when the pool opens again.
+      ...(coreModels.size > 0 ? { onOpen: (tenant: TenantInfo, pool: TenantPool) => void relayer.relay(tenant.id, pool.adapter, RELAY_MIN_AGE_MS) } : {}),
       workers: ctx.config.server.workers,
       settings: {
         max: poolOptions.max,
@@ -293,10 +312,31 @@ const tenancyFeature = defineFeature({
     });
     poolsOf.set(ctx.options, pools);
     ctx.app.onStart(() => pools.start());
+    let relayTimer: ReturnType<typeof setInterval> | undefined;
+    if (coreModels.size > 0) {
+      ctx.app.onStart(() => {
+        relayTimer = setInterval(() => {
+          for (const pool of pools.list()) void relayer.relay(pool.tenant, pool.adapter, RELAY_MIN_AGE_MS);
+        }, parseDuration(ctx.options.relay.interval) ?? 60_000);
+        relayTimer.unref?.();
+      });
+      ctx.app.onStop(() => clearInterval(relayTimer));
+    }
     // Provisioning and migrating tenants from code use the project's migration files.
     const projectRoot = resolve(ctx.generated("."), "..", "..");
     let operations: TenantOperations | undefined;
     const operationsOf = () => (operations ??= tenantOperations({ config: ctx.config, models: ctx.models, projectRoot, logger: ctx.logger }));
+    relayState.all = async () => {
+      for await (const tenant of directory.list()) {
+        if (tenant.status !== "active" || (tenant.strategy ?? ctx.options.strategy) !== "database" || coreModels.size === 0) continue;
+        const lease = await pools.acquire(tenant);
+        try {
+          await relayer.relay(tenant.id, lease.pool.adapter, RELAY_MIN_AGE_MS);
+        } finally {
+          lease.release();
+        }
+      }
+    };
     runningOf.set(ctx.options, {
       provision: (info) => provision(operationsOf(), repositoriesFor(root).tenants as unknown as TenantWriter, info as Record<string, unknown> & { id: string }),
       async migrate(id) {
@@ -336,7 +376,19 @@ const tenancyFeature = defineFeature({
     const scopeOfPool = (tenant: TenantInfo, pool: TenantPool): DatabaseScope => {
       let scope = poolScopes.get(pool);
       if (!scope) {
-        scope = { key: `tenant:${tenant.id}`, adapter: pool.adapter, repos: tenantRepositories(currentDatabaseScope().repos, pool.adapter), tenant: { id: tenant.id, ...(tenant.plan !== undefined ? { plan: tenant.plan } : {}) } };
+        scope = {
+          key: `tenant:${tenant.id}`,
+          adapter: pool.adapter,
+          repos: tenantRepositories(currentDatabaseScope().repos, pool.adapter),
+          tenant: { id: tenant.id, ...(tenant.plan !== undefined ? { plan: tenant.plan } : {}) },
+          // Inside the tenant's transactions, queue and outbox rows are staged in its database; outside, they go to
+          // the shared tables at once.
+          systemRows: (model) => {
+            if (!coreModels.has(model.key) || !inTransaction()) return { adapter: root, model };
+            relayer.afterCommit(tenant.id, pool.adapter);
+            return { adapter: pool.adapter, model: stagedModel(model) };
+          },
+        };
         poolScopes.set(pool, scope);
       }
       return scope;
@@ -486,6 +538,8 @@ export { cachedDirectory, configDirectory, databaseDirectory, directoryClock, se
 export type { CachedDirectory, DirectoryCacheOptions, TenantDirectory, TenantInfo } from "./directory.ts";
 export { crossTenancyReferences, markTenancy, SHARED_ENTITY_KEYS, withoutTenancyMarks } from "./models.ts";
 export { maskConnections, tenantPools } from "./pools.ts";
+export { RELAY_MIN_AGE_MS, STAGED_TABLES, stagedModel, stagingModels, stagingTableStatement, tenantRelay } from "./relay.ts";
+export type { RelayOptions, TenantRelay } from "./relay.ts";
 export { appliedTenantMigrations, migrateTenantDatabase, migrationFiles, MONGO_MIGRATIONS_COLLECTION } from "./migrate.ts";
 export { assertDatabaseSource, provision, strategyOf, tenancyOptionsOf, tenantOperations } from "./tenants.ts";
 export type { TenancyOptions, TenantOperations, TenantProvisionResult, TenantWriter } from "./tenants.ts";

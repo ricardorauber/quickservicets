@@ -172,6 +172,7 @@ export function featureLogger(logger: Logger, key: string): Logger {
     info: (entry) => logger.info({ ...entry, feature: key }),
     warn: (entry) => logger.warn({ ...entry, feature: key }),
     error: (entry) => logger.error({ ...entry, feature: key }),
+    debug: (entry) => logger.debug?.({ ...entry, feature: key }),
   };
 }
 
@@ -232,7 +233,7 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
   let masked: Logger | undefined;
   // Once a feature gives the server a masker, every entry logged through the features' loggers is masked too.
   const current = () => (server.mask ? (masked ??= maskedLogger(baseLogger, server.mask)) : baseLogger);
-  const logger: Logger = { info: (entry) => current().info(entry), warn: (entry) => current().warn(entry), error: (entry) => current().error(entry) };
+  const logger: Logger = { info: (entry) => current().info(entry), warn: (entry) => current().warn(entry), error: (entry) => current().error(entry), debug: (entry) => current().debug?.(entry) };
   const startTimeout = parseDuration(config.lifecycle.startTimeout) ?? 30_000;
   const stopTimeout = parseDuration(config.lifecycle.stopTimeout) ?? 10_000;
   const registered: Registered[] = features.map((feature) => ({ feature, onStart: [], onShutdown: [], onStop: [] }));

@@ -125,6 +125,11 @@ export function assertWritable(adapter: DatabaseAdapter): void {
   if (current && !sharesConnection(current.adapter, adapter)) throw crossScopeWrite(adapter, current.adapter);
 }
 
+/** An object that stands for the transaction the caller runs in (the same one for all its code), or undefined. */
+export function currentTransaction(): object | undefined {
+  return scopes.getStore();
+}
+
 /** Whether the caller runs inside a transaction. */
 export function inTransaction(): boolean {
   return scopes.getStore() !== undefined;

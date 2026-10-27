@@ -11,6 +11,7 @@ import {
   type MigrationSqlOptions,
   type MongodbAdapter,
 } from "../public.ts";
+import { stagingTableStatement } from "./relay.ts";
 
 /** The MongoDB collection holding a database's migration history. */
 export const MONGO_MIGRATIONS_COLLECTION = "_migrations";
@@ -47,6 +48,8 @@ export interface TenantMigrationTarget {
   schema?: string;
   /** The models stored in tenant databases, for the migrations' `ctx.repos`. */
   models: readonly EntityModel[];
+  /** The staging tables a database of its own needs for the relay of queue and outbox rows (created if missing). */
+  staging?: readonly EntityModel[];
 }
 
 export interface TenantMigrationResult {
@@ -92,7 +95,11 @@ export async function migrateTenantDatabase(projectRoot: string, target: TenantM
     begin?: <T>(fn: (tx: { unsafe(text: string, params?: unknown[]): Promise<unknown> }) => Promise<T>) => Promise<T>;
   };
   // One SQLite file is one connection: tenants sharing it migrate one after the other.
-  if (adapter.kind === "sqlite") return serially(client, () => migrateSqlite(files, client, adapter, target.schema, repos));
+  if (adapter.kind === "sqlite") {
+    const result = await serially(client, () => migrateSqlite(files, client, adapter, target.schema, repos));
+    for (const model of target.staging ?? []) client.run!(stagingTableStatement(model, "sqlite"));
+    return result;
+  }
   if (adapter.kind === "postgres") {
     const schema = target.schema ? schemaIdentifier(target.schema) : undefined;
     const table = schema ? `"${schema}".${MIGRATIONS_TABLE}` : MIGRATIONS_TABLE;
@@ -116,6 +123,8 @@ export async function migrateTenantDatabase(projectRoot: string, target: TenantM
       });
       applied.push(migration.id);
     }
+    // quickservicets-allow-unsafe: the statement is built from the core's own staging models
+    for (const model of target.staging ?? []) await client.unsafe!(stagingTableStatement(model, "postgres"));
     return { applied };
   }
   throw new Error(`Tenant migrations are not supported for the ${adapter.kind} adapter`);

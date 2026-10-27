@@ -1,4 +1,4 @@
-import { assertWritable, parseDuration, runInTransaction, scopedAdapter, type AnyEvent, type DatabaseAdapter, type EntityModel, type FieldModel, type StoredRecord } from "../public.ts";
+import { assertWritable, parseDuration, runInTransaction, scopedAdapter, systemTarget, type AnyEvent, type DatabaseAdapter, type EntityModel, type FieldModel, type StoredRecord } from "../public.ts";
 import { compilePattern, type CompiledPattern } from "./patterns.ts";
 import { deliveryRows } from "./delivery.ts";
 import { sharedState } from "./state.ts";
@@ -119,7 +119,10 @@ export function outboxStore(): { adapter: DatabaseAdapter; model: EntityModel; d
 
 /** Stores an event as an outbox row, with one pending delivery row per matching consumer, in the caller's transaction. */
 export async function insertOutboxRow(event: AnyEvent): Promise<void> {
-  const { adapter, model, deliveryModel } = outboxStore();
+  const state = shared.state;
+  if (!state) throw new Error("The outbox is not enabled; set events: { outbox: true } in quickservicets.config.ts");
+  const { adapter, model } = systemTarget(state.adapter, state.model);
+  const deliveries = state.deliveryModel ? systemTarget(state.adapter, state.deliveryModel) : undefined;
   const at = event.at instanceof Date ? event.at : new Date(event.at);
   const row: StoredRecord = {
     id: event.id,
@@ -132,7 +135,7 @@ export async function insertOutboxRow(event: AnyEvent): Promise<void> {
   };
   assertWritable(adapter);
   await adapter.insert(model, row);
-  if (deliveryModel) for (const delivery of deliveryRows(event, at)) await adapter.insert(deliveryModel, delivery);
+  if (deliveries) for (const delivery of deliveryRows(event, at)) await deliveries.adapter.insert(deliveries.model, delivery);
 }
 
 /** Runs `fn` in a transaction of the outbox's database. */

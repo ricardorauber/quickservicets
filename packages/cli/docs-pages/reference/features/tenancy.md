@@ -35,6 +35,7 @@ It is not enabled by default: turn it on with `tenancy: {}` or `QS_TENANCY_ENABL
 | `tenancy.connection` | `string` | — | `QS_TENANCY_CONNECTION` | yes | The connection of database-strategy tenants without their own: a text where `{tenant}` is replaced by the tenant id, like `postgres://app@db:5432/tenant_{tenant}`, or a function of the tenant. |
 | `tenancy.connectionService` | `string` | — | `QS_TENANCY_CONNECTION_SERVICE` | no | The http.services entry asked for a tenant's connection as GET /tenants/:id/connection, after the other sources. |
 | `tenancy.connectionCache.ttl` | `duration` | `"10m"` | `QS_TENANCY_CONNECTION_CACHE_TTL` | no | How long each worker keeps a resolved connection without a ttl of its own. |
+| `tenancy.relay.interval` | `duration` | `"1m"` | `QS_TENANCY_RELAY_INTERVAL` | no | How often each worker relays the queue and outbox rows that database-strategy tenants staged in their open pools; delivery is at least once, delayed by up to this interval after a crash, so consumers must be idempotent. |
 | `tenancy.scope` | `"tenant" \| "shared"` | `"tenant"` | `QS_TENANCY_SCOPE` | no | Whether an entity's records belong to one tenant or are shared by every tenant; set per entity with @tenancy shared. |
 | `tenancy.source` | `"database" \| "config" \| "service"` | `"database"` | `QS_TENANCY_SOURCE` | no | Where tenants are looked up: the Tenant table of the service's database, the tenants option, or another service through the HTTP client. |
 | `tenancy.tenants.<name>.plan` | `record of string` | — | `QS_TENANCY_TENANTS_<NAME>_PLAN` | no | The tenant's plan, in req.tenant.plan. |
@@ -123,6 +124,14 @@ quickservicets tenants resume <id>
 **Arguments:**
 
 - `<id>` (required): The tenant's id.
+
+## Jobs
+
+Jobs run while the feature is enabled; a project file `jobs/<name>.ts` replaces one.
+
+| Job | Schedule | Description |
+| --- | --- | --- |
+| `tenancy/relay` | `@daily` | Moves, every day, the queue and outbox rows that database-strategy tenants staged and no relay moved yet (a crash between a commit and its relay), opening their pools as needed. |
 
 ## Feature API
 

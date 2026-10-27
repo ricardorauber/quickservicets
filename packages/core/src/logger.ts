@@ -6,6 +6,8 @@ export interface Logger {
   info(entry: LogEntry): void;
   warn(entry: LogEntry): void;
   error(entry: LogEntry): void;
+  /** Detail entries, written only by loggers that implement it (the default JSON logger does not). */
+  debug?(entry: LogEntry): void;
 }
 
 /** A buffer above this many characters is written at once instead of at the end of the event-loop turn. */
@@ -128,14 +130,14 @@ export interface LogMasker {
 
 /** A logger passing every entry through the masker first, except the server's request log entries. */
 export function maskedLogger(logger: Logger, masker: LogMasker): Logger {
-  const write = (level: keyof Logger) => (entry: LogEntry) => logger[level]((entry as Record<symbol, unknown>)[REQUEST_LOG] ? entry : masker.entry(entry));
-  return { info: write("info"), warn: write("warn"), error: write("error") };
+  const write = (level: keyof Logger) => (entry: LogEntry) => logger[level]?.((entry as Record<symbol, unknown>)[REQUEST_LOG] ? entry : masker.entry(entry));
+  return { info: write("info"), warn: write("warn"), error: write("error"), ...(logger.debug ? { debug: write("debug") } : {}) };
 }
 
 /** Calls the logger without ever letting a logging failure escape. */
 export function safeLog(logger: Logger, level: keyof Logger, entry: LogEntry): void {
   try {
-    logger[level](entry);
+    logger[level]?.(entry);
   } catch {
     // Logging must never change the outcome of a request.
   }

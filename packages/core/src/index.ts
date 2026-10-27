@@ -20,7 +20,7 @@ export { configureRunRepositories, resolveRunRepositories, setRepositoryResolver
 export { guardTenantRepositories, tenantRepositories, TenantRequiredError } from "./tenant-repositories.ts";
 export { configureTenantRuns, runForTenant, setTenantRuns, tenantRuns } from "./tenant-runs.ts";
 export type { RunTenant, TenantRunContext, TenantRuns } from "./tenant-runs.ts";
-export { configureDatabaseScopes, currentDatabaseScope, databaseScopesEnabled, enableDatabaseScopes, scopedAdapter, scopeKeyOf, sharesConnection, withDatabaseScope } from "./database-scope.ts";
+export { configureDatabaseScopes, currentDatabaseScope, databaseScopesEnabled, enableDatabaseScopes, scopedAdapter, scopeKeyOf, sharesConnection, systemTarget, withDatabaseScope } from "./database-scope.ts";
 export type { DatabaseScope, DatabaseScopeInput, ScopeTenant } from "./database-scope.ts";
 export type { RepositoryResolver, RepositoryResolverOptions, RunTarget } from "./repository-resolver.ts";
 export type { EntityPlan, EntityRecord, ListResult, Many, One, Populated, PopulatePath, ReadOptions, ReadRepository, ReferencePath, RelatedField, RelatedRecord, RelatedReferences, Repository, RepositoryOptions, RepositoryRegistry, WriteOptions } from "./repository.ts";
@@ -239,7 +239,7 @@ export { applyEnvironment, CONFIG_OVERRIDES, configVariable, envNameFor, feature
 export { maskSecrets, SECRET_MASK } from "./secrets.ts";
 export type { ConfigOverride, EnvAlias, EnvironmentResult, OptionLeaf } from "./environment.ts";
 export { runAfterHooks, runBeforeHooks } from "./feature-hooks.ts";
-export { afterCommit, assertWritable, inTransaction, onRollback, runInTransaction, transaction } from "./transactions.ts";
+export { afterCommit, assertWritable, currentTransaction, inTransaction, onRollback, runInTransaction, transaction } from "./transactions.ts";
 export { changedFields, observeWrites } from "./write-observers.ts";
 export type { WriteCause, WriteChange, WriteObserver } from "./write-observers.ts";
 export { currentOperation, disableOperationContext, enableOperationContext, operationContextEnabled, operationMiddleware, withOperation } from "./operation-context.ts";

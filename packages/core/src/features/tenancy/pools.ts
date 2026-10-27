@@ -248,6 +248,8 @@ export function tenantPools(options: TenantPoolsOptions) {
         },
       };
     },
+    /** Every open pool. */
+    list: () => [...pools.values()],
     /** The open pool of a tenant, without opening it. */
     get: (id: string) => pools.get(id),
     stats(): PoolStats {

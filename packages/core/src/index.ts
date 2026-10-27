@@ -263,7 +263,7 @@ import healthNative, { type HealthApi, type HealthStatusChangedEvent } from "./f
 import queuesNative, { type QueueClient, type QueueMessageEvent, type QueuesApi } from "./features/queues/index.ts";
 import httpNative, { type Http, type HttpApi } from "./features/http/index.ts";
 import tenancyNative, { type TenancyApi } from "./features/tenancy/index.ts";
-import authNative, { type AuthApi, type RequestAuth } from "./features/auth/index.ts";
+import authNative, { type AuthApi, type RequestAuth, type SessionRevokedEvent } from "./features/auth/index.ts";
 import { registerNative as registerShippedNative, type FeatureConfig as NativeConfig } from "./features.ts";
 registerShippedNative(securityNative);
 registerShippedNative(eventsNative);
@@ -278,7 +278,25 @@ registerShippedNative(flagsNative);
 registerShippedNative(httpNative);
 registerShippedNative(tenancyNative);
 registerShippedNative(authNative);
-export { addAuthScheme, AuthError, authFeature, NO_AUTH_SCHEME_WARNING, requireRole, requireUser } from "./features/auth/index.ts";
+export {
+  addAuthScheme,
+  AuthError,
+  authFeature,
+  dummyPasswordCheck,
+  identifierHash,
+  invalidCredentials,
+  loginGuard,
+  memoryThrottleStore,
+  NO_AUTH_SCHEME_WARNING,
+  repositoryThrottleStore,
+  requireRole,
+  requireUser,
+  sessionStore,
+  ThrottleConflictError,
+  tokenHashOf,
+  tooManyAttempts,
+} from "./features/auth/index.ts";
+export type { LoginCheck, LoginGuard, LoginGuardOptions, LoginThrottleRecord, LoginThrottleStore, SessionRevokedEvent, SessionStore, SessionStoreOptions, StoredSession } from "./features/auth/index.ts";
 export type { AuthApi, AuthCredentials, AuthenticatedUser, AuthMethod, AuthProvider, AuthResult, AuthResultUser, RequestAuth, RevokeTarget } from "./features/auth/index.ts";
 export { addOutboxPatterns, events, eventsFeature, listen, memoryEventBus, readOutbox, tailOutbox } from "./features/events/index.ts";
 export type { ConsumerOptions, DeliveryContext, DeliveryStatus, OutboxRecord } from "./features/events/index.ts";
@@ -383,6 +401,8 @@ declare module "./event-types.ts" {
     "queue.message.failed": QueueMessageEvent;
     /** A queue message used its last attempt. */
     "queue.message.dead": QueueMessageEvent;
+    /** A session, or every session of a user, was revoked; emitted by the `auth` native per provider while `events` is enabled. */
+    "auth.session.revoked": SessionRevokedEvent;
     /** The overall readiness of a worker changed; emitted by the `health` native while `events` is enabled. */
     "health.status.changed": HealthStatusChangedEvent;
   }

@@ -69,6 +69,24 @@ provider(provider: AuthProvider): void;
 
 Registers an authentication provider; providers are tried in registration order. Only available during setup.
 
+### `revoke`
+
+```ts
+revoke(target: RevokeTarget): Promise<void>;
+```
+
+Revokes one session or every session of a user: calls `revoke` of every provider that has it (a failure is logged
+as `auth.revoke.failed` and the others still run), emits `auth.session.revoked` per provider while `events` is on,
+and runs the `onRevoke` callbacks.
+
+### `onRevoke`
+
+```ts
+onRevoke(fn: (target: RevokeTarget) => unknown): void;
+```
+
+Runs `fn` after every revocation, like closing the sockets of a revoked session. Only available during setup.
+
 ## Error codes
 
 | Status | Code | Message |

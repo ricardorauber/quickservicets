@@ -1,5 +1,5 @@
 import { boolean, defineFeature, HttpError, list, object, runtimeTargets, safeLog, string, taggedRoutes, type HandlerMiddleware, type Logger, type RequestUser, type ServiceRequest } from "../public.ts";
-import { AuthError, type AuthApi, type AuthProvider, type AuthResult, type RequestAuth } from "./api.ts";
+import { AuthError, type AuthApi, type AuthProvider, type AuthResult, type RequestAuth, type RevokeTarget } from "./api.ts";
 import { buildRouteRules, parseRoleEntry, type RouteRule } from "./routes.ts";
 import { markOperations } from "./openapi.ts";
 import { isTestProvider } from "./test-provider.ts";
@@ -129,7 +129,7 @@ function logFailure(logger: Logger, req: ServiceRequest, provider: string | unde
 }
 
 /** The providers of each running setup, for the feature API. */
-const statesOf = new WeakMap<object, { providers: AuthProvider[]; open: boolean; production: boolean }>();
+const statesOf = new WeakMap<object, { providers: AuthProvider[]; open: boolean; production: boolean; onRevoke: ((target: RevokeTarget) => unknown)[] }>();
 
 /**
  * The `auth` native: one contract for every authentication provider. Providers registered by features are tried for
@@ -188,7 +188,7 @@ const authFeature = defineFeature({
     },
   },
   setup(ctx) {
-    const state = { providers: [] as AuthProvider[], open: true, production: ctx.config.production };
+    const state = { providers: [] as AuthProvider[], open: true, production: ctx.config.production, onRevoke: [] as ((target: RevokeTarget) => unknown)[] };
     statesOf.set(ctx.options, state);
     const { providers } = state;
     currentProviders = providers;
@@ -267,6 +267,42 @@ const authFeature = defineFeature({
         if (state.providers.some((registered) => registered.name === provider.name)) throw new Error(`Auth provider ${provider.name} is registered twice`);
         state.providers.push(provider);
       },
+      async revoke(target) {
+        if (typeof target !== "object" || target === null || (typeof (target as { sessionId?: unknown }).sessionId !== "string" && typeof (target as { userId?: unknown }).userId !== "string")) {
+          throw new Error("auth revoke() expects { sessionId } or { userId }");
+        }
+        const failed = (source: Record<string, unknown>, error: unknown) =>
+          safeLog(ctx.logger, "error", { timestamp: new Date().toISOString(), message: "auth.revoke.failed", ...source, error: { message: (error as Error)?.message ?? String(error) } });
+        const events = ctx.config.features.some((feature) => feature.key === "events");
+        for (const provider of state.providers) {
+          if (typeof provider.revoke !== "function") continue;
+          try {
+            await provider.revoke(target);
+          } catch (error) {
+            failed({ provider: provider.name }, error);
+            continue;
+          }
+          if (events) {
+            try {
+              await ctx.events.emit("auth.session.revoked", { ...target, provider: provider.name });
+            } catch (error) {
+              failed({ provider: provider.name, event: "auth.session.revoked" }, error);
+            }
+          }
+        }
+        for (const fn of state.onRevoke) {
+          try {
+            await fn(target);
+          } catch (error) {
+            failed({ callback: "onRevoke" }, error);
+          }
+        }
+      },
+      onRevoke(fn) {
+        if (!state.open) throw new Error("auth onRevoke() is only available during setup");
+        if (typeof fn !== "function") throw new Error("auth onRevoke() expects a function");
+        state.onRevoke.push(fn);
+      },
     };
   },
 });
@@ -274,8 +310,12 @@ const authFeature = defineFeature({
 export default authFeature;
 export { authFeature };
 export { AuthError } from "./api.ts";
-export type { AuthApi, AuthCredentials, AuthMethod, AuthProvider, AuthResult, AuthResultUser, RequestAuth, RevokeTarget } from "./api.ts";
+export type { AuthApi, AuthCredentials, AuthMethod, AuthProvider, AuthResult, AuthResultUser, RequestAuth, RevokeTarget, SessionRevokedEvent } from "./api.ts";
 export { isTestProvider, parseTestUser, testAuth } from "./test-provider.ts";
+export { dummyPasswordCheck, identifierHash, invalidCredentials, loginGuard, memoryThrottleStore, repositoryThrottleStore, ThrottleConflictError, tooManyAttempts } from "./kit.ts";
+export type { LoginCheck, LoginGuard, LoginGuardOptions, LoginThrottleRecord, LoginThrottleStore } from "./kit.ts";
+export { sessionStore, tokenHashOf } from "./sessions.ts";
+export type { SessionStore, SessionStoreOptions, StoredSession } from "./sessions.ts";
 export { addAuthScheme, hasSecurityScheme, markOperations, NO_AUTH_SCHEME_WARNING } from "./openapi.ts";
 export type { OperationAuth } from "./openapi.ts";
 export { buildRouteRules, parseRoleEntry, ROLE_GROUPS, ROLE_OPERATIONS, ruleOf } from "./routes.ts";

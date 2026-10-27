@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { boolean, defineCommand, jsonLogger, object, oneOf, string, type CommandContext, type EntityModel, type Repositories } from "../public.ts";
 import { TENANT_ID } from "./resolve.ts";
 import { schemaNameOf } from "./scopes.ts";
-import { provision, strategyOf, tenantOperations, type TenantOperations, type TenantWriter } from "./tenants.ts";
+import { provision, strategyResolver, tenantOperations, type TenantOperations, type TenantWriter } from "./tenants.ts";
 
 /** Connects to the database and builds the tenant operations of the project, with the `Tenant` repository. */
 async function prepare(ctx: CommandContext<unknown, unknown>): Promise<{ operations: TenantOperations; repos: Repositories }> {
@@ -32,8 +32,9 @@ const listCommand = defineCommand({
   async run(ctx) {
     const { operations } = await prepare(ctx);
     const listed: Record<string, unknown>[] = [];
+    const strategyOf = strategyResolver(operations.options.strategy);
     for await (const tenant of operations.directory.list()) {
-      const strategy = strategyOf(tenant, operations.options);
+      const strategy = await strategyOf(tenant);
       const place = strategy === "schema" ? schemaNameOf(tenant, operations.options.schema) : "database";
       // A tenant whose database cannot be opened shows ? instead of a count.
       const pending = ctx.flags.pending ? await operations.pending(tenant).catch(() => "?" as const) : undefined;

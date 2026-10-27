@@ -1,7 +1,13 @@
 import type { TenantInfo } from "./directory.ts";
 import type { PoolStats } from "./pools.ts";
 import type { TenantProvisionResult } from "./tenants.ts";
-import type { TenantRunContext } from "../public.ts";
+import type { FeatureHook, ServiceRequest, TenantRunContext } from "../public.ts";
+import type { TenantDirectory } from "./directory.ts";
+
+/** Finds the tenant id of a request, replacing the sources of `tenancy.from` (`tenancy.resolver`). */
+export interface TenantResolver {
+  resolve(input: { req: ServiceRequest; url: URL; user: ServiceRequest["user"] }): string | undefined | null | Promise<string | undefined | null>;
+}
 
 /** The feature API of `tenancy`, reached with `ctx.feature("tenancy")` from a feature that lists `tenancy` in `requires` or `after`. */
 export interface TenancyApi {
@@ -25,4 +31,14 @@ export interface TenancyApi {
   run<T>(id: string, fn: (context: TenantRunContext) => T | Promise<T>): Promise<T>;
   /** Applies the pending migrations to one tenant; rejects with `Unknown tenant <id>` for an unknown one. */
   migrate(id: string): Promise<TenantProvisionResult>;
+  /** Replaces the directory source, keeping the cache; only during setup, and only once (the config's `directory` counts). */
+  setDirectory(directory: TenantDirectory): void;
+  /** Appends a `beforeResolve` hook after the config's: returning another id replaces it, null drops it. */
+  addHook(name: "beforeResolve", fn: FeatureHook<{ id: string | undefined; source: string | undefined; req: ServiceRequest }, undefined>): void;
+  /** Appends an `afterResolve` hook after the config's. */
+  addHook(name: "afterResolve", fn: FeatureHook<{ tenant: TenantInfo; req: ServiceRequest }, undefined>): void;
+  /** Appends an `onUnknownTenant` hook after the config's. */
+  addHook(name: "onUnknownTenant", fn: FeatureHook<{ id: string; req: ServiceRequest }, undefined>): void;
+  /** Appends an `onPoolOpen` or `onPoolClose` hook after the config's. */
+  addHook(name: "onPoolOpen" | "onPoolClose", fn: FeatureHook<{ tenant: string; reason?: string }, undefined>): void;
 }

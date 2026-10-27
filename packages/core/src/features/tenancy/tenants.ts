@@ -10,7 +10,7 @@ export interface TenancyOptions {
   source: "database" | "config" | "service";
   tenants: Record<string, Record<string, unknown>>;
   service?: string;
-  strategy: "schema" | "database";
+  strategy: StrategyOption;
   schema: string;
   connection?: ConnectionOption;
   connectionService?: string;
@@ -36,8 +36,34 @@ export function tenancyOptionsOf(config: ResolvedConfig): TenancyOptions | undef
   return config.features.find((feature) => feature.key === "tenancy")?.options as TenancyOptions | undefined;
 }
 
-/** The strategy of a tenant: its own, else the configured one. */
-export const strategyOf = (tenant: TenantInfo, options: TenancyOptions): "schema" | "database" => tenant.strategy ?? options.strategy;
+/** The `tenancy.strategy` option: a strategy, or a function of the tenant choosing one. */
+export type StrategyOption = "schema" | "database" | ((context: { tenant: TenantInfo }) => unknown);
+
+/**
+ * The strategy of each tenant: its own, else the option's, calling a function option once per tenant and keeping the
+ * answer (it fails on an answer that is not a strategy).
+ */
+export function strategyResolver(option: StrategyOption): (tenant: TenantInfo) => Promise<"schema" | "database"> {
+  const decided = new Map<string, Promise<"schema" | "database">>();
+  return (tenant) => {
+    if (tenant.strategy) return Promise.resolve(tenant.strategy);
+    if (typeof option !== "function") return Promise.resolve(option);
+    let found = decided.get(tenant.id);
+    if (!found) {
+      found = Promise.resolve(option({ tenant })).then((value) => {
+        if (value !== "schema" && value !== "database") throw new Error(`Invalid tenancy.strategy for tenant ${tenant.id}: expected "schema" or "database"`);
+        return value;
+      });
+      found.catch(() => decided.delete(tenant.id));
+      decided.set(tenant.id, found);
+    }
+    return found;
+  };
+}
+
+/** The strategy of a tenant without a function option: its own, else the configured one. */
+export const strategyOf = (tenant: TenantInfo, options: TenancyOptions): "schema" | "database" =>
+  tenant.strategy ?? (typeof options.strategy === "function" ? "schema" : options.strategy);
 
 /**
  * The operations on tenants of a service: its directory, and migrating a tenant in its schema of `root` or in its own
@@ -63,8 +89,9 @@ export function tenantOperations(input: { config: ResolvedConfig; models: readon
     ttlMs: 0,
     logger: input.logger,
   });
+  const strategy = strategyResolver(options.strategy);
   const open = async (tenant: TenantInfo) => {
-    if (strategyOf(tenant, options) === "schema") {
+    if ((await strategy(tenant)) === "schema") {
       if (!root.withSchema) throw new Error(`tenancy strategy "schema" needs an adapter with withSchema(); the ${root.kind ?? "configured"} adapter has none`);
       const schema = schemaNameOf(tenant, options.schema);
       return { adapter: root.withSchema(schema), schema, close: async () => {} };

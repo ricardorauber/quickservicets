@@ -65,7 +65,7 @@ describe("the database source", () => {
       () => undefined,
       (error: Error) => error.message,
     );
-    expect(failure).toBe('tenancy failed in setup: tenancy.source is "database" but the Tenant entity is missing; rebuild and run quickservicets migration add');
+    expect(failure).toBe('tenancy failed in onStart: tenancy.source is "database" but the Tenant entity is missing; rebuild and run quickservicets migration add');
   });
 
   test("a Tenant row resolves its tenant", async () => {

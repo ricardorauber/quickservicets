@@ -602,7 +602,7 @@ Every option, tag, command and hook of `tenancy` is on [its reference page](/ref
 | `tenancy.path` | `string` | `"/t/[tenant]"` | `QS_TENANCY_PATH` | The path prefix of the path source, with a [tenant] segment; it is removed before routing. |
 | `tenancy.resolve` | `string` | — | `QS_TENANCY_RESOLVE` | The function source: a function of the request and its user returning the tenant id or undefined; required when from lists function. |
 | `tenancy.required` | `boolean` | `true` | `QS_TENANCY_REQUIRED` | Answers 400 to requests without a tenant on routes that are not exempt; @tenancy required=false relaxes one endpoint. |
-| `tenancy.strategy` | `"schema" \| "database"` | `"schema"` | `QS_TENANCY_STRATEGY` | Where the data of tenants that set no strategy of their own lives: a schema of the service's database per tenant, or a database per tenant. |
+| `tenancy.strategy` | `"schema" \| "database"` | `"schema"` | `QS_TENANCY_STRATEGY` | Where the data of tenants that set no strategy of their own lives: a schema of the service's database per tenant, or a database per tenant; a function of the tenant decides per tenant, once per tenant scope. |
 | `tenancy.schema` | `string` | `"tenant-{tenant}"` | `QS_TENANCY_SCHEMA` | The schema name of schema-strategy tenants without their own: `{tenant}` is replaced by the tenant id. |
 | `tenancy.pools.max` | `integer` | `50` | `QS_TENANCY_POOLS_MAX` | Most tenant database pools each worker keeps open; the least recently used idle one closes to make room. |
 | `tenancy.pools.connections` | `integer` | `2` | `QS_TENANCY_POOLS_CONNECTIONS` | Connections of each tenant database pool, per worker. |
@@ -612,6 +612,13 @@ Every option, tag, command and hook of `tenancy` is on [its reference page](/ref
 | `tenancy.connectionService` | `string` | — | `QS_TENANCY_CONNECTION_SERVICE` | The http.services entry asked for a tenant's connection as GET /tenants/:id/connection, after the other sources. |
 | `tenancy.connectionCache.ttl` | `duration` | `"10m"` | `QS_TENANCY_CONNECTION_CACHE_TTL` | How long each worker keeps a resolved connection without a ttl of its own. |
 | `tenancy.relay.interval` | `duration` | `"1m"` | `QS_TENANCY_RELAY_INTERVAL` | How often each worker relays the queue and outbox rows that database-strategy tenants staged in their open pools; delivery is at least once, delayed by up to this interval after a crash, so consumers must be idempotent. |
+| `tenancy.beforeResolve` | `hook` | — | not overridable | Runs after the sources with the id found (or undefined), its source and the request; returning another id replaces it, null leaves the request without a tenant, and a throw refuses it with that error. |
+| `tenancy.afterResolve` | `hook` | — | not overridable | Runs once a request's tenant is known and active, with the tenant and the request; a failure is logged. |
+| `tenancy.onUnknownTenant` | `hook` | — | not overridable | Runs when the directory does not know a request's tenant id, before the 404. |
+| `tenancy.onPoolOpen` | `hook` | — | not overridable | Runs after a tenant database pool opens. |
+| `tenancy.onPoolClose` | `hook` | — | not overridable | Runs after a tenant database pool closes, with the reason: idle, evicted, shutdown, failed or changed. |
+| `tenancy.directory` | `TenantDirectory` | — | not overridable | Replaces where tenants are looked up (the source), keeping the cache; the build then adds no Tenant entity. |
+| `tenancy.resolver` | `TenantResolver` | — | not overridable | Replaces how a request's tenant id is found: its resolve method gets the request, its URL and its user and returns the id or undefined; the id rule and the mismatch check still apply. |
 | `tenancy.scope` | `"tenant" \| "shared"` | `"tenant"` | `QS_TENANCY_SCOPE` | Whether an entity's records belong to one tenant or are shared by every tenant; set per entity with @tenancy shared. |
 | `tenancy.source` | `"database" \| "config" \| "service"` | `"database"` | `QS_TENANCY_SOURCE` | Where tenants are looked up: the Tenant table of the service's database, the tenants option, or another service through the HTTP client. |
 | `tenancy.tenants.<name>.plan` | `record of string` | — | `QS_TENANCY_TENANTS_<NAME>_PLAN` | The tenant's plan, in req.tenant.plan. |

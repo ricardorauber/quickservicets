@@ -27,14 +27,19 @@ import {
   record,
   secret,
   string,
+  hook,
+  provider,
+  runAfterHooks,
+  type EntityModel,
   type HandlerMiddleware,
   type RequestMiddleware,
   type ServiceRequest,
 } from "../public.ts";
-import type { TenancyApi } from "./api.ts";
+import type { TenancyApi, TenantResolver } from "./api.ts";
 import { isMissingTable, tenantScopes } from "./scopes.ts";
 import { connectionResolver, type ConnectionOption } from "./connections.ts";
 import { tenancyCommands } from "./commands.ts";
+import { strategyResolver, type StrategyOption } from "./tenants.ts";
 import { provision, tenantOperations, type TenantOperations, type TenantProvisionResult, type TenantWriter } from "./tenants.ts";
 import { resolve } from "node:path";
 import { RELAY_MIN_AGE_MS, relayState, stagedModel, stagingModels, tenantRelay } from "./relay.ts";
@@ -54,6 +59,7 @@ import {
   type CachedDirectory,
   type TenantDirectory,
   type TenantInfo,
+  TENANT_FIELDS,
 } from "./directory.ts";
 import {
   compilePathPattern,
@@ -83,7 +89,10 @@ const options = object({
   required: boolean().default(true).describe("Answers 400 to requests without a tenant on routes that are not exempt; @tenancy required=false relaxes one endpoint."),
   strategy: oneOf(["schema", "database"])
     .default("schema")
-    .describe("Where the data of tenants that set no strategy of their own lives: a schema of the service's database per tenant, or a database per tenant."),
+    .perRequest()
+    .describe(
+      "Where the data of tenants that set no strategy of their own lives: a schema of the service's database per tenant, or a database per tenant; a function of the tenant decides per tenant, once per tenant scope.",
+    ),
   schema: string()
     .default("tenant-{tenant}")
     .describe("The schema name of schema-strategy tenants without their own: `{tenant}` is replaced by the tenant id."),
@@ -116,6 +125,19 @@ const options = object({
     .describe(
       "The relay of queue messages and outbox rows that database-strategy tenants stage in their own database: delivery is at least once, delayed by up to relay.interval after a crash, so consumers must be idempotent.",
     ),
+  beforeResolve: hook<{ id: string | undefined; source: string | undefined; req: ServiceRequest }, undefined>().describe(
+    "Runs after the sources with the id found (or undefined), its source and the request; returning another id replaces it, null leaves the request without a tenant, and a throw refuses it with that error.",
+  ),
+  afterResolve: hook<{ tenant: TenantInfo; req: ServiceRequest }, undefined>().describe("Runs once a request's tenant is known and active, with the tenant and the request; a failure is logged."),
+  onUnknownTenant: hook<{ id: string; req: ServiceRequest }, undefined>().describe("Runs when the directory does not know a request's tenant id, before the 404."),
+  onPoolOpen: hook<{ tenant: string; reason?: string }, undefined>().describe("Runs after a tenant database pool opens."),
+  onPoolClose: hook<{ tenant: string; reason?: string }, undefined>().describe("Runs after a tenant database pool closes, with the reason: idle, evicted, shutdown, failed or changed."),
+  directory: provider<TenantDirectory>("TenantDirectory", ["find", "list"])
+    .optional()
+    .describe("Replaces where tenants are looked up (the source), keeping the cache; the build then adds no Tenant entity."),
+  resolver: provider<TenantResolver>("TenantResolver", ["resolve"])
+    .optional()
+    .describe("Replaces how a request's tenant id is found: its resolve method gets the request, its URL and its user and returns the id or undefined; the id rule and the mismatch check still apply."),
   scope: oneOf(["tenant", "shared"])
     .default("tenant")
     .describe("Whether an entity's records belong to one tenant or are shared by every tenant; set per entity with @tenancy shared."),
@@ -169,7 +191,7 @@ const poolsOf = new WeakMap<object, TenantPools>();
 const statesOf = new WeakMap<object, { exemptions: TenantExemptions; directory: CachedDirectory }>();
 
 /** The active tenant of an id, or the answer for an unknown, suspended or unreachable one. */
-async function lookUp(directory: CachedDirectory, id: string, logger: Logger) {
+async function lookUp(directory: CachedDirectory, id: string, logger: Logger, unknown?: (id: string) => Promise<void>) {
   let tenant;
   try {
     tenant = await directory.find(id);
@@ -180,6 +202,7 @@ async function lookUp(directory: CachedDirectory, id: string, logger: Logger) {
   const log = (message: string) => safeLog(logger, "info", { timestamp: new Date().toISOString(), message, tenant: id });
   if (!tenant) {
     log("tenancy.unknown");
+    await unknown?.(id);
     throw tenantNotFound();
   }
   if (tenant.status === "suspended") {
@@ -192,19 +215,33 @@ async function lookUp(directory: CachedDirectory, id: string, logger: Logger) {
 /** The directory of the configured source with its cache, and the refresh of local writes to the Tenant table. */
 function setUpDirectory(ctx: Parameters<NonNullable<typeof tenancyFeature.setup>>[0]): CachedDirectory {
   const options = ctx.options;
-  let source: TenantDirectory;
-  if (options.source === "database") {
-    const model = ctx.models.find((candidate) => candidate.key === "Tenant");
-    if (!model) throw new Error('tenancy.source is "database" but the Tenant entity is missing; rebuild and run quickservicets migration add');
-    source = databaseDirectory(ctx.config.database, model);
-  } else if (options.source === "config") {
-    source = configDirectory(options.tenants as Record<string, Record<string, unknown>>);
-  } else {
-    source = serviceDirectory(options.service!);
+  // A directory provider of the config, or one a feature sets during setup, replaces the source; the cache stays.
+  const slot = slotOf(ctx.options);
+  if (options.directory) {
+    slot.source = options.directory as TenantDirectory;
+    slot.owner = "the config (tenancy.directory)";
+  }
+  const model = ctx.models.find((candidate) => candidate.key === "Tenant");
+  let source: TenantDirectory | undefined;
+  const defaultSource = (): TenantDirectory => {
+    if (options.source === "database") {
+      if (!model) throw new Error('tenancy.source is "database" but the Tenant entity is missing; rebuild and run quickservicets migration add');
+      return databaseDirectory(ctx.config.database, model);
+    }
+    if (options.source === "config") return configDirectory(options.tenants as Record<string, Record<string, unknown>>);
+    return serviceDirectory(options.service!);
+  };
+  if (!slot.source) {
+    if (options.source === "database" && !model) {
+      // A later feature may still set the directory in its setup; without one, startup fails once setups are done.
+      ctx.app.onStart(() => {
+        if (!slot.source) defaultSource();
+      });
+    } else source = defaultSource();
   }
   const cache = options.cache;
   const directory = cachedDirectory(
-    () => source,
+    () => slot.source ?? (source ??= defaultSource()),
     {
       ttl: parseDuration(cache.ttl) ?? 300_000,
       negativeTtl: parseDuration(cache.negativeTtl) ?? 30_000,
@@ -213,7 +250,7 @@ function setUpDirectory(ctx: Parameters<NonNullable<typeof tenancyFeature.setup>
     },
     ctx.logger,
   );
-  if (options.source === "database") {
+  if (options.source === "database" && model) {
     // Writes through this worker's repositories refresh its cache once they commit; other workers see them within the ttl.
     const stop = observeWrites({
       entities: ["Tenant"],
@@ -234,6 +271,24 @@ function setUpDirectory(ctx: Parameters<NonNullable<typeof tenancyFeature.setup>
   return directory;
 }
 
+/** The directory replacing the configured source, and who set it: the config's provider or a feature. */
+const slots = new WeakMap<object, { source?: TenantDirectory; owner?: string }>();
+const slotOf = (options: object) => {
+  let slot = slots.get(options);
+  if (!slot) slots.set(options, (slot = {}));
+  return slot;
+};
+
+/** The fields of the `Tenant` entity tenancy reads; a project `entities/Tenant.ts` keeps them, with their types. */
+export function assertTenantFields(model: EntityModel): void {
+  for (const [name, definition] of Object.entries(TENANT_FIELDS)) {
+    const found = model.fields.find((item) => item.name === name);
+    // Entity files write the attributes as an object type; the native's own table stores them as JSON.
+    const accepted = definition.type === "json" ? ["json", "object"] : [definition.type];
+    if (!found || !accepted.includes(found.type)) throw new Error(`entities/Tenant.ts: Tenant needs the field ${name} (${definition.type}) used by tenancy`);
+  }
+}
+
 /** The tenant segment the path source found in each request, before the prefix was removed. */
 const pathTenants = new WeakMap<Request, string>();
 
@@ -244,7 +299,26 @@ const pathTenants = new WeakMap<Request, string>();
  */
 const tenancyFeature = defineFeature({
   key: "tenancy",
-  docs: { summary: "Multi-tenancy: every request is resolved to a tenant from a header, a subdomain, a path prefix, the credentials or a function." },
+  docs: {
+    summary: "Multi-tenancy: every request is resolved to a tenant from a header, a subdomain, a path prefix, the credentials or a function.",
+    sections: [
+      {
+        title: "Error codes",
+        text: [
+          "| Status | Code | Message |",
+          "| --- | --- | --- |",
+          "| 400 | `INVALID_TENANT` | Invalid tenant id |",
+          "| 400 | `TENANT_REQUIRED` | Tenant is required |",
+          "| 403 | `TENANT_MISMATCH` | Tenant does not match the credentials |",
+          "| 403 | `TENANT_SUSPENDED` | Tenant is suspended |",
+          "| 404 | `TENANT_NOT_FOUND` | Tenant not found |",
+          "| 409 | `TENANT_EXISTS` | Tenant `<id>` already exists |",
+          "| 503 | `TENANT_DIRECTORY_UNAVAILABLE` | Tenant directory is unavailable |",
+          "| 503 | `TENANT_UNAVAILABLE` | Tenant is not ready, Tenant database is unavailable, or Too many tenant databases are busy |",
+        ].join("\n"),
+      },
+    ],
+  },
   options,
   validate(resolved) {
     const problems: string[] = [];
@@ -263,7 +337,13 @@ const tenancyFeature = defineFeature({
     return problems;
   },
   // The Tenant table of the database source; nothing with the other sources.
-  entities: ({ options }) => (options.source === "database" ? [tenantEntity()] : []),
+  entities: ({ models, options }) => {
+    if (options.source !== "database" || options.directory) return [];
+    // A project `entities/Tenant.ts` replaces the table, keeping every field the native reads.
+    const project = models.find((model) => model.key === "Tenant" && !model.feature);
+    if (project) assertTenantFields(project);
+    return [tenantEntity()];
+  },
   after: ["http"],
   jobs: "./jobs",
   commands: tenancyCommands,
@@ -285,6 +365,8 @@ const tenancyFeature = defineFeature({
   setup(ctx) {
     const from = ctx.options.from as readonly TenantSource[];
     const root = ctx.config.database;
+    // A strategy function decides per tenant, once per tenant scope; a tenant's own strategy comes first.
+    const strategyOf = strategyResolver(ctx.options.strategy as StrategyOption);
     if (ctx.options.strategy === "schema" && typeof root.withSchema !== "function") {
       throw new Error(`tenancy strategy "schema" needs an adapter with withSchema(); the ${root.kind ?? "configured"} adapter has none`);
     }
@@ -305,7 +387,13 @@ const tenancyFeature = defineFeature({
       root,
       tenantModels: [...ctx.models.filter((model) => model.tenancy === "tenant"), ...stagingModels(ctx.models)],
       // Rows a crash left between a commit and its relay move when the pool opens again.
-      ...(coreModels.size > 0 ? { onOpen: (tenant: TenantInfo, pool: TenantPool) => void relayer.relay(tenant.id, pool.adapter, RELAY_MIN_AGE_MS) } : {}),
+      onOpen: async (tenant: TenantInfo, pool: TenantPool) => {
+        if (coreModels.size > 0) void relayer.relay(tenant.id, pool.adapter, RELAY_MIN_AGE_MS);
+        if (ctx.options.onPoolOpen.length > 0) await runAfterHooks(ctx.options.onPoolOpen, { tenant: tenant.id }, undefined);
+      },
+      onClose: async (tenant: string, reason: string) => {
+        if (ctx.options.onPoolClose.length > 0) await runAfterHooks(ctx.options.onPoolClose, { tenant, reason }, undefined);
+      },
       workers: ctx.config.server.workers,
       settings: {
         max: poolOptions.max,
@@ -339,7 +427,7 @@ const tenancyFeature = defineFeature({
     const operationsOf = () => (operations ??= tenantOperations({ config: ctx.config, models: ctx.models, projectRoot, logger: ctx.logger }));
     relayState.all = async () => {
       for await (const tenant of directory.list()) {
-        if (tenant.status !== "active" || (tenant.strategy ?? ctx.options.strategy) !== "database" || coreModels.size === 0) continue;
+        if (tenant.status !== "active" || (await strategyOf(tenant)) !== "database" || coreModels.size === 0) continue;
         const lease = await pools.acquire(tenant);
         try {
           await relayer.relay(tenant.id, lease.pool.adapter, RELAY_MIN_AGE_MS);
@@ -362,7 +450,7 @@ const tenancyFeature = defineFeature({
      * database; missing tables answer 503 Tenant is not ready.
      */
     const enter = async <T>(tenant: TenantInfo, fn: (scope: DatabaseScope) => T | Promise<T>): Promise<T> => {
-      const strategy = tenant.strategy ?? ctx.options.strategy;
+      const strategy = await strategyOf(tenant);
       let lease: PoolLease | undefined;
       try {
         let scope: DatabaseScope;
@@ -462,6 +550,7 @@ const tenancyFeature = defineFeature({
       return decision;
     };
 
+    const customResolver = ctx.options.resolver as TenantResolver | undefined;
     const resolveTenant: HandlerMiddleware = {
       stage: "handler",
       // After authentication (100), before the security limits keyed by tenant (1000).
@@ -472,24 +561,44 @@ const tenancyFeature = defineFeature({
         const credential = (req.tenant as { id?: unknown } | undefined)?.id;
         const fromCredentials = credential === undefined ? undefined : String(credential);
         let id: string | undefined;
-        let resolvedFrom: TenantSource | undefined;
-        for (const source of from) {
-          const value = await read[source](req, fromCredentials);
-          if (value === undefined) continue;
+        let resolvedFrom: string | undefined;
+        const accept = (value: string, source: string) => {
           if (!TENANT_ID.test(value)) throw invalidTenant();
           if (fromCredentials !== undefined && value !== fromCredentials) throw tenantMismatch();
           if (id === undefined) {
             id = value;
             resolvedFrom = source;
           }
+        };
+        if (customResolver) {
+          // A resolver of the config replaces the sources; the id rule and the mismatch check still apply.
+          const value = await customResolver.resolve({ req, url: new URL(req.raw.url), user: req.user });
+          if (value !== undefined && value !== null) accept(String(value), "resolver");
+        } else {
+          for (const source of from) {
+            const value = await read[source](req, fromCredentials);
+            if (value !== undefined) accept(value, source);
+          }
+        }
+        if (ctx.options.beforeResolve.length > 0) {
+          for (const step of ctx.options.beforeResolve) {
+            const changed = await step({ id, source: resolvedFrom, req }, undefined);
+            if (changed === null) id = undefined;
+            else if (typeof changed === "string") {
+              if (!TENANT_ID.test(changed)) throw invalidTenant();
+              id = changed;
+            }
+          }
         }
         if (id === undefined) {
           if (decision.required) throw tenantRequired();
           return next();
         }
-        const tenant = await lookUp(directory, id, ctx.logger);
+        const resolved = id;
+        const tenant = await lookUp(directory, resolved, ctx.logger, ctx.options.onUnknownTenant.length > 0 ? (unknownId) => runAfterHooks(ctx.options.onUnknownTenant, { id: unknownId, req }, undefined) : undefined);
         safeLog(ctx.logger, "debug", { timestamp: new Date().toISOString(), message: "tenancy.resolved", tenant: id, source: resolvedFrom });
-        req.tenant = { id, ...(tenant.plan !== undefined ? { plan: tenant.plan } : {}), attributes: tenant.attributes } as ServiceRequest["tenant"];
+        req.tenant = { id: resolved, ...(tenant.plan !== undefined ? { plan: tenant.plan } : {}), attributes: tenant.attributes } as ServiceRequest["tenant"];
+        if (ctx.options.afterResolve.length > 0) await runAfterHooks(ctx.options.afterResolve, { tenant, req }, undefined);
         return enter(tenant, () => next());
       },
     };
@@ -555,6 +664,15 @@ const tenancyFeature = defineFeature({
       provision: (info) => runningOf.get(ctx.options)!.provision(info),
       migrate: (id) => runningOf.get(ctx.options)!.migrate(id),
       run: (id, fn) => runForTenant(id, fn),
+      addHook: ctx.addHook as TenancyApi["addHook"],
+      setDirectory(source) {
+        if (typeof source?.find !== "function" || typeof source.list !== "function") throw new Error("tenancy setDirectory() expects a TenantDirectory with the methods find, list");
+        const slot = slotOf(ctx.options);
+        const caller = ctx.currentFeature() ?? "a feature";
+        if (slot.owner !== undefined) throw new Error(`The tenant directory is set by ${slot.owner} and ${caller}; keep one`);
+        slot.owner = caller;
+        slot.source = source;
+      },
     };
   },
 });

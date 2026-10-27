@@ -114,6 +114,11 @@ Every option, tag, command and hook of `security` is on [its reference page](/re
 | `security.ip.allow` | `cidr[]` | `[]` | `QS_SECURITY_IP_ALLOW` | When not empty, only these addresses are served: addresses, CIDR blocks or loopback, private and linklocal. |
 | `security.ip.deny` | `cidr[]` | `[]` | `QS_SECURITY_IP_DENY` | Addresses refused with 403; a deny match wins over an allow match. |
 | `security.ip.onBlocked` | `hook` | — | not overridable | Runs after a request is refused for its address. |
+| `security.csrf.enabled` | `boolean` | `true` | `QS_SECURITY_CSRF_ENABLED` | Refuses cross-site writes (POST, PUT, PATCH, DELETE) that ride on a session cookie with 403; requests authenticated by tokens, or not at all, skip it. Turns it off when false. |
+| `security.csrf.mode` | `"origin" \| "token"` | `"origin"` | `QS_SECURITY_CSRF_MODE` | How cookie-authenticated writes prove they come from the service's pages: their Origin (or Referer) and Sec-Fetch-Site headers, or a token header equal to the CSRF cookie. |
+| `security.csrf.origins` | `string[]` | `[]` | `QS_SECURITY_CSRF_ORIGINS` | Origins allowed to send cookie-authenticated writes besides the service's own and security.cors.origins. |
+| `security.csrf.cookie` | `string` | `"qs_csrf"` | `QS_SECURITY_CSRF_COOKIE` | The cookie that carries the token in token mode. |
+| `security.csrf.header` | `string` | `"x-csrf-token"` | `QS_SECURITY_CSRF_HEADER` | The request header that must repeat the cookie's token in token mode. |
 | `security.masking.enabled` | `boolean` | `true` | `QS_SECURITY_MASKING_ENABLED` | Keeps secret values and fields tagged @sensitive out of log entries, job run records and development error responses. Turns it off when false. |
 | `security.masking.keys` | `string[]` | `["password","passwd","secret","token","apikey","authorization","cookie","setcookie","privatekey","clientsecret","signature","creditcard","cardnumber","cvv"]` | `QS_SECURITY_MASKING_KEYS` | A logged property whose name contains one of these (ignoring case, - and _) shows [secret] instead of its value. |
 | `security.enabled` | `boolean` | `true` | `QS_SECURITY_ENABLED` | Turns the feature off when false. |
@@ -207,6 +212,21 @@ Replaces the CORS options for the preflights and requests of one route or of an 
 
 ```ts
 /** @cors origins=https://partner.example credentials=true */
+export default handler;
+```
+
+#### `@csrf`
+
+`@csrf off` lets one route, or each route of an entity, accept cookie-authenticated writes from other sites, like a beacon endpoint.
+
+**Applies to:** endpoints, entities
+
+**Options:** none (a flag: `@csrf` or `@csrf off`)
+
+**Syntax:** `@csrf` or `@csrf off`
+
+```ts
+/** @csrf off */
 export default handler;
 ```
 

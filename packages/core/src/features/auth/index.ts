@@ -1,4 +1,4 @@
-import { boolean, defineFeature, HttpError, list, object, runtimeTargets, safeLog, string, taggedRoutes, type HandlerMiddleware, type Logger, type RequestUser, type ServiceRequest } from "../public.ts";
+import { boolean, cookieValue, defineFeature, HttpError, list, object, runtimeTargets, safeLog, string, taggedRoutes, type HandlerMiddleware, type Logger, type RequestUser, type ServiceRequest } from "../public.ts";
 import { AuthError, type AuthApi, type AuthProvider, type AuthResult, type RequestAuth, type RevokeTarget } from "./api.ts";
 import { buildRouteRules, parseRoleEntry, type RouteRule } from "./routes.ts";
 import { markOperations } from "./openapi.ts";
@@ -48,15 +48,6 @@ export function requireRole(req: Pick<ServiceRequest, "user">, ...roles: string[
 /** The `req.auth` of each authenticated request. */
 const authOf = new WeakMap<ServiceRequest, RequestAuth>();
 
-/** The value of one cookie of a `Cookie` header, or undefined without it. */
-export function cookieValue(header: string, name: string): string | undefined {
-  for (const part of header.split(";")) {
-    const at = part.indexOf("=");
-    if (at < 0) continue;
-    if (part.slice(0, at).trim() === name) return part.slice(at + 1).trim();
-  }
-  return undefined;
-}
 
 /** The credential names of the registered providers, each with the providers that read it. */
 interface CredentialIndex {

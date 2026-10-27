@@ -9,6 +9,7 @@ import { localStorage } from "./storage/local.ts";
 import { availableCpus, SERVER_WORKERS_ENV, WORKERS_ENV } from "./workers.ts";
 import type { StorageAdapter } from "./storage/storage.ts";
 import { ConfigError } from "./config-error.ts";
+import { configureCookies } from "./cookies.ts";
 import { applyEnvironment } from "./environment.ts";
 import { setHookLogger } from "./feature-hooks.ts";
 import { declaredVariables, readVariables, setEnvValues, type DeclaredVariable } from "./env-vars.ts";
@@ -339,6 +340,7 @@ export function resolveConfig(
   const environment = applyEnvironment(config as unknown as Record<string, unknown>, env, activeFeatureDefinitions());
   config = environment.config as unknown as ServiceConfig;
   const production = config.production ?? false;
+  configureCookies(production);
   const { features, disabledFeatures, enabledBy } = resolveFeatures(config as unknown as Record<string, unknown>);
   assertFeatureFolders(features);
   const variables = declaredVariables(config.env, features.map((feature) => ({ key: feature.key, env: feature.definition.env })));

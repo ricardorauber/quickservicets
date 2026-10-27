@@ -1,4 +1,4 @@
-import { anyOf, hook, normalizeAddress, provider, runAfterHooks, secretVariableValues, boolean, cidr, defineFeature, duration, integer, list, object, oneOf, parseDuration, parseSize, peerAddress, rate, safeLog, size, string, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext, type LogMasker } from "../public.ts";
+import { anyOf, hook, normalizeAddress, provider, runAfterHooks, secretVariableValues, boolean, cidr, defineFeature, duration, integer, list, object, oneOf, parseDuration, parseSize, peerAddress, rate, safeLog, size, string, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext, type LogMasker, type ServiceRequest } from "../public.ts";
 import type { ClientIpResolver, RateLimitRefusal, SecurityApi, SecurityRefusal } from "./api.ts";
 import { corsProblems, corsStep, ownOptionsRoutes, routeCorsOptions } from "./cors.ts";
 import { Exemptions } from "./exempt.ts";
@@ -14,6 +14,7 @@ import { loadSheddingStep } from "./shedding.ts";
 import { memoryRateLimitStore, type RateLimitStore } from "./store.ts";
 import { databaseRateLimitStore, rateLimitCounterEntity } from "./db-store.ts";
 import { buildRouteIndex, type RouteIndex } from "./routes.ts";
+import { csrfMiddleware, type CsrfContext, type CsrfOptions } from "./csrf.ts";
 
 const options = object({
   proxy: toggle({
@@ -90,6 +91,14 @@ const options = object({
     deny: list(cidr()).default([]).describe("Addresses refused with 403; a deny match wins over an allow match."),
     onBlocked: hook<SecurityRefusal, undefined>().describe("Runs after a request is refused for its address."),
   }).describe("Accepts or refuses requests by client address (req.ip), for the whole service or with tags for single routes."),
+  csrf: toggle({
+    mode: oneOf(["origin", "token"])
+      .default("origin")
+      .describe("How cookie-authenticated writes prove they come from the service's pages: their Origin (or Referer) and Sec-Fetch-Site headers, or a token header equal to the CSRF cookie."),
+    origins: list(string()).default([]).describe("Origins allowed to send cookie-authenticated writes besides the service's own and security.cors.origins."),
+    cookie: string().default("qs_csrf").describe("The cookie that carries the token in token mode."),
+    header: string().default("x-csrf-token").describe("The request header that must repeat the cookie's token in token mode."),
+  }).describe("Refuses cross-site writes (POST, PUT, PATCH, DELETE) that ride on a session cookie with 403; requests authenticated by tokens, or not at all, skip it."),
   masking: toggle({
     keys: list(string())
       .default(DEFAULT_MASKED_KEYS)
@@ -276,6 +285,12 @@ const securityFeature = defineFeature({
       description: "Replaces the CORS options for the preflights and requests of one route or of an entity's routes; `@cors off` turns CORS handling off there.",
       example: "/** @cors origins=https://partner.example credentials=true */\nexport default handler;",
     },
+    csrf: {
+      on: ["endpoint", "entity"],
+      scope: "csrf",
+      description: "`@csrf off` lets one route, or each route of an entity, accept cookie-authenticated writes from other sites, like a beacon endpoint.",
+      example: "/** @csrf off */\nexport default handler;",
+    },
     securityHeaders: {
       on: ["endpoint", "entity"],
       scope: "headers",
@@ -336,6 +351,25 @@ const securityFeature = defineFeature({
     }
     if (ctx.options.timeouts.enabled) ctx.app.configureServer({ idleTimeout: Math.ceil(parseDuration(ctx.options.timeouts.idle)! / 1000) });
     if (ctx.options.files.enabled) ctx.app.configureServer({ fileHeaders: fileHeaders(ctx.options.files.attachmentTypes) });
+    // Only the auth native authenticates requests by cookie, so without it no request needs the check.
+    if (ctx.options.csrf.enabled && ctx.config.features.some((feature) => feature.key === "auth")) {
+      const decisions = new Map<string, boolean>();
+      const appliesTo = (req: ServiceRequest) => {
+        const key = `${req.method} ${req.route}`;
+        let applies = decisions.get(key);
+        if (applies === undefined) decisions.set(key, (applies = (securityFeature.optionsFor(req).csrf as { enabled: boolean }).enabled));
+        return applies;
+      };
+      ctx.app.use(
+        csrfMiddleware(ctx.options.csrf as CsrfOptions, {
+          corsOrigins: ctx.options.cors.enabled ? (ctx.options.cors.origins as CsrfContext["corsOrigins"]) : undefined,
+          proxy: ctx.options.proxy,
+          production: ctx.config.production,
+          appliesTo,
+          logger: ctx.logger,
+        }),
+      );
+    }
     if (steps.length > 0) {
       const middlewares = securityMiddlewares(steps, exemptions, () => index, refusalHooks(ctx, ipOf));
       ctx.app.use(middlewares.request);
@@ -374,5 +408,7 @@ export { memoryRateLimitStore, slidingWindowHit } from "./store.ts";
 export { DEFAULT_MASKED_KEYS, maskEntry, maskText, maskUrl } from "./masking.ts";
 export type { MaskingRules } from "./masking.ts";
 export { databaseRateLimitStore } from "./db-store.ts";
+export { csrfMiddleware, csrfRejected, normalizeOrigin, ownOriginReader } from "./csrf.ts";
+export type { CsrfOptions } from "./csrf.ts";
 export type { DatabaseRateLimitStore } from "./db-store.ts";
 export type { MemoryRateLimitStore, RateLimitHit, RateLimitResult, RateLimitStore, WindowCounts } from "./store.ts";

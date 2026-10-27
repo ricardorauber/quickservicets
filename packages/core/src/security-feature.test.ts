@@ -45,7 +45,7 @@ describe("registration and toggles", () => {
       expect(feature.definition.enabledByDefault).toBe(true);
       for (const item of SECURITY_ITEMS) expect((feature.options[item] as { enabled: boolean }).enabled).toBe(true);
     }
-    expect(SECURITY_ITEMS).toEqual(["proxy", "headers", "files", "cors", "limits", "timeouts", "loadShedding", "rateLimit", "ip", "masking"]);
+    expect(SECURITY_ITEMS).toEqual(["proxy", "headers", "files", "cors", "limits", "timeouts", "loadShedding", "rateLimit", "ip", "masking", "csrf"]);
   });
 
   test("security: false and QS_SECURITY_ENABLED=false remove the feature and register no middleware", async () => {
@@ -70,7 +70,7 @@ describe("registration and toggles", () => {
   test("startup logs security.enabled with the enabled items", async () => {
     await setUp(resolve({ security: { cors: false, masking: false } }));
     const entry = logs.find((log) => log.message === "security.enabled");
-    expect(entry).toMatchObject({ feature: "security", items: ["proxy", "headers", "files", "limits", "timeouts", "loadShedding", "rateLimit", "ip"] });
+    expect(entry).toMatchObject({ feature: "security", items: ["proxy", "headers", "files", "limits", "timeouts", "loadShedding", "rateLimit", "ip", "csrf"] });
   });
 });
 

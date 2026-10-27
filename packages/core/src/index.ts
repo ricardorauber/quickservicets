@@ -248,6 +248,8 @@ export type { AnyEvent, CustomEvent, EventActor, EventFor, EventMap, EventOf, Pa
 export { parseRate } from "./rates.ts";
 export type { Rate } from "./rates.ts";
 export { cidrMatcher, matchesCidr, normalizeAddress } from "./cidr.ts";
+export { cookieValue, sessionCookie } from "./cookies.ts";
+export type { SessionCookieOptions } from "./cookies.ts";
 export { declaredVariables, env, readVariables, secretVariableValues, variableType } from "./env-vars.ts";
 export type { DeclaredVariable, EnvVars } from "./env-vars.ts";
 // The natives the core ships, registered when the core loads; they come last, after every export they use.

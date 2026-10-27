@@ -4,7 +4,7 @@ import type { RouteIndex, SecurityRoute } from "./routes.ts";
 import type { RateLimitResult } from "./store.ts";
 
 /** The security items, as the native's option keys. */
-export const SECURITY_ITEMS = ["proxy", "headers", "files", "cors", "limits", "timeouts", "loadShedding", "rateLimit", "ip", "masking"] as const;
+export const SECURITY_ITEMS = ["proxy", "headers", "files", "cors", "limits", "timeouts", "loadShedding", "rateLimit", "ip", "masking", "csrf"] as const;
 
 /** One security item, by its option key. */
 export type SecurityItem = (typeof SECURITY_ITEMS)[number];

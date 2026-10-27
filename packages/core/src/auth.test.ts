@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import "./index.ts";
 import { defineFeature, registerNative, unregisterNative } from "./features.ts";
 import { AuthError, type AuthProvider } from "./features/auth/api.ts";
-import { cookieValue } from "./features/auth/index.ts";
+import { cookieValue } from "./cookies.ts";
 import { parseTestUser, testAuth } from "./features/auth/test-provider.ts";
 import { errorOf, startTestApp, type TestApp, type TestEndpointInput } from "./tenancy-test-support.ts";
 import type { ServiceRequest } from "./hooks.ts";

@@ -52,6 +52,12 @@ It is enabled by default; turn it off with `http: false` or `QS_HTTP_ENABLED=fal
 | `http.services.<name>.bulkhead.concurrency` | `record of integer` | `10` | `QS_HTTP_SERVICES_<NAME>_BULKHEAD_CONCURRENCY` | no | Calls to the service running at once in a worker. |
 | `http.services.<name>.bulkhead.queue` | `record of integer` | `100` | `QS_HTTP_SERVICES_<NAME>_BULKHEAD_QUEUE` | no | Calls waiting for a slot. |
 | `http.services.<name>.bulkhead.queueTimeout` | `record of duration` | `"5s"` | `QS_HTTP_SERVICES_<NAME>_BULKHEAD_QUEUE_TIMEOUT` | no | The longest a call waits for a slot; the wait counts toward its timeout. |
+| `http.services.<name>.cache.enabled` | `record of boolean` | `true` | `QS_HTTP_SERVICES_<NAME>_CACHE_ENABLED` | no | Keeps GET and HEAD responses of the service in memory, following its caching headers. Turns it off when false. |
+| `http.services.<name>.cache.ttl` | `record of duration` | `"60s"` | `QS_HTTP_SERVICES_<NAME>_CACHE_TTL` | no | How long a response without max-age stays fresh. |
+| `http.services.<name>.cache.maxTtl` | `record of duration` | `"1h"` | `QS_HTTP_SERVICES_<NAME>_CACHE_MAX_TTL` | no | The longest a response stays fresh, whatever its max-age. |
+| `http.services.<name>.cache.maxEntries` | `record of integer` | `1000` | `QS_HTTP_SERVICES_<NAME>_CACHE_MAX_ENTRIES` | no | Responses kept per worker; the least recently used is evicted. |
+| `http.services.<name>.cache.maxEntrySize` | `record of size` | `"1MB"` | `QS_HTTP_SERVICES_<NAME>_CACHE_MAX_ENTRY_SIZE` | no | The largest body stored; a larger one passes through. |
+| `http.services.<name>.cache.private` | `record of boolean` | `false` | `QS_HTTP_SERVICES_<NAME>_CACHE_PRIVATE` | no | Caches calls with authorization or cookie headers, keyed by a hash of them, and Cache-Control: private responses. |
 | `http.services.<name>.modifiers` | `record of string[]` | `[]` | `QS_HTTP_SERVICES_<NAME>_MODIFIERS` | no | Registered modifiers that wrap every call to the service, in order, inside the built-in ones. |
 | `http.enabled` | `boolean` | `true` | `QS_HTTP_ENABLED` | no | Turns the feature off when false. |
 

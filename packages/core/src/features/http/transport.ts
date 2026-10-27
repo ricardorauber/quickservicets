@@ -83,6 +83,9 @@ function reasonOf(error: unknown): string {
   return typeof failure?.message === "string" ? failure.message : String(error);
 }
 
+/** Marks the request of an attempt with what the cache did: `miss`, `bypass`, or `revalidate` for a conditional call. */
+export const CACHE_LABEL = Symbol.for("quickservicets.http.cache");
+
 /** The statuses the client follows as redirects. */
 const REDIRECTS = new Set([301, 302, 303, 307, 308]);
 
@@ -216,7 +219,9 @@ export async function transport(request: HttpRequest, settings: HttpSettings, tr
     throw failed;
   } finally {
     clearTimeout(timer);
-    logCall(settings, request, { url, status: failed && failed.code !== "RESPONSE_TOO_LARGE" ? 0 : status, durationMs: performance.now() - startedAt, ...(failed ? { error: failed.code } : {}) });
+    const label = (request as HttpRequest & { [CACHE_LABEL]?: string })[CACHE_LABEL];
+    const cache = label === "revalidate" ? (status === 304 ? "revalidated" : "miss") : label;
+    logCall(settings, request, { url, status: failed && failed.code !== "RESPONSE_TOO_LARGE" ? 0 : status, durationMs: performance.now() - startedAt, ...(failed ? { error: failed.code } : {}), ...(cache ? { cache } : {}) });
   }
 }
 

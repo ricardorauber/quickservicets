@@ -59,6 +59,15 @@ export const serviceOptions = object({
   })
     .default(false)
     .describe("Caps how many calls to the service run at once."),
+  cache: toggle({
+    ttl: duration().default("60s").describe("How long a response without max-age stays fresh."),
+    maxTtl: duration().default("1h").describe("The longest a response stays fresh, whatever its max-age."),
+    maxEntries: integer().min(1).default(1000).describe("Responses kept per worker; the least recently used is evicted."),
+    maxEntrySize: size().default("1MB").describe("The largest body stored; a larger one passes through."),
+    private: boolean().default(false).describe("Caches calls with authorization or cookie headers, keyed by a hash of them, and Cache-Control: private responses."),
+  })
+    .default(false)
+    .describe("Keeps GET and HEAD responses of the service in memory, following its caching headers."),
   modifiers: list(string()).default([]).describe("Registered modifiers that wrap every call to the service, in order, inside the built-in ones."),
 });
 

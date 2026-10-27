@@ -120,6 +120,8 @@ export { defineModifier } from "./modifiers.ts";
 export type { ModifierFunction } from "./modifiers.ts";
 export { withRetry } from "./retry.ts";
 export { withBulkhead, withCircuitBreaker } from "./resilience.ts";
+export { withCache } from "./cache.ts";
+export type { CacheOptions } from "./cache.ts";
 export type { BulkheadOptions, CircuitBreakerOptions, HttpState } from "./resilience.ts";
 export type { RetryOptions } from "./retry.ts";
 export type { TestResolverMap } from "./ssrf.ts";

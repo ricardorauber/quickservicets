@@ -4,6 +4,7 @@ import { httpOptions, type HttpOptions, type ServiceOptions } from "./options.ts
 import { sharedState } from "./state.ts";
 import { runChain } from "./modifiers.ts";
 import { withRetry, type RetryOptions } from "./retry.ts";
+import { withCache, type CacheOptions } from "./cache.ts";
 import { stateOf, withBulkhead, withCircuitBreaker, type BulkheadOptions, type CircuitBreakerOptions, type HttpState } from "./resilience.ts";
 import { maskedUrl, transport } from "./transport.ts";
 
@@ -105,6 +106,7 @@ export function builtInModifiers(): Map<string, RegisteredModifier> {
     ["retry", { owner: "http", modifier: withRetry() }],
     ["circuitBreaker", { owner: "http", modifier: withCircuitBreaker() }],
     ["bulkhead", { owner: "http", modifier: withBulkhead() }],
+    ["cache", { owner: "http", modifier: withCache() }],
   ]);
 }
 
@@ -248,6 +250,8 @@ export function serviceModifiers(service: ServiceSettings, settings: HttpSetting
     if (circuitBreaker?.enabled) builtIn.push(withCircuitBreaker(circuitBreaker as CircuitBreakerOptions));
     const bulkhead = service.bulkhead as (Record<string, unknown> & { enabled: boolean }) | undefined;
     if (bulkhead?.enabled) builtIn.push(withBulkhead(bulkhead as BulkheadOptions));
+    const cache = service.cache as (Record<string, unknown> & { enabled: boolean }) | undefined;
+    if (cache?.enabled) builtIn.push(withCache(cache as CacheOptions));
     builtInChains.set(service, builtIn);
   }
   const named = (service.modifiers as readonly string[] | undefined) ?? [];

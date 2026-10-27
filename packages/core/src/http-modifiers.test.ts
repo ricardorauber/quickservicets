@@ -216,7 +216,7 @@ describe("services and named modifiers", () => {
 
   test("an unknown modifier and one registered twice fail startup", async () => {
     const unknown = await failure(() => startHttpApp({ http: { services: { billing: { url: "http://billing.internal", modifiers: ["nope"] } } } }));
-    expect(unknown.message).toContain("Unknown modifier nope in http.services.billing.modifiers (registered: retry, circuitBreaker, bulkhead)");
+    expect(unknown.message).toContain("Unknown modifier nope in http.services.billing.modifiers (registered: retry, circuitBreaker, bulkhead, cache)");
     const twice = await failure(() => startHttpApp({}, {}, [signing("first", []), signing("second", [])]));
     expect(twice.message).toContain("HTTP modifier signature is registered by first and second");
   });

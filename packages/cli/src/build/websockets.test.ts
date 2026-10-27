@@ -177,3 +177,16 @@ describe("errors, shutdown, logs and docs", () => {
     expect(logs().find((entry) => entry.route === "/echo" && entry.status === 101)).toMatchObject({ messagesIn: 1, messagesOut: 1, closeCode: 1001 });
   });
 });
+
+describe("subprotocols", () => {
+  test("the upgrade answers with the first protocol a client offers, as browsers require", async () => {
+    const service = await start();
+    const ws = new WebSocket(`${await wsUrl(service)}/echo`, ["token.abc", "chat"]);
+    await new Promise((resolve, reject) => {
+      ws.addEventListener("open", resolve);
+      ws.addEventListener("error", reject);
+    });
+    expect(ws.protocol).toBe("token.abc");
+    ws.close();
+  });
+});

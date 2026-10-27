@@ -347,7 +347,9 @@ export function socketServer(settings: SocketSettings): SocketServer {
     const ctx: SocketContext = { params: req.params, query: req.query, user: req.user, tenant: req.tenant, repos, log: settings.logger, req };
     const socket = new OpenSocket(definition, ctx, req.route, req.id, rooms, req.auth?.sessionId, limits);
     bunServer ??= bunServerOf(req.raw);
-    if (!upgradeRequest(req.raw, { socket } satisfies SocketData)) throw new HttpError(400, "Invalid WebSocket upgrade");
+    // Browsers that offer subprotocols (some send a token as one) need the server to choose one: the first offered.
+    const protocol = req.headers.get("sec-websocket-protocol")?.split(",")[0]?.trim();
+    if (!upgradeRequest(req.raw, { socket } satisfies SocketData, protocol ? { "sec-websocket-protocol": protocol } : undefined)) throw new HttpError(400, "Invalid WebSocket upgrade");
     // The server answers the upgraded request itself; this response is never sent.
     return new Response(null, { status: 200 });
   };

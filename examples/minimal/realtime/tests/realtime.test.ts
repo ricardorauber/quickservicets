@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import { testAuth } from "@quickservicets/core/testing";
 import { startTestService, type TestService } from "@quickservicets/cli/testing";
 
 const root = join(import.meta.dir, "..");
@@ -86,6 +87,88 @@ test("a filtered change stream gets the open tasks, and a reconnecting client re
     const resumed = await again.waitFor(2);
     expect(resumed.map((message) => message.data.record!.title)).toEqual(["Review", "Celebrate"]);
     await again.close();
+  } finally {
+    await service.stop();
+  }
+});
+
+/** A WebSocket client that keeps the JSON messages it receives. */
+async function chat(base: string, room: string, headers: Record<string, string>) {
+  const ws = new WebSocket(`${base}/rooms/${room}`, { headers } as never);
+  const messages: Record<string, unknown>[] = [];
+  ws.addEventListener("message", (event) => messages.push(JSON.parse(String(event.data)) as Record<string, unknown>));
+  const closed = new Promise<{ code: number; reason: string }>((resolve) => ws.addEventListener("close", (event) => resolve({ code: event.code, reason: event.reason })));
+  await new Promise<void>((resolve, reject) => {
+    ws.addEventListener("open", () => resolve());
+    ws.addEventListener("error", () => reject(new Error("socket failed")));
+  });
+  return {
+    ws,
+    messages,
+    closed,
+    send: (message: unknown) => ws.send(JSON.stringify(message)),
+    async wait(count: number) {
+      for (let tries = 0; tries < 400 && messages.length < count; tries++) await Bun.sleep(5);
+      return messages;
+    },
+  };
+}
+
+const upgrade = { upgrade: "websocket", connection: "Upgrade", "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==", "sec-websocket-version": "13" };
+
+test("signed-in clients of a room hear each other, get acknowledgments and announcements, and invalid messages are refused", async () => {
+  const service = await startTestService({ files: exampleFiles(), auth: testAuth() });
+  try {
+    expect((await service.fetch("/rooms/lobby", { headers: upgrade })).status).toBe(401);
+    const base = (await service.listen()).url.replace("http", "ws");
+    const ana = await chat(base, "lobby", { "x-test-user": "ana" });
+    const bea = await chat(base, "lobby", { "x-test-user": "bea" });
+    ana.send({ type: "say", text: "hello" });
+    expect(await bea.wait(1)).toEqual([{ type: "said", text: "hello", from: "ana" }]);
+    bea.send({ id: 1, type: "say", text: "hi ana" });
+    expect(await ana.wait(1)).toEqual([{ type: "said", text: "hi ana", from: "bea" }]);
+    expect(await bea.wait(2)).toEqual([{ type: "said", text: "hello", from: "ana" }, { id: 1, result: { delivered: true } }]);
+    ana.send({ type: "say", text: 5 });
+    expect((await ana.wait(2))[1]).toMatchObject({ error: { code: "INVALID_MESSAGE", message: "Message does not match the expected shape" } });
+    await service.fetch("/rooms/lobby/announce", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "pizza is here" }) });
+    const announcement = { type: "said", text: "pizza is here", from: "announcer" };
+    expect((await ana.wait(3))[2]).toEqual(announcement);
+    expect((await bea.wait(3))[2]).toEqual(announcement);
+    await Bun.sleep(30);
+    expect(ana.messages.filter((message) => message.from === "ana")).toEqual([]);
+  } finally {
+    await service.stop();
+  }
+});
+
+test("a client of another tenant hears nothing of the room, and revoking a session closes its socket with 4401", async () => {
+  const files = exampleFiles();
+  files["quickservicets.config.ts"] = files["quickservicets.config.ts"]!.replace("realtime: {},", 'realtime: {},\n  tenancy: { source: "config", tenants: { acme: {}, globex: {} } },');
+  files["features/admin/index.ts"] = `import { defineFeature } from "@quickservicets/core";
+export default defineFeature({
+  key: "admin",
+  enabledByDefault: true,
+  after: ["auth"],
+  setup(ctx) {
+    const auth = ctx.feature("auth");
+    ctx.app.route("POST", "/revoke", async (_repos, req) => (await auth.revoke(await req.json() as { sessionId: string }), { revoked: true }), { auth: false });
+  },
+});
+`;
+  const service = await startTestService({ files, auth: testAuth() });
+  try {
+    const base = (await service.listen()).url.replace("http", "ws");
+    const ana = await chat(base, "lobby", { "x-test-user": "ana;tenant=acme;session=s-ana", "x-tenant-id": "acme" });
+    const bea = await chat(base, "lobby", { "x-test-user": "bea;tenant=acme", "x-tenant-id": "acme" });
+    const carl = await chat(base, "lobby", { "x-test-user": "carl;tenant=globex", "x-tenant-id": "globex" });
+    ana.send({ type: "say", text: "acme only" });
+    expect(await bea.wait(1)).toEqual([{ type: "said", text: "acme only", from: "ana" }]);
+    await service.fetch("/rooms/lobby/announce", { method: "POST", headers: { "content-type": "application/json", "x-tenant-id": "acme" }, body: JSON.stringify({ text: "for acme" }) });
+    expect(await bea.wait(2)).toHaveLength(2);
+    await Bun.sleep(30);
+    expect(carl.messages).toEqual([]);
+    await service.fetch("/revoke", { method: "POST", headers: { "content-type": "application/json", "x-tenant-id": "acme" }, body: JSON.stringify({ sessionId: "s-ana" }) });
+    expect(await ana.closed).toEqual({ code: 4401, reason: "Session revoked" });
   } finally {
     await service.stop();
   }

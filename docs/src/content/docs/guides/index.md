@@ -16,6 +16,7 @@ The native features are each turned on by one config key:
 - [Optimistic concurrency](/guides/optimistic-concurrency/)
 - [Entity history](/guides/history/)
 - [Server-Sent Events](/guides/server-sent-events/)
+- [WebSockets](/guides/websockets/)
 - [Error reporting](/guides/error-reporting/)
 - [Feature flags](/guides/feature-flags/)
 - [HTTP client](/guides/http-client/)

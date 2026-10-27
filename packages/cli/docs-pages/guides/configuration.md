@@ -243,6 +243,7 @@ An error thrown by the logger never changes the response.
 - [Optimistic concurrency](/guides/optimistic-concurrency/): the `etag` key, for entity tags, 304 answers and `If-Match`.
 - [Entity history](/guides/history/): the `history` key, for every version of chosen records, its routes and its retention.
 - [Server-Sent Events](/guides/server-sent-events/): the `realtime` key, for `sse.ts` endpoints and live change streams.
+- [WebSockets](/guides/websockets/): the `realtime` key, for `ws.ts` endpoints with typed messages, rooms and delivery across workers and replicas.
 - [Error reporting](/guides/error-reporting/): the `errors` key, for reporting every unexpected error to a reporter.
 - [Feature flags](/guides/feature-flags/): the `flags` key, for turning features on per user, tenant or percentage.
 - [Multi-tenancy](/guides/multi-tenancy/): the `tenancy` key, for serving many tenants from one service, each in a schema or a database of its own.

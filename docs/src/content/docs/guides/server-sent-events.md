@@ -7,6 +7,8 @@ sidebar:
 
 A dashboard shows the open tasks and must update the moment someone adds one, without polling. Server-Sent Events are plain HTTP responses that stay open and carry one message after the other; browsers read them with `EventSource`, which reconnects by itself. The `realtime` native serves them from `sse.ts` endpoints and gives every chosen collection a change stream. The options, variables, tag, hooks and feature API are listed on the [realtime reference page](/reference/features/realtime/).
 
+For two-way connections, like chat, the same native serves [WebSockets](/guides/websockets/).
+
 The samples come from the example project `examples/minimal/realtime`: a clock stream and a `Task` entity with a change stream.
 
 ## `sse.ts` endpoints
@@ -19,6 +21,8 @@ import { defineConfig, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({
   database: memoryAdapter(),
   events: {},
+  // The rooms socket is for signed-in users; the tests sign them in with testAuth().
+  auth: {},
   realtime: {},
 });
 ```

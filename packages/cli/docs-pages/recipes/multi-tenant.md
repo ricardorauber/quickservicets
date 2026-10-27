@@ -2,6 +2,8 @@
 
 > Give each deployment its own database schema with DATABASE_SCHEMA, and group entities into explicit schemas with folders or @schema.
 
+To serve many tenants from one running service, each request resolved to its tenant, use the [Multi-tenancy guide](/guides/multi-tenancy/) and the `tenancy` native. This recipe covers the simpler alternative: one deployment per tenant, each with its own default schema.
+
 You run the same API for several customers and want each one's data apart, in the same database server, without a second build. Or you want some entities, like accounts, in a schema of their own. QuickService.ts has two tools for this:
 
 | | Default schema | Explicit schema |

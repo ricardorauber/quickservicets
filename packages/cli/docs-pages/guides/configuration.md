@@ -245,6 +245,7 @@ An error thrown by the logger never changes the response.
 - [Server-Sent Events](/guides/server-sent-events/): the `realtime` key, for `sse.ts` endpoints and live change streams.
 - [Error reporting](/guides/error-reporting/): the `errors` key, for reporting every unexpected error to a reporter.
 - [Feature flags](/guides/feature-flags/): the `flags` key, for turning features on per user, tenant or percentage.
+- [Multi-tenancy](/guides/multi-tenancy/): the `tenancy` key, for serving many tenants from one service, each in a schema or a database of its own.
 - [HTTP client](/guides/http-client/): the `http` key, on by default: outgoing calls with SSRF protection, named services, retries, circuit breakers, caching and mocks.
 
 Next: [Jobs](/guides/jobs/).

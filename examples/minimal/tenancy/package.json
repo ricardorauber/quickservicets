@@ -4,6 +4,9 @@
   "type": "module",
   "scripts": {
     "build": "quickservicets build",
+    "migrate": "quickservicets migrate",
+    "seed": "bun scripts/seed.ts",
+    "start": "bun .generated/server.ts",
     "test": "bun test tests"
   },
   "dependencies": {

@@ -1,7 +1,11 @@
-import { defineConfig, memoryAdapter } from "@quickservicets/core";
+import { defineConfig, sqliteAdapter } from "@quickservicets/core";
 
 export default defineConfig({
-  database: memoryAdapter(),
-  // Every request names its tenant in the x-tenant-id header; the tenants come from the config.
-  tenancy: { source: "config", tenants: { acme: { plan: "free" }, globex: { plan: "enterprise" } } },
+  database: sqliteAdapter({ path: "data.db" }),
+  // Tenants on the enterprise plan get a database of their own; the others a schema of data.db.
+  tenancy: {
+    strategy: ({ tenant }) => (tenant?.plan === "enterprise" ? "database" : "schema"),
+    connection: "data/tenant_{tenant}.db",
+  },
+  queues: {},
 });

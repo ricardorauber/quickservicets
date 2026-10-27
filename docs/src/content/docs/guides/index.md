@@ -19,3 +19,4 @@ The native features are each turned on by one config key:
 - [Error reporting](/guides/error-reporting/)
 - [Feature flags](/guides/feature-flags/)
 - [HTTP client](/guides/http-client/)
+- [Multi-tenancy](/guides/multi-tenancy/)

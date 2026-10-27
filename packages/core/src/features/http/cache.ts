@@ -1,4 +1,4 @@
-import { parseDuration, parseSize } from "../public.ts";
+import { currentTenant, parseDuration, parseSize } from "../public.ts";
 import { currentSettings, type HttpModifier, type HttpRequest, type HttpResponse } from "./client.ts";
 import { copyRequest, defineModifier } from "./modifiers.ts";
 import { resilienceClock } from "./resilience.ts";
@@ -93,7 +93,9 @@ export function withCache(options: CacheOptions = {}): HttpModifier {
     }
     const credentials = request.headers.has("authorization") || request.headers.has("cookie");
     if (credentials && !allowPrivate) return next(copyRequest(request, { [CACHE_LABEL]: "bypass" } as Partial<HttpRequest>));
-    const base = [request.method, target, credentials ? sha256(`${request.headers.get("authorization") ?? ""}\n${request.headers.get("cookie") ?? ""}`) : ""].join("\n");
+    // A store that keeps private responses keys them by the tenant of the call too, so one tenant never gets another's.
+    const tenant = allowPrivate ? (currentTenant()?.id ?? "") : "";
+    const base = [request.method, target, credentials ? sha256(`${request.headers.get("authorization") ?? ""}\n${request.headers.get("cookie") ?? ""}`) : "", ...(tenant ? [`tenant=${tenant}`] : [])].join("\n");
     const keyOf = (names: readonly string[]) => [base, ...names.map((header) => `${header}=${request.headers.get(header) ?? ""}`)].join("\n");
     const key = keyOf(store.vary.get(base) ?? []);
     const entry = store.entries.get(key);

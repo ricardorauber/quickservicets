@@ -160,7 +160,10 @@ const toRecord = (row: StoredRecord): OutboxRecord => {
  * (default 100, at most 1000), only of the exact `types` when given.
  */
 export async function readOutbox(options: { after?: string; limit?: number; types?: readonly string[] } = {}): Promise<OutboxRecord[]> {
-  const { adapter, model } = outboxStore();
+  const state = shared.state;
+  if (!state) throw new Error("The outbox is not enabled; set events: { outbox: true } in quickservicets.config.ts");
+  // The stored events live in the shared table, also when a tenant with its own database reads them.
+  const { adapter, model } = systemTarget(state.adapter, state.model);
   const limit = Math.min(Math.max(1, Math.floor(options.limit ?? 100)), MAX_READ);
   const where = [
     ...(options.after ? [{ field: "id", op: "gt" as const, value: options.after }] : []),

@@ -1,4 +1,4 @@
-import { UniqueViolationError, safeLog, scopedAdapter, type Condition, type DatabaseAdapter, type EntityModel, type FieldModel, type Logger, type StoredRecord } from "../public.ts";
+import { UniqueViolationError, safeLog, systemTarget, type Condition, type DatabaseAdapter, type EntityModel, type FieldModel, type Logger, type StoredRecord } from "../public.ts";
 
 /** A response kept for replays: its status, a few headers and its text body. */
 export interface StoredResponse {
@@ -66,7 +66,7 @@ const condition = (field: string, op: "eq" | "lt" | "lte" | "gt", value: unknown
 /** The idempotency keys in the project's database. */
 export function databaseStore(rootAdapter: DatabaseAdapter, model: EntityModel, logger: Logger, now: () => number = Date.now) {
   // Keys live in the database of the current scope, so a tenant's keys stay in its own database.
-  const db = () => scopedAdapter(rootAdapter);
+  const db = () => systemTarget(rootAdapter, model).adapter;
   const insertOrSkip = async (row: StoredRecord): Promise<StoredRecord | null> => {
     const adapter = db();
     if (adapter.insertOrSkip) return adapter.insertOrSkip(model, row, "scope");

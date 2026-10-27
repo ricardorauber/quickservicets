@@ -18,8 +18,11 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) cleanup();
 });
 
+/** The tenants every test knows, from the config source. */
+const TENANTS = { source: "config", tenants: { acme: {}, globex: {}, initech: {} } };
+
 async function start(tenancy: Record<string, unknown> = {}, endpoints: TestEndpointInput[] = [whoami], extra: Record<string, unknown> = {}) {
-  const app = await startTestApp({ config: { tenancy, ...extra }, models: [post], endpoints });
+  const app = await startTestApp({ config: { tenancy: { ...TENANTS, ...tenancy }, ...extra }, models: [post], endpoints });
   running.push(app);
   return app;
 }
@@ -39,7 +42,7 @@ describe("options", () => {
   test("the defaults read the x-tenant-id header and require a tenant", () => {
     const config = resolveConfig({ database: memoryAdapter(), tenancy: {} } as ServiceConfig, {});
     const options = config.features.find((feature) => feature.key === "tenancy")!.options;
-    expect(options).toMatchObject({ from: ["header"], header: "x-tenant-id", path: "/t/[tenant]", required: true });
+    expect(options).toMatchObject({ from: ["header"], header: "x-tenant-id", path: "/t/[tenant]", required: true, source: "database" });
   });
 });
 
@@ -100,7 +103,7 @@ function credentials(tenant: string) {
     defineFeature({
       key: "test-auth",
       docs: { summary: "Test." },
-      middleware: [{ stage: "handler", order: 100, run: (req, _res, next) => ((req.tenant = { id: tenant }), next()) }],
+      middleware: [{ stage: "handler", order: 100, run: (req, _res, next) => ((req.tenant = { id: tenant } as ServiceRequest["tenant"]), next()) }],
     }),
   );
   cleanups.push(() => unregisterNative("test-auth"));

@@ -6,10 +6,7 @@ declare module "@quickservicets/core" {
   interface RequestUser {
     id: string;
   }
-  interface RequestTenant {
-    id: string;
-    plan: "free" | "pro";
-  }
+  // `req.tenant` already has `id`, `plan` and `attributes`, the fields the tenancy native fills.
 }
 
 export {};

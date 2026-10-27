@@ -1,15 +1,38 @@
 import {
+  afterCommit,
   boolean,
   defineFeature,
+  duration,
+  HttpError,
+  integer,
   list,
   object,
+  observeWrites,
   oneOf,
+  parseDuration,
+  record,
+  secret,
   string,
   type HandlerMiddleware,
   type RequestMiddleware,
   type ServiceRequest,
 } from "../public.ts";
 import type { TenancyApi } from "./api.ts";
+import {
+  cachedDirectory,
+  configDirectory,
+  databaseDirectory,
+  directoryUnavailable,
+  isTenantId,
+  serviceDirectory,
+  tenantEntity,
+  TenantDirectoryUnavailableError,
+  tenantInfoOf,
+  tenantNotFound,
+  tenantSuspended,
+  type CachedDirectory,
+  type TenantDirectory,
+} from "./directory.ts";
 import {
   compilePathPattern,
   hostReader,
@@ -36,10 +59,91 @@ const options = object({
     .perRequest()
     .describe("The function source: a function of the request and its user returning the tenant id or undefined; required when from lists function."),
   required: boolean().default(true).describe("Answers 400 to requests without a tenant on routes that are not exempt; @tenancy required=false relaxes one endpoint."),
+  source: oneOf(["database", "config", "service"])
+    .default("database")
+    .describe("Where tenants are looked up: the Tenant table of the service's database, the tenants option, or another service through the HTTP client."),
+  tenants: record(
+    object({
+      plan: string().optional().describe("The tenant's plan, in req.tenant.plan."),
+      strategy: oneOf(["schema", "database"]).optional().describe("Where the tenant's data lives, over tenancy.strategy."),
+      schema: string().optional().describe("The tenant's schema name, over the tenancy.schema template."),
+      connection: secret().optional().describe("The connection of a database-strategy tenant."),
+      status: oneOf(["active", "suspended"]).default("active").describe("A suspended tenant's requests answer 403."),
+      attributes: record(string().describe("One attribute of the tenant.")).describe("Texts the tenant carries in req.tenant.attributes."),
+    }),
+  ).describe("The tenants of the config source, by id."),
+  service: string().optional().describe("The http.services entry of the service source, called as GET /tenants/:id for one tenant and GET /tenants?cursor=… for pages."),
+  cache: object({
+    ttl: duration().default("5m").describe("How long each worker keeps a tenant it looked up."),
+    negativeTtl: duration().default("30s").describe("How long each worker remembers an unknown tenant id."),
+    staleTtl: duration().default("1h").describe("How long a cached tenant is still used while the directory fails."),
+    maxEntries: integer().min(1).default(10000).describe("Most tenants each worker keeps; the least recently used go first."),
+  })
+    .default({ ttl: "5m", negativeTtl: "30s", staleTtl: "1h", maxEntries: 10000 })
+    .describe("The per-worker cache of tenant lookups."),
 });
 
-/** What the setup shares with the feature API: the exempted paths. */
-const exemptionsOf = new WeakMap<object, TenantExemptions>();
+/** What the setup shares with the feature API: the exempted paths and the directory. */
+const statesOf = new WeakMap<object, { exemptions: TenantExemptions; directory: CachedDirectory }>();
+
+/** The active tenant of an id, or the answer for an unknown, suspended or unreachable one. */
+async function lookUp(directory: CachedDirectory, id: string) {
+  let tenant;
+  try {
+    tenant = await directory.find(id);
+  } catch (error) {
+    if (error instanceof TenantDirectoryUnavailableError) throw directoryUnavailable();
+    throw error;
+  }
+  if (!tenant) throw tenantNotFound();
+  if (tenant.status === "suspended") throw tenantSuspended();
+  return tenant;
+}
+
+/** The directory of the configured source with its cache, and the refresh of local writes to the Tenant table. */
+function setUpDirectory(ctx: Parameters<NonNullable<typeof tenancyFeature.setup>>[0]): CachedDirectory {
+  const options = ctx.options;
+  let source: TenantDirectory;
+  if (options.source === "database") {
+    const model = ctx.models.find((candidate) => candidate.key === "Tenant");
+    if (!model) throw new Error('tenancy.source is "database" but the Tenant entity is missing; rebuild and run quickservicets migration add');
+    source = databaseDirectory(ctx.config.database, model);
+  } else if (options.source === "config") {
+    source = configDirectory(options.tenants as Record<string, Record<string, unknown>>);
+  } else {
+    source = serviceDirectory(options.service!);
+  }
+  const cache = options.cache;
+  const directory = cachedDirectory(
+    () => source,
+    {
+      ttl: parseDuration(cache.ttl) ?? 300_000,
+      negativeTtl: parseDuration(cache.negativeTtl) ?? 30_000,
+      staleTtl: parseDuration(cache.staleTtl) ?? 3_600_000,
+      maxEntries: cache.maxEntries,
+    },
+    ctx.logger,
+  );
+  if (options.source === "database") {
+    // Writes through this worker's repositories refresh its cache once they commit; other workers see them within the ttl.
+    const stop = observeWrites({
+      entities: ["Tenant"],
+      transactional: true,
+      write(change) {
+        const after = change.after;
+        if (after && !isTenantId(after.key)) throw new HttpError(400, "Invalid body", { details: [{ field: "key", message: "Must match ^[a-z0-9][a-z0-9-]{0,62}$" }] });
+        const previous = change.before ? String(change.before.key) : undefined;
+        void afterCommit(() => {
+          if (previous !== undefined && previous !== after?.key) directory.remember(previous, undefined);
+          if (after) directory.remember(String(after.key), tenantInfoOf(String(after.key), after));
+          else if (previous !== undefined) directory.remember(previous, undefined);
+        });
+      },
+    });
+    ctx.app.onStop(stop);
+  }
+  return directory;
+}
 
 /** The tenant segment the path source found in each request, before the prefix was removed. */
 const pathTenants = new WeakMap<Request, string>();
@@ -58,6 +162,7 @@ const tenancyFeature = defineFeature({
     const from = resolved.from as readonly TenantSource[];
     if (from.includes("subdomain") && !resolved.domain) problems.push("tenancy.domain is required when tenancy.from lists subdomain");
     if (from.includes("function") && resolved.resolve === undefined) problems.push("tenancy.resolve is required when tenancy.from lists function");
+    if (resolved.source === "service" && !resolved.service) problems.push('tenancy.service is required when tenancy.source is "service"');
     if (from.includes("path")) {
       try {
         compilePathPattern(resolved.path);
@@ -67,6 +172,9 @@ const tenancyFeature = defineFeature({
     }
     return problems;
   },
+  // The Tenant table of the database source; nothing with the other sources.
+  entities: ({ options }) => (options.source === "database" ? [tenantEntity()] : []),
+  after: ["http"],
   tags: {
     tenancy: {
       on: ["endpoint"],
@@ -78,7 +186,8 @@ const tenancyFeature = defineFeature({
   setup(ctx) {
     const from = ctx.options.from as readonly TenantSource[];
     const exemptions = new TenantExemptions();
-    exemptionsOf.set(ctx.options, exemptions);
+    const directory = setUpDirectory(ctx);
+    statesOf.set(ctx.options, { exemptions, directory });
     // The API docs and the health routes need no tenant.
     exemptions.add("/docs");
     exemptions.add("/openapi.json");
@@ -155,15 +264,21 @@ const tenancyFeature = defineFeature({
           if (decision.required) throw tenantRequired();
           return next();
         }
-        req.tenant = { ...(req.tenant ?? {}), id } as ServiceRequest["tenant"];
+        const tenant = await lookUp(directory, id);
+        req.tenant = { id, ...(tenant.plan !== undefined ? { plan: tenant.plan } : {}), attributes: tenant.attributes } as ServiceRequest["tenant"];
         return next();
       },
     };
     ctx.app.use(resolveTenant);
   },
-  api: (ctx): TenancyApi => ({
-    exempt: (pattern) => exemptionsOf.get(ctx.options)!.add(pattern),
-  }),
+  api: (ctx): TenancyApi => {
+    const state = statesOf.get(ctx.options)!;
+    return {
+      exempt: (pattern) => state.exemptions.add(pattern),
+      find: (id) => state.directory.find(id),
+      list: () => state.directory.list(),
+    };
+  },
 });
 
 export default tenancyFeature;
@@ -171,3 +286,5 @@ export { tenancyFeature };
 export { compilePathPattern, matchPathPrefix, subdomainOf, TENANT_ID, TENANT_SOURCES } from "./resolve.ts";
 export type { TenantSource } from "./resolve.ts";
 export type { TenancyApi } from "./api.ts";
+export { cachedDirectory, configDirectory, databaseDirectory, directoryClock, serviceDirectory, tenantEntity, TENANT_FIELDS, tenantInfoOf } from "./directory.ts";
+export type { CachedDirectory, DirectoryCacheOptions, TenantDirectory, TenantInfo } from "./directory.ts";

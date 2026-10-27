@@ -346,8 +346,8 @@ export type { ErrorsApi } from "./features/errors/index.ts";
 export { defineModifier, http, HttpClientError, httpFeature, HttpRequestBuilder, withBulkhead, withCache, withCircuitBreaker, withRetry } from "./features/http/index.ts";
 export type { HttpTransport, HttpMock, MockCall, MockHandler, MockReply, MockRequest, MockService, BulkheadOptions, CacheOptions, CircuitBreakerOptions, HttpState, ModifierFunction, RetryOptions, Http, HttpApi, HttpBody, HttpClientErrorCode, HttpClientErrorInit, HttpMethods, HttpServiceMethods, HttpServiceNames, ServiceName, ServiceOptions, ServiceOptionsInput, HttpModifier, HttpQueryValue, HttpRequest, HttpResponse } from "./features/http/index.ts";
 export { bucketOf, evaluateRule, flagsFeature } from "./features/flags/index.ts";
-export { compilePathPattern, matchPathPrefix, subdomainOf, TENANT_ID, TENANT_SOURCES, tenancyFeature } from "./features/tenancy/index.ts";
-export type { TenancyApi, TenantSource } from "./features/tenancy/index.ts";
+export { cachedDirectory, compilePathPattern, configDirectory, databaseDirectory, directoryClock, matchPathPrefix, serviceDirectory, subdomainOf, TENANT_FIELDS, TENANT_ID, TENANT_SOURCES, tenancyFeature, tenantEntity, tenantInfoOf } from "./features/tenancy/index.ts";
+export type { CachedDirectory, DirectoryCacheOptions, TenancyApi, TenantDirectory, TenantInfo, TenantSource } from "./features/tenancy/index.ts";
 export type { FlagContext, FlagEvaluation, FlagProvider, FlagProviderContext, FlagReason, FlagResult, FlagRule, FlagRuleFunction, FlagsApi, FlagSubject, RequestFlagEvaluator } from "./features/flags/index.ts";
 export type {
   DatabaseHistoryStore,
@@ -437,5 +437,9 @@ declare module "./hooks.ts" {
   interface RequestTenant {
     /** The tenant's id, set by the `tenancy` native (or an authentication provider). */
     id: string;
+    /** The tenant's plan from the tenant directory. */
+    plan?: string;
+    /** The texts the tenant carries in the tenant directory. */
+    attributes: Record<string, string>;
   }
 }

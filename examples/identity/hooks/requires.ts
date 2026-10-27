@@ -20,7 +20,7 @@ export default definePreHook(
         const orgId = req.params.orgId!
         const organization = await repos.organizations.findById(orgId)
         if (!organization) return
-        req.tenant = { id: organization.id, plan: organization.plan }
+        req.tenant = { id: organization.id, plan: organization.plan, attributes: {} }
 
         const granted = await grantedPermissions(repos, userId, orgId)
         const missing = args.find((permission) => !granted.has(permission))

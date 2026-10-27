@@ -84,7 +84,7 @@ describe("per-request headers and authentication", () => {
       },
       {
         "GET /plan": (req: ServiceRequest) => {
-          req.tenant = { plan: "pro" } as ServiceRequest["tenant"];
+          req.tenant = { id: "acme", plan: "pro" } as ServiceRequest["tenant"];
           return req.http.service("billing").get("/x").send();
         },
       },

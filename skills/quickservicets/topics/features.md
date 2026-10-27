@@ -1,6 +1,6 @@
 # Features
 
-The native features (security, events, queues, health, idempotency, etag, history, realtime, errors, flags, http) and how to turn them on, off and customize them.
+The native features (security, events, queues, health, idempotency, etag, history, realtime, errors, flags, http, tenancy) and how to turn them on, off and customize them.
 
 Natives ship inside `@quickservicets/core`; nothing extra is installed. `security` and `http` are on by default; every other native is off until you turn it on.
 
@@ -17,6 +17,7 @@ Natives ship inside `@quickservicets/core`; nothing extra is installed. `securit
 | `errors` | One reporter interface for every unexpected error | `@report` |
 | `flags` | Feature flags per user, tenant or percentage, `req.flags` | `@flag`; `quickservicets flags list` |
 | `http` | The outgoing HTTP client `http.get(url).send()`, with timeouts, size limits, SSRF protection (`http.allow` for internal hosts) and clear errors (502 or 504 when one escapes) | |
+| `tenancy` | The tenant of every request in `req.tenant.id`, from the `x-tenant-id` header (or a subdomain, a path prefix, the credentials or a function); 400 without one | `@tenancy` |
 
 ## Turn one on
 

@@ -135,6 +135,8 @@ export function createCrudRoutes(models: EntityModel[], _repos?: RepositoryRegis
               created = await writeBody(asRegistry(repos), req, "create", (data) => repo.create(data));
             }
             res.status(201);
+            // The URL the client called, so a prefix removed before routing (a tenant path) stays in the link.
+            res.header("location", `${new URL(req.raw.url).pathname.replace(/\/+$/, "")}/${(created as StoredRecord).id}`);
             rememberStoredRecord(req, model, created as StoredRecord);
             return created;
           },

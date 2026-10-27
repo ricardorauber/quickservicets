@@ -259,6 +259,7 @@ import idempotencyNative, { type IdempotencyApi } from "./features/idempotency/i
 import healthNative, { type HealthApi, type HealthStatusChangedEvent } from "./features/health/index.ts";
 import queuesNative, { type QueueClient, type QueueMessageEvent, type QueuesApi } from "./features/queues/index.ts";
 import httpNative, { type Http, type HttpApi } from "./features/http/index.ts";
+import tenancyNative, { type TenancyApi } from "./features/tenancy/index.ts";
 import { registerNative as registerShippedNative, type FeatureConfig as NativeConfig } from "./features.ts";
 registerShippedNative(securityNative);
 registerShippedNative(eventsNative);
@@ -271,6 +272,7 @@ registerShippedNative(realtimeNative);
 registerShippedNative(errorsNative);
 registerShippedNative(flagsNative);
 registerShippedNative(httpNative);
+registerShippedNative(tenancyNative);
 export { addOutboxPatterns, events, eventsFeature, listen, memoryEventBus, readOutbox, tailOutbox } from "./features/events/index.ts";
 export type { ConsumerOptions, DeliveryContext, DeliveryStatus, OutboxRecord } from "./features/events/index.ts";
 export type { EventBus, EventListener, Events, EventsApi, ListenerContext, ListenerFile, ListenerPhase, ListenOptions, MemoryEventBus } from "./features/events/index.ts";
@@ -344,6 +346,8 @@ export type { ErrorsApi } from "./features/errors/index.ts";
 export { defineModifier, http, HttpClientError, httpFeature, HttpRequestBuilder, withBulkhead, withCache, withCircuitBreaker, withRetry } from "./features/http/index.ts";
 export type { HttpTransport, HttpMock, MockCall, MockHandler, MockReply, MockRequest, MockService, BulkheadOptions, CacheOptions, CircuitBreakerOptions, HttpState, ModifierFunction, RetryOptions, Http, HttpApi, HttpBody, HttpClientErrorCode, HttpClientErrorInit, HttpMethods, HttpServiceMethods, HttpServiceNames, ServiceName, ServiceOptions, ServiceOptionsInput, HttpModifier, HttpQueryValue, HttpRequest, HttpResponse } from "./features/http/index.ts";
 export { bucketOf, evaluateRule, flagsFeature } from "./features/flags/index.ts";
+export { compilePathPattern, matchPathPrefix, subdomainOf, TENANT_ID, TENANT_SOURCES, tenancyFeature } from "./features/tenancy/index.ts";
+export type { TenancyApi, TenantSource } from "./features/tenancy/index.ts";
 export type { FlagContext, FlagEvaluation, FlagProvider, FlagProviderContext, FlagReason, FlagResult, FlagRule, FlagRuleFunction, FlagsApi, FlagSubject, RequestFlagEvaluator } from "./features/flags/index.ts";
 export type {
   DatabaseHistoryStore,
@@ -411,6 +415,8 @@ declare module "./features.ts" {
     flags?: NativeConfig<typeof flagsNative>;
     /** The outgoing HTTP client, enabled by default; see the `http` reference page. */
     http?: NativeConfig<typeof httpNative>;
+    /** Multi-tenancy: the tenant of every request; see the `tenancy` reference page. */
+    tenancy?: NativeConfig<typeof tenancyNative>;
   }
   interface FeatureApis {
     events: EventsApi;
@@ -423,5 +429,13 @@ declare module "./features.ts" {
     errors: ErrorsApi;
     flags: FlagsApi;
     http: HttpApi;
+    tenancy: TenancyApi;
+  }
+}
+
+declare module "./hooks.ts" {
+  interface RequestTenant {
+    /** The tenant's id, set by the `tenancy` native (or an authentication provider). */
+    id: string;
   }
 }

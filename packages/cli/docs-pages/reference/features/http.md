@@ -37,6 +37,14 @@ It is enabled by default; turn it off with `http: false` or `QS_HTTP_ENABLED=fal
 | `http.services.<name>.timeout` | `record of duration` | — | `QS_HTTP_SERVICES_<NAME>_TIMEOUT` | no | The timeout of calls to the service, instead of http.timeout. |
 | `http.services.<name>.propagate` | `record of ("user" \| "tenant" \| "authorization")[]` | `[]` | `QS_HTTP_SERVICES_<NAME>_PROPAGATE` | no | What calls through req.http carry from the request: user sends x-user-id, tenant sends x-tenant-id, authorization forwards the incoming authorization header. |
 | `http.services.<name>.log` | `record of "all" \| "errors" \| "off"` | — | `QS_HTTP_SERVICES_<NAME>_LOG` | no | Which calls to the service write http.call entries, instead of http.log. |
+| `http.services.<name>.retry.enabled` | `record of boolean` | `true` | `QS_HTTP_SERVICES_<NAME>_RETRY_ENABLED` | no | Retries calls to the service that are safe to retry. Turns it off when false. |
+| `http.services.<name>.retry.attempts` | `record of integer` | `3` | `QS_HTTP_SERVICES_<NAME>_RETRY_ATTEMPTS` | no | Attempts in total, the first included. |
+| `http.services.<name>.retry.backoff` | `record of duration` | `"200ms"` | `QS_HTTP_SERVICES_<NAME>_RETRY_BACKOFF` | no | The first backoff, doubled for each next attempt, with full jitter. |
+| `http.services.<name>.retry.maxBackoff` | `record of duration` | `"5s"` | `QS_HTTP_SERVICES_<NAME>_RETRY_MAX_BACKOFF` | no | The longest backoff. |
+| `http.services.<name>.retry.methods` | `record of ("GET" \| "HEAD" \| "OPTIONS" \| "PUT" \| "DELETE" \| "POST" \| "PATCH")[]` | `["GET","HEAD","OPTIONS","PUT","DELETE"]` | `QS_HTTP_SERVICES_<NAME>_RETRY_METHODS` | no | The methods retried; POST and PATCH are also retried when the request has an Idempotency-Key header. |
+| `http.services.<name>.retry.on` | `record of (integer \| "NETWORK" \| "TIMEOUT")[]` | `[408,429,502,503,504,"NETWORK","TIMEOUT"]` | `QS_HTTP_SERVICES_<NAME>_RETRY_ON` | no | The statuses and error codes retried. |
+| `http.services.<name>.retry.maxRetryAfter` | `record of duration` | `"30s"` | `QS_HTTP_SERVICES_<NAME>_RETRY_MAX_RETRY_AFTER` | no | The longest Retry-After waited; a longer one is not retried. |
+| `http.services.<name>.modifiers` | `record of string[]` | `[]` | `QS_HTTP_SERVICES_<NAME>_MODIFIERS` | no | Registered modifiers that wrap every call to the service, in order, inside the built-in ones. |
 | `http.enabled` | `boolean` | `true` | `QS_HTTP_ENABLED` | no | Turns the feature off when false. |
 
 ## Feature API
@@ -51,3 +59,12 @@ addService(name: string, options: ServiceOptionsInput): void;
 
 Registers a named service during setup, under `<feature key>/<name>` (or the feature key itself when `name` is
 it), with the options of `http.services`; its host is trusted by SSRF protection for calls through it.
+
+### `modifier`
+
+```ts
+modifier(name: string, modifier: HttpModifier): void;
+```
+
+Registers a named modifier during setup, which services list in `modifiers`; a name registered twice fails
+startup naming both owners.

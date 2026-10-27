@@ -1,6 +1,7 @@
 import { DEFAULT_MASKED_KEYS, defineFeature, maskSecrets, resolveOptions, safeLog, setContextHttp, type ErrorMiddleware } from "../public.ts";
 import type { HttpApi } from "./api.ts";
-import { clientOf, configServices, requestClient, running, serviceSettings, type RunningHttp, type ServiceSettings } from "./client.ts";
+import { builtInModifiers, clientOf, configServices, modifierNamed, requestClient, running, serviceSettings, type RegisteredModifier, type RunningHttp, type ServiceSettings } from "./client.ts";
+import { isModifier } from "./modifiers.ts";
 import { HttpClientError } from "./errors.ts";
 import { httpOptions, serviceOptions, serviceProblems, type HttpOptions, type ServiceOptions } from "./options.ts";
 import { allowProblems } from "./ssrf.ts";
@@ -41,8 +42,14 @@ const httpFeature = defineFeature({
       production: ctx.config.production,
       maskKeys: masking?.enabled && masking.keys ? masking.keys : DEFAULT_MASKED_KEYS,
       services: configServices(ctx.options as HttpOptions),
+      modifiers: builtInModifiers(),
     };
     services.set(ctx.options, settings.services as Map<string, ServiceSettings>);
+    modifiers.set(ctx.options, settings.modifiers as Map<string, RegisteredModifier>);
+    // Once every feature registered its modifiers, each service's list must name registered ones.
+    ctx.app.onStart(() => {
+      for (const service of settings.services.values()) for (const name of (service.modifiers as string[] | undefined) ?? []) modifierNamed(name, service.name, settings);
+    });
     running.current = settings;
     // Jobs and queue consumers get a client sending their run or message id.
     const contextClient = (requestId: string) => clientOf({ requestId });
@@ -75,8 +82,20 @@ const httpFeature = defineFeature({
       if (auth) maskSecrets(resolved as Record<string, unknown>, ["auth.bearer", "auth.basic.password", "auth.apiKey.value"].filter((path) => path.split(".").slice(1).reduce<unknown>((value, key) => (value as Record<string, unknown> | undefined)?.[key], auth) !== undefined));
       registered.set(full, serviceSettings(full, owner, resolved));
     },
+    modifier(name, modifier) {
+      const owner = ctx.currentFeature();
+      if (owner === undefined) throw new Error("http modifier() can only be called during setup");
+      if (!isModifier(modifier)) throw new TypeError(`http modifier(${JSON.stringify(name)}) takes a modifier made with defineModifier()`);
+      const registered = modifiers.get(ctx.options)!;
+      const taken = registered.get(name);
+      if (taken) throw new Error(`HTTP modifier ${name} is registered by ${taken.owner} and ${owner}`);
+      registered.set(name, { owner, modifier });
+    },
   }),
 });
+
+/** The named modifiers of each running configuration, which features add to. */
+const modifiers = new WeakMap<object, Map<string, RegisteredModifier>>();
 
 /** The services of each running configuration, which features add to. */
 const services = new WeakMap<object, Map<string, ServiceSettings>>();
@@ -89,5 +108,9 @@ export type { ServiceOptions, ServiceOptionsInput } from "./options.ts";
 export type { Http, HttpBody, HttpMethods, HttpServiceMethods, HttpServiceNames, ServiceName, HttpModifier, HttpQueryValue, HttpRequest, HttpResponse } from "./client.ts";
 export { HttpClientError } from "./errors.ts";
 export { blockedCategory, useTestResolver } from "./ssrf.ts";
+export { defineModifier } from "./modifiers.ts";
+export type { ModifierFunction } from "./modifiers.ts";
+export { withRetry } from "./retry.ts";
+export type { RetryOptions } from "./retry.ts";
 export type { TestResolverMap } from "./ssrf.ts";
 export type { HttpClientErrorCode, HttpClientErrorInit } from "./errors.ts";

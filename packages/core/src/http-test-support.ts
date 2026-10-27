@@ -56,23 +56,32 @@ export async function startHttpApp(
   const keys = Object.fromEntries(features.map((definition) => [definition.key, {}]));
   const resolved = resolveConfig({ database, logger, security: false, http: { allow: ["loopback"] }, ...keys, ...config } as ServiceConfig, env);
   const lifecycle = createFeatureLifecycle({ features: resolved.features, config: resolved, models: [], worker: { index: 0, count: 1, runsScheduledWork: true } });
-  await lifecycle.setup();
-  await database.connect([]);
-  const endpoints = Object.entries(routes).map(([key, handler]) => {
-    const [method, path] = key.split(" ") as [string, string];
-    return { method, path, hooks: [], handler: (_repos: unknown, req: ServiceRequest) => handler(req) };
-  });
-  const app = createApp({
-    models: [],
-    crudRoutes: [],
-    endpoints: endpoints as never,
-    hooks: new Map(),
-    config: resolved,
-    runtimeRoutes: lifecycle.routes,
-    middleware: lifecycle.middleware,
-    server: lifecycle.server,
-  });
-  await lifecycle.start({ repos: app.repos as never, server: app.server });
+  let app: ReturnType<typeof createApp>;
+  try {
+    await lifecycle.setup();
+    await database.connect([]);
+    const endpoints = Object.entries(routes).map(([key, handler]) => {
+      const [method, path] = key.split(" ") as [string, string];
+      return { method, path, hooks: [], handler: (_repos: unknown, req: ServiceRequest) => handler(req) };
+    });
+    app = createApp({
+      models: [],
+      crudRoutes: [],
+      endpoints: endpoints as never,
+      hooks: new Map(),
+      config: resolved,
+      runtimeRoutes: lifecycle.routes,
+      middleware: lifecycle.middleware,
+      server: lifecycle.server,
+    });
+    await lifecycle.start({ repos: app.repos as never, server: app.server });
+  } catch (error) {
+    // A failed start leaves nothing behind for the next test.
+    await lifecycle.stop().catch(() => undefined);
+    await database.disconnect().catch(() => undefined);
+    registerProjectFeatures([]);
+    throw error;
+  }
   return {
     config: resolved,
     entries,

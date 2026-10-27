@@ -2,6 +2,8 @@ import { DEFAULT_MASKED_KEYS, jsonLogger, lastResolvedFeatures, parseDuration, r
 import { HttpClientError } from "./errors.ts";
 import { httpOptions, type HttpOptions, type ServiceOptions } from "./options.ts";
 import { sharedState } from "./state.ts";
+import { runChain } from "./modifiers.ts";
+import { withRetry, type RetryOptions } from "./retry.ts";
 import { maskedUrl, transport } from "./transport.ts";
 
 /** A raw request body. */
@@ -86,6 +88,19 @@ export interface RunningHttp {
   maskKeys: readonly string[];
   /** The named services, by name. */
   services: ReadonlyMap<string, ServiceSettings>;
+  /** The named modifiers services list, by name, with who registered each. */
+  modifiers: ReadonlyMap<string, RegisteredModifier>;
+}
+
+/** A named modifier and who registered it: `http` for the built-in ones, else a feature's key. */
+export interface RegisteredModifier {
+  owner: string;
+  modifier: HttpModifier;
+}
+
+/** The built-in named modifiers, with their default options. */
+export function builtInModifiers(): Map<string, RegisteredModifier> {
+  return new Map([["retry", { owner: "http", modifier: withRetry() }]]);
 }
 
 /** The services of the config's `http.services`, by name. */
@@ -112,7 +127,7 @@ export const running = sharedState("running", () => ({ current: undefined as Run
 /** The error of every call while the native is turned off. */
 export const DISABLED = "http is disabled (http: false in quickservicets.config.ts)";
 
-const defaults = sharedState("defaults", () => ({ options: undefined as HttpOptions | undefined }));
+const defaults = sharedState("defaults", () => ({ options: undefined as HttpOptions | undefined, modifiers: undefined as Map<string, RegisteredModifier> | undefined }));
 
 /**
  * The settings of the next call: the running native's, else the options of the last resolved configuration, else the
@@ -127,7 +142,7 @@ export function currentSettings(): HttpSettings {
   const options = (feature?.options as HttpOptions | undefined) ?? (defaults.options ??= resolveOptions(httpOptions, {}, "http") as HttpOptions);
   let services = derivedServices.get(options);
   if (!services) derivedServices.set(options, (services = configServices(options)));
-  return { options, logger: jsonLogger, production: false, maskKeys: DEFAULT_MASKED_KEYS, services };
+  return { options, logger: jsonLogger, production: false, maskKeys: DEFAULT_MASKED_KEYS, services, modifiers: (defaults.modifiers ??= builtInModifiers()) };
 }
 
 /** Milliseconds of a duration or a number of milliseconds; throws for anything else. */
@@ -204,9 +219,37 @@ function appendQuery(target: { append(name: string, value: string): void }, name
 export async function execute(spec: CallSpec, binding: ClientBinding): Promise<HttpResponse> {
   const settings = currentSettings();
   const request = describeCall(spec, settings, binding);
+  const service = spec.service === undefined ? undefined : serviceNamed(spec.service, settings);
   // A call through a service trusts the service's own host; any other host is checked as usual.
-  const trustedHost = spec.service === undefined ? undefined : serviceNamed(spec.service, settings).host;
-  return transport(request, settings, trustedHost);
+  const trustedHost = service?.host;
+  const chain = [...(service ? serviceModifiers(service, settings) : []), ...spec.modifiers];
+  const send = (attempt: HttpRequest) => transport(attempt, settings, trustedHost);
+  return chain.length === 0 ? send(request) : runChain(chain, request, send, () => maskedUrl(request.url, settings));
+}
+
+const builtInChains = new WeakMap<ServiceSettings, HttpModifier[]>();
+
+/**
+ * The modifiers of a service, outermost first: its built-in ones in the fixed order retry, circuitBreaker, bulkhead
+ * and cache, then its `modifiers` list in order.
+ */
+export function serviceModifiers(service: ServiceSettings, settings: HttpSettings): HttpModifier[] {
+  let builtIn = builtInChains.get(service);
+  if (!builtIn) {
+    builtIn = [];
+    const retry = service.retry as (Record<string, unknown> & { enabled: boolean }) | undefined;
+    if (retry?.enabled) builtIn.push(withRetry(retry as RetryOptions));
+    builtInChains.set(service, builtIn);
+  }
+  const named = (service.modifiers as readonly string[] | undefined) ?? [];
+  return [...builtIn, ...named.map((name) => modifierNamed(name, service.name, settings).modifier)];
+}
+
+/** A registered modifier; throws naming the service and the registered names for an unknown one. */
+export function modifierNamed(name: string, service: string, settings: HttpSettings): RegisteredModifier {
+  const registered = settings.modifiers.get(name);
+  if (!registered) throw new Error(`Unknown modifier ${name} in http.services.${service}.modifiers (registered: ${[...settings.modifiers.keys()].join(", ")})`);
+  return registered;
 }
 
 /** The service of a name; throws for a name nobody declared. */

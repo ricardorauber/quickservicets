@@ -1,4 +1,4 @@
-import { boolean, CORE_VERSION, duration, integer, list, object, oneOf, record, secret, size, string, url, type Options, type OptionsInput } from "../public.ts";
+import { anyOf, boolean, CORE_VERSION, duration, integer, list, object, oneOf, record, secret, size, string, toggle, url, type Options, type OptionsInput } from "../public.ts";
 
 /** What a service name looks like. */
 export const SERVICE_NAME = /^[a-z][a-z0-9-]*$/;
@@ -31,6 +31,21 @@ export const serviceOptions = object({
     .default([])
     .describe("What calls through req.http carry from the request: user sends x-user-id, tenant sends x-tenant-id, authorization forwards the incoming authorization header."),
   log: oneOf(["all", "errors", "off"]).optional().describe("Which calls to the service write http.call entries, instead of http.log."),
+  retry: toggle({
+    attempts: integer().min(1).default(3).describe("Attempts in total, the first included."),
+    backoff: duration().default("200ms").describe("The first backoff, doubled for each next attempt, with full jitter."),
+    maxBackoff: duration().default("5s").describe("The longest backoff."),
+    methods: list(oneOf(["GET", "HEAD", "OPTIONS", "PUT", "DELETE", "POST", "PATCH"]))
+      .default(["GET", "HEAD", "OPTIONS", "PUT", "DELETE"])
+      .describe("The methods retried; POST and PATCH are also retried when the request has an Idempotency-Key header."),
+    on: list(anyOf(integer().min(100).max(599), oneOf(["NETWORK", "TIMEOUT"])))
+      .default([408, 429, 502, 503, 504, "NETWORK", "TIMEOUT"])
+      .describe("The statuses and error codes retried."),
+    maxRetryAfter: duration().default("30s").describe("The longest Retry-After waited; a longer one is not retried."),
+  })
+    .default(false)
+    .describe("Retries calls to the service that are safe to retry."),
+  modifiers: list(string()).default([]).describe("Registered modifiers that wrap every call to the service, in order, inside the built-in ones."),
 });
 
 /** The resolved options of one named service. */

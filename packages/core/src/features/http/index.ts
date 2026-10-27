@@ -8,6 +8,14 @@ import { allowProblems } from "./ssrf.ts";
 
 /** The answer an endpoint gives an `HttpClientError` it lets escape. */
 export function upstreamAnswer(error: HttpClientError, production: boolean): Response {
+  if (error.code === "CIRCUIT_OPEN" || error.code === "BULKHEAD_FULL") {
+    const retryAfter = (error.details as { retryAfter?: number } | undefined)?.retryAfter;
+    const details = production ? undefined : { code: error.code, url: error.url, ...(error.service !== undefined ? { service: error.service } : {}) };
+    return Response.json(
+      { error: { code: "SERVICE_UNAVAILABLE", message: "Upstream unavailable", ...(details ? { details } : {}) } },
+      { status: 503, ...(retryAfter !== undefined ? { headers: { "retry-after": String(retryAfter) } } : {}) },
+    );
+  }
   const timeout = error.code === "TIMEOUT";
   const [status, code, message] = timeout ? [504, "GATEWAY_TIMEOUT", "Upstream request timed out"] : [502, "BAD_GATEWAY", "Upstream request failed"];
   const details = production ? undefined : { code: error.code, status: error.status, url: error.url, ...(error.service !== undefined ? { service: error.service } : {}) };
@@ -111,6 +119,8 @@ export { blockedCategory, useTestResolver } from "./ssrf.ts";
 export { defineModifier } from "./modifiers.ts";
 export type { ModifierFunction } from "./modifiers.ts";
 export { withRetry } from "./retry.ts";
+export { withBulkhead, withCircuitBreaker } from "./resilience.ts";
+export type { BulkheadOptions, CircuitBreakerOptions, HttpState } from "./resilience.ts";
 export type { RetryOptions } from "./retry.ts";
 export type { TestResolverMap } from "./ssrf.ts";
 export type { HttpClientErrorCode, HttpClientErrorInit } from "./errors.ts";

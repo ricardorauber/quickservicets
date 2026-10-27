@@ -45,6 +45,20 @@ export const serviceOptions = object({
   })
     .default(false)
     .describe("Retries calls to the service that are safe to retry."),
+  circuitBreaker: toggle({
+    failures: integer().min(1).default(5).describe("Failures (5xx, network failures, timeouts) within the window that open the circuit."),
+    window: duration().default("30s").describe("The rolling window failures are counted in."),
+    cooldown: duration().default("30s").describe("How long an open circuit rejects calls before one trial call."),
+  })
+    .default(false)
+    .describe("Stops calling the service for a while after repeated failures."),
+  bulkhead: toggle({
+    concurrency: integer().min(1).default(10).describe("Calls to the service running at once in a worker."),
+    queue: integer().min(0).default(100).describe("Calls waiting for a slot."),
+    queueTimeout: duration().default("5s").describe("The longest a call waits for a slot; the wait counts toward its timeout."),
+  })
+    .default(false)
+    .describe("Caps how many calls to the service run at once."),
   modifiers: list(string()).default([]).describe("Registered modifiers that wrap every call to the service, in order, inside the built-in ones."),
 });
 

@@ -4,6 +4,7 @@ import { httpOptions, type HttpOptions, type ServiceOptions } from "./options.ts
 import { sharedState } from "./state.ts";
 import { runChain } from "./modifiers.ts";
 import { withRetry, type RetryOptions } from "./retry.ts";
+import { stateOf, withBulkhead, withCircuitBreaker, type BulkheadOptions, type CircuitBreakerOptions, type HttpState } from "./resilience.ts";
 import { maskedUrl, transport } from "./transport.ts";
 
 /** A raw request body. */
@@ -100,7 +101,11 @@ export interface RegisteredModifier {
 
 /** The built-in named modifiers, with their default options. */
 export function builtInModifiers(): Map<string, RegisteredModifier> {
-  return new Map([["retry", { owner: "http", modifier: withRetry() }]]);
+  return new Map([
+    ["retry", { owner: "http", modifier: withRetry() }],
+    ["circuitBreaker", { owner: "http", modifier: withCircuitBreaker() }],
+    ["bulkhead", { owner: "http", modifier: withBulkhead() }],
+  ]);
 }
 
 /** The services of the config's `http.services`, by name. */
@@ -239,6 +244,10 @@ export function serviceModifiers(service: ServiceSettings, settings: HttpSetting
     builtIn = [];
     const retry = service.retry as (Record<string, unknown> & { enabled: boolean }) | undefined;
     if (retry?.enabled) builtIn.push(withRetry(retry as RetryOptions));
+    const circuitBreaker = service.circuitBreaker as (Record<string, unknown> & { enabled: boolean }) | undefined;
+    if (circuitBreaker?.enabled) builtIn.push(withCircuitBreaker(circuitBreaker as CircuitBreakerOptions));
+    const bulkhead = service.bulkhead as (Record<string, unknown> & { enabled: boolean }) | undefined;
+    if (bulkhead?.enabled) builtIn.push(withBulkhead(bulkhead as BulkheadOptions));
     builtInChains.set(service, builtIn);
   }
   const named = (service.modifiers as readonly string[] | undefined) ?? [];
@@ -493,11 +502,13 @@ export function serviceMethodsOf(name: string, binding: ClientBinding): HttpServ
 export interface Http extends HttpMethods {
   /** The client of a named service: paths join its base URL, and calls carry its headers, authentication and timeout. */
   service(name: ServiceName): HttpServiceMethods;
+  /** The circuit breaker and bulkhead state of a name (a service's, by default) in this worker. */
+  state(name: string): HttpState;
 }
 
 /** A client bound to `binding`. */
 export function clientOf(binding: ClientBinding): Http {
-  return { ...methodsOf(binding), service: (name) => serviceMethodsOf(name, binding) };
+  return { ...methodsOf(binding), service: (name) => serviceMethodsOf(name, binding), state: stateOf };
 }
 
 const created = sharedState("request-clients", () => ({ count: 0 }));

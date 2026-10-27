@@ -567,5 +567,13 @@ Every option, tag, command and hook of `http` is on [its reference page](/refere
 | `http.services.<name>.retry.methods` | `record of ("GET" \| "HEAD" \| "OPTIONS" \| "PUT" \| "DELETE" \| "POST" \| "PATCH")[]` | `["GET","HEAD","OPTIONS","PUT","DELETE"]` | `QS_HTTP_SERVICES_<NAME>_RETRY_METHODS` | The methods retried; POST and PATCH are also retried when the request has an Idempotency-Key header. |
 | `http.services.<name>.retry.on` | `record of (integer \| "NETWORK" \| "TIMEOUT")[]` | `[408,429,502,503,504,"NETWORK","TIMEOUT"]` | `QS_HTTP_SERVICES_<NAME>_RETRY_ON` | The statuses and error codes retried. |
 | `http.services.<name>.retry.maxRetryAfter` | `record of duration` | `"30s"` | `QS_HTTP_SERVICES_<NAME>_RETRY_MAX_RETRY_AFTER` | The longest Retry-After waited; a longer one is not retried. |
+| `http.services.<name>.circuitBreaker.enabled` | `record of boolean` | `true` | `QS_HTTP_SERVICES_<NAME>_CIRCUIT_BREAKER_ENABLED` | Stops calling the service for a while after repeated failures. Turns it off when false. |
+| `http.services.<name>.circuitBreaker.failures` | `record of integer` | `5` | `QS_HTTP_SERVICES_<NAME>_CIRCUIT_BREAKER_FAILURES` | Failures (5xx, network failures, timeouts) within the window that open the circuit. |
+| `http.services.<name>.circuitBreaker.window` | `record of duration` | `"30s"` | `QS_HTTP_SERVICES_<NAME>_CIRCUIT_BREAKER_WINDOW` | The rolling window failures are counted in. |
+| `http.services.<name>.circuitBreaker.cooldown` | `record of duration` | `"30s"` | `QS_HTTP_SERVICES_<NAME>_CIRCUIT_BREAKER_COOLDOWN` | How long an open circuit rejects calls before one trial call. |
+| `http.services.<name>.bulkhead.enabled` | `record of boolean` | `true` | `QS_HTTP_SERVICES_<NAME>_BULKHEAD_ENABLED` | Caps how many calls to the service run at once. Turns it off when false. |
+| `http.services.<name>.bulkhead.concurrency` | `record of integer` | `10` | `QS_HTTP_SERVICES_<NAME>_BULKHEAD_CONCURRENCY` | Calls to the service running at once in a worker. |
+| `http.services.<name>.bulkhead.queue` | `record of integer` | `100` | `QS_HTTP_SERVICES_<NAME>_BULKHEAD_QUEUE` | Calls waiting for a slot. |
+| `http.services.<name>.bulkhead.queueTimeout` | `record of duration` | `"5s"` | `QS_HTTP_SERVICES_<NAME>_BULKHEAD_QUEUE_TIMEOUT` | The longest a call waits for a slot; the wait counts toward its timeout. |
 | `http.services.<name>.modifiers` | `record of string[]` | `[]` | `QS_HTTP_SERVICES_<NAME>_MODIFIERS` | Registered modifiers that wrap every call to the service, in order, inside the built-in ones. |
 | `http.enabled` | `boolean` | `true` | `QS_HTTP_ENABLED` | Turns the feature off when false. |

@@ -20,6 +20,7 @@ import {
   type ResolvedConfig,
   type OpenApiDoc,
   extendOpenApi,
+  NO_AUTH_SCHEME_WARNING,
 } from "@quickservicets/core";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -454,6 +455,8 @@ async function buildProject(projectRoot: string, config: ResolvedConfig, options
   const tsconfigWarning = generatedIncludeWarning(projectRoot);
   if (tsconfigWarning) warnings.push(tsconfigWarning);
   warnings.push(...endpointDocs.warnings);
+  // With auth on, a provider documents how to authenticate; without one, generated clients cannot.
+  if (config.features.some((feature) => feature.key === "auth") && Object.keys(openApi.components?.securitySchemes ?? {}).length === 0) warnings.push(NO_AUTH_SCHEME_WARNING);
   const dialect = sqlDialectOf(config.database.kind);
   if (dialect && (await hasPendingChanges(projectRoot, models, dialect))) warnings.push(PENDING_MIGRATION_WARNING);
   return { entities: models.length, endpoints: endpoints.length, hooks: hooks.size, features: featureKeys.length, overrides, fromFeatures: scanned.fromFeatures, watch: featureWatchPaths(config.features), buildInputs: Object.fromEntries(config.features.filter((feature) => feature.definition.build).map((feature) => [feature.key, featureWatchPaths([feature])])), buildSteps, warnings };

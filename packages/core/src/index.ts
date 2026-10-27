@@ -278,7 +278,7 @@ registerShippedNative(flagsNative);
 registerShippedNative(httpNative);
 registerShippedNative(tenancyNative);
 registerShippedNative(authNative);
-export { AuthError, authFeature, requireRole, requireUser } from "./features/auth/index.ts";
+export { addAuthScheme, AuthError, authFeature, NO_AUTH_SCHEME_WARNING, requireRole, requireUser } from "./features/auth/index.ts";
 export type { AuthApi, AuthCredentials, AuthenticatedUser, AuthMethod, AuthProvider, AuthResult, AuthResultUser, RequestAuth, RevokeTarget } from "./features/auth/index.ts";
 export { addOutboxPatterns, events, eventsFeature, listen, memoryEventBus, readOutbox, tailOutbox } from "./features/events/index.ts";
 export type { ConsumerOptions, DeliveryContext, DeliveryStatus, OutboxRecord } from "./features/events/index.ts";

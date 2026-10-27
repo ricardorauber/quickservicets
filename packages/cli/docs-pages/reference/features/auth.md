@@ -14,6 +14,8 @@ auth: {}
 
 It is not enabled by default: turn it on with `auth: {}` or `QS_AUTH_ENABLED=true`, and off with `auth: false` or `QS_AUTH_ENABLED=false`.
 
+**Runs after:** `health`, `history`, `realtime`
+
 ## Options
 
 | Key | Type | Default | Environment variable | Per request | Description |

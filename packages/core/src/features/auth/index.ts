@@ -1,6 +1,7 @@
 import { boolean, defineFeature, HttpError, list, object, runtimeTargets, safeLog, string, taggedRoutes, type HandlerMiddleware, type Logger, type RequestUser, type ServiceRequest } from "../public.ts";
 import { AuthError, type AuthApi, type AuthProvider, type AuthResult, type RequestAuth } from "./api.ts";
 import { buildRouteRules, parseRoleEntry, type RouteRule } from "./routes.ts";
+import { markOperations } from "./openapi.ts";
 import { isTestProvider } from "./test-provider.ts";
 
 const options = object({
@@ -154,7 +155,14 @@ const authFeature = defineFeature({
     ],
   },
   options,
+  // The document marks the routes these natives add, so their openapi functions run first.
+  after: ["health", "history", "realtime"],
   request: { auth: (req) => authOf.get(req) },
+  openapi(doc, { models, options, routes, config }) {
+    const health = config.features.find((feature) => feature.key === "health")?.options as { live?: string; ready?: string } | undefined;
+    const publicPaths = health ? [health.live, health.ready].filter((path): path is string => typeof path === "string") : [];
+    return markOperations(doc, { routes, models, options: { required: options.required, scopes: options.scopes, roles: options.roles }, publicPaths });
+  },
   tags: {
     auth: {
       on: ["entity", "endpoint"],
@@ -268,6 +276,8 @@ export { authFeature };
 export { AuthError } from "./api.ts";
 export type { AuthApi, AuthCredentials, AuthMethod, AuthProvider, AuthResult, AuthResultUser, RequestAuth, RevokeTarget } from "./api.ts";
 export { isTestProvider, parseTestUser, testAuth } from "./test-provider.ts";
+export { addAuthScheme, hasSecurityScheme, markOperations, NO_AUTH_SCHEME_WARNING } from "./openapi.ts";
+export type { OperationAuth } from "./openapi.ts";
 export { buildRouteRules, parseRoleEntry, ROLE_GROUPS, ROLE_OPERATIONS, ruleOf } from "./routes.ts";
 export type { RoleEntry, RouteRule, RuleOptions } from "./routes.ts";
 export type { TestAuthOptions } from "./test-provider.ts";

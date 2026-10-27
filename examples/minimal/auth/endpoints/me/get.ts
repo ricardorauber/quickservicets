@@ -1,6 +1,6 @@
-import type { Endpoint } from "@quickservicets/core";
+import { requireUser, type Endpoint } from "@quickservicets/core";
 
-/** @summary The signed-in user, or null for an anonymous request */
-const handler: Endpoint = (_repos, req) => ({ user: req.user ?? null, method: req.auth?.method ?? null });
+/** @summary The signed-in user */
+const handler: Endpoint = (_repos, req) => requireUser(req);
 
 export default handler;

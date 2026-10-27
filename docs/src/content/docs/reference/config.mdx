@@ -680,9 +680,14 @@ Every option, tag, command and hook of `auth` is on [its reference page](/refere
 
 | Key | Type | Default | Environment variable | Description |
 | --- | --- | --- | --- | --- |
-| `auth.required` | `boolean` | `false` | `QS_AUTH_REQUIRED` | Every route needs a signed-in user unless tagged @auth off; runtime routes registered with auth: false stay public. |
+| `auth.required` | `boolean` | `false` | `QS_AUTH_REQUIRED` | Every route needs a signed-in user unless tagged @auth off; runtime routes registered with auth: false stay public. A function of the request, its user and tenant decides per request for the routes without an @auth tag, once the tenant is known. |
 | `auth.scopes` | `string[]` | `[]` | `QS_AUTH_SCOPES` | The token scopes every route that needs a user requires, unless its @auth tag lists its own. |
 | `auth.roles` | `string[]` | `[]` | `QS_AUTH_ROLES` | The roles every route requires, as role or role:operation entries like the @roles tag (admin, admin:delete); empty by default. |
+| `auth.providers` | `AuthProvider[]` | `[]` | `QS_AUTH_PROVIDERS` | Authentication providers of the project, tried before the providers features register; each has a name, the credentials it reads and authenticate. |
+| `auth.beforeUser` | `hook` | — | not overridable | Runs after a provider's result with the user, req.auth and the request; it may return a changed user (like roles loaded from the database), and a throw answers with that error. |
+| `auth.onAuthenticated` | `hook` | — | not overridable | Runs once a request is authenticated, with the user, req.auth and the request; a failure is logged. |
+| `auth.onAuthFailed` | `hook` | — | not overridable | Runs after credentials are refused with 401, with the provider, the reason and the request; a failure is logged. |
+| `auth.beforeAuthorize` | `hook` | — | not overridable | Runs before the @auth and @roles checks of a route with the user, the route, its operation, roles and scopes and the request: true allows, false answers 403 Not allowed, undefined keeps the tag rules. |
 | `auth.enabled` | `boolean` | `true` | `QS_AUTH_ENABLED` | Turns the feature off when false. |
 
 #### `@auth`

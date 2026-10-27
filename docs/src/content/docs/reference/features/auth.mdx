@@ -23,9 +23,14 @@ It is not enabled by default: turn it on with `auth: {}` or `QS_AUTH_ENABLED=tru
 
 | Key | Type | Default | Environment variable | Per request | Description |
 | --- | --- | --- | --- | --- | --- |
-| `auth.required` | `boolean` | `false` | `QS_AUTH_REQUIRED` | no | Every route needs a signed-in user unless tagged @auth off; runtime routes registered with auth: false stay public. |
+| `auth.required` | `boolean` | `false` | `QS_AUTH_REQUIRED` | yes | Every route needs a signed-in user unless tagged @auth off; runtime routes registered with auth: false stay public. A function of the request, its user and tenant decides per request for the routes without an @auth tag, once the tenant is known. |
 | `auth.scopes` | `string[]` | `[]` | `QS_AUTH_SCOPES` | no | The token scopes every route that needs a user requires, unless its @auth tag lists its own. |
 | `auth.roles` | `string[]` | `[]` | `QS_AUTH_ROLES` | no | The roles every route requires, as role or role:operation entries like the @roles tag (admin, admin:delete); empty by default. |
+| `auth.providers` | `AuthProvider[]` | `[]` | `QS_AUTH_PROVIDERS` | no | Authentication providers of the project, tried before the providers features register; each has a name, the credentials it reads and authenticate. |
+| `auth.beforeUser` | `hook` | — | not overridable | no | Runs after a provider's result with the user, req.auth and the request; it may return a changed user (like roles loaded from the database), and a throw answers with that error. |
+| `auth.onAuthenticated` | `hook` | — | not overridable | no | Runs once a request is authenticated, with the user, req.auth and the request; a failure is logged. |
+| `auth.onAuthFailed` | `hook` | — | not overridable | no | Runs after credentials are refused with 401, with the provider, the reason and the request; a failure is logged. |
+| `auth.beforeAuthorize` | `hook` | — | not overridable | no | Runs before the @auth and @roles checks of a route with the user, the route, its operation, roles and scopes and the request: true allows, false answers 403 Not allowed, undefined keeps the tag rules. |
 | `auth.enabled` | `boolean` | `true` | `QS_AUTH_ENABLED` | no | Turns the feature off when false. |
 
 ## Tags
@@ -60,6 +65,17 @@ export type Post = { title: string };
 export type Post = { title: string };
 ```
 
+## Hooks
+
+Hooks are functions (or lists of functions) written in the config; `before` hooks may change the value or cancel the step by throwing, `after` and `on` hooks observe.
+
+| Hook | Kind | Description |
+| --- | --- | --- |
+| `auth.beforeUser` | before | Runs after a provider's result with the user, req.auth and the request; it may return a changed user (like roles loaded from the database), and a throw answers with that error. |
+| `auth.onAuthenticated` | on | Runs once a request is authenticated, with the user, req.auth and the request; a failure is logged. |
+| `auth.onAuthFailed` | on | Runs after credentials are refused with 401, with the provider, the reason and the request; a failure is logged. |
+| `auth.beforeAuthorize` | before | Runs before the @auth and @roles checks of a route with the user, the route, its operation, roles and scopes and the request: true allows, false answers 403 Not allowed, undefined keeps the tag rules. |
+
 ## Feature API
 
 Other features reach it with `ctx.feature("auth")` in their setup, listing `auth` in `requires` or `after`.
@@ -90,6 +106,14 @@ onRevoke(fn: (target: RevokeTarget) => unknown): void;
 
 Runs `fn` after every revocation, like closing the sockets of a revoked session. Only available during setup.
 
+### `addHook`
+
+```ts
+addHook<K extends keyof AuthHooks>(name: K, fn: AuthHooks[K]): void;
+```
+
+Appends a hook (`beforeUser`, `onAuthenticated`, `onAuthFailed` or `beforeAuthorize`) after the config's.
+
 ## Error codes
 
 | Status | Code | Message |
@@ -98,3 +122,9 @@ Runs `fn` after every revocation, like closing the sockets of a revoked session.
 | 401 | `UNAUTHORIZED` | Authentication required |
 | 403 | `FORBIDDEN` | Not allowed |
 | 403 | `FORBIDDEN` | Insufficient scope |
+| 401 | `INVALID_CREDENTIALS` | Invalid credentials (`invalidCredentials()`, for providers' sign-in routes) |
+| 429 | `RATE_LIMITED` | Too many attempts; try again later (`loginGuard`) |
+
+## Override files and eject
+
+The native contributes no entities, endpoints, hooks, jobs or folders, so there are no files to override. `quickservicets eject auth` copies it into `features/auth/`, a project feature that replaces it and keeps its behavior.

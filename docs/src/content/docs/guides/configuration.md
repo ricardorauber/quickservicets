@@ -249,6 +249,7 @@ An error thrown by the logger never changes the response.
 - [Error reporting](/guides/error-reporting/): the `errors` key, for reporting every unexpected error to a reporter.
 - [Feature flags](/guides/feature-flags/): the `flags` key, for turning features on per user, tenant or percentage.
 - [Multi-tenancy](/guides/multi-tenancy/): the `tenancy` key, for serving many tenants from one service, each in a schema or a database of its own.
+- [Authentication](/guides/authentication/): the `auth` key, for one authentication contract, `@auth` and `@roles`, OpenAPI security, the account protection kit and CSRF for cookie sessions.
 - [HTTP client](/guides/http-client/): the `http` key, on by default: outgoing calls with SSRF protection, named services, retries, circuit breakers, caching and mocks.
 
 Next: [Jobs](/guides/jobs/).

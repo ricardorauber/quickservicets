@@ -1,15 +1,51 @@
-import { boolean, cookieValue, defineFeature, HttpError, list, object, runtimeTargets, safeLog, string, taggedRoutes, type HandlerMiddleware, type Logger, type RequestUser, type ServiceRequest } from "../public.ts";
-import { AuthError, type AuthApi, type AuthProvider, type AuthResult, type RequestAuth, type RevokeTarget } from "./api.ts";
+import {
+  boolean,
+  cookieValue,
+  defineFeature,
+  hook,
+  HttpError,
+  list,
+  object,
+  provider,
+  resolveOption,
+  runAfterHooks,
+  runtimeTargets,
+  safeLog,
+  string,
+  taggedRoutes,
+  type HandlerMiddleware,
+  type Logger,
+  type OptionFunction,
+  type RequestUser,
+  type ServiceRequest,
+} from "../public.ts";
+import { isAuthError, type AuthApi, type AuthFailure, type AuthProvider, type AuthResult, type Authenticated, type AuthorizeStep, type RequestAuth, type RevokeTarget, type UserStep } from "./api.ts";
 import { buildRouteRules, parseRoleEntry, type RouteRule } from "./routes.ts";
 import { markOperations } from "./openapi.ts";
 import { isTestProvider } from "./test-provider.ts";
 
 const options = object({
-  required: boolean().default(false).describe("Every route needs a signed-in user unless tagged @auth off; runtime routes registered with auth: false stay public."),
+  required: boolean()
+    .default(false)
+    .perRequest()
+    .describe(
+      "Every route needs a signed-in user unless tagged @auth off; runtime routes registered with auth: false stay public. A function of the request, its user and tenant decides per request for the routes without an @auth tag, once the tenant is known.",
+    ),
   scopes: list(string()).default([]).describe("The token scopes every route that needs a user requires, unless its @auth tag lists its own."),
   roles: list(string())
     .default([])
     .describe("The roles every route requires, as role or role:operation entries like the @roles tag (admin, admin:delete); empty by default."),
+  providers: list(provider<AuthProvider>("AuthProvider", ["authenticate"]))
+    .default([])
+    .describe("Authentication providers of the project, tried before the providers features register; each has a name, the credentials it reads and authenticate."),
+  beforeUser: hook<UserStep | RequestUser, undefined>().describe(
+    "Runs after a provider's result with the user, req.auth and the request; it may return a changed user (like roles loaded from the database), and a throw answers with that error.",
+  ),
+  onAuthenticated: hook<Authenticated, undefined>().describe("Runs once a request is authenticated, with the user, req.auth and the request; a failure is logged."),
+  onAuthFailed: hook<AuthFailure, undefined>().describe("Runs after credentials are refused with 401, with the provider, the reason and the request; a failure is logged."),
+  beforeAuthorize: hook<AuthorizeStep | boolean, undefined>().describe(
+    "Runs before the @auth and @roles checks of a route with the user, the route, its operation, roles and scopes and the request: true allows, false answers 403 Not allowed, undefined keeps the tag rules.",
+  ),
 });
 
 /** The challenges of the running service's providers, for the answers of `requireUser` and `requireRole`. */
@@ -119,6 +155,16 @@ function logFailure(logger: Logger, req: ServiceRequest, provider: string | unde
   safeLog(logger, "info", { timestamp: new Date().toISOString(), message: "auth.failed", ...(provider !== undefined ? { provider } : {}), reason, ip: req.ip });
 }
 
+/** Checks and registers a provider, after the ones registered before it. */
+function registerProvider(state: { providers: AuthProvider[]; production: boolean }, provider: AuthProvider): void {
+  if (typeof provider?.name !== "string" || provider.name === "" || typeof provider.authenticate !== "function") {
+    throw new Error("auth provider() expects an AuthProvider with a name and an authenticate method");
+  }
+  if (isTestProvider(provider) && state.production) throw new Error("testAuth() cannot run in production");
+  if (state.providers.some((registered) => registered.name === provider.name)) throw new Error(`Auth provider ${provider.name} is registered twice`);
+  state.providers.push(provider);
+}
+
 /** The providers of each running setup, for the feature API. */
 const statesOf = new WeakMap<object, { providers: AuthProvider[]; open: boolean; production: boolean; onRevoke: ((target: RevokeTarget) => unknown)[] }>();
 
@@ -141,7 +187,13 @@ const authFeature = defineFeature({
           "| 401 | `UNAUTHORIZED` | Authentication required |",
           "| 403 | `FORBIDDEN` | Not allowed |",
           "| 403 | `FORBIDDEN` | Insufficient scope |",
+          "| 401 | `INVALID_CREDENTIALS` | Invalid credentials (`invalidCredentials()`, for providers' sign-in routes) |",
+          "| 429 | `RATE_LIMITED` | Too many attempts; try again later (`loginGuard`) |",
         ].join("\n"),
+      },
+      {
+        title: "Override files and eject",
+        text: "The native contributes no entities, endpoints, hooks, jobs or folders, so there are no files to override. `quickservicets eject auth` copies it into `features/auth/`, a project feature that replaces it and keeps its behavior.",
       },
     ],
   },
@@ -150,9 +202,10 @@ const authFeature = defineFeature({
   after: ["health", "history", "realtime"],
   request: { auth: (req) => authOf.get(req) },
   openapi(doc, { models, options, routes, config }) {
+    // A required function may need a user on any route without @auth, so the document marks them all.
     const health = config.features.find((feature) => feature.key === "health")?.options as { live?: string; ready?: string } | undefined;
     const publicPaths = health ? [health.live, health.ready].filter((path): path is string => typeof path === "string") : [];
-    return markOperations(doc, { routes, models, options: { required: options.required, scopes: options.scopes, roles: options.roles }, publicPaths });
+    return markOperations(doc, { routes, models, options: { required: typeof options.required === "function" ? true : (options.required as boolean), scopes: options.scopes, roles: options.roles }, publicPaths });
   },
   tags: {
     auth: {
@@ -183,22 +236,38 @@ const authFeature = defineFeature({
     statesOf.set(ctx.options, state);
     const { providers } = state;
     currentProviders = providers;
+    // The project's providers come before the ones features register.
+    for (const project of ctx.options.providers as AuthProvider[]) registerProvider(state, project);
+    const { beforeUser, onAuthenticated, onAuthFailed, beforeAuthorize } = ctx.options;
+    const requiredFunction = typeof ctx.options.required === "function" ? (ctx.options.required as OptionFunction<boolean>) : undefined;
     let index: CredentialIndex | undefined;
-    const ruleOptions = { required: ctx.options.required, scopes: ctx.options.scopes, roles: ctx.options.roles };
+    const ruleOptions = { required: requiredFunction ? undefined : (ctx.options.required as boolean), scopes: ctx.options.scopes, roles: ctx.options.roles };
     /** The routes whose rule differs from the default, decided once every feature registered its routes. */
     let rules: Map<string, RouteRule> | undefined;
     const rulesOf = () => (rules ??= buildRouteRules({ tagged: taggedRoutes(), runtime: runtimeTargets(), models: ctx.models }, ruleOptions));
-    const defaultRule: RouteRule | undefined = ctx.options.required ? { user: true, scopes: ctx.options.scopes, tagged: false } : undefined;
+    const defaultRule: RouteRule | undefined = ctx.options.required === true ? { user: true, scopes: ctx.options.scopes, tagged: false } : undefined;
     ctx.app.onStart(() => {
       state.open = false;
       index = credentialIndex(providers);
       rulesOf();
     });
+    const refused = async (req: ServiceRequest, provider: string | undefined, reason: string) => {
+      logFailure(ctx.logger, req, provider, reason);
+      if (onAuthFailed.length > 0) await runAfterHooks(onAuthFailed, { provider, reason, req }, undefined);
+    };
     /** Answers 401, 403 or nothing for a request against its route's rule. */
-    const authorize = (req: ServiceRequest, rule: RouteRule) => {
+    const authorize = async (req: ServiceRequest, rule: RouteRule) => {
       const user = req.user;
+      if (beforeAuthorize.length > 0) {
+        const step: AuthorizeStep = { user, route: req.route, operation: rule.operation, roles: rule.roles ? [...rule.roles] : [], scopes: [...rule.scopes], req };
+        for (const fn of beforeAuthorize) {
+          const decision = await fn(step, undefined);
+          if (decision === true) return;
+          if (decision === false) throw notAllowed();
+        }
+      }
       if (rule.user && !user) {
-        logFailure(ctx.logger, req, undefined, "missing credentials");
+        await refused(req, undefined, "missing credentials");
         throw authenticationRequired(providers);
       }
       if (rule.roles && !(user?.roles ?? []).some((role) => rule.roles!.has(role))) throw notAllowed();
@@ -219,8 +288,8 @@ const authFeature = defineFeature({
           try {
             result = await provider.authenticate(req);
           } catch (error) {
-            if (error instanceof AuthError) {
-              logFailure(ctx.logger, req, provider.name, error.reason);
+            if (isAuthError(error)) {
+              await refused(req, provider.name, error.reason);
               const challenge = challengeHeader(providers, true);
               throw new HttpError(401, "Invalid credentials", challenge ? { headers: { "www-authenticate": challenge } } : {});
             }
@@ -234,30 +303,51 @@ const authFeature = defineFeature({
           }
           if (result) {
             applyResult(req, provider, result);
+            if (beforeUser.length > 0) {
+              let user = req.user!;
+              for (const fn of beforeUser) {
+                const changed = (await fn({ user, auth: authOf.get(req)!, req }, undefined)) as unknown;
+                if (changed && typeof changed === "object") user = ("user" in changed && "req" in changed ? (changed as UserStep).user : changed) as RequestUser;
+              }
+              req.user = { ...user, roles: user.roles ?? [], claims: user.claims ?? {} };
+            }
+            if (onAuthenticated.length > 0) await runAfterHooks(onAuthenticated, { user: req.user!, auth: authOf.get(req)!, req }, undefined);
             break;
           }
         }
         const routes = rulesOf();
         // Without tagged routes and with required false, a request does no lookup at all.
         const rule = routes.size === 0 ? defaultRule : (routes.get(`${req.method} ${req.route}`) ?? defaultRule);
-        if (rule) authorize(req, rule);
+        if (rule) await authorize(req, rule);
+        else if (!requiredFunction && beforeAuthorize.length > 0) await authorize(req, { user: false, scopes: [], tagged: false });
         return next();
       },
     };
     ctx.app.use(authenticate);
+    if (requiredFunction) {
+      // A required function may read the tenant, which tenancy resolves at 200; it decides the routes without @auth.
+      const decide: HandlerMiddleware = {
+        stage: "handler",
+        order: 250,
+        async run(req, _res, next) {
+          if (!rulesOf().has(`${req.method} ${req.route}`)) {
+            const needs = (await resolveOption(requiredFunction, { req })) === true;
+            await authorize(req, needs ? { user: true, scopes: ctx.options.scopes, tagged: false } : { user: false, scopes: [], tagged: false });
+          }
+          return next();
+        },
+      };
+      ctx.app.use(decide);
+    }
   },
   api: (ctx): AuthApi => {
     const state = statesOf.get(ctx.options)!;
     return {
       provider(provider) {
         if (!state.open) throw new Error("auth provider() is only available during setup");
-        if (typeof provider?.name !== "string" || provider.name === "" || typeof provider.authenticate !== "function") {
-          throw new Error("auth provider() expects an AuthProvider with a name and an authenticate method");
-        }
-        if (isTestProvider(provider) && state.production) throw new Error("testAuth() cannot run in production");
-        if (state.providers.some((registered) => registered.name === provider.name)) throw new Error(`Auth provider ${provider.name} is registered twice`);
-        state.providers.push(provider);
+        registerProvider(state, provider);
       },
+      addHook: ctx.addHook as AuthApi["addHook"],
       async revoke(target) {
         if (typeof target !== "object" || target === null || (typeof (target as { sessionId?: unknown }).sessionId !== "string" && typeof (target as { userId?: unknown }).userId !== "string")) {
           throw new Error("auth revoke() expects { sessionId } or { userId }");
@@ -300,8 +390,8 @@ const authFeature = defineFeature({
 
 export default authFeature;
 export { authFeature };
-export { AuthError } from "./api.ts";
-export type { AuthApi, AuthCredentials, AuthMethod, AuthProvider, AuthResult, AuthResultUser, RequestAuth, RevokeTarget, SessionRevokedEvent } from "./api.ts";
+export { AuthError, isAuthError } from "./api.ts";
+export type { AuthApi, AuthCredentials, AuthFailure, AuthMethod, AuthProvider, AuthResult, AuthResultUser, Authenticated, AuthorizeStep, RequestAuth, RevokeTarget, SessionRevokedEvent, UserStep } from "./api.ts";
 export { isTestProvider, parseTestUser, testAuth } from "./test-provider.ts";
 export { dummyPasswordCheck, identifierHash, invalidCredentials, loginGuard, memoryThrottleStore, repositoryThrottleStore, ThrottleConflictError, tooManyAttempts } from "./kit.ts";
 export type { LoginCheck, LoginGuard, LoginGuardOptions, LoginThrottleRecord, LoginThrottleStore } from "./kit.ts";

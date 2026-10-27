@@ -1,43 +1,39 @@
 import { expect, test } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
-import { join, relative } from "node:path";
 import { testAuth } from "@quickservicets/core/testing";
 import { startTestService } from "@quickservicets/cli/testing";
+import { checkExample, projectFiles } from "./support.ts";
 
-const root = join(import.meta.dir, "..");
-
-/** The example's own files, as `startTestService` takes them. */
-function exampleFiles(): Record<string, string> {
-  const files: Record<string, string> = { "quickservicets.config.ts": readFileSync(join(root, "quickservicets.config.ts"), "utf8") };
-  for (const folder of ["entities", "endpoints", "features", "lib"]) {
-    for (const entry of readdirSync(join(root, folder), { recursive: true, withFileTypes: true })) {
-      if (entry.isFile()) files[relative(root, join(entry.parentPath, entry.name))] = readFileSync(join(entry.parentPath, entry.name), "utf8");
-    }
-  }
-  return files;
-}
-
-const me = async (response: Response) => (await response.json()) as { user: { id: string; roles: string[] } | null; method: string | null };
-
-test("the project's API key provider signs in an editor, and a wrong key answers 401", async () => {
-  const service = await startTestService({ files: exampleFiles(), env: { API_KEY: "k-123" } });
+test("the example answers 401, 403 and 201, serves GET /me and marks the OpenAPI document", async () => {
+  const service = await startTestService({ files: projectFiles(), env: { API_KEY: "k-123" }, auth: testAuth() });
   try {
-    expect(await me(await service.fetch("/me"))).toEqual({ user: null, method: null });
-    expect(await me(await service.fetch("/me", { headers: { "x-api-key": "k-123" } }))).toEqual({ user: { id: "api-client", roles: ["editor"], claims: {} } as never, method: "apiKey" });
-    const refused = await service.fetch("/me", { headers: { "x-api-key": "nope" } });
-    expect(refused.status).toBe(401);
-    expect(refused.headers.get("www-authenticate")).toBe('ApiKey header="x-api-key"');
-    expect(await refused.json()).toEqual({ error: { code: "UNAUTHORIZED", message: "Invalid credentials" } });
+    await checkExample(service);
   } finally {
     await service.stop();
   }
 });
 
-test("testAuth() signs in any test user", async () => {
-  const service = await startTestService({ files: exampleFiles(), auth: testAuth() });
+test("the project's provider runs before a provider a project feature registers", async () => {
+  const feature = `import { defineFeature } from "@quickservicets/core";
+export default defineFeature({
+  key: "other-key",
+  enabledByDefault: true,
+  requires: ["auth"],
+  setup: (ctx) => ctx.feature("auth").provider({ name: "other", credentials: { headers: ["x-api-key"] }, authenticate: () => ({ user: { id: "other" }, method: "apiKey" }) }),
+});
+`;
+  const service = await startTestService({ files: { ...projectFiles(), "features/other-key/index.ts": feature }, env: { API_KEY: "k-123" } });
   try {
-    const seen = await me(await service.fetch("/me", { headers: { "x-test-user": "u1;roles=admin" } }));
-    expect(seen).toEqual({ user: { id: "u1", roles: ["admin"], claims: {} } as never, method: "test" });
+    expect(await (await service.fetch("/me", { headers: { "x-api-key": "k-123" } })).json()).toMatchObject({ id: "api-client" });
+  } finally {
+    await service.stop();
+  }
+});
+
+test("QS_AUTH_REQUIRED=true makes every route but the API docs need a user", async () => {
+  const service = await startTestService({ files: projectFiles(), env: { API_KEY: "k-123", QS_AUTH_REQUIRED: "true" } });
+  try {
+    expect((await service.fetch("/openapi.json")).status).toBe(200);
+    expect((await service.fetch("/posts")).status).toBe(401);
   } finally {
     await service.stop();
   }

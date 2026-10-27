@@ -31,7 +31,7 @@ export default defineConfig({
 | `flags` | Feature flags per user, tenant or percentage, read with `req.flags` | by its key | — | [Feature flags](/guides/feature-flags/) | [flags](/reference/features/flags/) |
 | `http` | The outgoing HTTP client, with SSRF protection, named services, retries, circuit breakers, caching and mocks | by default | — | [HTTP client](/guides/http-client/) | [http](/reference/features/http/) |
 | `tenancy` | The tenant of every request, from a header, a subdomain, a path prefix, the credentials or a function | by its key | — | [Multi-tenancy](/guides/multi-tenancy/) | [tenancy](/reference/features/tenancy/) |
-| `auth` | One authentication contract for every provider, filling `req.user` and `req.auth` | by its key | — | [Permission checks](/recipes/permission-checks/) | [auth](/reference/features/auth/) |
+| `auth` | One authentication contract for every provider, filling `req.user` and `req.auth` | by its key | — | [Authentication](/guides/authentication/) | [auth](/reference/features/auth/) |
 
 A native that needs another fails the build until it is on, naming the fix, like `history requires events; add events: {} to quickservicets.config.ts`. Natives that store data (queues, history, the events outbox, idempotency keys, flags in the database) add tables, so they need a migration like any entity change.
 

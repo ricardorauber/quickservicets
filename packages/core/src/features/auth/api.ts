@@ -1,4 +1,4 @@
-import type { ServiceRequest } from "../public.ts";
+import type { CrudOperation, FeatureHook, RequestUser, ServiceRequest } from "../public.ts";
 
 /** How a request proved who it is. */
 export type AuthMethod = "bearer" | "cookie" | "apiKey" | "certificate" | "test";
@@ -82,7 +82,16 @@ export class AuthError extends Error {
     super(reason);
     this.name = "AuthError";
     this.reason = reason;
+    Object.defineProperty(this, AUTH_ERROR, { value: true });
   }
+}
+
+/** Marks `AuthError`s, shared by every copy of the class (an ejected native's included). */
+const AUTH_ERROR = Symbol.for("quickservicets.auth.error");
+
+/** Whether a value is an `AuthError`, from this copy of the class or another one. */
+export function isAuthError(error: unknown): error is AuthError {
+  return error instanceof AuthError || (typeof error === "object" && error !== null && (error as Record<symbol, unknown>)[AUTH_ERROR] === true);
 }
 
 /** The feature API of `auth`, reached with `ctx.feature("auth")` from a feature that lists it in `requires`, `after` or `enables`. */
@@ -97,6 +106,51 @@ export interface AuthApi {
   revoke(target: RevokeTarget): Promise<void>;
   /** Runs `fn` after every revocation, like closing the sockets of a revoked session. Only available during setup. */
   onRevoke(fn: (target: RevokeTarget) => unknown): void;
+  /** Appends a hook (`beforeUser`, `onAuthenticated`, `onAuthFailed` or `beforeAuthorize`) after the config's. */
+  addHook<K extends keyof AuthHooks>(name: K, fn: AuthHooks[K]): void;
+}
+
+/** What `beforeUser` hooks receive: they may return a changed user. */
+export interface UserStep {
+  user: RequestUser;
+  auth: RequestAuth;
+  req: ServiceRequest;
+}
+
+/** What `onAuthenticated` hooks receive. */
+export interface Authenticated {
+  user: RequestUser;
+  auth: RequestAuth;
+  req: ServiceRequest;
+}
+
+/** What `onAuthFailed` hooks receive for each 401. */
+export interface AuthFailure {
+  /** The provider that refused the credentials; undefined when the request had none. */
+  provider: string | undefined;
+  reason: string;
+  req: ServiceRequest;
+}
+
+/** What `beforeAuthorize` hooks receive: true allows, false answers 403, undefined keeps the tag rules. */
+export interface AuthorizeStep {
+  user: RequestUser | undefined;
+  /** The route's path pattern, like `/posts/[id]`. */
+  route: string;
+  /** The entity operation of the route, if any. */
+  operation: CrudOperation | undefined;
+  /** The roles of which the route requires one (empty when roles do not restrict it). */
+  roles: string[];
+  scopes: string[];
+  req: ServiceRequest;
+}
+
+/** The hooks of the `auth` native, by name. */
+export interface AuthHooks {
+  beforeUser: FeatureHook<UserStep | RequestUser, undefined>;
+  onAuthenticated: FeatureHook<Authenticated, undefined>;
+  onAuthFailed: FeatureHook<AuthFailure, undefined>;
+  beforeAuthorize: FeatureHook<AuthorizeStep | boolean, undefined>;
 }
 
 /** The payload of the `auth.session.revoked` event. */

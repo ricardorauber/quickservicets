@@ -122,3 +122,19 @@ test("every file init writes uses the @quickservicets packages and quickservicet
     expect(Object.keys(pkg.dependencies)).toEqual(["@quickservicets/core", "@quickservicets/cli"]);
   }
 });
+
+test("the config says security is on by default and shows how to enable natives, and the project still builds", async () => {
+  for (const db of DATABASES) {
+    const root = emptyDir();
+    await initProject(root, { db });
+    const config = read(root, "quickservicets.config.ts");
+    expect(config).toContain("// security is on by default with safe defaults");
+    expect(config).toContain("// events: {},");
+    expect(config).toContain("// history: {},");
+  }
+  const root = emptyDir();
+  await initProject(root, { db: "memory" });
+  mkdirSync(join(root, "node_modules/@quickservicets"), { recursive: true });
+  symlinkSync(join(import.meta.dir, "../../../core"), join(root, "node_modules/@quickservicets/core"), "dir");
+  expect((await build(root)).entities).toBe(2);
+});

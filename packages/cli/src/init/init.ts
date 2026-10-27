@@ -77,24 +77,40 @@ const CONFIGS: Record<DatabaseChoice, string> = {
 
 export default defineConfig({
   database: postgresAdapter({ url: process.env.DATABASE_URL! }),
+  // security is on by default with safe defaults (headers, CORS, limits, rate limits); turn it off with security: false.
+  // Other native features are one key each, like:
+  // events: {},
+  // history: {}, // needs events
 });
 `,
   mongodb: `import { defineConfig, mongodbAdapter } from "@quickservicets/core";
 
 export default defineConfig({
   database: mongodbAdapter({ url: process.env.DATABASE_URL!, database: process.env.DATABASE_NAME! }),
+  // security is on by default with safe defaults (headers, CORS, limits, rate limits); turn it off with security: false.
+  // Other native features are one key each, like:
+  // events: {},
+  // history: {}, // needs events
 });
 `,
   sqlite: `import { defineConfig, sqliteAdapter } from "@quickservicets/core";
 
 export default defineConfig({
   database: sqliteAdapter({ path: process.env.DATABASE_PATH! }),
+  // security is on by default with safe defaults (headers, CORS, limits, rate limits); turn it off with security: false.
+  // Other native features are one key each, like:
+  // events: {},
+  // history: {}, // needs events
 });
 `,
   memory: `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 
 export default defineConfig({
   database: memoryAdapter(),
+  // security is on by default with safe defaults (headers, CORS, limits, rate limits); turn it off with security: false.
+  // Other native features are one key each, like:
+  // events: {},
+  // history: {}, // needs events
 });
 `,
 };

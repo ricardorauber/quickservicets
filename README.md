@@ -151,6 +151,15 @@ To build a first project step by step, follow the [Getting started](docs/src/con
 
 Everything beyond the generated API is a feature turned on by a key in `quickservicets.config.ts`. A project can write its own in `features/<key>/`, with the same extension points as the framework's native features, or replace a native with one; the [Project features](docs/src/content/docs/guides/project-features.md) guide shows how.
 
+## Native features
+
+The native features ship inside `@quickservicets/core`, each turned on by one config key (`<key>: {}`) and off by `<key>: false`:
+
+- On by default: `security` (headers, CORS, limits, rate limits, log masking) and `http` (the outgoing HTTP client with SSRF protection).
+- By their key: `events`, `queues`, `health`, `idempotency`, `etag`, `history`, `realtime`, `errors` and `flags`.
+
+The [Native features](docs/src/content/docs/guides/features.md) guide lists what each one does, what it needs and how to customize it.
+
 ## Using PostgreSQL or MongoDB
 
 Run `init` with `--db postgres` or `--db mongodb` and set the values in the `.env` it creates: `DATABASE_URL`, plus `DATABASE_NAME` for MongoDB.

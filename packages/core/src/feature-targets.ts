@@ -14,7 +14,7 @@ interface Prepared {
   /** Generated routes by method and pattern, with their entity key. */
   generated: Map<string, string>;
   /** Every route by method and path, in the order given: generated routes, then endpoints. */
-  routes: Map<string, { method: string; path: string; entity?: string; tags?: ParsedTags }>;
+  routes: Map<string, { method: string; path: string; entity?: string; tags?: ParsedTags; kind?: string }>;
 }
 
 let prepared: Prepared = { models: new Map(), endpoints: new Map(), generated: new Map(), routes: new Map() };
@@ -28,6 +28,8 @@ export interface TaggedRoute {
   entity?: string;
   /** The endpoint's own tags over its entity's, by tag name; absent without tags. */
   tags?: ParsedTags;
+  /** `sse` or `websocket` for the endpoints of `sse.ts` and `ws.ts` files. */
+  kind?: string;
 }
 
 const endpointKey = (method: string, path: string) => `${method.toUpperCase()} ${patternOf(path)}`;
@@ -38,15 +40,15 @@ const endpointKey = (method: string, path: string) => `${method.toUpperCase()} $
  */
 export function prepareFeatureTargets(
   models: readonly EntityModel[],
-  endpoints: readonly { method: string; path: string; tags?: ParsedTags }[],
+  endpoints: readonly { method: string; path: string; tags?: ParsedTags; kind?: string }[],
   generated: readonly { method: string; path: string; entity: string }[] = [],
 ): void {
-  const routes = new Map<string, { method: string; path: string; entity?: string; tags?: ParsedTags }>();
+  const routes = new Map<string, { method: string; path: string; entity?: string; tags?: ParsedTags; kind?: string }>();
   for (const route of generated) routes.set(endpointKey(route.method, route.path), { method: route.method.toUpperCase(), path: route.path, entity: route.entity });
   for (const endpoint of endpoints) {
     const key = endpointKey(endpoint.method, endpoint.path);
     const entity = routes.get(key)?.entity;
-    routes.set(key, { method: endpoint.method.toUpperCase(), path: endpoint.path, ...(entity !== undefined ? { entity } : {}), ...(endpoint.tags ? { tags: endpoint.tags } : {}) });
+    routes.set(key, { method: endpoint.method.toUpperCase(), path: endpoint.path, ...(entity !== undefined ? { entity } : {}), ...(endpoint.tags ? { tags: endpoint.tags } : {}), ...(endpoint.kind ? { kind: endpoint.kind } : {}) });
   }
   prepared = {
     models: new Map(models.map((model) => [model.key, model])),
@@ -64,7 +66,7 @@ export function taggedRoutes(): TaggedRoute[] {
   return [...prepared.routes.values()].map((route) => {
     const entityTags = route.entity === undefined ? undefined : prepared.models.get(route.entity)?.tags;
     const tags = entityTags || route.tags ? { ...entityTags, ...route.tags } : undefined;
-    return { method: route.method, path: route.path, ...(route.entity !== undefined ? { entity: route.entity } : {}), ...(tags && Object.keys(tags).length > 0 ? { tags } : {}) };
+    return { method: route.method, path: route.path, ...(route.entity !== undefined ? { entity: route.entity } : {}), ...(tags && Object.keys(tags).length > 0 ? { tags } : {}), ...(route.kind ? { kind: route.kind } : {}) };
   });
 }
 

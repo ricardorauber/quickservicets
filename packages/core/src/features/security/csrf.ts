@@ -1,6 +1,5 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { cidrMatcher, cookieValue, HttpError, peerAddress, resolveOption, safeLog, type HandlerMiddleware, type Logger, type OptionFunction, type ServiceRequest } from "../public.ts";
-import { OriginMatcher } from "./cors.ts";
+import { cookieValue, HttpError, normalizeOrigin, OriginMatcher, ownOriginReader, peerAddress, resolveOption, safeLog, type HandlerMiddleware, type Logger, type OptionFunction, type ServiceRequest } from "../public.ts";
 
 /** The `csrf` item's options. */
 export interface CsrfOptions {
@@ -16,40 +15,6 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 /** The 403 of a cross-site request riding on a session cookie. */
 export const csrfRejected = () => new HttpError(403, "Cross-site request rejected", { code: "CSRF_REJECTED" });
-
-const DEFAULT_PORTS: Readonly<Record<string, string>> = { "http:": "80", "https:": "443" };
-
-/** `https://api.example.com:443` → `https://api.example.com`, lowercased; undefined for a value that is not an origin. */
-export function normalizeOrigin(value: string): string | undefined {
-  try {
-    const url = new URL(value);
-    if (url.origin === "null") return undefined;
-    const port = url.port && url.port !== DEFAULT_PORTS[url.protocol] ? `:${url.port}` : "";
-    return `${url.protocol}//${url.hostname}${port}`.toLowerCase();
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * The service's own origin of a request: its scheme, host and port, with `x-forwarded-proto` and `x-forwarded-host`
- * read only from the trusted proxies of `security.proxy`.
- */
-export function ownOriginReader(proxy: { enabled?: boolean; trust?: readonly string[] } | undefined): (req: Pick<ServiceRequest, "headers" | "raw">) => string | undefined {
-  const trusted = proxy?.enabled && proxy.trust && proxy.trust.length > 0 ? cidrMatcher(proxy.trust) : undefined;
-  return (req) => {
-    const url = new URL(req.raw.url);
-    let protocol = url.protocol.slice(0, -1);
-    let host = req.headers.get("host") ?? url.host;
-    if (trusted && trusted(peerAddress(req.raw))) {
-      const forwardedProto = req.headers.get("x-forwarded-proto");
-      const forwardedHost = req.headers.get("x-forwarded-host");
-      if (forwardedProto) protocol = forwardedProto.split(",")[0]!.trim();
-      if (forwardedHost) host = forwardedHost.split(",")[0]!.trim();
-    }
-    return normalizeOrigin(`${protocol}://${host}`);
-  };
-}
 
 /** Whether two texts are equal, compared in constant time. */
 function sameText(a: string, b: string): boolean {

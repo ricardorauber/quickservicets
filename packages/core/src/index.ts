@@ -44,7 +44,9 @@ export type {
   ServiceRequest,
   ServiceResponse,
 } from "./hooks.ts";
-export { createServer, deferRequestLog, peerAddress, toResponse } from "./http/server.ts";
+export { createServer, deferRequestLog, peerAddress, toResponse, upgradeRequest } from "./http/server.ts";
+export { defineSocket, isSocketDefinition, setSocketRunner, socketEndpoint } from "./http/socket.ts";
+export type { Socket, SocketContext, SocketDefinition, SocketHandlers, SocketRunner } from "./http/socket.ts";
 export { bodyPolicyOf, bodyTooLarge, bodyTooSlow, readBodyBytes, readBodyChunks, readBodyText, setBodyPolicy } from "./http/body.ts";
 export type { BodyPolicy } from "./http/body.ts";
 export type { EntityTags, Endpoint, FetchOptions, HandlerResult, Route, Server, ServerOptions, ServerSettings } from "./http/server.ts";
@@ -249,6 +251,7 @@ export { parseRate } from "./rates.ts";
 export type { Rate } from "./rates.ts";
 export { cidrMatcher, matchesCidr, normalizeAddress } from "./cidr.ts";
 export { cookieValue, sessionCookie } from "./cookies.ts";
+export { normalizeOrigin, OriginMatcher, ownOriginReader } from "./origins.ts";
 export type { SessionCookieOptions } from "./cookies.ts";
 export { declaredVariables, env, readVariables, secretVariableValues, variableType } from "./env-vars.ts";
 export type { DeclaredVariable, EnvVars } from "./env-vars.ts";

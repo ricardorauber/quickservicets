@@ -19,6 +19,14 @@ import {
   safeLog,
   setSseRunner,
   toggle,
+  rate,
+  size,
+  string,
+  parseRate,
+  parseSize,
+  setSocketRunner,
+  taggedRoutes,
+  type OptionFunction,
   type Repositories,
   type ServiceRequest,
   type ServiceResponse,
@@ -32,6 +40,7 @@ import { CHANGE_EVENTS, changeEntities, changesPath, documentChanges, parseChang
 import { followChanges } from "./follow.ts";
 import { outboxSource, ringBufferSource, type ChangeSource } from "./source.ts";
 import { openStream, type HeartbeatTimer, type OpenStream } from "./stream.ts";
+import { CLOSE_CODES, socketServer } from "./sockets.ts";
 
 const options = object({
   sse: toggle({
@@ -53,7 +62,20 @@ const options = object({
       .optional()
       .describe("Replaces the outbox and ring buffer sources: subscribe delivers live write events of some entities, and replay the ones after an event id or expired."),
   }).describe("Serves the sse.ts endpoints as Server-Sent Events streams."),
+  websockets: toggle({
+    origins: list(string())
+      .optional()
+      .perRequest()
+      .describe("Browser origins allowed to open sockets besides the service's own; security.cors.origins when unset. Requests without Origin (non-browser clients) always pass."),
+    maxConnections: integer().min(1).default(10000).describe("The most sockets one worker keeps open; more upgrades answer 503 with Retry-After: 5."),
+    maxMessageSize: size().default("1MB").describe("The largest frame a socket accepts; a larger one closes the socket with 1009, and one over twice the limit ends the connection."),
+    idleTimeout: duration().default("120s").describe("How long a socket may stay silent before it is closed, at most 960s; Bun pings to keep live connections open."),
+    messages: rate().default("100/10s").describe("The frames each socket may send per window; exceeding it closes the socket with 1008 Too many messages."),
+  }).describe("Serves the ws.ts endpoints as WebSockets, upgraded after the handler middlewares and the endpoint's pre-hooks."),
 });
+
+/** The longest idle timeout Bun accepts for sockets, in seconds. */
+const MAX_SOCKET_IDLE_SECONDS = 960;
 
 /** The headers of every Server-Sent Events response. */
 export const SSE_HEADERS = {
@@ -157,14 +179,49 @@ function changeSource(ctx: FeatureSetupContext<{ sse: { pollInterval: string; bu
   return ring;
 }
 
+/** Serves the `ws.ts` endpoints while `websockets` is on; Bun gets a WebSocket handler only when such a route exists. */
+function setUpSockets(ctx: FeatureSetupContext<{ websockets: { enabled: boolean; origins?: string[] | OptionFunction<string[]>; maxConnections: number; maxMessageSize: string | number; idleTimeout: string; messages: string } }>): void {
+  const options = ctx.options.websockets;
+  setSocketRunner(undefined);
+  if (!options.enabled) return;
+  const hasSockets = taggedRoutes().some((route) => route.kind === "websocket");
+  if (!hasSockets) return;
+  const security = ctx.config.features.find((feature) => feature.key === "security")?.options as
+    | { proxy?: { enabled?: boolean; trust?: readonly string[] }; cors?: { enabled?: boolean; origins?: string[] | OptionFunction<string[]> } }
+    | undefined;
+  const server = socketServer({
+    maxConnections: options.maxConnections,
+    maxMessageSize: parseSize(options.maxMessageSize) ?? 1_048_576,
+    idleTimeout: Math.ceil((parseDuration(options.idleTimeout) ?? 120_000) / 1000),
+    messages: parseRate(options.messages),
+    origins: options.origins ?? (security?.cors?.enabled ? security.cors.origins : undefined),
+    proxy: security?.proxy,
+    logger: ctx.logger,
+  });
+  setSocketRunner(server.run);
+  ctx.app.configureServer({ websocket: server.handler as never });
+  // Open sockets close before the listener does, so a shutdown never waits on them.
+  ctx.app.onShutdown(() => server.closeAll(CLOSE_CODES.goingAway, "Server shutting down"));
+  ctx.app.onStop(() => {
+    server.closeAll(CLOSE_CODES.goingAway, "Server shutting down");
+    setSocketRunner(undefined);
+  });
+}
+
 /**
  * The `realtime` native: `sse.ts` endpoints stream Server-Sent Events to clients, with heartbeats, a stream limit per
  * worker and the endpoint's pre-hooks. Off unless `realtime: {}` (or `QS_REALTIME_ENABLED=true`) is set.
  */
 const realtimeFeature = defineFeature({
   key: "realtime",
-  docs: { summary: "Server-Sent Events endpoints from sse.ts files, with heartbeats, disconnect handling and a stream limit per worker." },
+  docs: { summary: "Server-Sent Events endpoints from sse.ts files and WebSocket endpoints from ws.ts files, with limits per worker and per socket." },
   options,
+  validate(resolved) {
+    const idle = resolved.websockets.enabled ? parseDuration(resolved.websockets.idleTimeout) : undefined;
+    return idle !== undefined && idle > MAX_SOCKET_IDLE_SECONDS * 1000
+      ? [`Invalid realtime.websockets.idleTimeout: expected at most ${MAX_SOCKET_IDLE_SECONDS}s (the Bun limit), got ${resolved.websockets.idleTimeout}`]
+      : [];
+  },
   // Change streams follow the write events when the events native is on.
   after: ["events"],
   request: { lastEventId: lastEventIdOf },
@@ -187,6 +244,7 @@ const realtimeFeature = defineFeature({
     }
   },
   setup(ctx) {
+    setUpSockets(ctx);
     const sse = ctx.options.sse;
     published = undefined;
     if (!sse.enabled) return;

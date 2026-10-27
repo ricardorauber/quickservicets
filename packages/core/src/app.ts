@@ -6,6 +6,7 @@ import { createCrudRoutes, mergeRoutes, type CrudRoute } from "./http/crud.ts";
 import { withHooks } from "./http/pipeline.ts";
 import { docsRoutes } from "./http/docs.ts";
 import { isSseDefinition, sseEndpoint, type SseDefinition } from "./http/sse.ts";
+import { isSocketDefinition, socketEndpoint, type SocketDefinition } from "./http/socket.ts";
 import { withQueryItems, type QueryItem } from "./http/query-items.ts";
 import { createServer, type Endpoint, type Route, type Server, type ServerSettings } from "./http/server.ts";
 import { parseDuration, type JobDefinition } from "./jobs/job.ts";
@@ -54,9 +55,9 @@ export interface AppEndpoint {
   feature?: string;
   /** Feature tags written on the endpoint. */
   tags?: ParsedTags;
-  /** `sse` for an `sse.ts` endpoint, whose default export is `defineSse(...)`. */
-  kind?: "sse";
-  handler: Endpoint | SseDefinition;
+  /** `sse` for an `sse.ts` endpoint, whose default export is `defineSse(...)`; `websocket` for a `ws.ts` one (`defineSocket(...)`). */
+  kind?: "sse" | "websocket";
+  handler: Endpoint | SseDefinition | SocketDefinition;
 }
 
 async function populateResult(result: unknown, populate: (records: never[]) => Promise<unknown[]>): Promise<unknown> {
@@ -242,6 +243,11 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
       populateResult(await handler(repos, req, res), (records) => repositoryOf(repos as unknown as RepositoryRegistry).populate(records, populate.paths)) as never;
   };
   const custom: Route[] = endpoints.map((endpoint) => {
+    if (endpoint.kind === "websocket") {
+      if (!isSocketDefinition(endpoint.handler)) throw new Error(`GET ${endpoint.path}: ws.ts must default-export defineSocket(...)`);
+      // Pre-hooks run before the upgrade; post-hooks never see a socket.
+      return { method: endpoint.method, path: endpoint.path, handler: withHooks(socketEndpoint(endpoint.handler), endpoint.hooks, hooks) };
+    }
     if (endpoint.kind === "sse") {
       if (!isSseDefinition(endpoint.handler)) throw new Error(`GET ${endpoint.path}: sse.ts must default-export defineSse(...)`);
       // Pre-hooks run before the stream opens; post-hooks never see a streaming response.

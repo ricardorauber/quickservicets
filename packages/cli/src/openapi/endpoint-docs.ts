@@ -28,8 +28,8 @@ export interface EndpointDoc {
   query?: QueryItem[];
   /** Success status from `@status`. */
   status?: number;
-  /** `sse` for an `sse.ts` endpoint, which answers a `text/event-stream`. */
-  kind?: "sse";
+  /** `sse` for an `sse.ts` endpoint, which answers a `text/event-stream`; `websocket` for a `ws.ts` one, upgraded with 101. */
+  kind?: "sse" | "websocket";
 }
 
 export interface EndpointDocInput {

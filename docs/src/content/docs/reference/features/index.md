@@ -14,7 +14,7 @@ description: Every native feature of QuickService.ts, with its reference page.
 | [`idempotency`](/reference/features/idempotency/) | Idempotency keys: a request repeated with the same Idempotency-Key gets the first response again without running twice. | no |
 | [`etag`](/reference/features/etag/) | Entity tags on record reads and writes, with 304 answers to conditional reads and 412 answers to stale conditional writes. | no |
 | [`history`](/reference/features/history/) | Every version of the records of chosen entities, kept in a history table written in the same transaction as the change. | no |
-| [`realtime`](/reference/features/realtime/) | Server-Sent Events endpoints from sse.ts files, with heartbeats, disconnect handling and a stream limit per worker. | no |
+| [`realtime`](/reference/features/realtime/) | Server-Sent Events endpoints from sse.ts files and WebSocket endpoints from ws.ts files, with limits per worker and per socket. | no |
 | [`errors`](/reference/features/errors/) | One interface that receives every unexpected error with its request, user and tenant, so a reporting service plugs in with one line. | no |
 | [`flags`](/reference/features/flags/) | Feature flags turned on per user, per tenant or for a percentage of users, read synchronously in any endpoint or hook. | no |
 | [`http`](/reference/features/http/) | A fluent, typed client for calling other HTTP services, with timeouts, size limits and clear errors by default. | yes |

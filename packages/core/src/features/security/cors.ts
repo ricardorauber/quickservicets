@@ -1,4 +1,4 @@
-import { HttpError, parseDuration, resolveOption, Router, type OptionFunction, type ServiceRequest } from "../public.ts";
+import { HttpError, OriginMatcher, parseDuration, resolveOption, Router, type OptionFunction, type ServiceRequest } from "../public.ts";
 import { EXEMPT } from "./exempt.ts";
 import type { SecurityState, SecurityStep } from "./pipeline.ts";
 import type { RouteIndex, SecurityRoute } from "./routes.ts";
@@ -28,40 +28,6 @@ export function corsProblems(options: Pick<CorsOptions, "origins" | "credentials
   });
   if (options.credentials && options.origins.includes("*")) problems.push(`Invalid ${path}: credentials cannot be used with origins "*"`);
   return problems;
-}
-
-/**
- * Decides which origins are allowed: exact origins (scheme, host and port), `*` for any, `https://*.example.com` for
- * one or more subdomain labels with the same scheme, and `null` only when listed.
- */
-export class OriginMatcher {
-  private readonly any: boolean;
-  private readonly exact: Set<string>;
-  private readonly patterns: { scheme: string; suffix: string }[];
-
-  constructor(origins: readonly string[]) {
-    this.any = origins.includes("*");
-    this.exact = new Set(origins.filter((entry) => entry !== "*" && !entry.includes("://*.")).map((entry) => entry.toLowerCase()));
-    this.patterns = origins
-      .filter((entry) => entry.includes("://*."))
-      .map((entry) => {
-        const [scheme, rest] = entry.toLowerCase().split("://*.") as [string, string];
-        return { scheme: `${scheme}://`, suffix: `.${rest}` };
-      });
-  }
-
-  allows(origin: string): boolean {
-    if (origin === "null") return this.exact.has("null");
-    if (this.any) return true;
-    const lower = origin.toLowerCase();
-    if (this.exact.has(lower)) return true;
-    for (const { scheme, suffix } of this.patterns) {
-      if (!lower.startsWith(scheme) || !lower.endsWith(suffix)) continue;
-      const labels = lower.slice(scheme.length, lower.length - suffix.length);
-      if (/^[a-z0-9-]+(\.[a-z0-9-]+)*$/.test(labels)) return true;
-    }
-    return false;
-  }
 }
 
 /** One option set, ready for requests: its matcher and header values computed once. */

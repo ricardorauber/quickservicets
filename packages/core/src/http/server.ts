@@ -58,6 +58,8 @@ export interface ServerSettings {
   requestLogTenant?: boolean;
   /** Wraps the service's logger (after masking), like adding the current tenant to every entry. */
   wrapLogger?: (logger: Logger) => Logger;
+  /** Bun's WebSocket handler, passed to `Bun.serve` only when set (the `realtime` native sets it for `ws.ts` routes). */
+  websocket?: Bun.WebSocketHandler<unknown>;
 }
 
 export interface ServerOptions extends ServerSettings {
@@ -152,6 +154,23 @@ export function deferRequestLog(response: Response, finished: Promise<Record<str
   deferredLogs.set(response, finished);
 }
 
+/** The Bun server that accepted each request, for upgrading it to a WebSocket. */
+const servers = new WeakMap<Request, { upgrade(request: Request, options?: { data?: unknown; headers?: Record<string, string> }): boolean }>();
+/** The requests upgraded to a WebSocket: the server answers them with nothing, and writes no request log entry for them. */
+const upgraded = new WeakSet<Request>();
+
+/**
+ * Upgrades a request to a WebSocket through the Bun server that accepted it, with `data` for the socket's handlers;
+ * false for a request no server accepted (like one built in a test) or that Bun cannot upgrade.
+ */
+export function upgradeRequest(request: Request, data: unknown, headers?: Record<string, string>): boolean {
+  const server = servers.get(request);
+  if (!server) return false;
+  const done = server.upgrade(request, { data, ...(headers ? { headers } : {}) });
+  if (done) upgraded.add(request);
+  return done;
+}
+
 /** Where the peer address of each request comes from: the address itself, or the Bun server that accepted it. */
 const peers = new WeakMap<Request, string | { requestIP(request: Request): { address: string } | null }>();
 
@@ -234,7 +253,7 @@ function withRequestProperties(req: ServiceRequest, properties: ReadonlyMap<stri
   return req;
 }
 
-export function createServer({ routes, repos, config: serverConfig, jobs = noRequestJobs, middleware, requestProperties, clientIp, maxRequestBodySize, idleTimeout, mask, entityTags, repositories, requestLogTenant }: ServerOptions): Server {
+export function createServer({ routes, repos, config: serverConfig, jobs = noRequestJobs, middleware, requestProperties, clientIp, maxRequestBodySize, idleTimeout, mask, entityTags, repositories, requestLogTenant, websocket }: ServerOptions): Server {
   // Development error responses show the stack with known secret values masked.
   const config = mask ? { ...serverConfig, redact: (text: string) => mask.text(text) } : serverConfig;
   const handlerStage = middleware?.handler ?? [];
@@ -324,6 +343,8 @@ export function createServer({ routes, repos, config: serverConfig, jobs = noReq
     const requestId = requestIdOf(request);
     const state: State = { route: null };
     const answered = await pipeline(request, requestId, state);
+    // An upgraded request is answered by Bun with 101; its socket writes the log entry when it closes.
+    if (upgraded.has(request)) return undefined as unknown as Response;
     const deferred = deferredLogs.get(answered);
     const response = withHeader(answered, "x-request-id", requestId);
     if (state.quiet && response.status < 500) return response;
@@ -349,17 +370,21 @@ export function createServer({ routes, repos, config: serverConfig, jobs = noReq
     fetch,
     listen(port = config.server?.port) {
       // Worker processes share the port; on Linux the kernel spreads the connections across them.
-      return Bun.serve({
+      const options = {
         port,
-        fetch: (request, server) => {
+        fetch: (request: Request, server: { requestIP(request: Request): { address: string } | null; upgrade(request: Request, options?: { data?: unknown }): boolean }) => {
           // The peer address is read from the server only when a request asks for it.
           peers.set(request, server);
+          if (websocket) servers.set(request, server);
           return fetch(request);
         },
+        // Bun's WebSocket handler is passed only when a socket route exists.
+        ...(websocket ? { websocket } : {}),
         ...((config.server?.workers ?? 1) > 1 ? { reusePort: true } : {}),
         ...(maxRequestBodySize !== undefined ? { maxRequestBodySize } : {}),
         ...(idleTimeout !== undefined ? { idleTimeout } : {}),
-      });
+      };
+      return Bun.serve(options as unknown as Parameters<typeof Bun.serve>[0]);
     },
   };
 }

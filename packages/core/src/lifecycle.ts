@@ -205,7 +205,7 @@ export interface FeatureLifecycleOptions {
    * The app's endpoints and generated routes, indexed before the setups run so a feature reads the tags of every route
    * there (`taggedRoutes()`); endpoints of disabled features are left out.
    */
-  endpoints?: readonly { method: string; path: string; feature?: string; tags?: ParsedTags }[];
+  endpoints?: readonly { method: string; path: string; feature?: string; tags?: ParsedTags; kind?: string }[];
   crudRoutes?: readonly { method: string; path: string; entity: string }[];
   /** Wraps every call of a feature's lifecycle code, with the feature's key and the phase; test harnesses use it. */
   around?: <T>(feature: string, phase: LifecyclePhase, run: () => Promise<T>) => Promise<T>;

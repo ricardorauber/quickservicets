@@ -1,7 +1,6 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { startTestService, type TestService } from "@quickservicets/cli/testing";
-import { memoryAdapter, resolveConfig } from "@quickservicets/core";
-import { OriginMatcher } from "../../../core/src/features/security/cors.ts";
+import { memoryAdapter, OriginMatcher, resolveConfig } from "@quickservicets/core";
 
 const CONFIG = (security = "") => `import { defineConfig, memoryAdapter } from "@quickservicets/core";
 export default defineConfig({ database: memoryAdapter()${security ? `, security: ${security}` : ""} });

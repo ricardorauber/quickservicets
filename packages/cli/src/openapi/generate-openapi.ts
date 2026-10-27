@@ -676,6 +676,14 @@ function queryParameters(items: QueryItem[], schemas: Record<string, JsonSchema>
 function customOperation(doc: EndpointDoc, schemas: Record<string, JsonSchema>): Record<string, unknown> {
   const method = doc.method.toLowerCase();
   const status = doc.status ?? (method === "delete" && !doc.result ? 204 : 200);
+  if (doc.kind === "websocket") {
+    return {
+      ...endpointIdentity(doc),
+      ...(doc.params.length > 0 ? { parameters: pathParameters(doc.params) } : {}),
+      responses: { "101": { description: "Switching to the WebSocket protocol" } },
+      "x-websocket": true,
+    };
+  }
   const success =
     doc.kind === "sse"
       ? { "200": { description: "A stream of Server-Sent Events", content: { "text/event-stream": { schema: { type: "string" } } } } }

@@ -174,6 +174,24 @@ function assertSseExport(source: string, file: string): void {
   if (!defined) throw new BuildError(`${file}: must default-export defineSse(...)`);
 }
 
+/** Fails unless a `ws.ts` file's default export is a call of `defineSocket`. */
+function assertSocketExport(source: string, file: string): void {
+  const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+  const defined = sourceFile.statements.some((statement) => {
+    if (!ts.isExportAssignment(statement) || statement.isExportEquals) return false;
+    let expression = statement.expression;
+    while (ts.isAsExpression(expression) || ts.isSatisfiesExpression(expression) || ts.isParenthesizedExpression(expression)) expression = expression.expression;
+    return ts.isCallExpression(expression) && ts.isIdentifier(expression.expression) && expression.expression.text === "defineSocket";
+  });
+  if (!defined) throw new BuildError(`${file}: must default-export defineSocket(...)`);
+}
+
+/** Whether the resolved config serves WebSockets: the `realtime` native with its `websockets` item on. */
+function websocketsEnabled(config: ResolvedConfig): boolean {
+  const realtime = config.features.find((feature) => feature.key === "realtime");
+  return (realtime?.options.websockets as { enabled?: boolean } | undefined)?.enabled === true;
+}
+
 /** Whether the resolved config serves Server-Sent Events: the `realtime` native with its `sse` item on. */
 function sseEnabled(config: ResolvedConfig): boolean {
   const realtime = config.features.find((feature) => feature.key === "realtime");
@@ -251,13 +269,13 @@ function generateRoutesFile(
 ): string {
   const hookNames = [...hooks.keys()].sort();
   const imports = [
-    'import type { AppEndpoint, CrudRouteEntry, Endpoint, HookDefinition, SseDefinition } from "@quickservicets/core";',
+    'import type { AppEndpoint, CrudRouteEntry, Endpoint, HookDefinition, SocketDefinition, SseDefinition } from "@quickservicets/core";',
     ...endpoints.map((endpoint, index) => `import endpoint${index} from ${JSON.stringify(importPath(endpoint.route.file))};`),
     ...hookNames.map((name) => `import hook_${name} from ${JSON.stringify(importPath(hooks.get(name)!.file))};`),
   ];
   const endpointEntries = endpoints.map(
     (endpoint, index) =>
-      `  { method: ${JSON.stringify(endpoint.route.method)}, path: ${JSON.stringify(endpoint.route.path)}, hooks: ${JSON.stringify(endpoint.hooks)}, ${endpoint.projection ? `projection: ${JSON.stringify(endpoint.projection)}, ` : ""}${endpoint.populate ? `populate: ${JSON.stringify(endpoint.populate)}, ` : ""}${endpoint.query ? `query: ${JSON.stringify(endpoint.query)}, ` : ""}${endpoint.status !== undefined ? `status: ${endpoint.status}, ` : ""}${endpoint.route.feature ? `feature: ${JSON.stringify(endpoint.route.feature)}, ` : ""}${endpoint.route.kind ? `kind: ${JSON.stringify(endpoint.route.kind)}, ` : ""}${endpoint.tags ? `tags: ${JSON.stringify(endpoint.tags)}, ` : ""}handler: endpoint${index} as ${endpoint.route.kind === "sse" ? "SseDefinition" : "Endpoint"} },`,
+      `  { method: ${JSON.stringify(endpoint.route.method)}, path: ${JSON.stringify(endpoint.route.path)}, hooks: ${JSON.stringify(endpoint.hooks)}, ${endpoint.projection ? `projection: ${JSON.stringify(endpoint.projection)}, ` : ""}${endpoint.populate ? `populate: ${JSON.stringify(endpoint.populate)}, ` : ""}${endpoint.query ? `query: ${JSON.stringify(endpoint.query)}, ` : ""}${endpoint.status !== undefined ? `status: ${endpoint.status}, ` : ""}${endpoint.route.feature ? `feature: ${JSON.stringify(endpoint.route.feature)}, ` : ""}${endpoint.route.kind ? `kind: ${JSON.stringify(endpoint.route.kind)}, ` : ""}${endpoint.tags ? `tags: ${JSON.stringify(endpoint.tags)}, ` : ""}handler: endpoint${index} as ${endpoint.route.kind === "sse" ? "SseDefinition" : endpoint.route.kind === "websocket" ? "SocketDefinition" : "Endpoint"} },`,
   );
   return [
     HEADER,
@@ -380,6 +398,10 @@ async function buildProject(projectRoot: string, config: ResolvedConfig, options
     if (route.kind === "sse") {
       if (!sseEnabled(config)) throw new BuildError(`${route.file} needs realtime: {} in quickservicets.config.ts`);
       assertSseExport(source, route.file);
+    }
+    if (route.kind === "websocket") {
+      if (!websocketsEnabled(config)) throw new BuildError(`${route.file} needs realtime: {} in quickservicets.config.ts`);
+      assertSocketExport(source, route.file);
     }
     return { route, ...parseEndpointTags(source, route.file) };
   });

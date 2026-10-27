@@ -54,6 +54,11 @@ export interface TestService {
    */
   fetch(path: string, init?: RequestInit & { peer?: string }): Promise<Response>;
   repos: Repositories;
+  /**
+   * Opens a port on localhost (a free one by default) for clients that need a real connection, like WebSockets, and
+   * resolves its base URL, like `http://localhost:51234`; `stop()` closes it.
+   */
+  listen(port?: number): Promise<{ url: string; port: number }>;
   /** The temporary project folder. */
   root: string;
   /**
@@ -199,13 +204,22 @@ export async function startTestService({ files, env = {}, auth }: TestServiceOpt
     throw error;
   }
   const { app } = started;
+  let listening: ReturnType<typeof app.server.listen> | undefined;
   return {
     root,
     repos: app.repos as unknown as Repositories,
+    async listen(port = 0) {
+      listening ??= app.server.listen(port);
+      return { url: `http://localhost:${listening.port}`, port: listening.port ?? 0 };
+    },
     fetch: (path, init) => app.server.fetch(new Request(new URL(path, "http://localhost").href, init), init?.peer === undefined ? undefined : { peer: init.peer }),
     async stop() {
       try {
+        // The listener closes after the onShutdown callbacks, which close open sockets and streams.
+        const server = listening;
+        listening = undefined;
         await started.stop();
+        await server?.stop(true);
       } finally {
         const leaked = [...tracker];
         for (const [handle] of leaked) originals?.clearInterval(handle as never);

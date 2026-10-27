@@ -5,7 +5,7 @@ import { resolveConfig, type ServiceConfig } from "./config.ts";
 import { memoryAdapter } from "./adapters/memory.ts";
 import { defineFeature, registerNative, unregisterNative } from "./features.ts";
 import type { AuthProvider } from "./features/auth/api.ts";
-import { normalizeOrigin } from "./features/security/csrf.ts";
+import { normalizeOrigin } from "./origins.ts";
 import { errorOf, startTestApp, type TestApp, type TestEndpointInput } from "./tenancy-test-support.ts";
 import { entity, field } from "./testing/entities.ts";
 

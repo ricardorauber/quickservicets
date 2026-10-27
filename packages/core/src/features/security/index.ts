@@ -408,7 +408,7 @@ export { memoryRateLimitStore, slidingWindowHit } from "./store.ts";
 export { DEFAULT_MASKED_KEYS, maskEntry, maskText, maskUrl } from "./masking.ts";
 export type { MaskingRules } from "./masking.ts";
 export { databaseRateLimitStore } from "./db-store.ts";
-export { csrfMiddleware, csrfRejected, normalizeOrigin, ownOriginReader } from "./csrf.ts";
+export { csrfMiddleware, csrfRejected } from "./csrf.ts";
 export type { CsrfOptions } from "./csrf.ts";
 export type { DatabaseRateLimitStore } from "./db-store.ts";
 export type { MemoryRateLimitStore, RateLimitHit, RateLimitResult, RateLimitStore, WindowCounts } from "./store.ts";

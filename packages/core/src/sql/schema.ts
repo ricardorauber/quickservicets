@@ -53,6 +53,11 @@ export const SQLITE_DEFAULT_SCHEMA_TOKEN = "{{default_schema}}";
 export interface DrizzleSchemaOptions {
   /** Prefix of default-schema SQLite tables and their index names: `""`, `"<schema>__"` or the token. */
   sqliteDefaultPrefix?: string;
+  /**
+   * Where the default-schema tables live: on PostgreSQL their statements name this schema (instead of relying on the
+   * search path), on SQLite their names get its prefix unless `sqliteDefaultPrefix` is given.
+   */
+  defaultSchema?: string;
 }
 
 export function schemaIdentifier(schema: string): string {
@@ -115,9 +120,11 @@ function postgresColumn(field: FieldModel): ColumnBuilder {
   }
 }
 
-/** Builds Drizzle table definitions for every entity, so developers never write Drizzle code. */
-export function buildDrizzleSchema(models: EntityModel[], dialect: SqlDialect, options: DrizzleSchemaOptions = {}): DrizzleSchema {
-  const tables: Record<string, AnyTable> = {};
+/**
+ * The table builders of one schema: `table(model)` and `junction(model, field)` define one Drizzle table each, reading
+ * the other tables (for references) from `tables` only when a statement needs them.
+ */
+function schemaBuilder(models: EntityModel[], dialect: SqlDialect, options: DrizzleSchemaOptions, tables: Record<string, AnyTable>) {
   const isSqlite = dialect === "sqlite";
   const text = (name: string): ColumnBuilder => (isSqlite ? sqliteText(name) : pgText(name));
   const createdColumn = (name: string) =>
@@ -131,9 +138,12 @@ export function buildDrizzleSchema(models: EntityModel[], dialect: SqlDialect, o
     extra: (table: Record<string, unknown>) => unknown[],
   ) => AnyTable;
   const pgSchemas = new Map<string, { table: TableFactory }>();
+  // A default schema given here places the default-schema tables: a PostgreSQL schema, or a SQLite prefix.
+  const defaultPrefix = options.sqliteDefaultPrefix ?? (options.defaultSchema ? sqliteDefaultPrefix(options.defaultSchema) : "");
   const factoryFor = (model: EntityModel): TableFactory => {
-    if (isSqlite || !model.schema) return (isSqlite ? sqliteTable : pgTable) as TableFactory;
-    const name = schemaIdentifier(model.schema);
+    const placed = model.schema ?? (isSqlite ? undefined : options.defaultSchema);
+    if (isSqlite || !placed) return (isSqlite ? sqliteTable : pgTable) as TableFactory;
+    const name = schemaIdentifier(placed);
     if (!pgSchemas.has(name)) pgSchemas.set(name, pgSchema(name) as unknown as { table: TableFactory });
     const schema = pgSchemas.get(name)!;
     return schema.table.bind(schema);
@@ -141,15 +151,15 @@ export function buildDrizzleSchema(models: EntityModel[], dialect: SqlDialect, o
   /** Table name in the database, including the SQLite schema prefix. */
   const physicalName = (model: EntityModel) => {
     if (!isSqlite) return model.tableName;
-    return model.schema ? `${schemaIdentifier(model.schema)}__${model.tableName}` : `${options.sqliteDefaultPrefix ?? ""}${model.tableName}`;
+    return model.schema ? `${schemaIdentifier(model.schema)}__${model.tableName}` : `${defaultPrefix}${model.tableName}`;
   };
   /** Prefix of index and constraint names, so they stay unique across schemas. */
   const namePrefix = (model: EntityModel) => {
     if (model.schema) return `${schemaIdentifier(model.schema)}_${model.tableName}`;
-    return isSqlite ? `${options.sqliteDefaultPrefix ?? ""}${model.tableName}` : model.tableName;
+    return isSqlite ? `${defaultPrefix}${model.tableName}` : model.tableName;
   };
 
-  for (const model of models) {
+  const table = (model: EntityModel): AnyTable => {
     const columns: Record<string, ColumnBuilder> = {
       id: text("id").primaryKey(),
       createdAt: createdColumn("created_at").notNull(),
@@ -170,7 +180,7 @@ export function buildDrizzleSchema(models: EntityModel[], dialect: SqlDialect, o
     }
 
     const prefix = namePrefix(model);
-    tables[model.key] = factoryFor(model)(physicalName(model), columns, (table) => {
+    return factoryFor(model)(physicalName(model), columns, (table) => {
       const extras: unknown[] = [index(`${prefix}_created_at_idx`).on(table.createdAt as never)];
       for (const field of model.fields) {
         const column = columnName(field.name);
@@ -191,24 +201,22 @@ export function buildDrizzleSchema(models: EntityModel[], dialect: SqlDialect, o
       }
       return extras;
     });
-  }
-  const junctions: Record<string, AnyTable> = {};
-  for (const model of models) {
-    for (const field of model.fields) {
-      if (field.type !== "refArray" || field.storage !== "relation") continue;
+  };
+  /** The junction table of a stored reference array, or undefined when its target is not a model. */
+  const junction = (model: EntityModel, field: Extract<FieldModel, { type: "refArray" }>): AnyTable | undefined => {
       const target = models.find((candidate) => candidate.key === field.target);
-      if (!target) continue;
+      if (!target) return undefined;
       const name = field.joinTable
         ? isSqlite
           ? model.schema
             ? `${schemaIdentifier(model.schema)}__${field.joinTable}`
-            : `${options.sqliteDefaultPrefix ?? ""}${field.joinTable}`
+            : `${defaultPrefix}${field.joinTable}`
           : field.joinTable
         : `${physicalName(model)}__${columnName(field.name)}`;
       const prefix = `${namePrefix(model)}__${columnName(field.name)}`;
       const targetOnDelete = field.onDelete === "pull" ? "cascade" : "restrict";
       const integerColumn = (column: string): ColumnBuilder => (isSqlite ? integer(column) : pgInteger(column));
-      junctions[junctionKey(model.key, field.name)] = factoryFor(model)(
+      return factoryFor(model)(
         name,
         {
           ownerId: text("owner_id").notNull().references(() => (tables[model.key] as Record<string, unknown>).id, { onDelete: "cascade" }),
@@ -220,7 +228,57 @@ export function buildDrizzleSchema(models: EntityModel[], dialect: SqlDialect, o
           index(`${prefix}_target_idx`).on(table.targetId as never),
         ],
       );
+  };
+  return { table, junction, schemas: () => Object.fromEntries(pgSchemas) };
+}
+
+/** The stored reference arrays of a model, which have junction tables. */
+const storedArrays = (model: EntityModel) =>
+  model.fields.filter((field): field is Extract<FieldModel, { type: "refArray" }> => field.type === "refArray" && field.storage === "relation");
+
+/** Builds the Drizzle table of one model; the schema builders call it, so tests can count the tables built. */
+export const tablePlans = {
+  table(builder: ReturnType<typeof schemaBuilder>, model: EntityModel): AnyTable {
+    return builder.table(model);
+  },
+};
+
+/** Builds Drizzle table definitions for every entity, so developers never write Drizzle code. */
+export function buildDrizzleSchema(models: EntityModel[], dialect: SqlDialect, options: DrizzleSchemaOptions = {}): DrizzleSchema {
+  const tables: Record<string, AnyTable> = {};
+  const builder = schemaBuilder(models, dialect, options, tables);
+  for (const model of models) tables[model.key] = tablePlans.table(builder, model);
+  const junctions: Record<string, AnyTable> = {};
+  for (const model of models) {
+    for (const field of storedArrays(model)) {
+      const built = builder.junction(model, field);
+      if (built) junctions[junctionKey(model.key, field.name)] = built;
     }
   }
-  return { dialect, tables, schemas: Object.fromEntries(pgSchemas), junctions };
+  return { dialect, tables, schemas: builder.schemas(), junctions };
+}
+
+/**
+ * Like `buildDrizzleSchema`, but each table is built the first time a statement reads it and then kept, so a schema
+ * used by a few entities only pays for those. Adapter views use it for their default schema.
+ */
+export function lazyDrizzleSchema(models: EntityModel[], dialect: SqlDialect, options: DrizzleSchemaOptions = {}): DrizzleSchema {
+  const tables: Record<string, AnyTable> = {};
+  const builder = schemaBuilder(models, dialect, options, tables);
+  const lazy = (target: Record<string, AnyTable>, key: string, build: () => AnyTable | undefined) =>
+    Object.defineProperty(target, key, {
+      configurable: true,
+      enumerable: true,
+      get() {
+        const value = build();
+        Object.defineProperty(target, key, { value, configurable: true, enumerable: true, writable: true });
+        return value;
+      },
+    });
+  for (const model of models) lazy(tables, model.key, () => tablePlans.table(builder, model));
+  const junctions: Record<string, AnyTable> = {};
+  for (const model of models) {
+    for (const field of storedArrays(model)) lazy(junctions, junctionKey(model.key, field.name), () => builder.junction(model, field));
+  }
+  return { dialect, tables, get schemas() { return builder.schemas(); }, junctions } as DrizzleSchema;
 }

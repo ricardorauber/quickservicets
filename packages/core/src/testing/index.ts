@@ -1,5 +1,5 @@
-export { contractItem, contractModels, contractOrganization, contractRecord, runAdapterContract } from "./adapter-contract.ts";
-export type { AdapterFactory } from "./adapter-contract.ts";
+export { CONTRACT_SHARED_SCHEMA, CONTRACT_VIEW_SCHEMAS, contractAccount, contractItem, contractModels, contractOrganization, contractRecord, contractViewModels, runAdapterContract } from "./adapter-contract.ts";
+export type { AdapterFactory, ContractViewSupport } from "./adapter-contract.ts";
 export { entity, field } from "./entities.ts";
 export { runStorageContract } from "./storage-contract.ts";
 export { fileSamples, zipSample } from "./file-samples.ts";

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { contractItem, contractModels, contractRecord, runAdapterContract } from "../testing/adapter-contract.ts";
+import { CONTRACT_SHARED_SCHEMA, contractItem, contractModels, contractRecord, runAdapterContract } from "../testing/adapter-contract.ts";
 import { duplicateKeyField, escapeRegex, mongodbAdapter, toFilter, toSort, type MongodbAdapter } from "./mongodb.ts";
 
 const url = process.env.TEST_MONGODB_URL;
@@ -21,6 +21,22 @@ function freshAdapter(): MongodbAdapter {
 
 if (url) {
   runAdapterContract("mongodb", () => freshAdapter());
+  runAdapterContract("mongodb views", () => freshAdapter(), {
+    views: {
+      async prepare(adapter, models, schemas) {
+        await (adapter as MongodbAdapter).databaseFor(CONTRACT_SHARED_SCHEMA).dropDatabase();
+        for (const model of models.filter((candidate) => candidate.schema)) await (adapter as MongodbAdapter).createIndexes(model);
+        for (const schema of schemas) {
+          const view = adapter.withSchema!(schema) as MongodbAdapter;
+          await view.db!.dropDatabase();
+          for (const model of models.filter((candidate) => !candidate.schema)) await view.createIndexes(model);
+        }
+      },
+      async cleanup(adapter, schemas) {
+        for (const schema of [CONTRACT_SHARED_SCHEMA, ...schemas]) await (adapter as MongodbAdapter).databaseFor(schema).dropDatabase();
+      },
+    },
+  });
 
   describe("mongodb specifics", () => {
     test("ids are stored as string _id and returned as id", async () => {

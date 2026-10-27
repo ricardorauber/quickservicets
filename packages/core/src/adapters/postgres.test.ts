@@ -5,7 +5,7 @@ import { drizzle } from "drizzle-orm/bun-sql";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { toWhere } from "../sql/conditions.ts";
 import { buildDrizzleSchema } from "../sql/schema.ts";
-import { contractItem, contractModels, contractOrganization, contractRecord, runAdapterContract } from "../testing/adapter-contract.ts";
+import { CONTRACT_SHARED_SCHEMA, CONTRACT_VIEW_SCHEMAS, contractItem, contractModels, contractOrganization, contractRecord, runAdapterContract } from "../testing/adapter-contract.ts";
 import { entity, field } from "../testing/entities.ts";
 import type { StoredRecord } from "../adapter.ts";
 import { HttpError } from "../errors.ts";
@@ -25,8 +25,32 @@ function adapterWithTables(): PostgresAdapter {
   return adapter;
 }
 
+/** An adapter whose tables are created in public, in the explicit schemas and in every view schema of the contract. */
+function adapterWithViewTables(): PostgresAdapter {
+  const adapter = postgresAdapter({ url: url! });
+  const connect = adapter.connect.bind(adapter);
+  const schemas = [CONTRACT_SHARED_SCHEMA, ...CONTRACT_VIEW_SCHEMAS].map((schema) => schema.replaceAll("-", "_"));
+  adapter.connect = async (models) => {
+    await connect(models);
+    const client = adapter.client!;
+    for (const schema of schemas) await client.unsafe(`drop schema if exists "${schema}" cascade; create schema "${schema}";`);
+    await resetPostgresTables(client, models);
+    for (const schema of CONTRACT_VIEW_SCHEMAS) {
+      // quickservicets-allow-unsafe: runs the DDL drizzle-kit generates from the models
+      for (const statement of await postgresDdl(models.filter((model) => !model.schema), { defaultSchema: schema })) await client.unsafe(statement);
+    }
+  };
+  const disconnect = adapter.disconnect.bind(adapter);
+  adapter.disconnect = async () => {
+    for (const schema of schemas) await adapter.client?.unsafe(`drop schema if exists "${schema}" cascade`);
+    await disconnect();
+  };
+  return adapter;
+}
+
 if (url) {
   runAdapterContract("postgres", () => adapterWithTables());
+  runAdapterContract("postgres views", () => adapterWithViewTables(), { views: {} });
 
   describe("postgres specifics", () => {
     const connected = async () => {

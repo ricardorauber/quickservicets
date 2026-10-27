@@ -12,6 +12,7 @@ import {
 } from "../adapter.ts";
 import type { EntityModel, FieldModel } from "../model.ts";
 import { schemaIdentifier } from "../sql/schema.ts";
+import { placedView, schemaViews } from "./schema-views.ts";
 import { isConditionGroup, type Condition, type FieldCondition, type SizeFilter, type SortField } from "../query.ts";
 
 export interface MongodbAdapterOptions {
@@ -27,6 +28,9 @@ export interface MongodbAdapter extends DatabaseAdapter {
   databaseFor(schema?: string | null): Db;
   createIndexes(model: EntityModel): Promise<void>;
   dropIndexes(model: EntityModel): Promise<void>;
+  /** A view in which the default-schema entities live in `schema`, sharing this adapter's connection. */
+  withSchema(schema: string): MongodbAdapter;
+  sharesConnectionWith(other: DatabaseAdapter): boolean;
 }
 
 const REGEX_SPECIAL = /[.*+?^${}()|[\]\\/]/g;
@@ -286,8 +290,28 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
     }
   };
 
-  return {
+  // A view places default-schema collections in the database named after its schema, on the same client and session.
+  const viewOf = (name: string): Partial<MongodbAdapter> => {
+    const view = placedView(adapter, name) as DatabaseAdapter & { placed: (entity: EntityModel) => EntityModel };
+    const extras = {
+      get client() {
+        return client;
+      },
+      get db() {
+        return databaseFor(name);
+      },
+      databaseFor: (schema?: string | null) => databaseFor(schema ?? name),
+      createIndexes: (model: EntityModel) => adapter.createIndexes(view.placed(model)),
+      dropIndexes: (model: EntityModel) => adapter.dropIndexes(view.placed(model)),
+    };
+    // Getters are copied as getters, so the client and database are read when used.
+    return Object.defineProperties(view, Object.getOwnPropertyDescriptors(extras)) as unknown as Partial<MongodbAdapter>;
+  };
+  const views = schemaViews<MongodbAdapter>(() => adapter, viewOf);
+  const adapter: MongodbAdapter = {
     kind: "mongodb",
+    withSchema: (name) => views.get(name),
+    sharesConnectionWith: (other) => other === adapter || views.owns(other),
     /** Rollback needs a replica set or a sharded cluster, known once connected. */
     get supportsRollback() {
       return supportsTransactions;
@@ -416,4 +440,5 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
       }
     },
   };
+  return adapter;
 }

@@ -12,6 +12,7 @@ import type { EntityModel } from "../model.ts";
 import { TransactionScope } from "../sql/transaction-scope.ts";
 import type { Condition, SortField } from "../query.ts";
 import { compareValues, matches } from "../matching.ts";
+import { placedView, schemaViews } from "./schema-views.ts";
 
 type Table = Map<string, StoredRecord>;
 
@@ -134,9 +135,12 @@ export function memoryAdapter(): DatabaseAdapter {
     return structuredClone(normalized);
   };
 
-  return {
+  const views = schemaViews(() => adapter, (schema) => placedView(adapter, schema));
+  const adapter: DatabaseAdapter = {
     kind: "memory",
     supportsRollback: true,
+    withSchema: (schema) => views.get(schema),
+    sharesConnectionWith: (other) => other === adapter || views.owns(other),
     async connect(models) {
       for (const model of models) tableFor(model);
     },
@@ -242,4 +246,5 @@ export function memoryAdapter(): DatabaseAdapter {
       });
     },
   };
+  return adapter;
 }

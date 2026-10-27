@@ -3,7 +3,7 @@ import { UniqueViolationError } from "../adapter.ts";
 import { contractItem, contractModels, contractRecord, runAdapterContract } from "../testing/adapter-contract.ts";
 import { memoryAdapter } from "./memory.ts";
 
-runAdapterContract("memory", () => memoryAdapter());
+runAdapterContract("memory", () => memoryAdapter(), { views: {} });
 
 const connected = async () => {
   const adapter = memoryAdapter();

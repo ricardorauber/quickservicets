@@ -37,6 +37,30 @@ export const contractModels: EntityModel[] = [contractOrganization, contractItem
 
 export type AdapterFactory = (models: EntityModel[]) => DatabaseAdapter | Promise<DatabaseAdapter>;
 
+/** The explicit schema of the view cases' shared entity; views keep it where the parent has it. */
+export const CONTRACT_SHARED_SCHEMA = "qs-b08-shared";
+/** The schemas of the two views the view cases use. */
+export const CONTRACT_VIEW_SCHEMAS = ["qs-b08-view-a", "qs-b08-view-b"] as const;
+
+/** An entity with an explicit schema, the same record whichever view writes it. */
+export const contractAccount = entity("Account", [field({ name: "email", type: "string", unique: true })], {
+  schema: CONTRACT_SHARED_SCHEMA,
+  schemaKey: "qsB08Shared",
+  key: `${CONTRACT_SHARED_SCHEMA}/Account`,
+  repoKey: "accounts",
+});
+
+/** The models of the view cases: the contract's default-schema entities and one explicit-schema entity. */
+export const contractViewModels: EntityModel[] = [contractOrganization, contractItem, contractAccount];
+
+/** What the view cases need from an adapter's test file: storage for the views' default schemas, removed after. */
+export interface ContractViewSupport {
+  /** Creates what the default-schema entities need in each view schema (tables, schemas, indexes); runs after connect. */
+  prepare?(adapter: DatabaseAdapter, models: EntityModel[], schemas: readonly string[]): Promise<void>;
+  /** Removes it again; runs before disconnect. */
+  cleanup?(adapter: DatabaseAdapter, schemas: readonly string[]): Promise<void>;
+}
+
 let sequence = 0;
 const newId = () => Bun.randomUUIDv7();
 
@@ -56,7 +80,8 @@ const page = (where: Condition[] = [], sort: SortField[] = [{ field: "title", di
  * Registers the shared behavior every `DatabaseAdapter` must have. Call it from an adapter's test file;
  * the factory receives the models used by the suite and returns a fresh, empty adapter.
  */
-export function runAdapterContract(name: string, factory: AdapterFactory): void {
+export function runAdapterContract(name: string, factory: AdapterFactory, options: { views?: ContractViewSupport } = {}): void {
+  if (options.views) runViewContract(name, factory, options.views);
   describe(`${name} adapter contract`, () => {
     let adapter: DatabaseAdapter;
 
@@ -545,6 +570,98 @@ export function runAdapterContract(name: string, factory: AdapterFactory): void 
       });
       expect(value).toBe(42);
       expect(await adapter.count(contractItem, [])).toBe(1);
+    });
+  });
+}
+
+/**
+ * The cases of `withSchema` views: two views of one adapter run CRUD, transactions and `increment`, neither sees the
+ * other's default-schema records, and both see the same explicit-schema records.
+ */
+function runViewContract(name: string, factory: AdapterFactory, support: ContractViewSupport): void {
+  describe(`${name} adapter contract on schema views`, () => {
+    let parent: DatabaseAdapter;
+    let a: DatabaseAdapter;
+    let b: DatabaseAdapter;
+
+    beforeEach(async () => {
+      parent = await factory(contractViewModels);
+      await parent.connect(contractViewModels);
+      await support.prepare?.(parent, contractViewModels, CONTRACT_VIEW_SCHEMAS);
+      a = parent.withSchema!(CONTRACT_VIEW_SCHEMAS[0]);
+      b = parent.withSchema!(CONTRACT_VIEW_SCHEMAS[1]);
+    });
+
+    afterEach(async () => {
+      await support.cleanup?.(parent, CONTRACT_VIEW_SCHEMAS);
+      await parent.disconnect();
+    });
+
+    test("views are cached per schema, share the parent's connection and cannot connect", async () => {
+      expect(parent.withSchema!(CONTRACT_VIEW_SCHEMAS[0])).toBe(a);
+      expect(b.withSchema!(CONTRACT_VIEW_SCHEMAS[0])).toBe(a);
+      expect(parent.sharesConnectionWith!(a)).toBe(true);
+      expect(a.sharesConnectionWith!(parent)).toBe(true);
+      expect(a.sharesConnectionWith!(b)).toBe(true);
+      expect(a.kind).toBe(parent.kind);
+      expect(() => parent.withSchema!("Bad")).toThrow('Invalid schema: "Bad" must match ^[a-z][a-z0-9-]*$');
+      await expect(a.connect(contractViewModels)).rejects.toThrow("Connect the parent adapter; withSchema returns a view");
+      await expect(a.disconnect()).rejects.toThrow("Connect the parent adapter; withSchema returns a view");
+    });
+
+    test("CRUD through one view is invisible to the other, and explicit-schema records are shared", async () => {
+      const organization = await a.insert(contractOrganization, contractRecord({ name: "Acme" }));
+      const item = await a.insert(contractItem, contractRecord({ title: "only in a", organization: organization.id, partners: [organization.id] }));
+      expect((await a.findById(contractItem, item.id))?.partners).toEqual([organization.id]);
+      expect(await b.findById(contractItem, item.id)).toBeNull();
+      expect(await parent.findById(contractItem, item.id)).toBeNull();
+      expect((await b.findMany(contractItem, page())).total).toBe(0);
+      expect(await b.count(contractItem, [])).toBe(0);
+      expect(await b.updateById(contractItem, item.id, { title: "x" })).toBeNull();
+      expect(await b.deleteById(contractItem, item.id)).toBe(false);
+      // A unique value of one view is free in the other.
+      await b.insert(contractOrganization, contractRecord({ name: "Acme" }));
+      expect((await a.updateById(contractItem, item.id, { title: "renamed" }))?.title).toBe("renamed");
+      expect(await a.aggregate(contractItem, [], { total: { fn: "count" } })).toEqual({ total: 1 });
+
+      const account = await a.insert(contractAccount, contractRecord({ email: "ann@example.com" }));
+      expect((await b.findById(contractAccount, account.id))?.email).toBe("ann@example.com");
+      expect((await parent.findById(contractAccount, account.id))?.email).toBe("ann@example.com");
+      expect(await a.deleteById(contractItem, item.id)).toBe(true);
+    });
+
+    test("a transaction of the parent includes the writes of both views and rolls them back together", async () => {
+      const first = contractRecord({ title: "in a" });
+      const second = contractRecord({ title: "in b" });
+      const failure = await parent
+        .transaction(async () => {
+          await a.insert(contractItem, first);
+          await b.insert(contractItem, second);
+          throw new Error("rolled back");
+        })
+        .then(() => undefined, (error: Error) => error.message);
+      if (parent.supportsRollback) {
+        expect(failure).toBe("rolled back");
+        expect(await a.findById(contractItem, first.id)).toBeNull();
+        expect(await b.findById(contractItem, second.id)).toBeNull();
+      }
+      await a.transaction(async () => {
+        await a.insert(contractItem, first);
+        await b.insert(contractItem, second);
+      });
+      expect((await a.findById(contractItem, first.id))?.title).toBe("in a");
+      expect((await b.findById(contractItem, second.id))?.title).toBe("in b");
+    });
+
+    test("increment counts per view", async () => {
+      if (!a.increment || !b.increment) return;
+      const id = newId();
+      const insert = contractRecord({ title: "counter", score: 0 });
+      await a.increment(contractItem, id, { score: 2 }, { ...insert, id });
+      await a.increment(contractItem, id, { score: 3 }, { ...insert, id });
+      await b.increment(contractItem, id, { score: 1 }, { ...insert, id });
+      expect((await a.findById(contractItem, id))?.score).toBe(5);
+      expect((await b.findById(contractItem, id))?.score).toBe(1);
     });
   });
 }

@@ -1,11 +1,11 @@
 import type { SQL } from "bun";
 import { generateDrizzleJson, generateMigration } from "drizzle-kit/api";
 import type { EntityModel } from "../model.ts";
-import { buildDrizzleSchema } from "../sql/schema.ts";
+import { buildDrizzleSchema, type DrizzleSchemaOptions } from "../sql/schema.ts";
 
 /** DDL statements that create the tables of `models` on an empty PostgreSQL schema. */
-export async function postgresDdl(models: EntityModel[]): Promise<string[]> {
-  const schema = buildDrizzleSchema(models, "postgres");
+export async function postgresDdl(models: EntityModel[], options: DrizzleSchemaOptions = {}): Promise<string[]> {
+  const schema = buildDrizzleSchema(models, "postgres", options);
   return generateMigration(generateDrizzleJson({}), generateDrizzleJson({ ...schema.tables, ...schema.junctions }));
 }
 

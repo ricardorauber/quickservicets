@@ -18,7 +18,14 @@ function adapterWithTables(): SqliteAdapter {
   return adapter;
 }
 
-runAdapterContract("sqlite", () => adapterWithTables());
+runAdapterContract("sqlite", () => adapterWithTables(), {
+  views: {
+    async prepare(adapter, models, schemas) {
+      const client = (adapter as SqliteAdapter).client!;
+      for (const schema of schemas) await createSqliteTables(client, models.filter((model) => !model.schema), { defaultSchema: schema });
+    },
+  },
+});
 
 const connected = async () => {
   const adapter = adapterWithTables();

@@ -4,7 +4,8 @@ import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
 import { UniqueViolationError, type DatabaseAdapter, type RelatedScope, type StoredRecord } from "../adapter.ts";
 import type { EntityModel } from "../model.ts";
 import { poolSizePerWorker } from "../workers.ts";
-import { buildDrizzleSchema, columnName, schemaIdentifier, type DrizzleSchema } from "../sql/schema.ts";
+import { buildDrizzleSchema, columnName, lazyDrizzleSchema, schemaIdentifier, type DrizzleSchema } from "../sql/schema.ts";
+import { schemaViews } from "./schema-views.ts";
 import { relationFields, splitRelations, writeRelations } from "../sql/relations.ts";
 import { EntityStatements, type Statement } from "./postgres-statements.ts";
 
@@ -19,6 +20,9 @@ export const DEFAULT_POSTGRES_POOL_SIZE = 10;
 export interface PostgresAdapter extends DatabaseAdapter {
   /** The underlying `Bun.SQL` client while connected. */
   readonly client: SQL | undefined;
+  /** A view in which the default-schema entities live in `schema`, sharing this adapter's connection. */
+  withSchema(schema: string): PostgresAdapter;
+  sharesConnectionWith(other: DatabaseAdapter): boolean;
 }
 
 // Tables are built at runtime from the models, so Drizzle cannot type their columns statically.
@@ -70,7 +74,6 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
   let schema: DrizzleSchema | undefined;
   let models: EntityModel[] = [];
   const transactions = new AsyncLocalStorage<Session>();
-  const statements = new Map<string, EntityStatements>();
 
   const executor = (): Executor => {
     const current = transactions.getStore()?.db ?? db;
@@ -83,20 +86,7 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
     if (!target) throw new Error("The PostgreSQL adapter is not connected");
     return (await target.unsafe(statement.text, statement.params)) as Row[];
   };
-  const tableFor = (entity: EntityModel): Table => {
-    const table = schema?.tables[entity.key];
-    if (!table) throw new Error(`Unknown entity ${entity.entityName}`);
-    return table;
-  };
-  const statementsFor = (entity: EntityModel): EntityStatements => {
-    let found = statements.get(entity.key);
-    if (!found) {
-      tableFor(entity);
-      found = new EntityStatements(entity, schema!);
-      statements.set(entity.key, found);
-    }
-    return found;
-  };
+
   const translateErrors = async <T>(operation: () => Promise<T>): Promise<T> => {
     try {
       return await operation();
@@ -125,6 +115,27 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
   /** Writes of an entity with reference arrays also write junction rows, so only they need a transaction. */
   const atomicallyWithRelations = <T>(entity: EntityModel, fn: () => Promise<T>): Promise<T> =>
     relationFields(entity).length > 0 ? transaction(fn) : fn();
+
+  /**
+   * The statements of every entity over the tables of `schemaOf()`, prepared on first use per entity and kept in
+   * `statements`: the connected schema for the adapter itself, a view's schema (whose default-schema tables its
+   * statements name) for a view. Views share the pool and the open transaction.
+   */
+  const operations = (schemaOf: () => DrizzleSchema | undefined, statements: Map<string, EntityStatements>) => {
+  const tableFor = (entity: EntityModel): Table => {
+    const table = schemaOf()?.tables[entity.key];
+    if (!table) throw new Error(`Unknown entity ${entity.entityName}`);
+    return table;
+  };
+  const statementsFor = (entity: EntityModel): EntityStatements => {
+    let found = statements.get(entity.key);
+    if (!found) {
+      tableFor(entity);
+      found = new EntityStatements(entity, schemaOf()!);
+      statements.set(entity.key, found);
+    }
+    return found;
+  };
   /** Records read with precompiled text, whose JSON columns may come back as text. */
   const read = async (entity: EntityModel, statement: Statement) => statementsFor(entity).records(await run(statement));
   /** The owner's table and the junction storing the reference array of a related query, with the target's statements. */
@@ -135,40 +146,13 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
     return { owner: owner.table, junction, target: statementsFor(scope.target) };
   };
 
-  return {
-    kind: "postgres",
-    supportsRollback: true,
-    get client() {
-      return client;
-    },
-    async connect(entityModels, connectOptions = {}) {
-      models = entityModels;
-      statements.clear();
-      const defaultSchema = connectOptions.defaultSchema ? schemaIdentifier(connectOptions.defaultSchema) : undefined;
-      if (defaultSchema) {
-        const admin = new SQL(options.url);
-        await admin.unsafe(`create schema if not exists "${defaultSchema}"`);
-        await admin.close();
-      }
-      const max = poolSizePerWorker(options.max ?? DEFAULT_POSTGRES_POOL_SIZE, connectOptions.workers);
-      // The search path is a connection parameter, so every pooled connection uses the default schema.
-      client = new SQL({ url: options.url, max, ...(defaultSchema ? { connection: { search_path: defaultSchema } } : {}) } as never);
-      const { drizzle } = await driver;
-      drizzleFor = (sqlClient) => drizzle({ client: sqlClient });
-      db = drizzleFor(client);
-      schema = buildDrizzleSchema(entityModels, "postgres");
-    },
-    async disconnect() {
-      await client?.close();
-      client = undefined;
-      db = undefined;
-    },
+  const methods: Omit<DatabaseAdapter, "connect" | "disconnect"> = {
     insert(entity, record) {
       return translateErrors(() =>
         atomicallyWithRelations(entity, async () => {
           const { columns, relations } = splitRelations(entity, record);
           const [inserted] = await read(entity, statementsFor(entity).insert(columns));
-          await writeRelations(executor(), schema!, entity, record.id, relations);
+          await writeRelations(executor(), schemaOf()!, entity, record.id, relations);
           // The arrays just written are the stored ones.
           for (const { field } of statementsFor(entity).junctions) inserted![field] = relations[field] ?? [];
           return inserted!;
@@ -228,7 +212,7 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
           // The row comes back with its arrays as they were; the ones written here replace them.
           const [updated] = await read(entity, statementsFor(entity).updateById(id, columns, where));
           if (!updated) return null;
-          await writeRelations(executor(), schema!, entity, id, relations);
+          await writeRelations(executor(), schemaOf()!, entity, id, relations);
           Object.assign(updated, relations);
           return updated;
         }),
@@ -261,4 +245,55 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
     },
     transaction,
   };
+  return methods;
+  };
+
+  const statements = new Map<string, EntityStatements>();
+  let views = schemaViews<PostgresAdapter>(() => adapter, (name) => viewOf(name));
+  const viewOf = (name: string): Partial<PostgresAdapter> => {
+    let viewSchema: DrizzleSchema | undefined;
+    const view = {
+      kind: "postgres" as const,
+      supportsRollback: true,
+      get client() {
+        return client;
+      },
+      ...operations(() => (viewSchema ??= schema ? lazyDrizzleSchema(models, "postgres", { defaultSchema: name }) : undefined), new Map()),
+    };
+    return view as Partial<PostgresAdapter>;
+  };
+  const adapter: PostgresAdapter = {
+    kind: "postgres",
+    supportsRollback: true,
+    get client() {
+      return client;
+    },
+    async connect(entityModels, connectOptions = {}) {
+      models = entityModels;
+      statements.clear();
+      const defaultSchema = connectOptions.defaultSchema ? schemaIdentifier(connectOptions.defaultSchema) : undefined;
+      if (defaultSchema) {
+        const admin = new SQL(options.url);
+        await admin.unsafe(`create schema if not exists "${defaultSchema}"`);
+        await admin.close();
+      }
+      const max = poolSizePerWorker(options.max ?? DEFAULT_POSTGRES_POOL_SIZE, connectOptions.workers);
+      // The search path is a connection parameter, so every pooled connection uses the default schema.
+      client = new SQL({ url: options.url, max, ...(defaultSchema ? { connection: { search_path: defaultSchema } } : {}) } as never);
+      const { drizzle } = await driver;
+      drizzleFor = (sqlClient) => drizzle({ client: sqlClient });
+      db = drizzleFor(client);
+      schema = buildDrizzleSchema(entityModels, "postgres");
+      views = schemaViews<PostgresAdapter>(() => adapter, (name) => viewOf(name));
+    },
+    async disconnect() {
+      await client?.close();
+      client = undefined;
+      db = undefined;
+    },
+    ...operations(() => schema, statements),
+    withSchema: (name) => views.get(name),
+    sharesConnectionWith: (other) => other === adapter || views.owns(other),
+  };
+  return adapter;
 }

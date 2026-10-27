@@ -7,7 +7,8 @@ import type { EntityModel } from "../model.ts";
 import type { Condition } from "../query.ts";
 import { aggregateSelection } from "../sql/aggregates.ts";
 import { toOrderBy, toWhere } from "../sql/conditions.ts";
-import { buildDrizzleSchema, columnName, junctionKey, sqliteDefaultPrefix, type DrizzleSchema } from "../sql/schema.ts";
+import { buildDrizzleSchema, columnName, junctionKey, lazyDrizzleSchema, sqliteDefaultPrefix, type DrizzleSchema } from "../sql/schema.ts";
+import { schemaViews } from "./schema-views.ts";
 import { TransactionScope } from "../sql/transaction-scope.ts";
 import { loadRelations, relationFields, splitRelations, writeRelations } from "../sql/relations.ts";
 
@@ -19,6 +20,9 @@ export interface SqliteAdapterOptions {
 export interface SqliteAdapter extends DatabaseAdapter {
   /** The underlying `bun:sqlite` database while connected. */
   readonly client: Database | undefined;
+  /** A view in which the default-schema entities live in `schema`, sharing this adapter's connection. */
+  withSchema(schema: string): SqliteAdapter;
+  sharesConnectionWith(other: DatabaseAdapter): boolean;
 }
 
 // Tables are built at runtime from the models, so Drizzle cannot type their columns statically.
@@ -50,7 +54,13 @@ export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
   let models: EntityModel[] = [];
   const scope = new TransactionScope();
 
+  /**
+   * The statements of every entity over the tables of `schemaOf()`: the connected schema for the adapter itself, the
+   * schema of a view for its default-schema tables. Views share the file handle and the transaction of the adapter.
+   */
+  const operations = (schemaOf: () => DrizzleSchema | undefined) => {
   const ready = () => {
+    const schema = schemaOf();
     if (!db || !schema) throw new Error("The SQLite adapter is not connected");
     return { db, schema };
   };
@@ -105,25 +115,7 @@ export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
   const atomicallyWithRelations = <T>(entity: EntityModel, fn: () => Promise<T>) =>
     relationFields(entity).length > 0 ? atomically(fn) : scope.run(fn);
 
-  return {
-    kind: "sqlite",
-    supportsRollback: true,
-    get client() {
-      return client;
-    },
-    async connect(entityModels, connectOptions = {}) {
-      models = entityModels;
-      const [{ Database }, { drizzle }] = await driver;
-      client = new Database(options.path, { create: true });
-      client.run("PRAGMA foreign_keys = ON");
-      db = drizzle(client);
-      schema = buildDrizzleSchema(entityModels, "sqlite", { sqliteDefaultPrefix: sqliteDefaultPrefix(connectOptions.defaultSchema) });
-    },
-    async disconnect() {
-      client?.close();
-      client = undefined;
-      db = undefined;
-    },
+  const methods: Omit<DatabaseAdapter, "connect" | "disconnect"> = {
     insert(entity, record) {
       return translateErrors(() =>
         atomicallyWithRelations(entity, async () => {
@@ -280,4 +272,46 @@ export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
       return atomically(fn);
     },
   };
+  return methods;
+  };
+
+  // Each view's tables are built on first use per entity and kept; the views are dropped when the adapter reconnects.
+  let views = schemaViews<SqliteAdapter>(() => adapter, (name) => viewOf(name));
+  const viewOf = (name: string): Partial<SqliteAdapter> => {
+    let viewSchema: DrizzleSchema | undefined;
+    const view = {
+      kind: "sqlite" as const,
+      supportsRollback: true,
+      get client() {
+        return client;
+      },
+      ...operations(() => (viewSchema ??= schema ? lazyDrizzleSchema(models, "sqlite", { sqliteDefaultPrefix: sqliteDefaultPrefix(name) }) : undefined)),
+    };
+    return view as Partial<SqliteAdapter>;
+  };
+  const adapter: SqliteAdapter = {
+    kind: "sqlite",
+    supportsRollback: true,
+    get client() {
+      return client;
+    },
+    async connect(entityModels, connectOptions = {}) {
+      models = entityModels;
+      const [{ Database }, { drizzle }] = await driver;
+      client = new Database(options.path, { create: true });
+      client.run("PRAGMA foreign_keys = ON");
+      db = drizzle(client);
+      schema = buildDrizzleSchema(entityModels, "sqlite", { sqliteDefaultPrefix: sqliteDefaultPrefix(connectOptions.defaultSchema) });
+      views = schemaViews<SqliteAdapter>(() => adapter, (name) => viewOf(name));
+    },
+    async disconnect() {
+      client?.close();
+      client = undefined;
+      db = undefined;
+    },
+    ...operations(() => schema),
+    withSchema: (name) => views.get(name),
+    sharesConnectionWith: (other) => other === adapter || views.owns(other),
+  };
+  return adapter;
 }

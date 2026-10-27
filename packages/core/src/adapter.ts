@@ -137,6 +137,13 @@ export interface DatabaseAdapter {
    * made through the other (optional; false when absent). Views of one adapter answer true for each other.
    */
   sharesConnectionWith?(other: DatabaseAdapter): boolean;
+  /**
+   * A view of this adapter in which the entities without an explicit schema live in `schema` (a PostgreSQL schema,
+   * SQLite tables prefixed `<schema>__`, a MongoDB database, a memory namespace) while explicit-schema entities stay
+   * where they are; it shares this adapter's connection and transactions (optional). `schema` must match
+   * `^[a-z][a-z0-9-]*$`; asking twice for one schema returns the same view.
+   */
+  withSchema?(schema: string): DatabaseAdapter;
 }
 
 const FIND_ALL_BATCH = 1000;

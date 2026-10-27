@@ -6,7 +6,7 @@ export { ReferenceArrayChange, validateBody } from "./validation.ts";
 export type { ValidationMode, ValidationResult } from "./validation.ts";
 export { DEFAULT_LIMIT, FILTER_OPERATORS, MAX_LIMIT, MAX_LIST_VALUES, convertQueryValue, listQueryFields, OPERATORS_BY_TYPE, parseListQuery, queryableFields, SIZE_COMPARISONS } from "./query.ts";
 export type { Condition, FilterOperator, ListQuery, SizeComparison, SizeFilter, SortDirection, SortField } from "./query.ts";
-export { invalidConnection, UniqueViolationError } from "./adapter.ts";
+export { assertChannelName, CHANNEL_NAME, invalidConnection, UniqueViolationError } from "./adapter.ts";
 export type { AdapterKind, Aggregate, AggregateValues, ConnectOptions, ReadColumns, DatabaseAdapter, FindManyOptions, FindManyResult, ReferencePull, RelatedScope, StoredRecord } from "./adapter.ts";
 export { memoryAdapter } from "./adapters/memory.ts";
 export { LEGACY_CONFIG_FILE, LEGACY_CONFIG_MESSAGE, LEGACY_MIGRATIONS_TABLE, MIGRATIONS_TABLE, MIGRATIONS_TABLE_RENAMED, renameLegacyMigrationTables } from "./legacy-names.ts";

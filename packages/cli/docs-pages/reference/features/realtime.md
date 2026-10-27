@@ -14,7 +14,7 @@ realtime: {}
 
 It is not enabled by default: turn it on with `realtime: {}` or `QS_REALTIME_ENABLED=true`, and off with `realtime: false` or `QS_REALTIME_ENABLED=false`.
 
-**Runs after:** `events`, `auth`
+**Runs after:** `events`, `auth`, `health`
 
 ## Options
 
@@ -37,7 +37,9 @@ It is not enabled by default: turn it on with `realtime: {}` or `QS_REALTIME_ENA
 | `realtime.websockets.idleTimeout` | `duration` | `"120s"` | `QS_REALTIME_WEBSOCKETS_IDLE_TIMEOUT` | no | How long a socket may stay silent before it is closed, at most 960s; Bun pings to keep live connections open. |
 | `realtime.websockets.messages` | `rate` | `"100/10s"` | `QS_REALTIME_WEBSOCKETS_MESSAGES` | no | The frames each socket may send per window; exceeding it closes the socket with 1008 Too many messages. |
 | `realtime.websockets.maxRooms` | `integer` | `100` | `QS_REALTIME_WEBSOCKETS_MAX_ROOMS` | no | The most rooms one socket joins; one more subscribe throws Socket joined too many rooms. |
-| `realtime.websockets.transport` | `"local" \| SocketTransport` | `"local"` | `QS_REALTIME_WEBSOCKETS_TRANSPORT` | no | How room messages and disconnects reach the sockets of other workers and replicas: "local" keeps them in this process; a SocketTransport delivers them everywhere. |
+| `realtime.websockets.transport` | `"local" \| "postgres" \| SocketTransport` | `"local"` | `QS_REALTIME_WEBSOCKETS_TRANSPORT` | no | How room messages and disconnects reach the sockets of other workers and replicas: "local" keeps them in this process, "postgres" uses LISTEN and NOTIFY on the project's PostgreSQL database, and a SocketTransport delivers them its own way. |
+| `realtime.websockets.postgres.channel` | `string` | `"quickservicets_sockets"` | `QS_REALTIME_WEBSOCKETS_POSTGRES_CHANNEL` | no | The notification channel of the postgres transport; with _ and the default schema added when one is set (quickservicets_sockets_tenant_a for tenant-a). |
+| `realtime.websockets.postgres.maxPayload` | `size` | `7900` | `QS_REALTIME_WEBSOCKETS_POSTGRES_MAX_PAYLOAD` | no | The largest envelope the postgres transport sends, under PostgreSQL's 8000-byte limit; larger messages reach local sockets only. |
 | `realtime.enabled` | `boolean` | `true` | `QS_REALTIME_ENABLED` | no | Turns the feature off when false. |
 
 ## Tags

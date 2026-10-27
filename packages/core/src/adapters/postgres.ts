@@ -1,7 +1,7 @@
 import { SQL } from "bun";
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
-import { invalidConnection, UniqueViolationError, type DatabaseAdapter, type RelatedScope, type StoredRecord } from "../adapter.ts";
+import { assertChannelName, invalidConnection, UniqueViolationError, type DatabaseAdapter, type RelatedScope, type StoredRecord } from "../adapter.ts";
 import type { EntityModel } from "../model.ts";
 import { poolSizePerWorker } from "../workers.ts";
 import { buildDrizzleSchema, columnName, lazyDrizzleSchema, schemaIdentifier, type DrizzleSchema } from "../sql/schema.ts";
@@ -302,6 +302,30 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
       return postgresAdapter({ ...options, url });
     },
     sharesConnectionWith: (other) => other === adapter || views.owns(other),
+    async listen(channel, onPayload, onListen) {
+      assertChannelName(channel);
+      // A client of its own, so the listening connection never takes one of the pool's.
+      const listener = new SQL({ url: options.url, max: 1 });
+      try {
+        const subscription = await listener.listen(channel, onPayload, onListen);
+        return async () => {
+          try {
+            await subscription.unlisten();
+          } finally {
+            await listener.close();
+          }
+        };
+      } catch (error) {
+        await listener.close().catch(() => {});
+        throw error;
+      }
+    },
+    async notify(channel, payload) {
+      assertChannelName(channel);
+      if (!client) throw new Error("The PostgreSQL adapter is not connected");
+      // The pool, never a transaction's connection: a notification is sent at once.
+      await client`select pg_notify(${channel}, ${payload})`;
+    },
   };
   return adapter;
 }

@@ -132,6 +132,14 @@ export interface DatabaseAdapter {
   readonly supportsRollback?: boolean;
   /** Checks the connection with the cheapest round trip (optional; health checks read one record without it). */
   ping?(): Promise<void>;
+  /**
+   * Subscribes to a notification channel on one dedicated connection outside the pool (PostgreSQL `LISTEN`), calling
+   * `onListen` once the subscription is acknowledged, initially and after each reconnection; resolves a function that
+   * unsubscribes and closes that connection.
+   */
+  listen?(channel: string, onPayload: (payload: string) => void, onListen?: () => void): Promise<() => Promise<void>>;
+  /** Sends a notification on a channel from a pooled connection, outside any transaction (PostgreSQL `pg_notify`). */
+  notify?(channel: string, payload: string): Promise<void>;
   /** Locks a record until the current transaction ends, for read-modify-write updates (optional). */
   lockForUpdate?(entity: EntityModel, id: string): Promise<void>;
   /**
@@ -181,4 +189,12 @@ export class UniqueViolationError extends Error {
     this.name = "UniqueViolationError";
     this.field = field;
   }
+}
+
+/** What a notification channel name must look like. */
+export const CHANNEL_NAME = /^[a-z_][a-z0-9_]{0,62}$/;
+
+/** Throws `Invalid channel <name>` unless the name is a channel name. */
+export function assertChannelName(channel: string): void {
+  if (typeof channel !== "string" || !CHANNEL_NAME.test(channel)) throw new Error(`Invalid channel ${String(channel)}: names match ${CHANNEL_NAME.source}`);
 }

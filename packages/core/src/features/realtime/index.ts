@@ -45,6 +45,7 @@ import { followChanges } from "./follow.ts";
 import { outboxSource, ringBufferSource, type ChangeSource } from "./source.ts";
 import { openStream, type HeartbeatTimer, type OpenStream } from "./stream.ts";
 import { CLOSE_CODES, socketServer } from "./sockets.ts";
+import { postgresTransport, socketChannel } from "./postgres-transport.ts";
 
 const options = object({
   sse: toggle({
@@ -76,9 +77,17 @@ const options = object({
     idleTimeout: duration().default("120s").describe("How long a socket may stay silent before it is closed, at most 960s; Bun pings to keep live connections open."),
     messages: rate().default("100/10s").describe("The frames each socket may send per window; exceeding it closes the socket with 1008 Too many messages."),
     maxRooms: integer().min(1).default(100).describe("The most rooms one socket joins; one more subscribe throws Socket joined too many rooms."),
-    transport: anyOf(oneOf(["local"]), provider<SocketTransport>("SocketTransport", ["start", "publish", "disconnect", "stop"]))
+    transport: anyOf(oneOf(["local", "postgres"]), provider<SocketTransport>("SocketTransport", ["start", "publish", "disconnect", "stop"]))
       .default("local")
-      .describe('How room messages and disconnects reach the sockets of other workers and replicas: "local" keeps them in this process; a SocketTransport delivers them everywhere.'),
+      .describe(
+        'How room messages and disconnects reach the sockets of other workers and replicas: "local" keeps them in this process, "postgres" uses LISTEN and NOTIFY on the project\'s PostgreSQL database, and a SocketTransport delivers them its own way.',
+      ),
+    postgres: object({
+      channel: string().default("quickservicets_sockets").describe("The notification channel of the postgres transport; with _ and the default schema added when one is set (quickservicets_sockets_tenant_a for tenant-a)."),
+      maxPayload: size().default(7900).describe("The largest envelope the postgres transport sends, under PostgreSQL's 8000-byte limit; larger messages reach local sockets only."),
+    })
+      .default({ channel: "quickservicets_sockets", maxPayload: 7900 })
+      .describe("The settings of the postgres transport."),
   }).describe("Serves the ws.ts endpoints as WebSockets, upgraded after the handler middlewares and the endpoint's pre-hooks."),
 });
 
@@ -212,7 +221,8 @@ type SocketOptions = {
     idleTimeout: string;
     messages: string;
     maxRooms: number;
-    transport: "local" | SocketTransport;
+    transport: "local" | "postgres" | SocketTransport;
+    postgres: { channel: string; maxPayload: string | number };
   };
 };
 
@@ -228,6 +238,20 @@ function setUpSockets(ctx: FeatureSetupContext<SocketOptions>): void {
   if (typeof options.transport === "object") {
     state.transport = options.transport;
     state.owner = "the config (realtime.websockets.transport)";
+  } else if (options.transport === "postgres") {
+    const database = ctx.config.database;
+    if (database.kind !== "postgres" || typeof database.listen !== "function" || typeof database.notify !== "function") {
+      throw new Error('realtime.websockets.transport "postgres" needs the PostgreSQL adapter');
+    }
+    const transport = postgresTransport({
+      adapter: database,
+      channel: socketChannel(options.postgres.channel, ctx.config.schema ?? undefined),
+      maxPayload: parseSize(options.postgres.maxPayload) ?? 7900,
+    });
+    state.transport = transport;
+    state.owner = "the config (realtime.websockets.transport)";
+    // The listening connection is part of readiness, without failing it: room messages are best effort.
+    if (ctx.config.features.some((feature) => feature.key === "health")) ctx.feature("health").check("transport", () => transport.probe(), { critical: false });
   }
   const security = ctx.config.features.find((feature) => feature.key === "security")?.options as
     | { proxy?: { enabled?: boolean; trust?: readonly string[] }; cors?: { enabled?: boolean; origins?: string[] | OptionFunction<string[]> } }
@@ -291,7 +315,7 @@ const realtimeFeature = defineFeature({
       : [];
   },
   // Change streams follow the write events when the events native is on; sockets of revoked sessions close.
-  after: ["events", "auth"],
+  after: ["events", "auth", "health"],
   request: { lastEventId: lastEventIdOf },
   tags: {
     changes: {
@@ -447,6 +471,8 @@ export { encodeComment, encodeMessage, openStream } from "./stream.ts";
 export { CHANGE_EVENTS, changeEntities, changeMessage, changesPath, hasChangeStream, parseChangeQuery } from "./changes.ts";
 export type { ChangeCoverage, ChangeEvent, ChangeMessage, ChangeQuery } from "./changes.ts";
 export { followChanges, MAX_REPLAY, RETRY_MS } from "./follow.ts";
+export { postgresTransport, socketChannel } from "./postgres-transport.ts";
+export type { PostgresTransport, PostgresTransportOptions } from "./postgres-transport.ts";
 export type { ResetReason } from "./follow.ts";
 export { eventIdFloor, isEventId, outboxSource, POLL_OVERLAP_MS, ringBufferSource, timeOfEventId } from "./source.ts";
 export type { ChangeSource } from "./source.ts";

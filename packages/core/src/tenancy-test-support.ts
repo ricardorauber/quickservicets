@@ -4,6 +4,7 @@ import { createApp, type App, type AppEndpoint, type CrudRouteEntry } from "./ap
 import { resolveConfig, type ResolvedConfig, type ServiceConfig } from "./config.ts";
 import type { HookDefinition } from "./hooks.ts";
 import type { Endpoint } from "./http/server.ts";
+import type { SocketDefinition } from "./http/socket.ts";
 import type { JobDefinition } from "./jobs/job.ts";
 import type { JobClock } from "./jobs/scheduler.ts";
 import { createFeatureLifecycle, type FeatureLifecycle } from "./lifecycle.ts";
@@ -15,9 +16,11 @@ import { CRUD_OPERATIONS, entityRoutePath, type EntityModel, type ParsedTags } f
 export interface TestEndpointInput {
   method?: string;
   path: string;
-  handler: Endpoint;
+  handler: Endpoint | SocketDefinition;
   /** Feature tags written on the endpoint, like `{ tenancy: { on: false, options: {} } }`. */
   tags?: ParsedTags;
+  /** `websocket` for a socket endpoint, whose handler is `defineSocket(...)`. */
+  kind?: "websocket";
 }
 
 export interface TestAppOptions {
@@ -85,6 +88,7 @@ export async function startTestApp(options: TestAppOptions = {}): Promise<TestAp
     hooks: [],
     handler: endpoint.handler,
     ...(endpoint.tags ? { tags: endpoint.tags } : {}),
+    ...(endpoint.kind ? { kind: endpoint.kind } : {}),
   }));
   const crudRoutes = crudRoutesOf(models);
   const lifecycle = createFeatureLifecycle({

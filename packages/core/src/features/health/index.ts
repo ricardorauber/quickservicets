@@ -149,7 +149,8 @@ const healthFeature = defineFeature({
     registry.run = run;
     const ready = cachedChecks(run, parseDuration(ctx.options.cache) ?? 1000);
     const detailsFor = async (req: ServiceRequest) => (await resolveOption(ctx.options.details, { req })) ?? !ctx.config.production;
-    const routeOptions = { log: ctx.options.log };
+    // The probes answer anonymous callers even when auth requires a user everywhere.
+    const routeOptions = { log: ctx.options.log, auth: false };
     ctx.app.route("GET", ctx.options.live, () => ({ status: "ok" }), routeOptions);
     ctx.app.route(
       "GET",

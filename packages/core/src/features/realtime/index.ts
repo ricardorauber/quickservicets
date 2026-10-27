@@ -275,7 +275,7 @@ const realtimeFeature = defineFeature({
             );
             return runner.run(follow, repos, req, res);
           },
-          { hooks },
+          { hooks, entity: entity.key, operation: "list" },
         );
       }
     }

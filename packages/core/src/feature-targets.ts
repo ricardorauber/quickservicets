@@ -1,5 +1,5 @@
 import { patternOf } from "./http/router.ts";
-import type { EntityModel, ParsedTags } from "./model.ts";
+import type { CrudOperation, EntityModel, ParsedTags } from "./model.ts";
 import type { ServiceRequest } from "./hooks.ts";
 
 /**
@@ -81,4 +81,43 @@ export function tagsOf(target: OptionsTarget): ParsedTags | undefined {
   if ("field" in target) return prepared.models.get(target.entity)?.fields.find((field) => field.name === target.field)?.tags;
   if ("method" in target) return prepared.endpoints.get(endpointKey(target.method, target.path));
   return undefined;
+}
+
+/** A route a feature registered at runtime, with what features that guard routes read of it. */
+export interface RuntimeTarget {
+  method: string;
+  /** The route path, with `[param]` segments. */
+  path: string;
+  /** The key of the feature that registered it. */
+  feature: string;
+  /** `false` when the route stays public while the `auth` native requires a user everywhere. */
+  auth?: boolean;
+  /** The entity whose records the route serves. */
+  entity?: string;
+  /** The operation of the entity the route stands for. */
+  operation?: CrudOperation;
+}
+
+let runtime: RuntimeTarget[] = [];
+
+/** Forgets the runtime routes of a previous setup; the feature lifecycle calls it before the setups run. */
+export function resetRuntimeTargets(): void {
+  runtime = [];
+}
+
+/** Records a route a feature registered during its setup. */
+export function registerRuntimeTarget(route: RuntimeTarget): void {
+  runtime.push({
+    method: route.method.toUpperCase(),
+    path: route.path,
+    feature: route.feature,
+    ...(route.auth === false ? { auth: false } : {}),
+    ...(route.entity !== undefined ? { entity: route.entity } : {}),
+    ...(route.operation !== undefined ? { operation: route.operation } : {}),
+  });
+}
+
+/** The routes features registered during the last setups, in registration order; final once the service starts. */
+export function runtimeTargets(): readonly RuntimeTarget[] {
+  return runtime;
 }

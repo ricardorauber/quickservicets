@@ -1,6 +1,48 @@
-import { defineFeature, HttpError, safeLog, type HandlerMiddleware, type Logger, type ServiceRequest } from "../public.ts";
+import { boolean, defineFeature, HttpError, list, object, runtimeTargets, safeLog, string, taggedRoutes, type HandlerMiddleware, type Logger, type RequestUser, type ServiceRequest } from "../public.ts";
 import { AuthError, type AuthApi, type AuthProvider, type AuthResult, type RequestAuth } from "./api.ts";
+import { buildRouteRules, parseRoleEntry, type RouteRule } from "./routes.ts";
 import { isTestProvider } from "./test-provider.ts";
+
+const options = object({
+  required: boolean().default(false).describe("Every route needs a signed-in user unless tagged @auth off; runtime routes registered with auth: false stay public."),
+  scopes: list(string()).default([]).describe("The token scopes every route that needs a user requires, unless its @auth tag lists its own."),
+  roles: list(string())
+    .default([])
+    .describe("The roles every route requires, as role or role:operation entries like the @roles tag (admin, admin:delete); empty by default."),
+});
+
+/** The challenges of the running service's providers, for the answers of `requireUser` and `requireRole`. */
+let currentProviders: readonly AuthProvider[] = [];
+
+/** The 401 of a request that needs a user and has none, with the providers' challenges. */
+export function authenticationRequired(providers: readonly AuthProvider[] = currentProviders): HttpError {
+  const challenge = challengeHeader(providers, false);
+  return new HttpError(401, "Authentication required", challenge ? { headers: { "www-authenticate": challenge } } : {});
+}
+
+/** The 403 of a user without a required role. */
+export const notAllowed = () => new HttpError(403, "Not allowed");
+
+/** The 403 of credentials without a required scope. */
+export const insufficientScope = (scopes: readonly string[]) =>
+  new HttpError(403, "Insufficient scope", { headers: { "www-authenticate": `Bearer error="insufficient_scope", scope="${scopes.join(" ")}"` } });
+
+/** The signed-in user of an authenticated request, with the fields the `auth` native always sets. */
+export type AuthenticatedUser = RequestUser & { id: string; roles: string[]; claims: Record<string, unknown> };
+
+/** Returns the request's user, or throws the 401 `Authentication required` with the providers' challenges. */
+export function requireUser(req: Pick<ServiceRequest, "user">): AuthenticatedUser {
+  const user = req.user;
+  if (!user) throw authenticationRequired();
+  return { ...user, roles: user.roles ?? [], claims: user.claims ?? {} } as AuthenticatedUser;
+}
+
+/** Returns the request's user when it holds one of the roles; throws 401 without a user and 403 `Not allowed` without the role. */
+export function requireRole(req: Pick<ServiceRequest, "user">, ...roles: string[]): AuthenticatedUser {
+  const user = requireUser(req);
+  if (!user.roles.some((role) => roles.includes(role))) throw notAllowed();
+  return user;
+}
 
 /** The `req.auth` of each authenticated request. */
 const authOf = new WeakMap<ServiceRequest, RequestAuth>();
@@ -100,20 +142,72 @@ const authFeature = defineFeature({
     sections: [
       {
         title: "Error codes",
-        text: ["| Status | Code | Message |", "| --- | --- | --- |", "| 401 | `UNAUTHORIZED` | Invalid credentials |"].join("\n"),
+        text: [
+          "| Status | Code | Message |",
+          "| --- | --- | --- |",
+          "| 401 | `UNAUTHORIZED` | Invalid credentials |",
+          "| 401 | `UNAUTHORIZED` | Authentication required |",
+          "| 403 | `FORBIDDEN` | Not allowed |",
+          "| 403 | `FORBIDDEN` | Insufficient scope |",
+        ].join("\n"),
       },
     ],
   },
+  options,
   request: { auth: (req) => authOf.get(req) },
+  tags: {
+    auth: {
+      on: ["entity", "endpoint"],
+      options: ["scopes"],
+      description:
+        "`@auth` requires a signed-in user on every route of an entity or on one endpoint, `@auth scopes=posts:write` also requires token scopes, and `@auth off` keeps the target public when `required` is true.",
+      example: "/** @auth */\nexport type Post = { title: string };",
+    },
+    roles: {
+      on: ["entity", "endpoint"],
+      options: ["roles"],
+      shorthand: "roles",
+      description:
+        "`@roles admin` requires one of the roles on every route of the target; on entities, `@roles admin:delete` restricts one operation (list, read, create, update, replace, delete) or a group (view, write).",
+      example: "/** @roles editor:write,admin:delete */\nexport type Post = { title: string };",
+      check: (tag, _options, target) => {
+        for (const entry of (tag.roles as string[] | undefined) ?? []) {
+          const parsed = parseRoleEntry(entry, target === "entity");
+          if (typeof parsed === "string") return parsed;
+        }
+        return undefined;
+      },
+    },
+  },
   setup(ctx) {
     const state = { providers: [] as AuthProvider[], open: true, production: ctx.config.production };
     statesOf.set(ctx.options, state);
     const { providers } = state;
+    currentProviders = providers;
     let index: CredentialIndex | undefined;
+    const ruleOptions = { required: ctx.options.required, scopes: ctx.options.scopes, roles: ctx.options.roles };
+    /** The routes whose rule differs from the default, decided once every feature registered its routes. */
+    let rules: Map<string, RouteRule> | undefined;
+    const rulesOf = () => (rules ??= buildRouteRules({ tagged: taggedRoutes(), runtime: runtimeTargets(), models: ctx.models }, ruleOptions));
+    const defaultRule: RouteRule | undefined = ctx.options.required ? { user: true, scopes: ctx.options.scopes, tagged: false } : undefined;
     ctx.app.onStart(() => {
       state.open = false;
       index = credentialIndex(providers);
+      rulesOf();
     });
+    /** Answers 401, 403 or nothing for a request against its route's rule. */
+    const authorize = (req: ServiceRequest, rule: RouteRule) => {
+      const user = req.user;
+      if (rule.user && !user) {
+        logFailure(ctx.logger, req, undefined, "missing credentials");
+        throw authenticationRequired(providers);
+      }
+      if (rule.roles && !(user?.roles ?? []).some((role) => rule.roles!.has(role))) throw notAllowed();
+      if (rule.scopes.length > 0) {
+        const granted = authOf.get(req)?.scopes ?? [];
+        if (!rule.scopes.every((scope) => granted.includes(scope))) throw insufficientScope(rule.scopes);
+      }
+    };
     const authenticate: HandlerMiddleware = {
       stage: "handler",
       // Before CSRF (150), tenancy (200) and the security limits keyed by user (1000).
@@ -144,6 +238,10 @@ const authFeature = defineFeature({
             break;
           }
         }
+        const routes = rulesOf();
+        // Without tagged routes and with required false, a request does no lookup at all.
+        const rule = routes.size === 0 ? defaultRule : (routes.get(`${req.method} ${req.route}`) ?? defaultRule);
+        if (rule) authorize(req, rule);
         return next();
       },
     };
@@ -170,4 +268,6 @@ export { authFeature };
 export { AuthError } from "./api.ts";
 export type { AuthApi, AuthCredentials, AuthMethod, AuthProvider, AuthResult, AuthResultUser, RequestAuth, RevokeTarget } from "./api.ts";
 export { isTestProvider, parseTestUser, testAuth } from "./test-provider.ts";
+export { buildRouteRules, parseRoleEntry, ROLE_GROUPS, ROLE_OPERATIONS, ruleOf } from "./routes.ts";
+export type { RoleEntry, RouteRule, RuleOptions } from "./routes.ts";
 export type { TestAuthOptions } from "./test-provider.ts";

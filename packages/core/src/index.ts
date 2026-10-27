@@ -232,8 +232,8 @@ export {
   hookOptionNames,
   lastResolvedFeatures,
 } from "./features.ts";
-export { prepareFeatureTargets, taggedRoutes, tagsOf } from "./feature-targets.ts";
-export type { OptionsTarget, TaggedRoute } from "./feature-targets.ts";
+export { prepareFeatureTargets, runtimeTargets, taggedRoutes, tagsOf } from "./feature-targets.ts";
+export type { OptionsTarget, RuntimeTarget, TaggedRoute } from "./feature-targets.ts";
 export type { FeatureApi, FeatureApis, FeatureConfig, FeatureDefinition, FeatureDocs, FeatureEntities, FeatureBuild, FeatureEntitiesContext, FeatureFolder, FeatureInput, FeatureOpenApi, FeatureSetup, FeatureTag, FeatureTagTarget, TargetOptions, FeatureOptions, FeatureRequirement, NativeFeatures, ProjectFeatureModule, ResolvedFeature } from "./features.ts";
 export { applyEnvironment, CONFIG_OVERRIDES, configVariable, envNameFor, featureVariables, logConfigWarnings, NOT_OVERRIDABLE, optionLeaves, overrideVariables, unknownVariableWarnings } from "./environment.ts";
 export { maskSecrets, SECRET_MASK } from "./secrets.ts";
@@ -278,8 +278,8 @@ registerShippedNative(flagsNative);
 registerShippedNative(httpNative);
 registerShippedNative(tenancyNative);
 registerShippedNative(authNative);
-export { AuthError, authFeature } from "./features/auth/index.ts";
-export type { AuthApi, AuthCredentials, AuthMethod, AuthProvider, AuthResult, AuthResultUser, RequestAuth, RevokeTarget } from "./features/auth/index.ts";
+export { AuthError, authFeature, requireRole, requireUser } from "./features/auth/index.ts";
+export type { AuthApi, AuthCredentials, AuthenticatedUser, AuthMethod, AuthProvider, AuthResult, AuthResultUser, RequestAuth, RevokeTarget } from "./features/auth/index.ts";
 export { addOutboxPatterns, events, eventsFeature, listen, memoryEventBus, readOutbox, tailOutbox } from "./features/events/index.ts";
 export type { ConsumerOptions, DeliveryContext, DeliveryStatus, OutboxRecord } from "./features/events/index.ts";
 export type { EventBus, EventListener, Events, EventsApi, ListenerContext, ListenerFile, ListenerPhase, ListenOptions, MemoryEventBus } from "./features/events/index.ts";

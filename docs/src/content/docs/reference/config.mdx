@@ -660,4 +660,37 @@ Every option, tag, command and hook of `auth` is on [its reference page](/refere
 
 | Key | Type | Default | Environment variable | Description |
 | --- | --- | --- | --- | --- |
+| `auth.required` | `boolean` | `false` | `QS_AUTH_REQUIRED` | Every route needs a signed-in user unless tagged @auth off; runtime routes registered with auth: false stay public. |
+| `auth.scopes` | `string[]` | `[]` | `QS_AUTH_SCOPES` | The token scopes every route that needs a user requires, unless its @auth tag lists its own. |
+| `auth.roles` | `string[]` | `[]` | `QS_AUTH_ROLES` | The roles every route requires, as role or role:operation entries like the @roles tag (admin, admin:delete); empty by default. |
 | `auth.enabled` | `boolean` | `true` | `QS_AUTH_ENABLED` | Turns the feature off when false. |
+
+#### `@auth`
+
+`@auth` requires a signed-in user on every route of an entity or on one endpoint, `@auth scopes=posts:write` also requires token scopes, and `@auth off` keeps the target public when `required` is true.
+
+**Applies to:** entities, endpoints
+
+**Options:** `scopes`
+
+**Syntax:** `@auth [scopes=…]` or `@auth off`
+
+```ts
+/** @auth */
+export type Post = { title: string };
+```
+
+#### `@roles`
+
+`@roles admin` requires one of the roles on every route of the target; on entities, `@roles admin:delete` restricts one operation (list, read, create, update, replace, delete) or a group (view, write).
+
+**Applies to:** entities, endpoints
+
+**Options:** `roles`
+
+**Syntax:** `@roles <roles>` or `@roles off`
+
+```ts
+/** @roles editor:write,admin:delete */
+export type Post = { title: string };
+```

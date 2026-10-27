@@ -9,8 +9,8 @@ import type { EntityModel } from "./model.ts";
 import { join } from "node:path";
 import { generatedPath } from "./build-steps.ts";
 import type { Middleware, OwnedMiddleware } from "./middleware.ts";
-import { prepareFeatureTargets } from "./feature-targets.ts";
-import type { ParsedTags } from "./model.ts";
+import { prepareFeatureTargets, registerRuntimeTarget, resetRuntimeTargets } from "./feature-targets.ts";
+import type { CrudOperation, ParsedTags } from "./model.ts";
 import { setActiveSetup } from "./setup-phase.ts";
 
 /** Which worker process runs a feature's setup. */
@@ -37,6 +37,12 @@ export interface RuntimeRouteOptions {
   hooks?: readonly (string | HookCall)[];
   /** `false` leaves the route's requests out of the request log, except for 5xx responses (default true). */
   log?: boolean;
+  /** `false` keeps the route public when the `auth` native requires a user on every route, like a sign-in route. */
+  auth?: boolean;
+  /** The entity whose records the route serves, so the entity's tags (like `@auth`) apply to it. */
+  entity?: string;
+  /** The operation of the entity the route stands for, like `read` for a history route. */
+  operation?: CrudOperation;
 }
 
 /** A route a feature registered at runtime with `ctx.app.route`. */
@@ -50,6 +56,12 @@ export interface RuntimeRoute {
   feature: string;
   /** `false` when the route's requests are left out of the request log. */
   log?: boolean;
+  /** `false` when the route stays public while the `auth` native requires a user everywhere. */
+  auth?: boolean;
+  /** The entity whose records the route serves. */
+  entity?: string;
+  /** The operation of the entity the route stands for. */
+  operation?: CrudOperation;
 }
 
 /** The running service's extension points a feature reaches from its setup. */
@@ -275,6 +287,7 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
         endpoints.filter((endpoint) => endpoint.feature === undefined || enabledKeys.has(endpoint.feature)),
         crudRoutes,
       );
+      resetRuntimeTargets();
       for (const entry of registered) {
         const { feature } = entry;
         let open = true;
@@ -287,7 +300,19 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
           onStop: (fn) => (duringSetup("onStop"), void entry.onStop.push(fn)),
           route: (method, path, handler, options = {}) => {
             duringSetup("route");
-            routes.push({ method: method.toUpperCase(), path, handler, hooks: normalizeHooks(options.hooks), feature: feature.key, ...(options.log === false ? { log: false } : {}) });
+            const route: RuntimeRoute = {
+              method: method.toUpperCase(),
+              path,
+              handler,
+              hooks: normalizeHooks(options.hooks),
+              feature: feature.key,
+              ...(options.log === false ? { log: false } : {}),
+              ...(options.auth === false ? { auth: false } : {}),
+              ...(options.entity !== undefined ? { entity: options.entity } : {}),
+              ...(options.operation !== undefined ? { operation: options.operation } : {}),
+            };
+            routes.push(route);
+            registerRuntimeTarget(route);
           },
           use: (entry) => {
             duringSetup("use");

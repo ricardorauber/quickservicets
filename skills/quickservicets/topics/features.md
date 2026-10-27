@@ -18,7 +18,7 @@ Natives ship inside `@quickservicets/core`; nothing extra is installed. `securit
 | `flags` | Feature flags per user, tenant or percentage, `req.flags` | `@flag`; `quickservicets flags list` |
 | `http` | The outgoing HTTP client `http.get(url).send()`, with timeouts, size limits, SSRF protection (`http.allow` for internal hosts) and clear errors (502 or 504 when one escapes) | |
 | `tenancy` | The tenant of every request in `req.tenant.id`, from the `x-tenant-id` header (or a subdomain, a path prefix, the credentials or a function); 400 without one | `@tenancy` |
-| `auth` | One authentication contract: providers registered by features fill `req.user`, `req.auth` and optionally `req.tenant`; 401 for invalid credentials; `testAuth()` for tests | |
+| `auth` | One authentication contract: providers registered by features fill `req.user`, `req.auth` and optionally `req.tenant`; 401 for invalid credentials or a missing user, 403 for a missing role or scope; `requireUser(req)` and `requireRole(req, ...roles)` in custom code; `testAuth()` for tests | `@auth`, `@roles` |
 
 ## Turn one on
 

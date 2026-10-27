@@ -132,7 +132,7 @@ const historyFeature = defineFeature({
             const anyVersion = page.total > 0 || (query.where.length > 0 && (await store.list(name, id, { where: [], limit: 1, offset: 0 })).total > 0);
             return listAnswer(entity, page, query, hidden, anyVersion);
           },
-          { hooks },
+          { hooks, entity: entity.key, operation: "read" },
         );
         ctx.app.route(
           "GET",
@@ -143,7 +143,7 @@ const historyFeature = defineFeature({
             if (!version) throw new HttpError(404, `${name} version ${number} not found`);
             return versionResponse(version, hidden);
           },
-          { hooks },
+          { hooks, entity: entity.key, operation: "read" },
         );
       }
       // One listener per covered entity, so writes of other entities never reach the native.

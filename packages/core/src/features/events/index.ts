@@ -1,4 +1,5 @@
 import {
+  resolveRunRepositories,
   boolean,
   defineFeature,
   disableOperationContext,
@@ -97,7 +98,7 @@ const eventsFeature = defineFeature({
     for (const [name, file] of ctx.folders.events ?? []) {
       if (!isListenerFile(file)) continue;
       const log = { info: (entry: object) => ctx.logger.info({ ...entry, listener: name }), warn: (entry: object) => ctx.logger.warn({ ...entry, listener: name }), error: (entry: object) => ctx.logger.error({ ...entry, listener: name }) } as ListenerContext["log"];
-      const listener: EventListener = (event) => file.listener(event as never, { repos: repos!, log });
+      const listener: EventListener = (event) => file.listener(event as never, { repos: resolveRunRepositories({}, () => repos as never) as never, log });
       events.on(file.pattern, listener as never, file.options);
     }
     // `@events off` leaves an entity unobserved; `@events outbox=false` keeps its events in process.

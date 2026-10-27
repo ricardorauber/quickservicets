@@ -3,7 +3,7 @@ import { rememberStoredRecord } from "./stored-records.ts";
 import { writeConditionOf } from "./write-conditions.ts";
 import { entityRoutePath, vectorFields, type CrudOperation, type EntityModel } from "../model.ts";
 import { parseListQuery } from "../query.ts";
-import { repositoryFor, type RepositoryRegistry } from "../repository.ts";
+import { repositoryLookup, type Repository, type RepositoryRegistry } from "../repository.ts";
 import { patternOf } from "./router.ts";
 import { parseClientSelection, selectFields, type ClientSelection } from "./selection.ts";
 import { parsePopulateParam } from "../populate.ts";
@@ -63,11 +63,17 @@ async function withStoredFile<T>(
   }
 }
 
-export function createCrudRoutes(models: EntityModel[], repos: RepositoryRegistry, options: CrudOptions = {}): CrudRoute[] {
+/**
+ * The generated routes of the entities. Each handler uses the repository registry it receives with the request (so a
+ * request may use the repositories of another database or schema), looked up through a path computed here; `_repos`
+ * is no longer read and stays for callers that pass it.
+ */
+export function createCrudRoutes(models: EntityModel[], _repos?: RepositoryRegistry, options: CrudOptions = {}): CrudRoute[] {
   return models
     .filter((model) => !model.internal)
     .flatMap((model) => {
-      const repo = repositoryFor(repos, model);
+      const repoOf = repositoryLookup(model);
+      const asRegistry = (repos: unknown) => repos as RepositoryRegistry;
       const vectors = vectorFields(model).map((field) => field.name);
       const collection = entityRoutePath(model);
       const item = `${collection}/[id]`;
@@ -78,7 +84,7 @@ export function createCrudRoutes(models: EntityModel[], repos: RepositoryRegistr
         return record;
       };
       // Regular entities take JSON, or multipart with file parts for their references to file entities.
-      const writeBody = async <T>(req: ServiceRequest, mode: UploadMode, write: (data: unknown) => Promise<T>): Promise<T> => {
+      const writeBody = async <T>(repos: RepositoryRegistry, req: ServiceRequest, mode: UploadMode, write: (data: unknown) => Promise<T>): Promise<T> => {
         if (!isMultipart(req)) return write(await req.json());
         const uploads = options.uploads!;
         return withUploadedFiles(await parseEntityUpload(req, model, models, uploads), repos, uploads, mode, write);
@@ -89,7 +95,8 @@ export function createCrudRoutes(models: EntityModel[], repos: RepositoryRegistr
           "GET",
           collection,
           "list",
-          async (_, req) => {
+          async (repos, req) => {
+            const repo = repoOf(asRegistry(repos));
             const populate = populatePaths(model, "list", req.query);
             const selection = parseClientSelection(model, "list", req.query, { populated: populate, models });
             const omit = unselectedVectors(vectors, selection);
@@ -101,7 +108,8 @@ export function createCrudRoutes(models: EntityModel[], repos: RepositoryRegistr
           "GET",
           item,
           "read",
-          async (_, req) => {
+          async (repos, req) => {
+            const repo = repoOf(asRegistry(repos));
             const populate = populatePaths(model, "read", req.query);
             const selection = parseClientSelection(model, "read", req.query, { populated: populate, models });
             const omit = unselectedVectors(vectors, selection);
@@ -115,7 +123,8 @@ export function createCrudRoutes(models: EntityModel[], repos: RepositoryRegistr
           "POST",
           collection,
           "create",
-          async (_, req, res) => {
+          async (repos, req, res) => {
+            const repo = repoOf(asRegistry(repos));
             let created: unknown;
             if (model.file) {
               const uploads = options.uploads!;
@@ -123,7 +132,7 @@ export function createCrudRoutes(models: EntityModel[], repos: RepositoryRegistr
               const newId = Bun.randomUUIDv7();
               created = await withStoredFile(model, newId, file, uploads, (managed) => repo.createWith(newId, managed, data));
             } else {
-              created = await writeBody(req, "create", (data) => repo.create(data));
+              created = await writeBody(asRegistry(repos), req, "create", (data) => repo.create(data));
             }
             res.status(201);
             rememberStoredRecord(req, model, created as StoredRecord);
@@ -134,19 +143,21 @@ export function createCrudRoutes(models: EntityModel[], repos: RepositoryRegistr
           "PATCH",
           item,
           "update",
-          async (_, req) => {
+          async (repos, req) => {
+            const repo = repoOf(asRegistry(repos));
             const condition = await writeConditionOf(req, model);
-            return remembered(req, await writeBody(req, "patch", (data) => repo.update(id(req.params), data, condition)));
+            return remembered(req, await writeBody(asRegistry(repos), req, "patch", (data) => repo.update(id(req.params), data, condition)));
           },
         ],
         [
           "PUT",
           item,
           "replace",
-          async (_, req) => {
+          async (repos, req) => {
+            const repo = repoOf(asRegistry(repos));
             if (!model.file) {
               const condition = await writeConditionOf(req, model);
-              return remembered(req, await writeBody(req, "replace", (data) => repo.replace(id(req.params), data, condition)));
+              return remembered(req, await writeBody(asRegistry(repos), req, "replace", (data) => repo.replace(id(req.params), data, condition)));
             }
             const uploads = options.uploads!;
             const { file, data } = await parseUpload(req, model, uploads);
@@ -157,14 +168,14 @@ export function createCrudRoutes(models: EntityModel[], repos: RepositoryRegistr
           "DELETE",
           item,
           "delete",
-          async (_, req) => {
-            await repo.delete(id(req.params), await writeConditionOf(req, model));
+          async (repos, req) => {
+            await repoOf(asRegistry(repos)).delete(id(req.params), await writeConditionOf(req, model));
             return undefined;
           },
         ],
       ];
       const routes: CrudRoute[] = handlers.map(([method, path, operation, handler]) => ({ method, path, handler, entity: model, operation }));
-      const fileRoute = model.file && options.fileAccess ? createFileRoute(model, repo, options.fileAccess) : undefined;
+      const fileRoute = model.file && options.fileAccess ? createFileRoute(model, repoOf, options.fileAccess) : undefined;
       return fileRoute ? [...routes, fileRoute] : routes;
     });
 }
@@ -172,11 +183,11 @@ export function createCrudRoutes(models: EntityModel[], repos: RepositoryRegistr
 const invalidSignature = () => new HttpError(403, "Invalid or expired signature");
 
 /** `GET <item>/file`, streaming the object in proxy and signed modes; direct mode has no such route. */
-function createFileRoute(model: EntityModel, repo: ReturnType<typeof repositoryFor>, settings: FileAccessSettings): CrudRoute | undefined {
+function createFileRoute(model: EntityModel, repoOf: (registry: RepositoryRegistry) => Repository, settings: FileAccessSettings): CrudRoute | undefined {
   const { mode } = resolveFileAccess(model, settings);
   if (mode === "direct") return undefined;
-  const handler: Endpoint = async (_, req) => {
-    const record = await repo.findById(req.params.id!, { includeHidden: true });
+  const handler: Endpoint = async (repos, req) => {
+    const record = await repoOf(repos as unknown as RepositoryRegistry).findById(req.params.id!, { includeHidden: true });
     if (mode === "signed") {
       const now = (settings.now ?? Date.now)();
       const valid =

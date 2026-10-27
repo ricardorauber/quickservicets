@@ -8,6 +8,8 @@ export interface ConsumerHandlerOptions {
   definitions: ReadonlyMap<string, QueueDefinition>;
   /** The repositories the consumers receive, known once the service started. */
   repos: () => Repositories;
+  /** Chooses the repositories of each message's run instead of `repos`; the native passes the service's run resolution. */
+  runRepositories?: (run: { queue: { name: string; messageId: string } }) => Repositories;
   logger: Logger;
   clock?: JobClock;
   /** Changes the payload before the consumer runs; a throw fails the attempt. */
@@ -33,7 +35,7 @@ export function consumerHandler(options: ConsumerHandlerOptions): QueueBrokerCon
       const payload = options.beforeProcess ? await options.beforeProcess(message, message.payload) : message.payload;
       const context = {
         payload,
-        repos: options.repos(),
+        repos: options.runRepositories ? options.runRepositories({ queue: { name: message.queue, messageId: message.id } }) : options.repos(),
         message: { id: message.id, queue: message.queue, attempt: message.attempt, enqueuedAt: new Date(message.enqueuedAt), ...(message.dedupeKey ? { dedupeKey: message.dedupeKey } : {}) },
         signal,
         log,

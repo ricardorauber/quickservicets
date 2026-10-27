@@ -11,6 +11,7 @@ import { generatedPath } from "./build-steps.ts";
 import type { Middleware, OwnedMiddleware } from "./middleware.ts";
 import { prepareFeatureTargets } from "./feature-targets.ts";
 import type { ParsedTags } from "./model.ts";
+import { setActiveSetup } from "./setup-phase.ts";
 
 /** Which worker process runs a feature's setup. */
 export interface WorkerInfo {
@@ -328,6 +329,7 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
         extendContext?.(context, feature);
         const { setup, api } = feature.definition;
         settingUp = feature.key;
+        setActiveSetup({ feature: feature.key, server });
         try {
           if (setup) await around(feature.key, "setup", () => withTimeout(() => setup(context as never), startTimeout, `${feature.key} setup`));
           if (api) apis.set(feature.key, await around(feature.key, "setup", () => withTimeout(() => api(context as never), startTimeout, `${feature.key} api`)));
@@ -336,6 +338,7 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
         } finally {
           open = false;
           settingUp = undefined;
+          setActiveSetup(undefined);
         }
       }
     },

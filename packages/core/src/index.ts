@@ -15,8 +15,10 @@ export { CONFIG_FILE, ConfigError, DEFAULT_PORT, DEFAULT_POPULATE_DEPTH, defineC
 export { availableCpus, isPrimary, poolSizePerWorker, runPrimary, runsScheduledWork, runWorkers, SERVER_WORKERS_ENV, WORKER_INDEX_ENV, WORKERS_ENV, workerIndex } from "./workers.ts";
 export type { PrimaryOptions, WorkerProcess } from "./workers.ts";
 export type { ResolvedConfig, ServiceConfig } from "./config.ts";
-export { createRepositories, createRepository, READ_METHODS, readRepository, repositoryFor } from "./repository.ts";
-export type { EntityRecord, ListResult, Many, One, Populated, PopulatePath, ReadOptions, ReadRepository, ReferencePath, RelatedField, RelatedRecord, RelatedReferences, Repository, RepositoryOptions, RepositoryRegistry, WriteOptions } from "./repository.ts";
+export { configureRepositories, createRepositories, createRepository, READ_METHODS, readRepository, repositoriesFor, repositoryFor, repositoryLookup, repositoryPlans } from "./repository.ts";
+export { configureRunRepositories, resolveRunRepositories, setRepositoryResolver } from "./repository-resolver.ts";
+export type { RepositoryResolver, RepositoryResolverOptions, RunTarget } from "./repository-resolver.ts";
+export type { EntityPlan, EntityRecord, ListResult, Many, One, Populated, PopulatePath, ReadOptions, ReadRepository, ReferencePath, RelatedField, RelatedRecord, RelatedReferences, Repository, RepositoryOptions, RepositoryRegistry, WriteOptions } from "./repository.ts";
 export { etagOf, ifMatch, listedTags, noneMatch, preconditionFailed } from "./entity-tags.ts";
 export { definePostHook, definePreHook, isHookDefinition, REQUEST_PROPERTIES } from "./hooks.ts";
 export { composeHandlerStage, composeRequestStage, middlewareStages } from "./middleware.ts";

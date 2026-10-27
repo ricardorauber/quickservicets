@@ -1,4 +1,5 @@
 import {
+  resolveRunRepositories,
   boolean,
   defineFeature,
   duration,
@@ -291,7 +292,7 @@ const queuesFeature = defineFeature({
       repos = start.repos;
       await brokerOf().start({
         queues: [...declared.keys()].map((name) => ({ name, options: settingsOf(name) })),
-        handle: consumerHandler({ definitions: declared, repos: () => repos!, logger: ctx.logger, ...(beforeProcess ? { beforeProcess } : {}) }),
+        handle: consumerHandler({ definitions: declared, repos: () => repos!, runRepositories: (run) => resolveRunRepositories(run, () => repos as never) as never, logger: ctx.logger, ...(beforeProcess ? { beforeProcess } : {}) }),
         report,
         pollInterval: ctx.options.pollInterval,
         logger: ctx.logger,

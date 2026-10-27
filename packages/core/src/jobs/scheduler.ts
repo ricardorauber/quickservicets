@@ -41,6 +41,8 @@ export interface JobRunnerOptions {
   model?: EntityModel;
   /** The repositories passed to the job closures. */
   repos: Repositories;
+  /** Chooses the repositories of each run instead of `repos`; `createApp` passes the run resolution of the service. */
+  runRepositories?: (run: { job: { name: string; runId: string } }) => Repositories;
   /** The file storages passed to the job closures. */
   files: JobContext["files"];
   /** The resolved `jobs` config. */
@@ -297,7 +299,7 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
     const flags = contextFlags();
     const client = contextHttp(run.id);
     const context = {
-      repos,
+      repos: options.runRepositories ? options.runRepositories({ job: { name: run.job, runId: run.id } }) : repos,
       files,
       signal: controller.signal,
       log,

@@ -22,7 +22,8 @@ import { REQUEST_PROPERTIES, type ServiceRequest } from "./hooks.ts";
 import { patternOf } from "./http/router.ts";
 import { DOCS_PATH, OPENAPI_PATH } from "./http/docs.ts";
 import { projectResult, type Projection } from "./projection.ts";
-import { createRepositories, repositoryFor, type RepositoryRegistry } from "./repository.ts";
+import { configureRepositories, repositoriesFor, repositoryLookup, type RepositoryRegistry } from "./repository.ts";
+import { configureRunRepositories, resolveRunRepositories } from "./repository-resolver.ts";
 
 /** A generated CRUD route with its resolved hook list. */
 export interface CrudRouteEntry {
@@ -198,12 +199,15 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
     logger,
   };
   configureTransactions(config.database, logger);
-  const repos = createRepositories(models, config.database, {
+  configureRepositories(models, {
     populateMaxDepth: config.populate?.maxDepth,
     fileAccess,
     fileCleanup,
     toArrayMax: config.repositories?.toArrayMax,
   });
+  // The startup registry: every request and run gets it unless a feature set a repository resolver.
+  const repos = repositoriesFor(config.database);
+  configureRunRepositories(repos, settings.repositories);
   const hooksByRoute = new Map(crudRoutes.map((entry) => [`${entry.method} ${entry.path}`, entry.hooks]));
   const uploads = { storage: config.storage, files: config.files };
   // The file route runs the entity's read hooks in proxy mode; a valid signature is the only check in signed mode.
@@ -211,7 +215,7 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
     route.fileAccess === "signed"
       ? []
       : (hooksByRoute.get(`${route.method} ${route.fileAccess ? route.path.replace(/\/file$/, "") : route.path}`) ?? []);
-  const generated: Route[] = createCrudRoutes(models, repos, { uploads, fileAccess }).map((route) => ({
+  const generated: Route[] = createCrudRoutes(models, undefined, { uploads, fileAccess }).map((route) => ({
     method: route.method,
     path: route.path,
     handler: withHooks(route.handler, hooksOf(route), hooks),
@@ -221,9 +225,9 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
     const handler = withQueryItems(endpoint.handler as Endpoint, endpoint.query);
     const model = populate && models.find((candidate) => candidate.key === populate.entity);
     if (!populate || !model || populate.paths.length === 0) return handler;
-    const repository = repositoryFor(repos, model);
+    const repositoryOf = repositoryLookup(model);
     return async (repos, req, res) =>
-      populateResult(await handler(repos, req, res), (records) => repository.populate(records, populate.paths)) as never;
+      populateResult(await handler(repos, req, res), (records) => repositoryOf(repos as unknown as RepositoryRegistry).populate(records, populate.paths)) as never;
   };
   const custom: Route[] = endpoints.map((endpoint) => {
     if (endpoint.kind === "sse") {
@@ -252,6 +256,7 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
     database: config.database,
     model: jobRunModel,
     repos: repos as unknown as Repositories,
+    runRepositories: (run) => resolveRunRepositories(run) as unknown as Repositories,
     files: config.storage,
     config: config.jobs,
     production: config.production,

@@ -8,6 +8,7 @@ import { Router } from "./router.ts";
 import { normalizeAddress } from "../cidr.ts";
 import type { FileHeaders } from "../files/access.ts";
 import { readBodyText } from "./body.ts";
+import type { RepositoryResolver } from "../repository-resolver.ts";
 
 export type HandlerResult<Result> = Result | Response | undefined;
 
@@ -43,6 +44,11 @@ export interface ServerSettings {
   mask?: LogMasker;
   /** Computes entity tags for `res.etag`; without it `res.etag` throws. */
   entityTags?: EntityTags;
+  /**
+   * Chooses the repositories each request's hooks and handler receive, right before they run (after the handler
+   * middlewares); set with `setRepositoryResolver` during setup. Without it, every request gets `repos`.
+   */
+  repositories?: RepositoryResolver;
 }
 
 export interface ServerOptions extends ServerSettings {
@@ -219,14 +225,20 @@ function withRequestProperties(req: ServiceRequest, properties: ReadonlyMap<stri
   return req;
 }
 
-export function createServer({ routes, repos, config: serverConfig, jobs = noRequestJobs, middleware, requestProperties, clientIp, maxRequestBodySize, idleTimeout, mask, entityTags }: ServerOptions): Server {
+export function createServer({ routes, repos, config: serverConfig, jobs = noRequestJobs, middleware, requestProperties, clientIp, maxRequestBodySize, idleTimeout, mask, entityTags, repositories }: ServerOptions): Server {
   // Development error responses show the stack with known secret values masked.
   const config = mask ? { ...serverConfig, redact: (text: string) => mask.text(text) } : serverConfig;
   const handlerStage = middleware?.handler ?? [];
   const errorStage = middleware?.error ?? [];
   const requestStage = middleware?.request ?? [];
+  // A resolver chooses each request's repositories right before its hooks and handler; without one, nothing runs for it.
+  const resolve = repositories?.request as ((req: ServiceRequest) => Repositories) | undefined;
+  const resolved = resolve ? routes.map((route) => {
+    const inner = route.handler;
+    return { ...route, handler: ((_repos, req, res) => inner(resolve(req), req, res)) as Endpoint };
+  }) : routes;
   // Handler middlewares wrap each route's hooks and handler once, here, so requests without them pay nothing.
-  const wrapped = handlerStage.length === 0 ? routes : routes.map((route) => {
+  const wrapped = handlerStage.length === 0 ? resolved : resolved.map((route) => {
     const inner = route.handler;
     const composed = composeHandlerStage(handlerStage, async (req, res) => inner(repos, req, res));
     return { ...route, handler: ((_repos, req, res) => composed(req, res)) as Endpoint };

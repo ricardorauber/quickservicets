@@ -234,6 +234,62 @@ async function mapUniqueViolation<T>(operation: () => Promise<T>): Promise<T> {
   }
 }
 
+/** What a repository of one entity precomputes from the model: shared by the repositories of every adapter. */
+export interface EntityPlan {
+  /** Whether the entity has derived relation sides. */
+  hasDerived: boolean;
+  /** Whether writes also change other records (relation sides or a moved 1-1 link), so they need a transaction. */
+  syncsRelations: boolean;
+  /** The reference fields to file entities the entity owns. */
+  ownedFiles: ReturnType<typeof ownedFileFields>;
+  /** Whether updates may remove replaced files. */
+  cleansReplaced: boolean;
+  /** Paths that are never returned. */
+  hiddenPaths: string[];
+  /** Whether a delete (with its cascades) may remove stored objects. */
+  cleansOnDelete: boolean;
+  /** Whether an update needs nothing from the stored record. */
+  writesDirectly: boolean;
+}
+
+/**
+ * Builds the plan of an entity's repositories. It is built once per entity and repository settings, so creating the
+ * repositories of another adapter (a schema or a tenant database) costs only the repository objects.
+ */
+export const repositoryPlans = {
+  build(model: EntityModel, models: EntityModel[], options: RepositoryOptions): EntityPlan {
+    const cleanup = options.fileCleanup;
+    const hasDerived = derivedFields(model).length > 0;
+    const syncsRelations = hasDerived || model.fields.some((field) => field.onConflict === "replace");
+    const ownedFiles = ownedFileFields(model, models);
+    const cleansReplaced = Boolean(cleanup?.deleteReplaced) && (ownedFiles.length > 0 || model.file !== undefined);
+    const cleansOnDelete = cascadedEntities(model, models).some((entity) => cleansFilesOf(entity, models, cleanup));
+    return { hasDerived, syncsRelations, ownedFiles, cleansReplaced, hiddenPaths: alwaysHiddenPaths(model.fields), cleansOnDelete, writesDirectly: !syncsRelations && !cleansReplaced };
+  },
+};
+
+/** Whether deleting a record of `entity` removes stored objects: its own, or those of the files it owns. */
+function cleansFilesOf(entity: EntityModel, models: EntityModel[], cleanup: FileCleanupSettings | undefined): boolean {
+  return Boolean(cleanup && ((entity.file && cleanup.deleteOnRemove) || (cleanup.deleteWithOwner && ownedFileFields(entity, models).length > 0)));
+}
+
+/** The plans of each set of repository settings, by entity. */
+const plans = new WeakMap<RepositoryOptions, WeakMap<EntityModel, EntityPlan>>();
+
+function planOf(model: EntityModel, models: EntityModel[], options: RepositoryOptions): EntityPlan {
+  let byModel = plans.get(options);
+  if (!byModel) {
+    byModel = new WeakMap();
+    plans.set(options, byModel);
+  }
+  let plan = byModel.get(model);
+  if (!plan) {
+    plan = repositoryPlans.build(model, models, options);
+    byModel.set(model, plan);
+  }
+  return plan;
+}
+
 export function createRepository(
   model: EntityModel,
   adapter: DatabaseAdapter,
@@ -241,14 +297,9 @@ export function createRepository(
   repositoryOptions: RepositoryOptions = {},
 ): Repository {
   const maxDepth = repositoryOptions.populateMaxDepth ?? 2;
-  const hasDerived = derivedFields(model).length > 0;
-  // Writes only need a transaction when they also change other records (relation sides or a moved 1-1 link).
-  const syncsRelations = hasDerived || model.fields.some((field) => field.onConflict === "replace");
+  const { hasDerived, syncsRelations, ownedFiles, cleansReplaced, hiddenPaths, cleansOnDelete, writesDirectly } = planOf(model, models, repositoryOptions);
   const atomically = <T>(fn: () => Promise<T>) => (syncsRelations ? runInTransaction(adapter, fn) : fn());
   const cleanup = repositoryOptions.fileCleanup;
-  const ownedFiles = ownedFileFields(model, models);
-  // Updates that may remove replaced files do so in the same transaction as the change.
-  const cleansReplaced = Boolean(cleanup?.deleteReplaced) && (ownedFiles.length > 0 || model.file !== undefined);
   /** Runs a change, then deletes the objects it queued; nothing is deleted when the change fails. */
   const settle = async <T>(fn: (queue: StoredObject[]) => Promise<T>): Promise<T> => {
     const queue: StoredObject[] = [];
@@ -279,8 +330,6 @@ export function createRepository(
       if (pending) pending.push(report);
       else await report();
     };
-  const hiddenPaths = alwaysHiddenPaths(model.fields);
-
   const present = (record: StoredRecord, options: ReadOptions = {}): EntityRecord => {
     if (options.includeHidden || hiddenPaths.length === 0) return record;
     return project(record, { exclude: hiddenPaths }) as EntityRecord;
@@ -320,12 +369,6 @@ export function createRepository(
   const written = async (record: StoredRecord, options?: ReadOptions): Promise<EntityRecord> =>
     present((await compute(model, [hasDerived ? await existing(record.id) : record]))[0]!, options);
 
-  /** Whether deleting a record of `entity` removes stored objects: its own, or those of the files it owns. */
-  const cleansFilesOf = (entity: EntityModel) =>
-    Boolean(cleanup && ((entity.file && cleanup.deleteOnRemove) || (cleanup.deleteWithOwner && ownedFileFields(entity, models).length > 0)));
-  // Deletes that can remove no stored object need neither the records' contents nor a surrounding transaction.
-  const cleansOnDelete = cascadedEntities(model, models).some(cleansFilesOf);
-
   /** Deletes a file record that nothing references any more, queueing its object. */
   const removeUnreferencedFile = async (target: EntityModel, id: string, queue: StoredObject[]) => {
     if (await isFileReferenced(target, id, models, adapter)) return;
@@ -350,9 +393,6 @@ export function createRepository(
       }
     }
   };
-
-  // Without relation sides to sync or replaced files to remove, an update needs nothing from the stored record.
-  const writesDirectly = !syncsRelations && !cleansReplaced;
 
   /** Throws the 412 of a conditional write when `ifMatch` lists no current tag of the record. */
   const checkIfMatch = (current: StoredRecord, options: Pick<WriteOptions, "ifMatch" | "tagOf">) => {
@@ -566,7 +606,7 @@ export function createRepository(
     }
     const owned: { target: EntityModel; id: string }[] = [];
     for (const deleted of plan.deletions) {
-      if (!cleansFilesOf(deleted.model)) continue;
+      if (!cleansFilesOf(deleted.model, models, cleanup)) continue;
       const stored = deleted.model === model && deleted.id === id ? record : await adapter.findById(deleted.model, deleted.id);
       if (!stored) continue;
       const object = deleted.model.file && cleanup!.deleteOnRemove ? objectOf(deleted.model, stored) : undefined;
@@ -738,4 +778,52 @@ export function repositoryFor(registry: RepositoryRegistry, model: EntityModel):
   const repository = scope?.[model.repoKey] as Repository | undefined;
   if (!repository) throw new Error(`No repository for entity ${model.entityName}`);
   return repository;
+}
+
+/** The models and options `repositoriesFor` builds registries with, and the registries built so far, by adapter. */
+interface RegistrySettings {
+  models: EntityModel[];
+  options: RepositoryOptions;
+  registries: WeakMap<DatabaseAdapter, RepositoryRegistry>;
+}
+
+let registrySettings: RegistrySettings | undefined;
+
+/** Sets the models and repository options `repositoriesFor` uses, forgetting the registries built before; `createApp` calls it. */
+export function configureRepositories(models: EntityModel[], options: RepositoryOptions = {}): void {
+  registrySettings = { models, options, registries: new WeakMap() };
+}
+
+/**
+ * The repository registry of an adapter instance, with the shape `createRepositories` builds (schema-bound repositories
+ * nested by schema key), built on first use and kept for that adapter: asking twice for one adapter returns the same
+ * object. Registries of different adapters share the entity plans, so another registry costs only its repository objects.
+ */
+export function repositoriesFor(adapter: DatabaseAdapter): RepositoryRegistry {
+  const settings = registrySettings;
+  if (!settings) throw new Error("repositoriesFor() needs a running service: no entity models are configured yet");
+  let registry = settings.registries.get(adapter);
+  if (!registry) {
+    registry = createRepositories(settings.models, adapter, settings.options);
+    settings.registries.set(adapter, registry);
+  }
+  return registry;
+}
+
+/** The registry path of an entity's repository, computed once: the repository key, under the schema key when it has one. */
+export function repositoryLookup(model: EntityModel): (registry: RepositoryRegistry) => Repository {
+  const { schemaKey, repoKey } = model;
+  const missing = () => new Error(`No repository for entity ${model.entityName}`);
+  if (schemaKey) {
+    return (registry) => {
+      const repository = (registry[schemaKey] as Record<string, Repository> | undefined)?.[repoKey];
+      if (!repository) throw missing();
+      return repository;
+    };
+  }
+  return (registry) => {
+    const repository = registry[repoKey] as Repository | undefined;
+    if (!repository) throw missing();
+    return repository;
+  };
 }

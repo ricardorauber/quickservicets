@@ -25,6 +25,7 @@ import { projectResult, type Projection } from "./projection.ts";
 import { configureRepositories, repositoriesFor, repositoryLookup, type RepositoryRegistry } from "./repository.ts";
 import { configureRunRepositories, resolveRunRepositories, type RepositoryResolver } from "./repository-resolver.ts";
 import { configureDatabaseScopes, currentDatabaseScope } from "./database-scope.ts";
+import { guardTenantRepositories } from "./tenant-repositories.ts";
 
 /** A generated CRUD route with its resolved hook list. */
 export interface CrudRouteEntry {
@@ -207,7 +208,8 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
     toArrayMax: config.repositories?.toArrayMax,
   });
   // The startup registry: every request and run gets it unless a feature set a repository resolver.
-  const repos = repositoriesFor(config.database);
+  // With tenant entities, their repositories in the startup registry follow the current tenant scope.
+  const repos = models.some((model) => model.tenancy === "tenant") ? guardTenantRepositories(repositoriesFor(config.database), models) : repositoriesFor(config.database);
   configureDatabaseScopes(config.database, repos, settings.databaseScopes === true);
   // With database scopes on, requests and runs use the current scope's repositories unless a resolver chooses others.
   const scoped: RepositoryResolver | undefined = settings.databaseScopes

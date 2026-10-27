@@ -59,6 +59,9 @@ const options = object({
     .perRequest()
     .describe("The function source: a function of the request and its user returning the tenant id or undefined; required when from lists function."),
   required: boolean().default(true).describe("Answers 400 to requests without a tenant on routes that are not exempt; @tenancy required=false relaxes one endpoint."),
+  scope: oneOf(["tenant", "shared"])
+    .default("tenant")
+    .describe("Whether an entity's records belong to one tenant or are shared by every tenant; set per entity with @tenancy shared."),
   source: oneOf(["database", "config", "service"])
     .default("database")
     .describe("Where tenants are looked up: the Tenant table of the service's database, the tenants option, or another service through the HTTP client."),
@@ -177,10 +180,17 @@ const tenancyFeature = defineFeature({
   after: ["http"],
   tags: {
     tenancy: {
-      on: ["endpoint"],
-      options: ["required"],
-      description: "`@tenancy off` exempts an endpoint from tenant resolution, and `@tenancy required=false` lets it run without a tenant.",
-      example: "/** @tenancy off */\nexport default () => ({ status: \"ok\" });",
+      on: ["entity", "endpoint"],
+      options: ["scope", "required"],
+      shorthand: "scope",
+      description:
+        "`@tenancy shared` makes an entity's records shared by every tenant; on an endpoint, `@tenancy off` exempts it from tenant resolution and `@tenancy required=false` lets it run without a tenant.",
+      example: "/** @tenancy shared */\nexport type Plan = { name: string };",
+      check: (tag, _options, target) => {
+        if (target === "endpoint" && tag.scope !== undefined) return "scope applies only to entities";
+        if (target === "entity" && tag.required !== undefined) return "required applies only to endpoints";
+        return undefined;
+      },
     },
   },
   setup(ctx) {
@@ -271,6 +281,24 @@ const tenancyFeature = defineFeature({
     };
     ctx.app.use(resolveTenant);
   },
+  // Operations on tenant data say so, and take the tenant header when the header source is on.
+  openapi(doc, { models, options, routes }) {
+    const tenantEntities = new Set(models.filter((model) => model.tenancy === "tenant").map((model) => model.key));
+    const header = (options.from as readonly string[]).includes("header") ? options.header : undefined;
+    for (const route of routes) {
+      if (!route.entity || !tenantEntities.has(route.entity)) continue;
+      const path = route.path.replace(/\[([^\]]+)\]/g, "{$1}");
+      const operation = (doc.paths[path] as Record<string, Record<string, unknown>> | undefined)?.[route.method.toLowerCase()];
+      if (!operation) continue;
+      operation["x-tenant"] = "required";
+      if (!header) continue;
+      const parameters = (operation.parameters ??= []) as { name: string; in: string }[];
+      if (!parameters.some((parameter) => parameter.in === "header" && parameter.name.toLowerCase() === header.toLowerCase())) {
+        parameters.push({ name: header, in: "header", required: true, description: "The tenant the request is for.", schema: { type: "string" } } as never);
+      }
+    }
+    return doc;
+  },
   api: (ctx): TenancyApi => {
     const state = statesOf.get(ctx.options)!;
     return {
@@ -288,3 +316,4 @@ export type { TenantSource } from "./resolve.ts";
 export type { TenancyApi } from "./api.ts";
 export { cachedDirectory, configDirectory, databaseDirectory, directoryClock, serviceDirectory, tenantEntity, TENANT_FIELDS, tenantInfoOf } from "./directory.ts";
 export type { CachedDirectory, DirectoryCacheOptions, TenantDirectory, TenantInfo } from "./directory.ts";
+export { crossTenancyReferences, markTenancy, SHARED_ENTITY_KEYS, withoutTenancyMarks } from "./models.ts";

@@ -797,6 +797,12 @@ export function configureRepositories(models: EntityModel[], options: Repository
   registrySettings = { models, options, registries: new WeakMap() };
 }
 
+/** The models `repositoriesFor` builds registries with; throws before a service configured them. */
+export function configuredModels(): EntityModel[] {
+  if (!registrySettings) throw new Error("No entity models are configured yet: the service has not started");
+  return registrySettings.models;
+}
+
 /**
  * The repository registry of an adapter instance, with the shape `createRepositories` builds (schema-bound repositories
  * nested by schema key), built on first use and kept for that adapter: asking twice for one adapter returns the same

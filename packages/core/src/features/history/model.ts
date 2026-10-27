@@ -75,6 +75,7 @@ export function historyModel(entity: EntityModel): EntityModel {
     exposure: { list: { include, exclude: [] }, read: { include, exclude: [] } },
     indexes: [{ fields: ["entityId", "version"], unique: true }, { fields: ["entityId", "at"] }],
     system: true,
+    derivedFrom: entity.key,
   };
 }
 

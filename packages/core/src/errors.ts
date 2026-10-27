@@ -8,6 +8,8 @@ export interface HttpErrorOptions {
   details?: unknown;
   /** Headers the error response carries, like `retry-after`. */
   headers?: Readonly<Record<string, string>>;
+  /** The message the response shows instead of `message`, which logs and job runs keep. */
+  responseMessage?: string;
 }
 
 /** The `error.code` clients read for each HTTP status. */
@@ -42,6 +44,8 @@ export class HttpError extends Error {
   readonly code: string;
   readonly details?: unknown;
   readonly headers?: Readonly<Record<string, string>>;
+  /** The message of the response, when it differs from `message`. */
+  readonly responseMessage?: string;
 
   constructor(status: number, message: string, options: HttpErrorOptions = {}) {
     super(message);
@@ -50,6 +54,7 @@ export class HttpError extends Error {
     this.code = options.code ?? codeForStatus(status);
     this.details = options.details;
     if (options.headers) this.headers = options.headers;
+    if (options.responseMessage !== undefined) this.responseMessage = options.responseMessage;
   }
 }
 
@@ -72,7 +77,7 @@ function jsonResponse(status: number, body: ErrorBody, headers?: Readonly<Record
 
 export function toErrorResponse(error: unknown, options: ErrorResponseOptions): Response {
   if (error instanceof HttpError) {
-    const body: ErrorBody = { error: { code: error.code, message: error.message } };
+    const body: ErrorBody = { error: { code: error.code, message: error.responseMessage ?? error.message } };
     if (error.details !== undefined) body.error.details = error.details;
     return jsonResponse(error.status, body, error.headers);
   }

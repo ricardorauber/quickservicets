@@ -3,6 +3,9 @@ import { join, relative, resolve, sep } from "node:path";
 import ts from "typescript";
 import {
   builtInFileEntity,
+  crossTenancyReferences,
+  markTenancy,
+  withoutTenancyMarks,
   featureDir,
   NATIVE_FEATURES_DIR,
   type ResolvedFeature,
@@ -240,13 +243,26 @@ export function parseProjectEntities(projectRoot: string, features: readonly Res
   return parseProjectModels(projectRoot, features).models;
 }
 
+/**
+ * With the `tenancy` native enabled, marks every model `tenant` or `shared` and fails on references across the two;
+ * without it, the models carry no tenancy marks, so the build output does not change.
+ */
+function withTenancyMarks(models: EntityModel[], features: readonly ResolvedFeature[]): EntityModel[] {
+  if (!features.some((feature) => feature.key === "tenancy")) return withoutTenancyMarks(models);
+  const marked = markTenancy(models);
+  const [problem] = crossTenancyReferences(marked);
+  if (problem) throw new EntityParseError(problem);
+  return marked;
+}
+
 /** `parseProjectEntities` with the override lines of project entities replacing feature entities. */
 export function parseProjectModels(projectRoot: string, features: readonly ResolvedFeature[] = []): ProjectModels {
   const parsed = parseSources(projectRoot, features);
   const contributed = withContributedEntities(parsed.models, features);
-  const models = withBuiltInEntities(contributed.models);
+  const built = withBuiltInEntities(contributed.models);
+  const all = hasJobFiles(projectRoot, features) ? withJobRunEntity(built) : built;
   return {
-    models: hasJobFiles(projectRoot, features) ? withJobRunEntity(models) : models,
+    models: withTenancyMarks(all, features),
     overrides: [...parsed.overrides, ...contributed.overrides],
   };
 }

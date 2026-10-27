@@ -185,6 +185,13 @@ export interface EntityModel {
   feature?: string;
   /** Feature tags written on the entity. */
   tags?: ParsedTags;
+  /**
+   * Set by the build while the `tenancy` native is enabled: `tenant` for entities whose records belong to one tenant,
+   * `shared` for entities every tenant shares. A contributor may declare `shared` for its own entities.
+   */
+  tenancy?: "tenant" | "shared";
+  /** The key of the entity a derived model (like a history table) follows, for the rules that apply to both. */
+  derivedFrom?: string;
 }
 
 /** An index over several fields of an entity. */

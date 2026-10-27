@@ -202,7 +202,7 @@ const idempotencyFeature = defineFeature({
 
 /** The JSON body of an `HttpError`, as the client receives it. */
 function errorResponse(error: HttpError): Response {
-  const body: { error: { code: string; message: string; details?: unknown } } = { error: { code: error.code, message: error.message } };
+  const body: { error: { code: string; message: string; details?: unknown } } = { error: { code: error.code, message: error.responseMessage ?? error.message } };
   if (error.details !== undefined) body.error.details = error.details;
   return new Response(JSON.stringify(body), { status: error.status, headers: { "content-type": "application/json", ...(error.headers ?? {}) } });
 }

@@ -26,6 +26,7 @@ It is not enabled by default: turn it on with `tenancy: {}` or `QS_TENANCY_ENABL
 | `tenancy.path` | `string` | `"/t/[tenant]"` | `QS_TENANCY_PATH` | no | The path prefix of the path source, with a [tenant] segment; it is removed before routing. |
 | `tenancy.resolve` | `string` | — | `QS_TENANCY_RESOLVE` | yes | The function source: a function of the request and its user returning the tenant id or undefined; required when from lists function. |
 | `tenancy.required` | `boolean` | `true` | `QS_TENANCY_REQUIRED` | no | Answers 400 to requests without a tenant on routes that are not exempt; @tenancy required=false relaxes one endpoint. |
+| `tenancy.scope` | `"tenant" \| "shared"` | `"tenant"` | `QS_TENANCY_SCOPE` | no | Whether an entity's records belong to one tenant or are shared by every tenant; set per entity with @tenancy shared. |
 | `tenancy.source` | `"database" \| "config" \| "service"` | `"database"` | `QS_TENANCY_SOURCE` | no | Where tenants are looked up: the Tenant table of the service's database, the tenants option, or another service through the HTTP client. |
 | `tenancy.tenants.<name>.plan` | `record of string` | — | `QS_TENANCY_TENANTS_<NAME>_PLAN` | no | The tenant's plan, in req.tenant.plan. |
 | `tenancy.tenants.<name>.strategy` | `record of "schema" \| "database"` | — | `QS_TENANCY_TENANTS_<NAME>_STRATEGY` | no | Where the tenant's data lives, over tenancy.strategy. |
@@ -44,17 +45,17 @@ It is not enabled by default: turn it on with `tenancy: {}` or `QS_TENANCY_ENABL
 
 ### `@tenancy`
 
-`@tenancy off` exempts an endpoint from tenant resolution, and `@tenancy required=false` lets it run without a tenant.
+`@tenancy shared` makes an entity's records shared by every tenant; on an endpoint, `@tenancy off` exempts it from tenant resolution and `@tenancy required=false` lets it run without a tenant.
 
-**Applies to:** endpoints
+**Applies to:** entities, endpoints
 
-**Syntax:** `@tenancy [required=…]` or `@tenancy off`
+**Syntax:** `@tenancy <scope> [required=…]` or `@tenancy off`
 
-**Options:** `tenancy.required`
+**Options:** `tenancy.scope`, `tenancy.required`
 
 ```ts
-/** @tenancy off */
-export default () => ({ status: "ok" });
+/** @tenancy shared */
+export type Plan = { name: string };
 ```
 
 ## Feature API

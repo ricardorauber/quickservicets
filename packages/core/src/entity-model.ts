@@ -55,6 +55,10 @@ export interface EntityModelOptions {
   overrideHooks?: OverrideHooksMode;
   populate?: Partial<Record<ReadOperation, string[]>>;
   indexes?: ModelIndex[];
+  /** `shared` keeps the entity's records shared by every tenant when the `tenancy` native is enabled. */
+  tenancy?: "tenant" | "shared";
+  /** The key of the entity this model is derived from, whose tenancy it follows. */
+  derivedFrom?: string;
 }
 
 /** Builds an `EntityModel` from code, with the same names and exposure the build gives a parsed entity file. */
@@ -80,6 +84,8 @@ export function entityModel(name: string, fields: Record<string, FieldDefinition
     internal: options.internal ?? false,
     ...(options.populate ? { populate: options.populate } : {}),
     ...(options.indexes ? { indexes: options.indexes } : {}),
+    ...(options.tenancy ? { tenancy: options.tenancy } : {}),
+    ...(options.derivedFrom ? { derivedFrom: options.derivedFrom } : {}),
     exposure: { list: exposure("list"), read: exposure("read") },
   };
 }

@@ -15,8 +15,9 @@ export { CONFIG_FILE, ConfigError, DEFAULT_PORT, DEFAULT_POPULATE_DEPTH, defineC
 export { availableCpus, isPrimary, poolSizePerWorker, runPrimary, runsScheduledWork, runWorkers, SERVER_WORKERS_ENV, WORKER_INDEX_ENV, WORKERS_ENV, workerIndex } from "./workers.ts";
 export type { PrimaryOptions, WorkerProcess } from "./workers.ts";
 export type { ResolvedConfig, ServiceConfig } from "./config.ts";
-export { configureRepositories, createRepositories, createRepository, READ_METHODS, readRepository, repositoriesFor, repositoryFor, repositoryLookup, repositoryPlans } from "./repository.ts";
+export { configuredModels, configureRepositories, createRepositories, createRepository, READ_METHODS, readRepository, repositoriesFor, repositoryFor, repositoryLookup, repositoryPlans } from "./repository.ts";
 export { configureRunRepositories, resolveRunRepositories, setRepositoryResolver } from "./repository-resolver.ts";
+export { guardTenantRepositories, tenantRepositories, TenantRequiredError } from "./tenant-repositories.ts";
 export { configureDatabaseScopes, currentDatabaseScope, databaseScopesEnabled, enableDatabaseScopes, scopedAdapter, scopeKeyOf, sharesConnection, withDatabaseScope } from "./database-scope.ts";
 export type { DatabaseScope, DatabaseScopeInput, ScopeTenant } from "./database-scope.ts";
 export type { RepositoryResolver, RepositoryResolverOptions, RunTarget } from "./repository-resolver.ts";
@@ -346,6 +347,7 @@ export type { ErrorsApi } from "./features/errors/index.ts";
 export { defineModifier, http, HttpClientError, httpFeature, HttpRequestBuilder, withBulkhead, withCache, withCircuitBreaker, withRetry } from "./features/http/index.ts";
 export type { HttpTransport, HttpMock, MockCall, MockHandler, MockReply, MockRequest, MockService, BulkheadOptions, CacheOptions, CircuitBreakerOptions, HttpState, ModifierFunction, RetryOptions, Http, HttpApi, HttpBody, HttpClientErrorCode, HttpClientErrorInit, HttpMethods, HttpServiceMethods, HttpServiceNames, ServiceName, ServiceOptions, ServiceOptionsInput, HttpModifier, HttpQueryValue, HttpRequest, HttpResponse } from "./features/http/index.ts";
 export { bucketOf, evaluateRule, flagsFeature } from "./features/flags/index.ts";
+export { crossTenancyReferences, markTenancy, SHARED_ENTITY_KEYS, withoutTenancyMarks } from "./features/tenancy/index.ts";
 export { cachedDirectory, compilePathPattern, configDirectory, databaseDirectory, directoryClock, matchPathPrefix, serviceDirectory, subdomainOf, TENANT_FIELDS, TENANT_ID, TENANT_SOURCES, tenancyFeature, tenantEntity, tenantInfoOf } from "./features/tenancy/index.ts";
 export type { CachedDirectory, DirectoryCacheOptions, TenancyApi, TenantDirectory, TenantInfo, TenantSource } from "./features/tenancy/index.ts";
 export type { FlagContext, FlagEvaluation, FlagProvider, FlagProviderContext, FlagReason, FlagResult, FlagRule, FlagRuleFunction, FlagsApi, FlagSubject, RequestFlagEvaluator } from "./features/flags/index.ts";

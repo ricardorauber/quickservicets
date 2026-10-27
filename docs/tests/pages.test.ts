@@ -44,6 +44,7 @@ const PAGES = [
   "guides/error-reporting.md",
   "guides/events.md",
   "guides/feature-flags.md",
+  "guides/http-client.md",
   "guides/security.md",
   "guides/server-sent-events.md",
   "guides/queues.md",

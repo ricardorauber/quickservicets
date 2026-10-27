@@ -1,7 +1,7 @@
-import { http } from "@quickservicets/core";
+import type { Repositories, ServiceRequest } from "@quickservicets/core";
 
-/** A quote from the upstream service at QUOTES_URL. */
-export default async () => {
-  const quote = await http.get(`${process.env.QUOTES_URL ?? "http://localhost:4100"}/quotes/random`).send<{ text: string }>();
+/** A random quote from the quotes service, with the caller's request id and user propagated. */
+export default async (_repos: Repositories, req: ServiceRequest) => {
+  const quote = await req.http.service("quotes").get("/quotes/random").send<{ text: string }>();
   return { quote: quote.text };
 };

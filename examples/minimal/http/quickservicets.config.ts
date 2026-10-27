@@ -2,7 +2,12 @@ import { defineConfig, memoryAdapter } from "@quickservicets/core";
 
 export default defineConfig({
   database: memoryAdapter(),
-  // The client is on by default; the key only sets its options. The upstream runs on this machine, which SSRF
-  // protection blocks unless allowed.
-  http: { timeout: "5s", allow: ["loopback"] },
+  "demo-user": {},
+  http: {
+    // The upstream runs on this machine, which SSRF protection blocks unless allowed.
+    allow: ["loopback"],
+    services: {
+      quotes: { url: process.env.QUOTES_URL ?? "http://localhost:4100", retry: true, circuitBreaker: true, cache: true, propagate: ["user"] },
+    },
+  },
 });

@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "build": "quickservicets build",
-    "test": "bun test tests"
+    "test": "bun test tests",
+    "upstream": "bun scripts/upstream.ts"
   },
   "dependencies": {
     "@quickservicets/core": "workspace:*",

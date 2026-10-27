@@ -245,5 +245,6 @@ An error thrown by the logger never changes the response.
 - [Server-Sent Events](/guides/server-sent-events/): the `realtime` key, for `sse.ts` endpoints and live change streams.
 - [Error reporting](/guides/error-reporting/): the `errors` key, for reporting every unexpected error to a reporter.
 - [Feature flags](/guides/feature-flags/): the `flags` key, for turning features on per user, tenant or percentage.
+- [HTTP client](/guides/http-client/): the `http` key, on by default: outgoing calls with SSRF protection, named services, retries, circuit breakers, caching and mocks.
 
 Next: [Jobs](/guides/jobs/).

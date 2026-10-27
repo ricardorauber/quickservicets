@@ -178,6 +178,7 @@ The closure receives one argument, `ctx`:
 | `signal` | An `AbortSignal`, aborted when the run times out or the server shuts down. |
 | `log` | `info`, `warn` and `error`, each taking a message and optional fields. |
 | `run` | The run being executed: `id`, `job`, `scheduledAt`, `attempt` (from 1) and `trigger` (`schedule`, `manual` or `code`). |
+| `http` | The outgoing [HTTP client](/guides/http-client/), sending the run's id as `x-request-id`. |
 
 Whatever the closure returns becomes the run's `result`, stored as JSON. A closure that throws, or returns a rejected promise, makes the run `failed`.
 
@@ -553,6 +554,7 @@ To keep jobs off some instances, for example the ones that serve traffic, start 
 ## Related reference
 
 - [Queues](/guides/queues/): background work triggered by events, one message per occurrence, instead of a schedule.
+- [HTTP client](/guides/http-client/): `ctx.http` calls other services from a job, sending the run's id as `x-request-id`.
 - [Configuration](/reference/config/): every `jobs.*` key with its default.
 - [CLI: `job run`](/reference/cli/#job-run), [`job list`](/reference/cli/#job-list) and [`job runs`](/reference/cli/#job-runs).
 - [Repositories and queries](/reference/api/): the read methods of `repos.jobRuns`.

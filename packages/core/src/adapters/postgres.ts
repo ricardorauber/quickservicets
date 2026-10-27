@@ -258,7 +258,7 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
       get client() {
         return client;
       },
-      ...operations(() => (viewSchema ??= schema ? lazyDrizzleSchema(models, "postgres", { defaultSchema: name }) : undefined), new Map()),
+      ...operations(() => (viewSchema ??= schema ? lazyDrizzleSchema(models, "postgres", { defaultSchema: name }, () => schema!) : undefined), new Map()),
     };
     return view as Partial<PostgresAdapter>;
   };

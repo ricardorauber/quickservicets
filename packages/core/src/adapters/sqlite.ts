@@ -285,7 +285,7 @@ export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
       get client() {
         return client;
       },
-      ...operations(() => (viewSchema ??= schema ? lazyDrizzleSchema(models, "sqlite", { sqliteDefaultPrefix: sqliteDefaultPrefix(name) }) : undefined)),
+      ...operations(() => (viewSchema ??= schema ? lazyDrizzleSchema(models, "sqlite", { sqliteDefaultPrefix: sqliteDefaultPrefix(name) }, () => schema!) : undefined)),
     };
     return view as Partial<SqliteAdapter>;
   };

@@ -262,9 +262,11 @@ export function buildDrizzleSchema(models: EntityModel[], dialect: SqlDialect, o
  * Like `buildDrizzleSchema`, but each table is built the first time a statement reads it and then kept, so a schema
  * used by a few entities only pays for those. Adapter views use it for their default schema.
  */
-export function lazyDrizzleSchema(models: EntityModel[], dialect: SqlDialect, options: DrizzleSchemaOptions = {}): DrizzleSchema {
+export function lazyDrizzleSchema(models: EntityModel[], dialect: SqlDialect, options: DrizzleSchemaOptions = {}, shared?: () => DrizzleSchema): DrizzleSchema {
   const tables: Record<string, AnyTable> = {};
   const builder = schemaBuilder(models, dialect, options, tables);
+  // Shared models (`tenancy: "shared"`) keep the tables of `shared`, the parent's schema, wherever the view puts the others.
+  const isShared = (model: EntityModel) => shared !== undefined && model.tenancy === "shared";
   const lazy = (target: Record<string, AnyTable>, key: string, build: () => AnyTable | undefined) =>
     Object.defineProperty(target, key, {
       configurable: true,
@@ -275,10 +277,13 @@ export function lazyDrizzleSchema(models: EntityModel[], dialect: SqlDialect, op
         return value;
       },
     });
-  for (const model of models) lazy(tables, model.key, () => tablePlans.table(builder, model));
+  for (const model of models) lazy(tables, model.key, () => (isShared(model) ? shared!().tables[model.key]! : tablePlans.table(builder, model)));
   const junctions: Record<string, AnyTable> = {};
   for (const model of models) {
-    for (const field of storedArrays(model)) lazy(junctions, junctionKey(model.key, field.name), () => builder.junction(model, field));
+    for (const field of storedArrays(model)) {
+      const key = junctionKey(model.key, field.name);
+      lazy(junctions, key, () => (isShared(model) ? shared!().junctions[key] : builder.junction(model, field)));
+    }
   }
   return { dialect, tables, get schemas() { return builder.schemas(); }, junctions } as DrizzleSchema;
 }

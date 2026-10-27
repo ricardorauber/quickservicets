@@ -602,6 +602,8 @@ Every option, tag, command and hook of `tenancy` is on [its reference page](/ref
 | `tenancy.path` | `string` | `"/t/[tenant]"` | `QS_TENANCY_PATH` | The path prefix of the path source, with a [tenant] segment; it is removed before routing. |
 | `tenancy.resolve` | `string` | — | `QS_TENANCY_RESOLVE` | The function source: a function of the request and its user returning the tenant id or undefined; required when from lists function. |
 | `tenancy.required` | `boolean` | `true` | `QS_TENANCY_REQUIRED` | Answers 400 to requests without a tenant on routes that are not exempt; @tenancy required=false relaxes one endpoint. |
+| `tenancy.strategy` | `"schema" \| "database"` | `"schema"` | `QS_TENANCY_STRATEGY` | Where the data of tenants that set no strategy of their own lives: a schema of the service's database per tenant, or a database per tenant. |
+| `tenancy.schema` | `string` | `"tenant-{tenant}"` | `QS_TENANCY_SCHEMA` | The schema name of schema-strategy tenants without their own: `{tenant}` is replaced by the tenant id. |
 | `tenancy.scope` | `"tenant" \| "shared"` | `"tenant"` | `QS_TENANCY_SCOPE` | Whether an entity's records belong to one tenant or are shared by every tenant; set per entity with @tenancy shared. |
 | `tenancy.source` | `"database" \| "config" \| "service"` | `"database"` | `QS_TENANCY_SOURCE` | Where tenants are looked up: the Tenant table of the service's database, the tenants option, or another service through the HTTP client. |
 | `tenancy.tenants.<name>.plan` | `record of string` | — | `QS_TENANCY_TENANTS_<NAME>_PLAN` | The tenant's plan, in req.tenant.plan. |

@@ -99,7 +99,8 @@ export function schemaViews<A extends DatabaseAdapter>(parent: () => A, create: 
 export function placedView(parent: DatabaseAdapter, schema: string): DatabaseAdapter {
   const placed = new WeakMap<EntityModel, EntityModel>();
   const place = (entity: EntityModel): EntityModel => {
-    if (entity.schema) return entity;
+    // Explicit schemas and the entities every tenant shares stay where the parent keeps them.
+    if (entity.schema || entity.tenancy === "shared") return entity;
     let copy = placed.get(entity);
     if (!copy) {
       copy = { ...entity, schema };

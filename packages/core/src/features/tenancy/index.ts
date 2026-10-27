@@ -1,5 +1,9 @@
 import {
   afterCommit,
+  currentDatabaseScope,
+  enableDatabaseScopes,
+  setRepositoryResolver,
+  withDatabaseScope,
   boolean,
   defineFeature,
   duration,
@@ -18,6 +22,7 @@ import {
   type ServiceRequest,
 } from "../public.ts";
 import type { TenancyApi } from "./api.ts";
+import { isMissingTable, tenantScopes } from "./scopes.ts";
 import {
   cachedDirectory,
   configDirectory,
@@ -59,6 +64,12 @@ const options = object({
     .perRequest()
     .describe("The function source: a function of the request and its user returning the tenant id or undefined; required when from lists function."),
   required: boolean().default(true).describe("Answers 400 to requests without a tenant on routes that are not exempt; @tenancy required=false relaxes one endpoint."),
+  strategy: oneOf(["schema", "database"])
+    .default("schema")
+    .describe("Where the data of tenants that set no strategy of their own lives: a schema of the service's database per tenant, or a database per tenant."),
+  schema: string()
+    .default("tenant-{tenant}")
+    .describe("The schema name of schema-strategy tenants without their own: `{tenant}` is replaced by the tenant id."),
   scope: oneOf(["tenant", "shared"])
     .default("tenant")
     .describe("Whether an entity's records belong to one tenant or are shared by every tenant; set per entity with @tenancy shared."),
@@ -165,6 +176,7 @@ const tenancyFeature = defineFeature({
     const from = resolved.from as readonly TenantSource[];
     if (from.includes("subdomain") && !resolved.domain) problems.push("tenancy.domain is required when tenancy.from lists subdomain");
     if (from.includes("function") && resolved.resolve === undefined) problems.push("tenancy.resolve is required when tenancy.from lists function");
+    if (!resolved.schema.includes("{tenant}")) problems.push("tenancy.schema must contain {tenant}");
     if (resolved.source === "service" && !resolved.service) problems.push('tenancy.service is required when tenancy.source is "service"');
     if (from.includes("path")) {
       try {
@@ -195,6 +207,14 @@ const tenancyFeature = defineFeature({
   },
   setup(ctx) {
     const from = ctx.options.from as readonly TenantSource[];
+    const root = ctx.config.database;
+    if (ctx.options.strategy === "schema" && typeof root.withSchema !== "function") {
+      throw new Error(`tenancy strategy "schema" needs an adapter with withSchema(); the ${root.kind ?? "configured"} adapter has none`);
+    }
+    // Each tenant's request runs in its database scope: hooks, handlers, transactions, queues and events use it.
+    enableDatabaseScopes();
+    setRepositoryResolver(() => currentDatabaseScope().repos, { run: () => currentDatabaseScope().repos });
+    const scopes = tenantScopes({ root, models: ctx.models, defaultSchema: ctx.config.schema, template: ctx.options.schema, logger: ctx.logger });
     const exemptions = new TenantExemptions();
     const directory = setUpDirectory(ctx);
     statesOf.set(ctx.options, { exemptions, directory });
@@ -276,7 +296,15 @@ const tenancyFeature = defineFeature({
         }
         const tenant = await lookUp(directory, id);
         req.tenant = { id, ...(tenant.plan !== undefined ? { plan: tenant.plan } : {}), attributes: tenant.attributes } as ServiceRequest["tenant"];
-        return next();
+        const strategy = tenant.strategy ?? ctx.options.strategy;
+        if (strategy !== "schema") throw new Error(`tenancy strategy "${strategy}" is not available`);
+        const scope = scopes.schema(tenant);
+        try {
+          return await withDatabaseScope(scope, next);
+        } catch (error) {
+          if (isMissingTable(error)) throw scopes.notReady(tenant);
+          throw error;
+        }
       },
     };
     ctx.app.use(resolveTenant);

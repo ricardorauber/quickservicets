@@ -97,6 +97,8 @@ interface ResolvedEndpoint {
   status?: number;
   /** Feature tags written on the endpoint. */
   tags?: ParsedTags;
+  /** The schema of a typed `ws.ts` endpoint's incoming messages, with the component schemas it references. */
+  messages?: { schema: Record<string, unknown>; definitions?: Record<string, Record<string, unknown>> };
 }
 
 interface ScannedEndpoint {
@@ -172,6 +174,27 @@ function assertSseExport(source: string, file: string): void {
     return ts.isCallExpression(expression) && ts.isIdentifier(expression.expression) && expression.expression.text === "defineSse";
   });
   if (!defined) throw new BuildError(`${file}: must default-export defineSse(...)`);
+}
+
+/** A message schema with the component schemas it references, transitively, from the document. */
+function messageSchemaOf(schema: Record<string, unknown>, doc: OpenApiDoc): { schema: Record<string, unknown>; definitions?: Record<string, Record<string, unknown>> } {
+  const components = (doc.components?.schemas ?? {}) as Record<string, Record<string, unknown>>;
+  const definitions: Record<string, Record<string, unknown>> = {};
+  const visit = (value: unknown) => {
+    if (Array.isArray(value)) return value.forEach(visit);
+    if (typeof value !== "object" || value === null) return;
+    const reference = (value as { $ref?: unknown }).$ref;
+    if (typeof reference === "string" && reference.startsWith("#/components/schemas/")) {
+      const name = reference.slice("#/components/schemas/".length);
+      if (!definitions[name] && components[name]) {
+        definitions[name] = components[name]!;
+        visit(components[name]);
+      }
+    }
+    for (const child of Object.values(value)) visit(child);
+  };
+  visit(schema);
+  return Object.keys(definitions).length > 0 ? { schema, definitions } : { schema };
 }
 
 /** Fails unless a `ws.ts` file's default export is a call of `defineSocket`. */
@@ -275,7 +298,7 @@ function generateRoutesFile(
   ];
   const endpointEntries = endpoints.map(
     (endpoint, index) =>
-      `  { method: ${JSON.stringify(endpoint.route.method)}, path: ${JSON.stringify(endpoint.route.path)}, hooks: ${JSON.stringify(endpoint.hooks)}, ${endpoint.projection ? `projection: ${JSON.stringify(endpoint.projection)}, ` : ""}${endpoint.populate ? `populate: ${JSON.stringify(endpoint.populate)}, ` : ""}${endpoint.query ? `query: ${JSON.stringify(endpoint.query)}, ` : ""}${endpoint.status !== undefined ? `status: ${endpoint.status}, ` : ""}${endpoint.route.feature ? `feature: ${JSON.stringify(endpoint.route.feature)}, ` : ""}${endpoint.route.kind ? `kind: ${JSON.stringify(endpoint.route.kind)}, ` : ""}${endpoint.tags ? `tags: ${JSON.stringify(endpoint.tags)}, ` : ""}handler: endpoint${index} as ${endpoint.route.kind === "sse" ? "SseDefinition" : endpoint.route.kind === "websocket" ? "SocketDefinition" : "Endpoint"} },`,
+      `  { method: ${JSON.stringify(endpoint.route.method)}, path: ${JSON.stringify(endpoint.route.path)}, hooks: ${JSON.stringify(endpoint.hooks)}, ${endpoint.projection ? `projection: ${JSON.stringify(endpoint.projection)}, ` : ""}${endpoint.populate ? `populate: ${JSON.stringify(endpoint.populate)}, ` : ""}${endpoint.query ? `query: ${JSON.stringify(endpoint.query)}, ` : ""}${endpoint.status !== undefined ? `status: ${endpoint.status}, ` : ""}${endpoint.route.feature ? `feature: ${JSON.stringify(endpoint.route.feature)}, ` : ""}${endpoint.route.kind ? `kind: ${JSON.stringify(endpoint.route.kind)}, ` : ""}${endpoint.tags ? `tags: ${JSON.stringify(endpoint.tags)}, ` : ""}${endpoint.messages ? `messages: ${JSON.stringify(endpoint.messages)}, ` : ""}handler: endpoint${index} as ${endpoint.route.kind === "sse" ? "SseDefinition" : endpoint.route.kind === "websocket" ? "SocketDefinition" : "Endpoint"} },`,
   );
   return [
     HEADER,
@@ -455,6 +478,11 @@ async function buildProject(projectRoot: string, config: ResolvedConfig, options
     throw new BuildError((error as Error).message);
   }
 
+  // Typed sockets validate their incoming messages at runtime against the schema of their `in` type.
+  endpointDocs.docs.forEach((doc, index) => {
+    const schema = doc.kind === "websocket" ? doc.socket?.in : undefined;
+    if (schema) resolved[index] = { ...resolved[index]!, messages: messageSchemaOf(schema as Record<string, unknown>, openApi) };
+  });
   const files: Record<string, string> = {
     "models.ts": `${HEADER}\nimport type { EntityModel } from "@quickservicets/core";\n\nexport const models: EntityModel[] = ${JSON.stringify(models, null, 2)};\n`,
     "types.ts": [generateTypesFile(models, envVarsLines(variables)), ...featureTypeLines(featureKeys), ...queuePayloadLines(queueTypes(folderFiles), publishedQueues(publishing)), ...serviceNameLines(Object.keys((config.features.find((feature) => feature.key === "http")?.options.services as Record<string, unknown> | undefined) ?? {}))].join("\n"),

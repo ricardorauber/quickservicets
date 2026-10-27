@@ -30,6 +30,8 @@ export interface EndpointDoc {
   status?: number;
   /** `sse` for an `sse.ts` endpoint, which answers a `text/event-stream`; `websocket` for a `ws.ts` one, upgraded with 101. */
   kind?: "sse" | "websocket";
+  /** The message schemas of a `ws.ts` endpoint, from the `in` and `out` types of `defineSocket<{ in; out }>`. */
+  socket?: { in?: JsonSchema; out?: JsonSchema };
 }
 
 export interface EndpointDocInput {
@@ -200,9 +202,36 @@ function unionSchema(node: ts.UnionTypeNode, context: ConvertContext): JsonSchem
   } else if (types.length === 1) {
     schema = typeSchema(types[0]!, context);
   } else {
-    return unsupported(node);
+    schema = { anyOf: types.map((type) => typeSchema(type, context)) };
+    return hasNull ? { anyOf: [...(schema.anyOf as JsonSchema[]), { type: "null" }] } : schema;
   }
   return hasNull ? nullable(schema) : schema;
+}
+
+/**
+ * The `in` and `out` type nodes of a `ws.ts` file's `export default defineSocket<{ in: …; out: … }>(…)`, the type
+ * argument written as a type literal or as a local type alias of one.
+ */
+export function socketTypesOf(sourceFile: ts.SourceFile): { in?: ts.TypeNode; out?: ts.TypeNode } | undefined {
+  for (const statement of sourceFile.statements) {
+    if (!ts.isExportAssignment(statement) || statement.isExportEquals) continue;
+    let expression = statement.expression;
+    while (ts.isAsExpression(expression) || ts.isSatisfiesExpression(expression) || ts.isParenthesizedExpression(expression)) expression = expression.expression;
+    if (!ts.isCallExpression(expression) || !ts.isIdentifier(expression.expression) || expression.expression.text !== "defineSocket") return undefined;
+    let argument = expression.typeArguments?.[0];
+    if (argument && ts.isTypeReferenceNode(argument) && ts.isIdentifier(argument.typeName)) {
+      const name = argument.typeName.text;
+      const alias = sourceFile.statements.find((candidate): candidate is ts.TypeAliasDeclaration => ts.isTypeAliasDeclaration(candidate) && candidate.name.text === name);
+      argument = alias?.type;
+    }
+    if (!argument || !ts.isTypeLiteralNode(argument)) return undefined;
+    const member = (key: string) =>
+      argument.members.find((candidate): candidate is ts.PropertySignature => ts.isPropertySignature(candidate) && ts.isIdentifier(candidate.name) && candidate.name.text === key)?.type;
+    const input = member("in");
+    const output = member("out");
+    return { ...(input ? { in: input } : {}), ...(output ? { out: output } : {}) };
+  }
+  return undefined;
 }
 
 /** Converts a type node into a JSON schema, throwing `UnsupportedType` for types entities cannot use. */
@@ -284,10 +313,19 @@ export function describeEndpoints(
       ...(query ? { query } : {}),
       ...(metadata.status !== undefined ? { status: metadata.status } : {}),
       ...(route.kind ? { kind: route.kind } : {}),
+      ...socketDocs(route.kind === "websocket" && sourceFile ? socketTypesOf(sourceFile) : undefined, convert),
       hooks,
     };
   });
   return { docs, warnings };
+}
+
+/** The `socket` entry of a typed `ws.ts` endpoint's docs. */
+function socketDocs(types: { in?: ts.TypeNode; out?: ts.TypeNode } | undefined, convert: (node: ts.TypeNode | undefined) => JsonSchema | undefined): { socket?: { in?: JsonSchema; out?: JsonSchema } } {
+  if (!types) return {};
+  const input = convert(types.in);
+  const output = convert(types.out);
+  return input || output ? { socket: { ...(input ? { in: input } : {}), ...(output ? { out: output } : {}) } } : {};
 }
 
 const withValue = <K extends string>(key: K, value: JsonSchema | undefined) => (value ? { [key]: value } : {}) as Partial<Record<K, JsonSchema>>;

@@ -673,15 +673,30 @@ function queryParameters(items: QueryItem[], schemas: Record<string, JsonSchema>
   });
 }
 
+/** `/rooms/[roomId]` → `RoomsRoomId`, the prefix of a socket route's message schemas. */
+export function socketSchemaName(path: string): string {
+  const words = path.split(/[/\[\].-]+/).filter(Boolean);
+  return words.map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`).join("") || "Root";
+}
+
 function customOperation(doc: EndpointDoc, schemas: Record<string, JsonSchema>): Record<string, unknown> {
   const method = doc.method.toLowerCase();
   const status = doc.status ?? (method === "delete" && !doc.result ? 204 : 200);
   if (doc.kind === "websocket") {
+    // Typed sockets name their message schemas after the route, so clients can generate message types.
+    const name = socketSchemaName(doc.path);
+    const messages: Record<string, unknown> = {};
+    for (const [direction, suffix] of [["in", "SocketIn"], ["out", "SocketOut"]] as const) {
+      const schema = doc.socket?.[direction];
+      if (!schema) continue;
+      schemas[`${name}${suffix}`] = schema;
+      messages[direction] = ref(`${name}${suffix}`);
+    }
     return {
       ...endpointIdentity(doc),
       ...(doc.params.length > 0 ? { parameters: pathParameters(doc.params) } : {}),
       responses: { "101": { description: "Switching to the WebSocket protocol" } },
-      "x-websocket": true,
+      "x-websocket": Object.keys(messages).length > 0 ? messages : true,
     };
   }
   const success =

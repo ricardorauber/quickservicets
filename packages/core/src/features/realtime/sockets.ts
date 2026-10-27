@@ -106,6 +106,43 @@ export interface SocketServer {
   closeAll(code: number, reason: string): void;
 }
 
+type Handler = (ws: Socket, value: never, ctx: SocketContext) => unknown;
+
+/** A frame ready for its handler, with the id it carries; or the error frame answering it. */
+export type DecodedFrame = { handler: Handler; value: unknown; id?: string | number } | { error: { code: string; message: string; details?: unknown }; id?: undefined };
+
+const invalid = (message: string, details?: unknown): DecodedFrame => ({ error: { code: "INVALID_MESSAGE", message, ...(details ? { details } : {}) } });
+
+/**
+ * Decodes a frame of a socket with message types: one JSON parse and one validator call, routed by its `type` to `on`
+ * (else to `message`); an unknown type with no `message` fallback, invalid JSON, a binary frame or a value that does
+ * not match `in` answer an error frame.
+ */
+export function decodeFrame(data: string | Uint8Array, definition: SocketDefinition): DecodedFrame {
+  if (typeof data !== "string") return invalid("Binary messages are not accepted");
+  let value: unknown;
+  try {
+    value = JSON.parse(data);
+  } catch {
+    return invalid("Message is not valid JSON");
+  }
+  const { handlers, messages } = definition;
+  const type = typeof value === "object" && value !== null && typeof (value as { type?: unknown }).type === "string" ? (value as { type: string }).type : undefined;
+  const routed = type !== undefined ? handlers.on?.[type] : undefined;
+  const rawId = typeof value === "object" && value !== null ? (value as { id?: unknown }).id : undefined;
+  const id = typeof rawId === "string" || typeof rawId === "number" ? rawId : undefined;
+  // A type no member of the union declares goes to the fallback, or is refused as unknown.
+  const known = type === undefined || (messages?.byType ? messages.byType.has(type) : routed !== undefined || handlers.on === undefined);
+  if (!known || (routed === undefined && handlers.message === undefined)) {
+    if (handlers.message !== undefined && type !== undefined && !known) return { handler: handlers.message as Handler, value, ...(id !== undefined ? { id } : {}) };
+    return { error: { code: "UNKNOWN_MESSAGE_TYPE", message: `Unknown message type ${type ?? "(none)"}` } };
+  }
+  const validate = type !== undefined && messages?.byType?.get(type);
+  const issues = validate ? validate(value) : messages?.validate(value);
+  if (issues) return invalid("Message does not match the expected shape", issues);
+  return { handler: (routed ?? handlers.message) as Handler, value, ...(id !== undefined ? { id } : {}) };
+}
+
 /** The text of an error, for logs. */
 const errorOf = (error: unknown) => ({ message: (error as Error)?.message ?? String(error), ...(error instanceof Error ? { stack: error.stack } : {}) });
 
@@ -185,11 +222,26 @@ export function socketServer(settings: SocketSettings): SocketServer {
         return;
       }
       const data = typeof message === "string" ? message : new Uint8Array(message.buffer, message.byteOffset, message.byteLength);
+      const { handlers } = socket.definition;
+      const typed = socket.definition.messages !== undefined || handlers.on !== undefined;
+      let decoded: DecodedFrame;
+      if (!typed) decoded = { handler: handlers.message as Handler, value: data };
+      else {
+        decoded = decodeFrame(data, socket.definition);
+        if ("error" in decoded) {
+          socket.send({ error: decoded.error });
+          return;
+        }
+      }
+      const ready = decoded as { handler: Handler; value: unknown; id?: string | number };
+      const id = ready.id;
       try {
-        await call(socket, (ctx) => socket.definition.handlers.message(socket, data, ctx));
+        const result = await call(socket, (ctx) => ready.handler(socket, ready.value as never, ctx));
+        if (id !== undefined && result !== undefined) socket.send({ id, result });
       } catch (error) {
         if (error instanceof HttpError) {
-          socket.send({ error: { code: error.code, message: error.responseMessage ?? error.message } });
+          const body = { code: error.code, message: error.responseMessage ?? error.message };
+          socket.send(id !== undefined ? { id, error: body } : { error: body });
           return;
         }
         failed(socket, "message", error);

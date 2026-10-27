@@ -45,8 +45,10 @@ export type {
   ServiceResponse,
 } from "./hooks.ts";
 export { createServer, deferRequestLog, peerAddress, toResponse, upgradeRequest } from "./http/server.ts";
-export { defineSocket, isSocketDefinition, setSocketRunner, socketEndpoint } from "./http/socket.ts";
-export type { Socket, SocketContext, SocketDefinition, SocketHandlers, SocketRunner } from "./http/socket.ts";
+export { defineSocket, isSocketDefinition, setSocketRunner, socketEndpoint, withMessageValidator } from "./http/socket.ts";
+export type { AnySocketHandlers, MessageValidator, Socket, SocketContext, SocketDefinition, SocketHandlers, SocketRunner, SocketTypes, TypedSocketHandlers } from "./http/socket.ts";
+export { compileMessageValidator } from "./http/socket-messages.ts";
+export type { MessageSchema } from "./http/socket-messages.ts";
 export { bodyPolicyOf, bodyTooLarge, bodyTooSlow, readBodyBytes, readBodyChunks, readBodyText, setBodyPolicy } from "./http/body.ts";
 export type { BodyPolicy } from "./http/body.ts";
 export type { EntityTags, Endpoint, FetchOptions, HandlerResult, Route, Server, ServerOptions, ServerSettings } from "./http/server.ts";

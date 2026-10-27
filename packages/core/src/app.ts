@@ -250,7 +250,7 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
       if (!isSocketDefinition(endpoint.handler)) throw new Error(`GET ${endpoint.path}: ws.ts must default-export defineSocket(...)`);
       // Pre-hooks run before the upgrade; post-hooks never see a socket.
       const definition = withMessageValidator(endpoint.handler, endpoint.messages ? compileMessageValidator(endpoint.messages) : undefined);
-      return { method: endpoint.method, path: endpoint.path, handler: withHooks(socketEndpoint(definition), endpoint.hooks, hooks) };
+      return { method: endpoint.method, path: endpoint.path, handler: withHooks(socketEndpoint(definition, () => settings.socketRunner), endpoint.hooks, hooks) };
     }
     if (endpoint.kind === "sse") {
       if (!isSseDefinition(endpoint.handler)) throw new Error(`GET ${endpoint.path}: sse.ts must default-export defineSse(...)`);

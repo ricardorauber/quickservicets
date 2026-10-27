@@ -1,5 +1,10 @@
 import {
   assertRoomName,
+  decodeEnvelopeData,
+  encodeEnvelopeData,
+  transportOrigin,
+  type SocketEnvelope,
+  type SocketTransport,
   bunServerOf,
   currentTenant,
   HttpError,
@@ -58,6 +63,8 @@ interface BunPublisher {
 interface RoomContext {
   topicOf(room: string, tenant: string | undefined): string;
   maxRooms: number;
+  /** Publishes a socket's frame to the other sockets of its topic, here and through the transport. */
+  publishFrom(socket: OpenSocket, topic: string, frame: string | Uint8Array): void;
 }
 
 /** What Bun keeps with each upgraded socket. */
@@ -74,6 +81,7 @@ interface BunSocket {
   subscribe(topic: string): void;
   unsubscribe(topic: string): void;
   publish(topic: string, data: string | Uint8Array): number;
+  isSubscribed(topic: string): boolean;
 }
 
 /** One open socket of this worker, with the upgrade request's context and its counters. */
@@ -125,7 +133,7 @@ export class OpenSocket implements Socket {
 
   publish(room: string, data: unknown): void {
     assertRoomName(room);
-    this.ws?.publish(this.rooms_.topicOf(room, this.tenantId), encodeFrame(data));
+    this.rooms_.publishFrom(this, this.rooms_.topicOf(room, this.tenantId), encodeFrame(data));
   }
 
   get user() {
@@ -165,6 +173,12 @@ export interface SocketServer {
   closeAll(code: number, reason: string): void;
   /** Publishing, disconnecting and counting for any code of the worker. */
   readonly sockets: Sockets;
+  /** This process's id in envelopes. */
+  readonly origin: string;
+  /** Starts delivering through a transport: envelopes from other processes reach this worker's sockets. */
+  startTransport(transport: SocketTransport): Promise<void>;
+  /** Stops the transport. */
+  stopTransport(): Promise<void>;
 }
 
 type Handler = (ws: Socket, value: never, ctx: SocketContext) => unknown;
@@ -215,6 +229,10 @@ export function socketServer(settings: SocketSettings): SocketServer {
     // With tenancy, every room lives in its tenant's namespace (`-:` without a tenant), so tenants never share one.
     topicOf: settings.tenantRooms ? (room, tenant) => `${tenant ?? "-"}:${room}` : (room) => room,
     maxRooms: settings.maxRooms,
+    publishFrom(socket, topic, frame) {
+      socket.ws?.publish(topic, frame);
+      toTransport("publish", (current) => current.publish({ origin, room: topic, ...encodeEnvelopeData(frame), except: socket.id }));
+    },
   };
   /** The tenant a publish from code is for: the option, else the tenant whose scope the code runs in. */
   const tenantOf = (options: PublishOptions | { tenant?: string } | undefined) => options?.tenant ?? currentTenant()?.id;
@@ -356,6 +374,38 @@ export function socketServer(settings: SocketSettings): SocketServer {
     },
   };
 
+  const origin = transportOrigin();
+  let transport: SocketTransport | undefined;
+  const transportFailed = (operation: string, error: unknown) =>
+    safeLog(settings.logger, "error", { timestamp: new Date().toISOString(), message: "realtime.transport.failed", operation, error: errorOf(error) });
+  /** Hands work to the transport; a failure is logged and never fails the local delivery. */
+  const toTransport = (operation: string, work: (current: SocketTransport) => void | Promise<void>) => {
+    const current = transport;
+    if (!current) return;
+    try {
+      const pending = work(current);
+      if (pending instanceof Promise) pending.catch((error: unknown) => transportFailed(operation, error));
+    } catch (error) {
+      transportFailed(operation, error);
+    }
+  };
+  /** Publishes a frame to this worker's sockets of a topic, minus the socket `except`. */
+  const deliver = (topic: string, frame: string | Uint8Array, except: string | undefined) => {
+    const skipped = except !== undefined ? [...open].find((socket) => socket.id === except && socket.ws?.isSubscribed(topic)) : undefined;
+    // A socket's own publish reaches the room's other sockets; Bun's publish reaches all of them.
+    if (skipped?.ws) skipped.ws.publish(topic, frame);
+    else bunServer?.publish(topic, frame);
+  };
+  const disconnectLocal = (filter: DisconnectFilter) => {
+    let count = 0;
+    for (const socket of [...open]) {
+      if (!matches(socket, filter)) continue;
+      socket.close(filter.code ?? 4001, filter.reason ?? "Disconnected");
+      count += 1;
+    }
+    return count;
+  };
+
   const matches = (socket: OpenSocket, filter: DisconnectFilter) =>
     (filter.user === undefined || (socket.user as { id?: string } | undefined)?.id === filter.user) &&
     (filter.sessionId === undefined || socket.sessionId === filter.sessionId) &&
@@ -367,18 +417,12 @@ export function socketServer(settings: SocketSettings): SocketServer {
       assertRoomName(room);
       const topic = rooms.topicOf(room, tenantOf(options));
       const frame = encodeFrame(data);
-      const except = options?.except !== undefined ? [...open].find((socket) => socket.id === options.except && socket.joined.has(room)) : undefined;
-      // A socket's own publish reaches the room's other sockets; Bun's publish reaches all of them.
-      if (except?.ws) except.ws.publish(topic, frame);
-      else bunServer?.publish(topic, frame);
+      deliver(topic, frame, options?.except);
+      toTransport("publish", (current) => current.publish({ origin, room: topic, ...encodeEnvelopeData(frame), ...(options?.except !== undefined ? { except: options.except } : {}) }));
     },
     disconnect(filter) {
-      let count = 0;
-      for (const socket of [...open]) {
-        if (!matches(socket, filter)) continue;
-        socket.close(filter.code ?? 4001, filter.reason ?? "Disconnected");
-        count += 1;
-      }
+      const count = disconnectLocal(filter);
+      toTransport("disconnect", (current) => current.disconnect({ ...filter, origin }));
       return count;
     },
     count(room, options) {
@@ -395,6 +439,32 @@ export function socketServer(settings: SocketSettings): SocketServer {
     handler,
     open,
     sockets,
+    origin,
+    async startTransport(next) {
+      await next.start({
+        onMessage(envelope: SocketEnvelope) {
+          if (envelope.origin === origin) return;
+          deliver(envelope.room, decodeEnvelopeData(envelope), envelope.except);
+        },
+        onDisconnect(filter) {
+          if (filter.origin === origin) return;
+          const { origin: _origin, ...rest } = filter;
+          disconnectLocal(rest);
+        },
+        logger: settings.logger,
+      });
+      transport = next;
+    },
+    async stopTransport() {
+      const current = transport;
+      transport = undefined;
+      if (!current) return;
+      try {
+        await current.stop();
+      } catch (error) {
+        transportFailed("stop", error);
+      }
+    },
     closeAll(code, reason) {
       for (const socket of [...open]) socket.close(code, reason);
     },

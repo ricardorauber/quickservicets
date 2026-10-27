@@ -1,4 +1,4 @@
-import type { FeatureHook, RequestTenant, RequestUser, ServiceRequest, Sockets, WriteEvent } from "../public.ts";
+import type { FeatureHook, RequestTenant, RequestUser, ServiceRequest, Sockets, SocketTransport, WriteEvent } from "../public.ts";
 
 /** What `sse.beforeDeliver` hooks receive for each change and stream: returning false skips it for that stream. */
 export interface ChangeDelivery {
@@ -27,4 +27,6 @@ export interface RealtimeApi {
   publish(entity: string, event: WriteEvent): void;
   /** Publishing to socket rooms, disconnecting sockets and counting them, as `sockets` of `@quickservicets/core` does. */
   sockets(): Sockets;
+  /** Replaces the local transport during setup; a second source (the config or another feature) fails startup naming both. */
+  setTransport(transport: SocketTransport): void;
 }

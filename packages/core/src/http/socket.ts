@@ -72,8 +72,12 @@ export function assertRoomName(room: unknown): asserts room is string {
 const HUB = Symbol.for("quickservicets.socket.hub");
 const hubSlot = globalThis as unknown as { [HUB]?: Sockets };
 
-/** Sets (or, with undefined, removes) the sockets the `sockets` API reaches; the `realtime` native sets it. */
-export function setSocketHub(hub: Sockets | undefined): void {
+/**
+ * Sets the sockets the `sockets` API reaches (the `realtime` native sets it); with `undefined`, removes it, or only
+ * `owner` when given, so a stopping service does not clear another's.
+ */
+export function setSocketHub(hub: Sockets | undefined, owner?: Sockets): void {
+  if (hub === undefined && owner !== undefined && hubSlot[HUB] !== owner) return;
   hubSlot[HUB] = hub;
 }
 
@@ -217,9 +221,9 @@ export function setSocketRunner(runner: SocketRunner | undefined): void {
 }
 
 /** The route handler of a `ws.ts` endpoint: 404 `Route not found` while no runner serves WebSockets. */
-export function socketEndpoint(definition: SocketDefinition): Endpoint {
+export function socketEndpoint(definition: SocketDefinition, runnerOf: () => SocketRunner | undefined = () => slot[RUNNER]): Endpoint {
   return (repos, req, res) => {
-    const runner = slot[RUNNER];
+    const runner = runnerOf() ?? slot[RUNNER];
     if (!runner) throw new HttpError(404, "Route not found");
     return runner(definition, repos, req, res);
   };

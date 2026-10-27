@@ -40,6 +40,7 @@ It is not enabled by default: turn it on with `realtime: {}` or `QS_REALTIME_ENA
 | `realtime.websockets.idleTimeout` | `duration` | `"120s"` | `QS_REALTIME_WEBSOCKETS_IDLE_TIMEOUT` | no | How long a socket may stay silent before it is closed, at most 960s; Bun pings to keep live connections open. |
 | `realtime.websockets.messages` | `rate` | `"100/10s"` | `QS_REALTIME_WEBSOCKETS_MESSAGES` | no | The frames each socket may send per window; exceeding it closes the socket with 1008 Too many messages. |
 | `realtime.websockets.maxRooms` | `integer` | `100` | `QS_REALTIME_WEBSOCKETS_MAX_ROOMS` | no | The most rooms one socket joins; one more subscribe throws Socket joined too many rooms. |
+| `realtime.websockets.transport` | `"local" \| SocketTransport` | `"local"` | `QS_REALTIME_WEBSOCKETS_TRANSPORT` | no | How room messages and disconnects reach the sockets of other workers and replicas: "local" keeps them in this process; a SocketTransport delivers them everywhere. |
 | `realtime.enabled` | `boolean` | `true` | `QS_REALTIME_ENABLED` | no | Turns the feature off when false. |
 
 ## Tags
@@ -103,3 +104,11 @@ sockets(): Sockets;
 ```
 
 Publishing to socket rooms, disconnecting sockets and counting them, as `sockets` of `@quickservicets/core` does.
+
+### `setTransport`
+
+```ts
+setTransport(transport: SocketTransport): void;
+```
+
+Replaces the local transport during setup; a second source (the config or another feature) fails startup naming both.

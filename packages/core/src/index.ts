@@ -48,6 +48,8 @@ export { bunServerOf, createServer, deferRequestLog, peerAddress, toResponse, up
 export { assertRoomName, defineSocket, isSocketDefinition, ROOM_NAME, setSocketHub, setSocketRunner, socketEndpoint, sockets, withMessageValidator } from "./http/socket.ts";
 export type { AnySocketHandlers, DisconnectFilter, MessageValidator, PublishOptions, Sockets, Socket, SocketContext, SocketDefinition, SocketHandlers, SocketRunner, SocketTypes, TypedSocketHandlers } from "./http/socket.ts";
 export { compileMessageValidator } from "./http/socket-messages.ts";
+export { decodeEnvelopeData, encodeEnvelopeData, localTransport, transportOrigin } from "./http/socket-transport.ts";
+export type { SocketEnvelope, SocketTransport, SocketTransportContext } from "./http/socket-transport.ts";
 export type { MessageSchema } from "./http/socket-messages.ts";
 export { bodyPolicyOf, bodyTooLarge, bodyTooSlow, readBodyBytes, readBodyChunks, readBodyText, setBodyPolicy } from "./http/body.ts";
 export type { BodyPolicy } from "./http/body.ts";

@@ -24,8 +24,10 @@ import {
   string,
   parseRate,
   parseSize,
-  setSocketRunner,
+  anyOf,
+  localTransport,
   setSocketHub,
+  type SocketTransport,
   sockets,
   taggedRoutes,
   type OptionFunction,
@@ -74,6 +76,9 @@ const options = object({
     idleTimeout: duration().default("120s").describe("How long a socket may stay silent before it is closed, at most 960s; Bun pings to keep live connections open."),
     messages: rate().default("100/10s").describe("The frames each socket may send per window; exceeding it closes the socket with 1008 Too many messages."),
     maxRooms: integer().min(1).default(100).describe("The most rooms one socket joins; one more subscribe throws Socket joined too many rooms."),
+    transport: anyOf(oneOf(["local"]), provider<SocketTransport>("SocketTransport", ["start", "publish", "disconnect", "stop"]))
+      .default("local")
+      .describe('How room messages and disconnects reach the sockets of other workers and replicas: "local" keeps them in this process; a SocketTransport delivers them everywhere.'),
   }).describe("Serves the ws.ts endpoints as WebSockets, upgraded after the handler middlewares and the endpoint's pre-hooks."),
 });
 
@@ -182,14 +187,48 @@ function changeSource(ctx: FeatureSetupContext<{ sse: { pollInterval: string; bu
   return ring;
 }
 
-/** Serves the `ws.ts` endpoints while `websockets` is on; Bun gets a WebSocket handler only when such a route exists. */
-function setUpSockets(ctx: FeatureSetupContext<{ websockets: { enabled: boolean; origins?: string[] | OptionFunction<string[]>; maxConnections: number; maxMessageSize: string | number; idleTimeout: string; messages: string; maxRooms: number } }>): void {
+/** The socket state of each running setup, for the feature API. */
+interface SocketState {
+  server: ReturnType<typeof socketServer> | undefined;
+  /** The transport the config or a feature chose, and who chose it. */
+  transport: SocketTransport | undefined;
+  owner: string | undefined;
+  /** Set once a feature used the sockets API during setup, so the transport starts without ws.ts routes. */
+  used: boolean;
+  open: boolean;
+}
+
+const socketStates = new WeakMap<object, SocketState>();
+
+/** Whether this process already warned about the local transport with several workers. */
+let warnedLocal = false;
+
+type SocketOptions = {
+  websockets: {
+    enabled: boolean;
+    origins?: string[] | OptionFunction<string[]>;
+    maxConnections: number;
+    maxMessageSize: string | number;
+    idleTimeout: string;
+    messages: string;
+    maxRooms: number;
+    transport: "local" | SocketTransport;
+  };
+};
+
+/**
+ * Serves the `ws.ts` endpoints while `websockets` is on: Bun gets a WebSocket handler only when such a route exists,
+ * and the transport starts when one exists or a feature used the sockets API during setup.
+ */
+function setUpSockets(ctx: FeatureSetupContext<SocketOptions>): void {
   const options = ctx.options.websockets;
-  setSocketRunner(undefined);
-  setSocketHub(undefined);
+  const state: SocketState = { server: undefined, transport: undefined, owner: undefined, used: false, open: true };
+  socketStates.set(ctx.options, state);
   if (!options.enabled) return;
-  const hasSockets = taggedRoutes().some((route) => route.kind === "websocket");
-  if (!hasSockets) return;
+  if (typeof options.transport === "object") {
+    state.transport = options.transport;
+    state.owner = "the config (realtime.websockets.transport)";
+  }
   const security = ctx.config.features.find((feature) => feature.key === "security")?.options as
     | { proxy?: { enabled?: boolean; trust?: readonly string[] }; cors?: { enabled?: boolean; origins?: string[] | OptionFunction<string[]> } }
     | undefined;
@@ -204,21 +243,36 @@ function setUpSockets(ctx: FeatureSetupContext<{ websockets: { enabled: boolean;
     maxRooms: options.maxRooms,
     tenantRooms: ctx.config.features.some((feature) => feature.key === "tenancy"),
   });
-  setSocketRunner(server.run);
+  state.server = server;
   setSocketHub(server.sockets);
-  // Revoking a session closes its sockets.
-  if (ctx.config.features.some((feature) => feature.key === "auth")) {
-    ctx.feature("auth").onRevoke((target) =>
-      void server.sockets.disconnect({ ...("sessionId" in target ? { sessionId: target.sessionId } : { user: target.userId }), code: 4401, reason: "Session revoked" }),
-    );
+  const hasSockets = taggedRoutes().some((route) => route.kind === "websocket");
+  if (hasSockets) {
+    ctx.app.configureServer({ websocket: server.handler as never, socketRunner: server.run });
+    // Revoking a session closes its sockets.
+    if (ctx.config.features.some((feature) => feature.key === "auth")) {
+      ctx.feature("auth").onRevoke((target) =>
+        void server.sockets.disconnect({ ...("sessionId" in target ? { sessionId: target.sessionId } : { user: target.userId }), code: 4401, reason: "Session revoked" }),
+      );
+    }
   }
-  ctx.app.configureServer({ websocket: server.handler as never });
+  ctx.app.onStart(async () => {
+    state.open = false;
+    if (!hasSockets && !state.used) return;
+    if (!state.transport && ctx.config.server.workers > 1 && !warnedLocal) {
+      warnedLocal = true;
+      safeLog(ctx.logger, "warn", {
+        timestamp: new Date().toISOString(),
+        message: "realtime.websockets uses the local transport; sockets on other workers will not receive room messages; configure realtime.websockets.transport",
+      });
+    }
+    await server.startTransport(state.transport ?? localTransport());
+  });
   // Open sockets close before the listener does, so a shutdown never waits on them.
   ctx.app.onShutdown(() => server.closeAll(CLOSE_CODES.goingAway, "Server shutting down"));
-  ctx.app.onStop(() => {
+  ctx.app.onStop(async () => {
     server.closeAll(CLOSE_CODES.goingAway, "Server shutting down");
-    setSocketRunner(undefined);
-    setSocketHub(undefined);
+    await server.stopTransport();
+    setSocketHub(undefined, server.sockets);
   });
 }
 
@@ -365,7 +419,22 @@ const realtimeFeature = defineFeature({
     publish(entity, event) {
       published?.publish({ ...event, entity });
     },
-    sockets: () => sockets,
+    sockets() {
+      const state = socketStates.get(ctx.options);
+      if (state?.open) state.used = true;
+      return state?.server?.sockets ?? sockets;
+    },
+    setTransport(transport) {
+      const state = socketStates.get(ctx.options);
+      const caller = ctx.currentFeature() ?? "a feature";
+      if (!state?.open) throw new Error("realtime setTransport() is only available during setup");
+      for (const method of ["start", "publish", "disconnect", "stop"] as const) {
+        if (typeof transport?.[method] !== "function") throw new Error("realtime setTransport() expects a SocketTransport with the methods start, publish, disconnect, stop");
+      }
+      if (state.owner !== undefined) throw new Error(`realtime.websockets.transport is set by both ${state.owner} and ${caller}`);
+      state.owner = caller;
+      state.transport = transport;
+    },
   }),
   openapi(doc, { models, options }) {
     return options.sse.enabled ? documentChanges(doc, changeEntities(models, options.sse.changes as ChangeCoverage)) : doc;

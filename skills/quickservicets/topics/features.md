@@ -13,7 +13,7 @@ Natives ship inside `@quickservicets/core`; nothing extra is installed. `securit
 | `idempotency` | `Idempotency-Key` replays for repeated writes | `@idempotent` |
 | `etag` | `ETag`, 304 on conditional reads, 412 on stale writes | `@etag` |
 | `history` | Every version of tagged records, with history routes | `@history`; `quickservicets history prune` |
-| `realtime` | Server-Sent Events from `sse.ts` files and change streams; WebSockets from `ws.ts` files written with `defineSocket` (typed with `defineSocket<{ in; out }>`, validated and routed by `type` with `on`), rooms with `ws.subscribe` and `sockets.publish(room, data)` from any code | `@changes` |
+| `realtime` | Server-Sent Events from `sse.ts` files and change streams; WebSockets from `ws.ts` files written with `defineSocket` (typed with `defineSocket<{ in; out }>`, validated and routed by `type` with `on`), rooms with `ws.subscribe` and `sockets.publish(room, data)` from any code, delivered across workers by `websockets.transport` | `@changes` |
 | `errors` | One reporter interface for every unexpected error | `@report` |
 | `flags` | Feature flags per user, tenant or percentage, `req.flags` | `@flag`; `quickservicets flags list` |
 | `http` | The outgoing HTTP client `http.get(url).send()`, with timeouts, size limits, SSRF protection (`http.allow` for internal hosts) and clear errors (502 or 504 when one escapes) | |

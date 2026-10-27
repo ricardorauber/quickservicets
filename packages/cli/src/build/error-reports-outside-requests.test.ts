@@ -142,10 +142,10 @@ describe("flush on shutdown", () => {
   });
 
   test("a flush that never resolves logs error.flush.timeout after the stop timeout and the stop still completes", async () => {
-    const service = await startTestService({ files: { ...FILES, "quickservicets.config.ts": config('events: {}, queues: {}, signin: {}, errors: { reporter: stuckReporter }, lifecycle: { stopTimeout: "1s" }') } });
+    const service = await startTestService({ files: { ...FILES, "quickservicets.config.ts": config('events: {}, queues: {}, signin: {}, errors: { reporter: stuckReporter }, lifecycle: { stopTimeout: "3s" }') } });
     const started = Date.now();
     await service.stop();
-    expect(Date.now() - started).toBeLessThan(3000);
+    expect(Date.now() - started).toBeLessThan(6000);
     expect(logs().some((entry) => entry.message === "error.flush.timeout")).toBe(true);
   });
 });

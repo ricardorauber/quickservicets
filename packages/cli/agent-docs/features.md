@@ -16,7 +16,7 @@ Natives ship inside `@quickservicets/core`; nothing extra is installed. `securit
 | `realtime` | Server-Sent Events from `sse.ts` files and change streams | `@changes` |
 | `errors` | One reporter interface for every unexpected error | `@report` |
 | `flags` | Feature flags per user, tenant or percentage, `req.flags` | `@flag`; `quickservicets flags list` |
-| `http` | The outgoing HTTP client `http.get(url).send()`, with timeouts, size limits and clear errors (502 or 504 when one escapes) | |
+| `http` | The outgoing HTTP client `http.get(url).send()`, with timeouts, size limits, SSRF protection (`http.allow` for internal hosts) and clear errors (502 or 504 when one escapes) | |
 
 ## Turn one on
 

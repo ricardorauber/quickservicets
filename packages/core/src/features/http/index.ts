@@ -1,7 +1,8 @@
-import { DEFAULT_MASKED_KEYS, defineFeature, type ErrorMiddleware } from "../public.ts";
+import { DEFAULT_MASKED_KEYS, defineFeature, safeLog, type ErrorMiddleware } from "../public.ts";
 import { running, type RunningHttp } from "./client.ts";
 import { HttpClientError } from "./errors.ts";
 import { httpOptions, type HttpOptions } from "./options.ts";
+import { allowProblems } from "./ssrf.ts";
 
 /** The answer an endpoint gives an `HttpClientError` it lets escape. */
 export function upstreamAnswer(error: HttpClientError, production: boolean): Response {
@@ -21,7 +22,11 @@ const httpFeature = defineFeature({
   options: httpOptions,
   enabledByDefault: true,
   after: ["security"],
+  validate: (options) => allowProblems(options.allow),
   setup(ctx) {
+    if (!ctx.options.ssrf && ctx.config.production) {
+      safeLog(ctx.logger, "warn", { timestamp: new Date().toISOString(), message: "http.ssrf.disabled", hint: "outgoing calls may reach internal networks and cloud metadata endpoints" });
+    }
     const security = ctx.config.features.find((feature) => feature.key === "security");
     const masking = (security?.options as { masking?: { enabled?: boolean; keys?: readonly string[] } } | undefined)?.masking;
     const settings: RunningHttp = {
@@ -50,4 +55,6 @@ export { httpFeature };
 export { http, HttpRequestBuilder } from "./client.ts";
 export type { Http, HttpBody, HttpMethods, HttpModifier, HttpQueryValue, HttpRequest, HttpResponse } from "./client.ts";
 export { HttpClientError } from "./errors.ts";
+export { blockedCategory, useTestResolver } from "./ssrf.ts";
+export type { TestResolverMap } from "./ssrf.ts";
 export type { HttpClientErrorCode, HttpClientErrorInit } from "./errors.ts";

@@ -1,5 +1,8 @@
-import { formatSize, maskUrl, parseSize } from "../public.ts";
-import type { HttpRequest, HttpResponse, HttpSettings } from "./client.ts";
+import { isIP } from "node:net";
+import { checkServerIdentity, type PeerCertificate } from "node:tls";
+import { formatSize, maskUrl, parseSize, safeLog } from "../public.ts";
+import type { HttpBody, HttpRequest, HttpResponse, HttpSettings } from "./client.ts";
+import { allowList, blockedCategory, isReservedName, RESERVED_NAME, resolveHost, type AllowList } from "./ssrf.ts";
 import { HttpClientError } from "./errors.ts";
 
 /** A URL as logs and errors show it: secret query values and user information replaced with `[secret]`. */
@@ -80,11 +83,91 @@ function reasonOf(error: unknown): string {
   return typeof failure?.message === "string" ? failure.message : String(error);
 }
 
+/** The statuses the client follows as redirects. */
+const REDIRECTS = new Set([301, 302, 303, 307, 308]);
+
+/** The validated destination of one hop: the address to connect to, absent when SSRF protection is off. */
+interface Destination {
+  address?: string;
+}
+
 /**
- * Sends one attempt of a request over the network: the timeout covers reading the body, the body is read up to the
- * size limit, and failures become `HttpClientError`s.
+ * Checks one hop's URL: only `http` and `https`, and with SSRF protection on, no reserved name and no resolved address
+ * in a blocked range unless `allow` (or the trusted host of the call's service) lets it through. Resolves the address
+ * to connect to.
  */
-export async function transport(request: HttpRequest, settings: HttpSettings): Promise<HttpResponse> {
+export async function checkDestination(url: URL, settings: HttpSettings, trustedHost: string | undefined): Promise<Destination> {
+  const protocol = url.protocol.replace(/:$/, "");
+  if (protocol !== "http" && protocol !== "https") throw blocked(url, settings, `Blocked request to ${maskedUrl(url.href, settings)}: protocol ${protocol} is not allowed`);
+  if (!settings.options.ssrf) return {};
+  const host = url.hostname.replace(/^\[|\]$/g, "");
+  const allow = allowListOf(settings.options.allow);
+  const trusted = allow.host(host) || (trustedHost !== undefined && trustedHost === url.host.toLowerCase());
+  if (!trusted && isReservedName(host)) throw blockedAddress(url, settings, host, host, RESERVED_NAME);
+  const addresses = isIP(host) ? [host] : await resolveHost(host).catch((error: unknown) => {
+    throw Object.assign(new Error(`could not resolve ${host}`), { cause: error, code: "ENOTFOUND" });
+  });
+  if (addresses.length === 0) throw Object.assign(new Error(`could not resolve ${host}`), { code: "ENOTFOUND" });
+  if (!trusted) {
+    for (const address of addresses) {
+      const category = blockedCategory(address);
+      if (category && !allow.address(address)) throw blockedAddress(url, settings, host, address, category);
+    }
+  }
+  return { address: addresses[0]! };
+}
+
+/** The `allow` list compiled once per list. */
+const compiled = new WeakMap<readonly string[], AllowList>();
+function allowListOf(items: readonly string[]): AllowList {
+  let list = compiled.get(items);
+  if (!list) compiled.set(items, (list = allowList(items)));
+  return list;
+}
+
+/** An `SSRF_BLOCKED` error, marked so the transport fills in the method. */
+function blocked(url: URL, settings: HttpSettings, message: string): HttpClientError {
+  return new HttpClientError({ code: "SSRF_BLOCKED", message, method: "", url: maskedUrl(url.href, settings) });
+}
+
+/** An `SSRF_BLOCKED` error for a blocked name or address, logged as `http.ssrf.blocked` without the query string. */
+function blockedAddress(url: URL, settings: HttpSettings, host: string, address: string, category: string): HttpClientError {
+  safeLog(settings.logger, "warn", { timestamp: new Date().toISOString(), message: "http.ssrf.blocked", host, address, category });
+  return blocked(url, settings, `Blocked request to ${host}: ${address} is ${category}`);
+}
+
+/** The URL to connect to: the validated address in place of the host name, keeping the port and path. */
+function pinnedUrl(url: URL, address: string | undefined): string {
+  if (address === undefined || isIP(url.hostname.replace(/^\[|\]$/g, ""))) return url.href;
+  const pinned = new URL(url.href);
+  pinned.hostname = isIP(address) === 6 ? `[${address}]` : address;
+  return pinned.href;
+}
+
+/** One hop being sent. */
+interface Hop {
+  url: URL;
+  method: string;
+  headers: Headers;
+  body: HttpBody | undefined;
+}
+
+/** Sends one hop to its validated address, with the original host in the `host` header and as the TLS server name. */
+async function sendHop(hop: Hop, destination: Destination, signal: AbortSignal): Promise<Response> {
+  const headers = new Headers(hop.headers);
+  const target = pinnedUrl(hop.url, destination.address);
+  if (target !== hop.url.href) headers.set("host", hop.url.host);
+  const servername = hop.url.hostname;
+  const tls = hop.url.protocol === "https:" && target !== hop.url.href ? { tls: { serverName: servername, checkServerIdentity: (_host: string, cert: PeerCertificate) => checkServerIdentity(servername, cert) } } : {};
+  return fetch(target, { method: hop.method, headers, body: (hop.body ?? null) as RequestInit["body"], signal, redirect: "manual", ...tls } as RequestInit);
+}
+
+/**
+ * Sends one attempt of a request over the network: every hop is checked by SSRF protection and sent to the address it
+ * validated, redirects are followed by the client up to `maxRedirects`, the timeout covers reading the body, the body
+ * is read up to the size limit, and failures become `HttpClientError`s.
+ */
+export async function transport(request: HttpRequest, settings: HttpSettings, trustedHost?: string): Promise<HttpResponse> {
   const { method } = request;
   const url = maskedUrl(request.url, settings);
   const service = request.service !== undefined ? { service: request.service } : {};
@@ -99,16 +182,29 @@ export async function transport(request: HttpRequest, settings: HttpSettings): P
   }, request.timeout);
   const signal = request.signal ? AbortSignal.any([controller.signal, request.signal]) : controller.signal;
   const failure = (error: unknown) => {
-    if (error instanceof HttpClientError) return error;
+    if (error instanceof HttpClientError) {
+      // Checks raise errors without the call's method and service; they are the call's.
+      return error.method === "" ? new HttpClientError({ code: error.code, message: error.message, method, url: error.url, ...service }) : error;
+    }
     if (timedOut) return fail("TIMEOUT", `${method} ${url} timed out after ${formatTimeoutText(request.timeout)}`, error);
     if (request.signal?.aborted) return fail("ABORTED", `${method} ${url} was aborted`, request.signal.reason);
     return fail("NETWORK", `${method} ${url} failed: ${reasonOf(error)}`, error);
   };
   try {
-    const response = await fetch(request.url, { method, headers: request.headers, body: (request.body ?? null) as RequestInit["body"], signal, redirect: "follow" });
+    let hop: Hop = { url: new URL(request.url), method, headers: new Headers(request.headers), body: request.body };
+    let response: Response;
+    for (let redirects = 0; ; redirects++) {
+      const destination = await checkDestination(hop.url, settings, trustedHost);
+      response = await sendHop(hop, destination, signal);
+      const location = response.headers.get("location");
+      if (!REDIRECTS.has(response.status) || location === null) break;
+      await response.body?.cancel().catch(() => undefined);
+      if (redirects >= settings.options.maxRedirects) throw fail("TOO_MANY_REDIRECTS", `Too many redirects from ${url}`);
+      hop = redirected(hop, response.status, new URL(location, hop.url));
+    }
     const tooLarge = () => fail("RESPONSE_TOO_LARGE", `Response from ${url} is larger than ${sizeText(settings.options.maxResponseSize)}`);
     const body = await readLimited(response, limit, tooLarge);
-    const answered = response.url || request.url;
+    const answered = hop.url.href;
     const invalid = (cause: unknown) => new HttpClientError({ code: "INVALID_RESPONSE", message: `${method} ${maskedUrl(answered, settings)} answered invalid JSON`, method, url: maskedUrl(answered, settings), cause, ...service });
     return new BufferedResponse(response.status, response.headers, answered, body, invalid);
   } catch (error) {
@@ -116,6 +212,23 @@ export async function transport(request: HttpRequest, settings: HttpSettings): P
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * The next hop after a redirect: 307 and 308 keep the method and body, 301, 302 and 303 switch to `GET` without a body,
+ * and a change of origin drops the `authorization` and `cookie` headers.
+ */
+export function redirected(hop: Hop, status: number, location: URL): Hop {
+  const headers = new Headers(hop.headers);
+  const keep = status === 307 || status === 308;
+  if (location.origin !== hop.url.origin) {
+    headers.delete("authorization");
+    headers.delete("cookie");
+  }
+  if (keep) return { url: location, method: hop.method, headers, body: hop.body };
+  headers.delete("content-type");
+  headers.delete("content-length");
+  return { url: location, method: hop.method === "HEAD" ? "HEAD" : "GET", headers, body: undefined };
 }
 
 /** A timeout as messages show it: `500ms`, `10s`. */

@@ -1,4 +1,4 @@
-import { CORE_VERSION, duration, object, size, string, type Options } from "../public.ts";
+import { boolean, CORE_VERSION, duration, integer, list, object, size, string, type Options } from "../public.ts";
 
 /** The options of the `http` native. */
 export const httpOptions = object({
@@ -7,6 +7,13 @@ export const httpOptions = object({
   userAgent: string()
     .default(`quickservicets/${CORE_VERSION}`)
     .describe("The user-agent header of every outgoing call, unless the call sets one."),
+  ssrf: boolean()
+    .default(true)
+    .describe("Blocks calls to internal networks, the machine itself and cloud metadata endpoints, checking every resolved address and every redirect."),
+  allow: list(string())
+    .default([])
+    .describe("Addresses, CIDR blocks (or loopback, private, linklocal) and host names like billing.internal or *.internal that SSRF protection lets through."),
+  maxRedirects: integer().min(0).max(20).default(5).describe("How many redirects a call follows before it fails with TOO_MANY_REDIRECTS."),
 });
 
 /** The resolved options of the `http` native. */

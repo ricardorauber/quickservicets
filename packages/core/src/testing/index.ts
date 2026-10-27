@@ -7,3 +7,5 @@ export { runAttackSuite, SQL_PAYLOADS } from "./attack-suite.ts";
 export type { AttackSuiteOptions } from "./attack-suite.ts";
 export { contractClock, QUEUE_BROKER_CHECKS, runQueueBrokerContract } from "./queue-broker-contract.ts";
 export type { QueueBrokerCheck, QueueBrokerContractOptions } from "./queue-broker-contract.ts";
+export { useTestResolver } from "../features/http/ssrf.ts";
+export type { TestResolverMap } from "../features/http/ssrf.ts";

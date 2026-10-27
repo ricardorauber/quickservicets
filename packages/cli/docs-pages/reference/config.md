@@ -546,4 +546,7 @@ Every option, tag, command and hook of `http` is on [its reference page](/refere
 | `http.timeout` | `duration` | `"10s"` | `QS_HTTP_TIMEOUT` | The longest an outgoing call may take, reading the response body included; a call sets its own with .timeout(). |
 | `http.maxResponseSize` | `size` | `"10MB"` | `QS_HTTP_MAX_RESPONSE_SIZE` | The largest response body a call reads; a larger one fails the call with RESPONSE_TOO_LARGE. |
 | `http.userAgent` | `string` | `"quickservicets/0.2.0"` | `QS_HTTP_USER_AGENT` | The user-agent header of every outgoing call, unless the call sets one. |
+| `http.ssrf` | `boolean` | `true` | `QS_HTTP_SSRF` | Blocks calls to internal networks, the machine itself and cloud metadata endpoints, checking every resolved address and every redirect. |
+| `http.allow` | `string[]` | `[]` | `QS_HTTP_ALLOW` | Addresses, CIDR blocks (or loopback, private, linklocal) and host names like billing.internal or *.internal that SSRF protection lets through. |
+| `http.maxRedirects` | `integer` | `5` | `QS_HTTP_MAX_REDIRECTS` | How many redirects a call follows before it fails with TOO_MANY_REDIRECTS. |
 | `http.enabled` | `boolean` | `true` | `QS_HTTP_ENABLED` | Turns the feature off when false. |

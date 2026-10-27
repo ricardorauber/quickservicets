@@ -54,7 +54,7 @@ export async function startHttpApp(
   const { logger, entries } = capturingLogger();
   registerProjectFeatures(features.map((definition) => ({ folder: definition.key, definition })));
   const keys = Object.fromEntries(features.map((definition) => [definition.key, {}]));
-  const resolved = resolveConfig({ database, logger, security: false, ...keys, ...config } as ServiceConfig, env);
+  const resolved = resolveConfig({ database, logger, security: false, http: { allow: ["loopback"] }, ...keys, ...config } as ServiceConfig, env);
   const lifecycle = createFeatureLifecycle({ features: resolved.features, config: resolved, models: [], worker: { index: 0, count: 1, runsScheduledWork: true } });
   await lifecycle.setup();
   await database.connect([]);
@@ -87,7 +87,10 @@ export async function startHttpApp(
   };
 }
 
-/** Resolves a default configuration, so the client reads the defaults again after a test changed the options. */
-export function resetHttpConfig(): void {
-  resolveConfig({ database: memoryAdapter() } as ServiceConfig, {});
+/**
+ * Resolves a default configuration that lets calls reach the local test servers, so the client reads it again after a
+ * test changed the options.
+ */
+export function resetHttpConfig(http: Record<string, unknown> = { allow: ["loopback"] }): void {
+  resolveConfig({ database: memoryAdapter(), http } as ServiceConfig, {});
 }

@@ -1,4 +1,5 @@
 import {
+  invalidConnection,
   UniqueViolationError,
   type Aggregate,
   type AggregateValues,
@@ -54,6 +55,9 @@ function without(record: StoredRecord, omit: readonly string[] | undefined): Sto
   for (const field of omit ?? []) delete record[field];
   return record;
 }
+
+/** The stores of `forConnection`, one per connection text, kept across opening and closing. */
+const connectionStores = new Map<string, DatabaseAdapter>();
 
 export function memoryAdapter(): DatabaseAdapter {
   const tables = new Map<string, Table>();
@@ -140,6 +144,16 @@ export function memoryAdapter(): DatabaseAdapter {
     kind: "memory",
     supportsRollback: true,
     withSchema: (schema) => views.get(schema),
+    forConnection(connection) {
+      if (typeof connection !== "string" || connection === "") throw invalidConnection("memory", "expected a text");
+      let store = connectionStores.get(connection);
+      if (!store) {
+        store = memoryAdapter();
+        connectionStores.set(connection, store);
+      }
+      // A tenant store keeps its records while its pool closes and opens again, like a real database.
+      return { ...store, disconnect: async () => {} };
+    },
     sharesConnectionWith: (other) => other === adapter || views.owns(other),
     async connect(models) {
       for (const model of models) tableFor(model);

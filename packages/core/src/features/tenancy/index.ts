@@ -4,6 +4,8 @@ import {
   enableDatabaseScopes,
   setRepositoryResolver,
   withDatabaseScope,
+  tenantRepositories,
+  type DatabaseScope,
   boolean,
   defineFeature,
   duration,
@@ -23,6 +25,7 @@ import {
 } from "../public.ts";
 import type { TenancyApi } from "./api.ts";
 import { isMissingTable, tenantScopes } from "./scopes.ts";
+import { tenantPools, type TenantPool, type TenantPools } from "./pools.ts";
 import {
   cachedDirectory,
   configDirectory,
@@ -37,6 +40,7 @@ import {
   tenantSuspended,
   type CachedDirectory,
   type TenantDirectory,
+  type TenantInfo,
 } from "./directory.ts";
 import {
   compilePathPattern,
@@ -70,6 +74,14 @@ const options = object({
   schema: string()
     .default("tenant-{tenant}")
     .describe("The schema name of schema-strategy tenants without their own: `{tenant}` is replaced by the tenant id."),
+  pools: object({
+    max: integer().min(1).default(50).describe("Most tenant database pools each worker keeps open; the least recently used idle one closes to make room."),
+    connections: integer().min(1).default(2).describe("Connections of each tenant database pool, per worker."),
+    idle: duration().default("5m").describe("How long an unused tenant database pool stays open."),
+    connectTimeout: duration().default("10s").describe("How long opening a tenant database may take before the request answers 503."),
+  })
+    .default({ max: 50, connections: 2, idle: "5m", connectTimeout: "10s" })
+    .describe("The connection pools of database-strategy tenants, per worker."),
   scope: oneOf(["tenant", "shared"])
     .default("tenant")
     .describe("Whether an entity's records belong to one tenant or are shared by every tenant; set per entity with @tenancy shared."),
@@ -96,6 +108,9 @@ const options = object({
     .default({ ttl: "5m", negativeTtl: "30s", staleTtl: "1h", maxEntries: 10000 })
     .describe("The per-worker cache of tenant lookups."),
 });
+
+/** The tenant database pools of each setup, for the feature API. */
+const poolsOf = new WeakMap<object, TenantPools>();
 
 /** What the setup shares with the feature API: the exempted paths and the directory. */
 const statesOf = new WeakMap<object, { exemptions: TenantExemptions; directory: CachedDirectory }>();
@@ -211,10 +226,42 @@ const tenancyFeature = defineFeature({
     if (ctx.options.strategy === "schema" && typeof root.withSchema !== "function") {
       throw new Error(`tenancy strategy "schema" needs an adapter with withSchema(); the ${root.kind ?? "configured"} adapter has none`);
     }
+    const usesDatabases =
+      ctx.options.strategy === "database" || Object.values(ctx.options.tenants as Record<string, { strategy?: string }>).some((tenant) => tenant?.strategy === "database");
+    if (usesDatabases && typeof root.forConnection !== "function") {
+      throw new Error(`tenancy strategy "database" needs an adapter with forConnection(); the ${root.kind ?? "configured"} adapter has none`);
+    }
     // Each tenant's request runs in its database scope: hooks, handlers, transactions, queues and events use it.
     enableDatabaseScopes();
     setRepositoryResolver(() => currentDatabaseScope().repos, { run: () => currentDatabaseScope().repos });
     const scopes = tenantScopes({ root, models: ctx.models, defaultSchema: ctx.config.schema, template: ctx.options.schema, logger: ctx.logger });
+    const poolOptions = ctx.options.pools;
+    const pools = tenantPools({
+      root,
+      tenantModels: ctx.models.filter((model) => model.tenancy === "tenant"),
+      workers: ctx.config.server.workers,
+      settings: {
+        max: poolOptions.max,
+        connections: poolOptions.connections,
+        idleMs: parseDuration(poolOptions.idle) ?? 300_000,
+        connectTimeoutMs: parseDuration(poolOptions.connectTimeout) ?? 10_000,
+      },
+      logger: ctx.logger,
+      connectionOf: async (tenant) => tenant.connection,
+    });
+    poolsOf.set(ctx.options, pools);
+    ctx.app.onStart(() => pools.start());
+    ctx.app.onStop(() => pools.closeAll(parseDuration(ctx.config.lifecycle.stopTimeout) ?? 10_000));
+    /** The scope of a database-strategy tenant, kept with its pool. */
+    const poolScopes = new WeakMap<TenantPool, DatabaseScope>();
+    const scopeOfPool = (tenant: TenantInfo, pool: TenantPool): DatabaseScope => {
+      let scope = poolScopes.get(pool);
+      if (!scope) {
+        scope = { key: `tenant:${tenant.id}`, adapter: pool.adapter, repos: tenantRepositories(currentDatabaseScope().repos, pool.adapter), tenant: { id: tenant.id, ...(tenant.plan !== undefined ? { plan: tenant.plan } : {}) } };
+        poolScopes.set(pool, scope);
+      }
+      return scope;
+    };
     const exemptions = new TenantExemptions();
     const directory = setUpDirectory(ctx);
     statesOf.set(ctx.options, { exemptions, directory });
@@ -297,7 +344,18 @@ const tenancyFeature = defineFeature({
         const tenant = await lookUp(directory, id);
         req.tenant = { id, ...(tenant.plan !== undefined ? { plan: tenant.plan } : {}), attributes: tenant.attributes } as ServiceRequest["tenant"];
         const strategy = tenant.strategy ?? ctx.options.strategy;
-        if (strategy !== "schema") throw new Error(`tenancy strategy "${strategy}" is not available`);
+        if (strategy === "database") {
+          const connection = await pools.connectionOf(tenant);
+          const lease = await pools.acquire(tenant, connection);
+          try {
+            return await withDatabaseScope(scopeOfPool(tenant, lease.pool), next);
+          } catch (error) {
+            if (isMissingTable(error)) throw scopes.notReady(tenant);
+            throw error;
+          } finally {
+            lease.release();
+          }
+        }
         const scope = scopes.schema(tenant);
         try {
           return await withDatabaseScope(scope, next);
@@ -333,6 +391,7 @@ const tenancyFeature = defineFeature({
       exempt: (pattern) => state.exemptions.add(pattern),
       find: (id) => state.directory.find(id),
       list: () => state.directory.list(),
+      stats: () => poolsOf.get(ctx.options)!.stats(),
     };
   },
 });
@@ -345,3 +404,5 @@ export type { TenancyApi } from "./api.ts";
 export { cachedDirectory, configDirectory, databaseDirectory, directoryClock, serviceDirectory, tenantEntity, TENANT_FIELDS, tenantInfoOf } from "./directory.ts";
 export type { CachedDirectory, DirectoryCacheOptions, TenantDirectory, TenantInfo } from "./directory.ts";
 export { crossTenancyReferences, markTenancy, SHARED_ENTITY_KEYS, withoutTenancyMarks } from "./models.ts";
+export { maskConnections, tenantPools } from "./pools.ts";
+export type { PoolCloseReason, PoolLease, PoolSettings, PoolStats, TenantPool, TenantPools } from "./pools.ts";

@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { and, count, eq, getTableColumns, inArray, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
-import { UniqueViolationError, type AggregateValues, type DatabaseAdapter, type RelatedScope, type StoredRecord } from "../adapter.ts";
+import { invalidConnection, UniqueViolationError, type AggregateValues, type DatabaseAdapter, type RelatedScope, type StoredRecord } from "../adapter.ts";
 import type { EntityModel } from "../model.ts";
 import type { Condition } from "../query.ts";
 import { aggregateSelection } from "../sql/aggregates.ts";
@@ -23,6 +23,8 @@ export interface SqliteAdapter extends DatabaseAdapter {
   /** A view in which the default-schema entities live in `schema`, sharing this adapter's connection. */
   withSchema(schema: string): SqliteAdapter;
   sharesConnectionWith(other: DatabaseAdapter): boolean;
+  /** A new, unconnected adapter of this kind for another database. */
+  forConnection(connection: unknown): SqliteAdapter;
 }
 
 // Tables are built at runtime from the models, so Drizzle cannot type their columns statically.
@@ -311,6 +313,11 @@ export function sqliteAdapter(options: SqliteAdapterOptions): SqliteAdapter {
     },
     ...operations(() => schema),
     withSchema: (name) => views.get(name),
+    forConnection(connection) {
+      const path = typeof connection === "string" ? connection : (connection as { path?: unknown } | null)?.path;
+      if (typeof path !== "string" || path === "") throw invalidConnection("sqlite", "expected a path text or { path }");
+      return sqliteAdapter({ ...options, path });
+    },
     sharesConnectionWith: (other) => other === adapter || views.owns(other),
   };
   return adapter;

@@ -1,4 +1,5 @@
 import type { TenantInfo } from "./directory.ts";
+import type { PoolStats } from "./pools.ts";
 
 /** The feature API of `tenancy`, reached with `ctx.feature("tenancy")` from a feature that lists `tenancy` in `requires` or `after`. */
 export interface TenancyApi {
@@ -11,4 +12,6 @@ export interface TenancyApi {
   find(id: string): Promise<TenantInfo | undefined>;
   /** Every tenant of the directory, read page by page without the cache. */
   list(): AsyncIterable<TenantInfo>;
+  /** The tenant database pools of this worker: open, the limit, openings in progress and tenants failing to open. */
+  stats(): PoolStats;
 }

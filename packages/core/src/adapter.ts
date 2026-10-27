@@ -66,6 +66,8 @@ export interface ConnectOptions {
   defaultSchema?: string | null;
   /** The server processes sharing the adapter's connection pool size, each opening its share (default 1). */
   workers?: number;
+  /** The connections this process opens, replacing the adapter's own pool size (a tenant database's small pool). */
+  poolSize?: number;
 }
 
 export interface DatabaseAdapter {
@@ -144,6 +146,17 @@ export interface DatabaseAdapter {
    * `^[a-z][a-z0-9-]*$`; asking twice for one schema returns the same view.
    */
   withSchema?(schema: string): DatabaseAdapter;
+  /**
+   * A new, unconnected adapter of the same kind and options for another database (optional): a URL or `{ url }` for
+   * PostgreSQL, a path or `{ path }` for SQLite, a URL or `{ url, name? }` for MongoDB, any text for the memory adapter.
+   * Throws `Invalid tenant connection for <kind>: <reason>` without the value for one it cannot use.
+   */
+  forConnection?(connection: unknown): DatabaseAdapter;
+}
+
+/** The error of a connection `forConnection` cannot use; the message never holds the connection. */
+export function invalidConnection(kind: string, reason: string): Error {
+  return new Error(`Invalid tenant connection for ${kind}: ${reason}`);
 }
 
 const FIND_ALL_BATCH = 1000;

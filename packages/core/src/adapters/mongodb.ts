@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { ClientSession, Db, Document, Filter, MongoClient, Sort } from "mongodb";
 import {
+  invalidConnection,
   UniqueViolationError,
   type Aggregate,
   type AggregateValues,
@@ -31,6 +32,8 @@ export interface MongodbAdapter extends DatabaseAdapter {
   /** A view in which the default-schema entities live in `schema`, sharing this adapter's connection. */
   withSchema(schema: string): MongodbAdapter;
   sharesConnectionWith(other: DatabaseAdapter): boolean;
+  /** A new, unconnected adapter of this kind for another database. */
+  forConnection(connection: unknown): MongodbAdapter;
 }
 
 const REGEX_SPECIAL = /[.*+?^${}()|[\]\\/]/g;
@@ -311,6 +314,21 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
   const adapter: MongodbAdapter = {
     kind: "mongodb",
     withSchema: (name) => views.get(name),
+    forConnection(connection) {
+      const given = typeof connection === "string" ? { url: connection } : (connection as { url?: unknown; name?: unknown } | null);
+      if (typeof given?.url !== "string" || given.url === "") throw invalidConnection("mongodb", "expected a URL text or { url, name? }");
+      if (!/^mongodb(\+srv)?:\/\//i.test(given.url)) throw invalidConnection("mongodb", "expected a mongodb:// URL");
+      let name = typeof given.name === "string" && given.name !== "" ? given.name : undefined;
+      if (!name) {
+        try {
+          name = decodeURIComponent(new URL(given.url).pathname.replace(/^\//, "")) || undefined;
+        } catch {
+          throw invalidConnection("mongodb", "the URL cannot be parsed");
+        }
+      }
+      if (!name) throw invalidConnection("mongodb", "name the database in the URL path or with { url, name }");
+      return mongodbAdapter({ ...options, url: given.url, database: name });
+    },
     sharesConnectionWith: (other) => other === adapter || views.owns(other),
     /** Rollback needs a replica set or a sharded cluster, known once connected. */
     get supportsRollback() {

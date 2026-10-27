@@ -1,7 +1,7 @@
 import { SQL } from "bun";
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
-import { UniqueViolationError, type DatabaseAdapter, type RelatedScope, type StoredRecord } from "../adapter.ts";
+import { invalidConnection, UniqueViolationError, type DatabaseAdapter, type RelatedScope, type StoredRecord } from "../adapter.ts";
 import type { EntityModel } from "../model.ts";
 import { poolSizePerWorker } from "../workers.ts";
 import { buildDrizzleSchema, columnName, lazyDrizzleSchema, schemaIdentifier, type DrizzleSchema } from "../sql/schema.ts";
@@ -23,6 +23,8 @@ export interface PostgresAdapter extends DatabaseAdapter {
   /** A view in which the default-schema entities live in `schema`, sharing this adapter's connection. */
   withSchema(schema: string): PostgresAdapter;
   sharesConnectionWith(other: DatabaseAdapter): boolean;
+  /** A new, unconnected adapter of this kind for another database. */
+  forConnection(connection: unknown): PostgresAdapter;
 }
 
 // Tables are built at runtime from the models, so Drizzle cannot type their columns statically.
@@ -277,7 +279,7 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
         await admin.unsafe(`create schema if not exists "${defaultSchema}"`);
         await admin.close();
       }
-      const max = poolSizePerWorker(options.max ?? DEFAULT_POSTGRES_POOL_SIZE, connectOptions.workers);
+      const max = connectOptions.poolSize ?? poolSizePerWorker(options.max ?? DEFAULT_POSTGRES_POOL_SIZE, connectOptions.workers);
       // The search path is a connection parameter, so every pooled connection uses the default schema.
       client = new SQL({ url: options.url, max, ...(defaultSchema ? { connection: { search_path: defaultSchema } } : {}) } as never);
       const { drizzle } = await driver;
@@ -293,6 +295,12 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
     },
     ...operations(() => schema, statements),
     withSchema: (name) => views.get(name),
+    forConnection(connection) {
+      const url = typeof connection === "string" ? connection : (connection as { url?: unknown } | null)?.url;
+      if (typeof url !== "string" || url === "") throw invalidConnection("postgres", "expected a URL text or { url }");
+      if (!/^postgres(ql)?:\/\//i.test(url)) throw invalidConnection("postgres", "expected a postgres:// URL");
+      return postgresAdapter({ ...options, url });
+    },
     sharesConnectionWith: (other) => other === adapter || views.owns(other),
   };
   return adapter;

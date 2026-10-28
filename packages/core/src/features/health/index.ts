@@ -51,7 +51,7 @@ const options = object({
 });
 
 /** The security items that would refuse probes. */
-const EXEMPT_ITEMS = ["rateLimit", "loadShedding", "ip"] as const;
+const EXEMPT_ITEMS = ["rateLimit", "loadShedding", "ip", "mtls"] as const;
 
 /** How check names are written. */
 const CHECK_NAME = /^[a-z][a-z0-9-]*$/;

@@ -127,6 +127,10 @@ Every option, tag, command and hook of `security` is on [its reference page](/re
 | `security.csrf.origins` | `string[]` | `[]` | `QS_SECURITY_CSRF_ORIGINS` | Origins allowed to send cookie-authenticated writes besides the service's own and security.cors.origins. |
 | `security.csrf.cookie` | `string` | `"qs_csrf"` | `QS_SECURITY_CSRF_COOKIE` | The cookie that carries the token in token mode. |
 | `security.csrf.header` | `string` | `"x-csrf-token"` | `QS_SECURITY_CSRF_HEADER` | The request header that must repeat the cookie's token in token mode. |
+| `security.mtls.enabled` | `boolean` | `true` | `QS_SECURITY_MTLS_ENABLED` | Asks callers for client certificates (mutual TLS), verified against the project's authorities, with the identity in req.client. Turns it off when false. |
+| `security.mtls.mode` | `"required" \| "optional"` | `"required"` | `QS_SECURITY_MTLS_MODE` | required refuses clients without a valid certificate in the TLS handshake; optional lets them in, and @mtls protects chosen routes. |
+| `security.mtls.ca` | `string[]` | `[]` | `QS_SECURITY_MTLS_CA` | The certificate authorities client certificates must chain to, as file paths or PEM text; required while mtls is on. |
+| `security.mtls.allow` | `string[]` | `[]` | `QS_SECURITY_MTLS_ALLOW` | The client identities admitted: CN=, O=, OU=, dns: (*. for subdomains), uri: (a trailing * for SPIFFE prefixes), email: or sha256: entries; empty admits every verified certificate. |
 | `security.masking.enabled` | `boolean` | `true` | `QS_SECURITY_MASKING_ENABLED` | Keeps secret values and fields tagged @sensitive out of log entries, job run records and development error responses. Turns it off when false. |
 | `security.masking.keys` | `string[]` | `["password","passwd","secret","token","apikey","authorization","cookie","setcookie","privatekey","clientsecret","signature","creditcard","cardnumber","cvv"]` | `QS_SECURITY_MASKING_KEYS` | A logged property whose name contains one of these (ignoring case, - and _) shows [secret] instead of its value. |
 | `security.enabled` | `boolean` | `true` | `QS_SECURITY_ENABLED` | Turns the feature off when false. |
@@ -235,6 +239,21 @@ export default handler;
 
 ```ts
 /** @csrf off */
+export default handler;
+```
+
+#### `@mtls`
+
+`@mtls` requires a verified client certificate on one route, or on each route of an entity, even in optional mode (401 without one); `allow=` replaces the global allowlist there, and `@mtls off` skips the identity checks.
+
+**Applies to:** endpoints, entities
+
+**Options:** `mtls.allow`
+
+**Syntax:** `@mtls [allow=…]` or `@mtls off`
+
+```ts
+/** @mtls allow=CN=billing */
 export default handler;
 ```
 

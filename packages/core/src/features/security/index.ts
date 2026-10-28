@@ -1,4 +1,4 @@
-import { coreInstruments, metricsEnabled, anyOf, hook, normalizeAddress, provider, runAfterHooks, secretVariableValues, boolean, cidr, defineFeature, duration, integer, list, object, oneOf, parseDuration, parseSize, peerAddress, rate, safeLog, size, string, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext, type LogMasker, type ServiceRequest, activeSetup, type HandlerMiddleware, type ParsedTags, type RequestMiddleware, type ServerSettings, type TaggedRoute } from "../public.ts";
+import { coreInstruments, metricsEnabled, anyOf, hook, normalizeAddress, provider, runAfterHooks, secretVariableValues, boolean, cidr, defineFeature, duration, integer, list, object, oneOf, parseDuration, parseSize, peerAddress, rate, safeLog, size, string, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext, type LogMasker, type ServiceRequest, activeSetup, readCertificates, type Logger, type HandlerMiddleware, type ParsedTags, type RequestMiddleware, type ServerSettings, type TaggedRoute } from "../public.ts";
 import type { SecurityRouteOptions } from "./api.ts";
 import type { ClientIpResolver, RateLimitRefusal, SecurityApi, SecurityRefusal } from "./api.ts";
 import { corsProblems, corsStep, ownOptionsRoutes, routeCorsOptions } from "./cors.ts";
@@ -10,6 +10,7 @@ import { DEFAULT_CSP, DEFAULT_DOCS_CSP, headersStep } from "./headers.ts";
 import { bodyStep, FORM_OVERHEAD, largestUpload, limitsStep, routeBodyLimit } from "./limits.ts";
 import { SECURITY_ITEMS, securityMiddlewares, type RefusalListener, type SecurityMiddlewares, type SecurityStep } from "./pipeline.ts";
 import { proxyResolver } from "./proxy.ts";
+import { allowProblems, mtlsStep } from "./mtls.ts";
 import { KEY_PARTS, rateLimitStep, routePatterns } from "./rate-limit.ts";
 import { loadSheddingStep } from "./shedding.ts";
 import { memoryRateLimitStore, type RateLimitStore } from "./store.ts";
@@ -100,6 +101,17 @@ const options = object({
     cookie: string().default("qs_csrf").describe("The cookie that carries the token in token mode."),
     header: string().default("x-csrf-token").describe("The request header that must repeat the cookie's token in token mode."),
   }).describe("Refuses cross-site writes (POST, PUT, PATCH, DELETE) that ride on a session cookie with 403; requests authenticated by tokens, or not at all, skip it."),
+  mtls: toggle({
+    mode: oneOf(["required", "optional"])
+      .default("required")
+      .describe("required refuses clients without a valid certificate in the TLS handshake; optional lets them in, and @mtls protects chosen routes."),
+    ca: list(string()).default([]).describe("The certificate authorities client certificates must chain to, as file paths or PEM text; required while mtls is on."),
+    allow: list(string())
+      .default([])
+      .describe("The client identities admitted: CN=, O=, OU=, dns: (*. for subdomains), uri: (a trailing * for SPIFFE prefixes), email: or sha256: entries; empty admits every verified certificate."),
+  })
+    .default(false)
+    .describe("Asks callers for client certificates (mutual TLS), verified against the project's authorities, with the identity in req.client."),
   masking: toggle({
     keys: list(string())
       .default(DEFAULT_MASKED_KEYS)
@@ -176,8 +188,37 @@ function databaseStore(ctx: FeatureSetupContext<SecurityOptions>): RateLimitStor
   return store;
 }
 
+/** The options of the `mtls` item. */
+interface MtlsOptions {
+  enabled: boolean;
+  mode: "required" | "optional";
+  ca: string[];
+  allow: string[];
+}
+
+/** The problems of the mtls item: server.tls must be set, an authority given, and every allow entry valid. */
+function mtlsProblems(mtls: MtlsOptions, config: Readonly<Record<string, unknown>>): string[] {
+  const tls = (config.server as { tls?: { cert?: string } } | undefined)?.tls;
+  return [
+    ...(tls?.cert === undefined ? ["security.mtls needs server.tls"] : []),
+    ...(mtls.ca.length === 0 ? ["Invalid security.mtls.ca: give the certificate authorities client certificates chain to"] : []),
+    ...allowProblems(mtls.allow),
+  ];
+}
+
+/** The message of a project serving WebSockets while the service checks client certificates itself. */
+export const MTLS_WEBSOCKETS = "realtime.websockets is not available while the service verifies client certificates itself; terminate mTLS at a proxy and use security.mtls.forwarded";
+
+/** Makes the server ask for client certificates: it then listens through `node:tls`, which gives them per request. */
+function setUpClientCertificates(ctx: FeatureSetupContext<SecurityOptions>): void {
+  const mtls = ctx.options.mtls as MtlsOptions;
+  if (taggedRoutes().some((route) => route.kind === "websocket")) throw new Error(MTLS_WEBSOCKETS);
+  ctx.app.configureServer({ clientCertificates: { ca: readCertificates(mtls.ca, "security.mtls.ca").pems, required: mtls.mode === "required" } });
+}
+
 /** What the steps share across rebuilds: the rate limit store and the load shedding step, which hold state. */
 interface SharedSteps {
+  logger?: Logger;
   store?: RateLimitStore;
   shedding?: SecurityStep;
 }
@@ -185,7 +226,7 @@ interface SharedSteps {
 /** Prepares the parts of the steps that hold state, once per setup. */
 function sharedSteps(ctx: FeatureSetupContext<SecurityOptions>, slot: StoreSlot): SharedSteps {
   const { options } = ctx;
-  const shared: SharedSteps = {};
+  const shared: SharedSteps = { logger: ctx.logger };
   if (options.rateLimit.enabled) {
     const { rateLimit } = options;
     if (isStore(rateLimit.store)) slot.current = rateLimit.store;
@@ -218,6 +259,7 @@ function itemSteps(options: SecurityOptions, production: boolean, shared: Shared
     if (step) steps.push(step);
   }
   if (options.cors.enabled) steps.push(corsStep(options.cors, ownOptionsRoutes(taggedRoutes()), index, ipOf));
+  if (options.mtls.enabled) steps.push(mtlsStep({ allow: options.mtls.allow as string[], logger: shared.logger! }));
   if (options.limits.enabled) steps.push(limitsStep(options.limits));
   if (options.limits.enabled || options.timeouts.enabled) {
     const timeouts = options.timeouts.enabled ? options.timeouts : undefined;
@@ -286,8 +328,8 @@ function refusalHooks(ctx: FeatureSetupContext<SecurityOptions>, ipOf: (request:
   if (Object.values(lists).every((list) => list.length === 0)) return undefined;
   let patterns: ReturnType<typeof routePatterns> | undefined;
   return (state, refusal) => {
-    const list = lists[refusal.item]!;
-    if (list.length === 0) return;
+    const list = lists[refusal.item];
+    if (!list || list.length === 0) return;
     const { request, url } = state.ctx;
     patterns ??= routePatterns(taggedRoutes());
     const route = patterns.of(request.method, url.pathname);
@@ -323,7 +365,11 @@ const securityFeature = defineFeature({
   options,
   // The shared counters are part of the model only while the database store is on.
   entities: ({ options }) => (options.rateLimit.enabled && options.rateLimit.store === "database" ? [rateLimitCounterEntity()] : []),
-  validate: (resolved) => [...(resolved.cors.enabled ? corsProblems(resolved.cors, "security.cors") : []), ...(resolved.timeouts.enabled ? idleProblems(resolved.timeouts.idle) : [])],
+  validate: (resolved, config) => [
+    ...(resolved.cors.enabled ? corsProblems(resolved.cors, "security.cors") : []),
+    ...(resolved.timeouts.enabled ? idleProblems(resolved.timeouts.idle) : []),
+    ...(resolved.mtls.enabled ? mtlsProblems(resolved.mtls as MtlsOptions, config) : []),
+  ],
   tags: {
     limits: {
       on: ["endpoint", "entity"],
@@ -374,6 +420,13 @@ const securityFeature = defineFeature({
       description: "`@csrf off` lets one route, or each route of an entity, accept cookie-authenticated writes from other sites, like a beacon endpoint.",
       example: "/** @csrf off */\nexport default handler;",
     },
+    mtls: {
+      on: ["endpoint", "entity"],
+      scope: "mtls",
+      options: ["allow"],
+      description: "`@mtls` requires a verified client certificate on one route, or on each route of an entity, even in optional mode (401 without one); `allow=` replaces the global allowlist there, and `@mtls off` skips the identity checks.",
+      example: "/** @mtls allow=CN=billing */\nexport default handler;",
+    },
     securityHeaders: {
       on: ["endpoint", "entity"],
       scope: "headers",
@@ -386,7 +439,11 @@ const securityFeature = defineFeature({
     const exemptions = new Exemptions();
     const slot: StoreSlot = { current: memoryRateLimitStore({ maxKeys: ctx.options.rateLimit.memory.maxKeys }), open: true, ...(isStore(ctx.options.rateLimit.store) ? { owner: "the config" } : {}) };
     setupStates.set(ctx.app, { exemptions, store: slot, routeOptions: [], open: true });
-    const enabled = SECURITY_ITEMS.filter((item) => ctx.options[item].enabled);
+    const enabled: string[] = SECURITY_ITEMS.filter((item) => ctx.options[item].enabled);
+    if (ctx.options.mtls.enabled) {
+      enabled.push("mtls");
+      setUpClientCertificates(ctx);
+    }
     // Routes are indexed only when one carries a security tag, so other requests do no lookup.
     let index: RouteIndex | undefined = buildRouteIndex(taggedRoutes(), Object.keys(securityFeature.tags ?? {}));
     const problems = (index?.routes ?? []).flatMap((route) => (route.tags.cors?.on ? corsProblems(routeCorsOptions(ctx.options.cors, route), `@cors of ${route.method} ${route.path}`) : []));

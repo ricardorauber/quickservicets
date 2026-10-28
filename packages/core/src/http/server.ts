@@ -12,6 +12,8 @@ import type { RepositoryResolver } from "../repository-resolver.ts";
 import type { TenantRuns } from "../tenant-runs.ts";
 import type { SocketRunner } from "./socket.ts";
 import { bunTlsOptions, loadServerTls, type ServerTlsConfig } from "../tls.ts";
+import { listenWithClientCertificates } from "./tls-server.ts";
+import { clientCertificateOf } from "../client-certificates.ts";
 import { notifyRequestObservers, requestsObserved } from "../request-observers.ts";
 import { coreInstruments, metricsEnabled, tenantAttributes, type MeterSetting, type MetricAttributes } from "../metering.ts";
 import { parseTraceparent, spanAttributes, startSpan, tracingEnabled, withSpan, type Span, type TracerSetting } from "../tracing.ts";
@@ -71,6 +73,11 @@ export interface ServerSettings {
   tracer?: TracerSetting;
   /** Set by `setMeter()` during setup: the meter of the service, the feature that set it and its options. */
   meter?: MeterSetting;
+  /**
+   * Asks callers for client certificates checked against `ca` (`required` refuses the handshake without one); the
+   * server then listens through `node:tls`, which gives each request its verified certificate as `req.client`.
+   */
+  clientCertificates?: { ca: string[]; required: boolean };
 }
 
 export interface ServerOptions extends ServerSettings {
@@ -242,6 +249,11 @@ function createRequest(raw: Request, url: URL, params: Record<string, string>, i
       Object.defineProperty(this, "ip", { value, configurable: true, enumerable: true, writable: true });
       return value;
     },
+    get client() {
+      const value = clientCertificateOf(raw);
+      Object.defineProperty(this, "client", { value, configurable: true, enumerable: true, writable: true });
+      return value;
+    },
     id,
     route,
     user: undefined,
@@ -345,6 +357,12 @@ function endMeasure(measure: Measure, request: Request, state: { route: string |
   });
 }
 
+/** The `client` field of a request log entry: the common name of the caller's certificate, when it showed one. */
+function clientField(request: Request): { client?: string } {
+  const name = clientCertificateOf(request)?.subject.commonName;
+  return name === undefined ? {} : { client: name };
+}
+
 /** Hands a completed request to the request observers. */
 function observeEnd(request: Request, state: { route: string | null; req?: ServiceRequest }, status: number, startedAt: number, observedAt: number): void {
   const userId = idOf(state.req?.user);
@@ -399,7 +417,7 @@ function maskedError(error: unknown, redact: ((text: string) => string) | undefi
   return masked;
 }
 
-export function createServer({ routes, repos, config: serverConfig, jobs = noRequestJobs, middleware, requestProperties, clientIp, maxRequestBodySize, idleTimeout, mask, entityTags, repositories, requestLogTenant, websocket }: ServerOptions): Server {
+export function createServer({ routes, repos, config: serverConfig, jobs = noRequestJobs, middleware, requestProperties, clientIp, maxRequestBodySize, idleTimeout, mask, entityTags, repositories, requestLogTenant, websocket, clientCertificates }: ServerOptions): Server {
   // Development error responses show the stack with known secret values masked.
   const config = mask ? { ...serverConfig, redact: (text: string) => mask.text(text) } : serverConfig;
   const handlerStage = middleware?.handler ?? [];
@@ -533,6 +551,7 @@ export function createServer({ routes, repos, config: serverConfig, jobs = noReq
         durationMs: Math.round((performance.now() - startedAt) * 1000) / 1000,
         hooks: state.req ? executedHooks(state.req) : [],
         ...(requestLogTenant && state.req?.tenant ? { tenant: (state.req.tenant as { id?: string }).id } : {}),
+        ...(clientCertificates ? clientField(request) : {}),
         ...extra,
       });
     if (deferred) void deferred.then(write, () => write({}));
@@ -543,6 +562,17 @@ export function createServer({ routes, repos, config: serverConfig, jobs = noReq
   return {
     fetch,
     listen(port = config.server?.port) {
+      if (clientCertificates && config.server?.tls) {
+        const tls = loadServerTls(config.server.tls);
+        return listenWithClientCertificates({
+          port: port ?? 0,
+          tls: { cert: tls.cert, key: tls.key, ...(tls.ca ? { ca: tls.ca } : {}), ...(tls.passphrase !== undefined ? { passphrase: tls.passphrase } : {}), secureOptions: tls.secureOptions },
+          clientCa: clientCertificates.ca,
+          required: clientCertificates.required,
+          ...(idleTimeout !== undefined ? { idleTimeout } : {}),
+          fetch: (request, peer) => fetch(request, { peer }),
+        }) as unknown as ReturnType<typeof Bun.serve>;
+      }
       // Worker processes share the port; on Linux the kernel spreads the connections across them.
       const options = {
         port,

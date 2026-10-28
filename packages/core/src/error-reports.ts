@@ -22,6 +22,8 @@ export interface ErrorReport {
   request?: ErrorReportRequest;
   user?: { id: string };
   tenant?: { id: string };
+  /** The caller's client certificate (`req.client`), when the request had one. */
+  client?: { commonName?: string; fingerprint256: string };
   job?: { name: string; runId: string; attempt?: number };
   queue?: { name: string; messageId: string; attempt?: number };
   /** The id of the request the failing code ran for, outside a request report. */

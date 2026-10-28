@@ -1,4 +1,5 @@
 import type { RequestJobs } from "./jobs/triggers.ts";
+import type { ClientCertificate } from "./client-certificates.ts";
 
 /**
  * The repositories available to endpoints and hooks, keyed by repository key. The build augments this
@@ -32,6 +33,11 @@ export interface ServiceRequest<Body = unknown> extends RequestExtensions {
   readonly headers: Headers;
   /** The native request. */
   readonly raw: Request;
+  /**
+   * The caller's client certificate, verified by the service's TLS handshake (`security.mtls`) or by a trusted proxy
+   * that forwarded it; undefined without one.
+   */
+  readonly client: ClientCertificate | undefined;
   /** Free-form values shared by hooks and the handler during one request. */
   readonly context: Record<string, unknown>;
   /** The parsed JSON body, parsed once and cached. */
@@ -59,7 +65,7 @@ export interface ServiceRequest<Body = unknown> extends RequestExtensions {
 }
 
 /** The properties every request has, which a feature's `request` field may not use. */
-export const REQUEST_PROPERTIES = ["id", "method", "path", "params", "query", "headers", "raw", "context", "json", "queryItems", "jobs", "route", "ip", "user", "tenant", "flags"] as const;
+export const REQUEST_PROPERTIES = ["id", "method", "path", "params", "query", "headers", "raw", "context", "json", "queryItems", "jobs", "route", "ip", "user", "tenant", "flags", "client"] as const;
 
 /** Lets endpoints and hooks set the status and headers of a data response. */
 export interface ServiceResponse {

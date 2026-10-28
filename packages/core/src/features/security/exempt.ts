@@ -1,13 +1,13 @@
 /** The items a path can be exempted from, as `exempt(pattern, items)` names them. */
-export const EXEMPTIBLE_ITEMS = ["rateLimit", "loadShedding", "ip", "cors", "headers"] as const;
+export const EXEMPTIBLE_ITEMS = ["rateLimit", "loadShedding", "ip", "cors", "headers", "mtls"] as const;
 
 /** An item a path can be exempted from, or `all` of them. */
 export type ExemptibleItem = (typeof EXEMPTIBLE_ITEMS)[number] | "all";
 
 /** The bit of each exemptible item in the mask `Exemptions.match` returns. */
-export const EXEMPT: Readonly<Record<(typeof EXEMPTIBLE_ITEMS)[number], number>> = { rateLimit: 1, loadShedding: 2, ip: 4, cors: 8, headers: 16 };
+export const EXEMPT: Readonly<Record<(typeof EXEMPTIBLE_ITEMS)[number], number>> = { rateLimit: 1, loadShedding: 2, ip: 4, cors: 8, headers: 16, mtls: 32 };
 
-const ALL = 31;
+const ALL = 63;
 
 /**
  * The paths exempted from security items: exact paths, and prefixes written as a path ending in `/*`, which match the

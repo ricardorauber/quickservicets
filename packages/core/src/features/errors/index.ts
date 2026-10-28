@@ -229,6 +229,8 @@ const errorsFeature = defineFeature({
         ...(req ? { request: requestOf(req) } : {}),
         ...(user ? { user } : {}),
         ...(tenant ? { tenant } : {}),
+        // The caller's client certificate, when it showed one.
+        ...(req?.client ? { client: { ...(req.client.subject.commonName !== undefined ? { commonName: req.client.subject.commonName } : {}), fingerprint256: req.client.fingerprint256 } } : {}),
         ...(extra.job ? { job: extra.job } : {}),
         ...(extra.queue ? { queue: extra.queue } : {}),
         ...(extra.requestId ? { requestId: extra.requestId } : {}),

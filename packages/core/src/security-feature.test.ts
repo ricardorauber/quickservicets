@@ -139,7 +139,7 @@ describe("exemptions", () => {
     expect(exemptions.match("/health/ready")).toBe(EXEMPT.rateLimit);
     expect(exemptions.match("/health")).toBe(EXEMPT.rateLimit);
     expect(exemptions.match("/health/live")).toBe(EXEMPT.rateLimit | EXEMPT.ip);
-    expect(exemptions.match("/metrics")).toBe(31);
+    expect(exemptions.match("/metrics")).toBe(63);
     expect(exemptions.match("/healthy")).toBe(0);
     expect(() => new Exemptions().add("/x", ["nope" as never])).toThrow('unknown item "nope"');
   });

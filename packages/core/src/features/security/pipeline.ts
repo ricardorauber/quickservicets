@@ -13,16 +13,16 @@ export type SecurityItem = (typeof SECURITY_ITEMS)[number];
  * The steps of the request stage, in the order their checks run: load shedding, URL and header limits, IP lists, CORS,
  * rate limits keyed by address or route, the body policy; and the security headers, which only add to the response.
  */
-export const STEP_ORDER = ["loadShedding", "limits", "ip", "cors", "rateLimit", "body", "headers"] as const;
+export const STEP_ORDER = ["loadShedding", "limits", "ip", "mtls", "cors", "rateLimit", "body", "headers"] as const;
 
 /** A step of the security middlewares, by its place in `STEP_ORDER`. */
 export type StepName = (typeof STEP_ORDER)[number];
 
 /** The order the steps add their response headers in, on the way out. */
-const RESPONSE_ORDER: readonly StepName[] = ["headers", "cors", "rateLimit", "loadShedding", "limits", "ip", "body"];
+const RESPONSE_ORDER: readonly StepName[] = ["headers", "cors", "rateLimit", "loadShedding", "limits", "ip", "mtls", "body"];
 
 /** The items whose refusals have a hook. */
-export type RefusingItem = "rateLimit" | "ip" | "cors" | "loadShedding" | "limits";
+export type RefusingItem = "rateLimit" | "ip" | "cors" | "loadShedding" | "limits" | "mtls";
 
 /** A refusal a step decided: the item, the error's message, and what the item adds (the key and limit of a rate limit). */
 export interface Refusal {

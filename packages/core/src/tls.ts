@@ -60,6 +60,24 @@ function pemOf(value: string, label: string): { pem: string; file?: string } {
   }
 }
 
+/**
+ * Reads certificates given as file paths or PEM text at `label` (`security.mtls.ca`), checking each is a PEM
+ * certificate; returns the PEM texts and the files they came from.
+ */
+export function readCertificates(values: string | readonly string[], label: string): { pems: string[]; files: string[] } {
+  const list = (Array.isArray(values) ? values : [values]) as string[];
+  const pems: string[] = [];
+  const files: string[] = [];
+  list.forEach((value, index) => {
+    const name = list.length > 1 ? `${label}[${index}]` : label;
+    const read = pemOf(value, name);
+    if (!CERTIFICATE.test(read.pem)) throw new ConfigError(`Invalid ${name}: not a PEM certificate`);
+    pems.push(read.pem);
+    if (read.file) files.push(read.file);
+  });
+  return { pems, files };
+}
+
 /** The SHA-256 fingerprint of a certificate, lowercase hex without separators. */
 export const fingerprintOf = (certificate: X509Certificate) => certificate.fingerprint256.replaceAll(":", "").toLowerCase();
 

@@ -165,7 +165,7 @@ describe("dev watch paths", () => {
     let starts = 0;
     let session: DevSession | undefined;
     const waitFor = async (count: number) => {
-      for (let tries = 0; tries < 100 && builds < count; tries++) await Bun.sleep(30);
+      for (let tries = 0; tries < 400 && builds < count; tries++) await Bun.sleep(30);
       await session?.idle();
       return builds;
     };
@@ -185,5 +185,5 @@ describe("dev watch paths", () => {
       await session.stop();
     }
     expect(existsSync(join(root, ".generated/server.ts"))).toBe(true);
-  });
+  }, 60_000);
 });

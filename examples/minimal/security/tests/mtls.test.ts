@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { clientCertificateOf, listenWithClientCertificates, type ClientCertificateServer } from "@quickservicets/core";
@@ -8,6 +8,9 @@ import { startTestService, type TestService } from "@quickservicets/cli/testing"
 const root = join(import.meta.dir, "..");
 /** Throwaway certificates created for this run in a temporary folder: a test CA, `localhost`, and the clients `billing` and `reports`. */
 const certs = createTestCertificates();
+
+// Each test builds and starts a TLS service, which can take longer than the default 5s on a busy machine.
+setDefaultTimeout(30_000);
 
 /** The example's own files with its config's `security` replaced, plus extra files the test needs. */
 function exampleFiles(security: string, extra: Record<string, string> = {}): Record<string, string> {

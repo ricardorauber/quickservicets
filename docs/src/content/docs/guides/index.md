@@ -23,3 +23,4 @@ The native features are each turned on by one config key:
 - [Multi-tenancy](/guides/multi-tenancy/)
 - [Authentication](/guides/authentication/)
 - [Usage metrics](/guides/usage-metrics/)
+- [API gateway](/guides/api-gateway/)

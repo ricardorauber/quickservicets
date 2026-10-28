@@ -322,8 +322,8 @@ async function tracedAttempt(request: HttpRequest, settings: HttpSettings, send:
 /** What `streamCall` sends: a request of a named service whose body and response are streamed. */
 export interface StreamCallSpec {
   method: string;
-  /** The path and query string, joined to the service's base URL like `http.service(name).get(path)`. */
-  path: string;
+  /** The absolute URL, on the service's origin. */
+  url: string;
   headers: Headers;
   body?: HttpBody;
   /** The named service the call goes through: its headers, authentication, modifiers and trusted host. */
@@ -335,8 +335,6 @@ export interface StreamCallSpec {
   signal?: AbortSignal;
   /** The request the call is made for, which the service's header and authentication functions receive. */
   req?: ServiceRequest;
-  /** Changes the request once its URL is known, before the modifiers run, like signing its final path. */
-  prepare?: (request: HttpRequest) => void;
 }
 
 /**
@@ -350,8 +348,7 @@ export async function streamCall(spec: StreamCallSpec): Promise<Response> {
   const service = serviceNamed(spec.service, settings);
   const headers = new Headers(spec.headers);
   await applyService(headers, service, spec.req ? { req: spec.req } : {}, false);
-  const request: HttpRequest = { method: spec.method, url: joinPath(service.url, spec.path).href, headers, body: spec.body, timeout: spec.timeout, signal: spec.signal, attempt: 1, service: service.name };
-  spec.prepare?.(request);
+  const request: HttpRequest = { method: spec.method, url: spec.url, headers, body: spec.body, timeout: spec.timeout, signal: spec.signal, attempt: 1, service: service.name };
   const sendOne = (changed: HttpRequest) => streamTransport(changed, settings, service.host, spec.idleTimeout);
   const attemptOf = (changed: HttpRequest) => (tracingEnabled() ? tracedAttempt(changed, settings, sendOne) : sendOne(changed));
   const send = (attempt: HttpRequest) => withHooks(attempt, settings, (changed) => (metricsEnabled() ? measuredAttempt(changed, () => attemptOf(changed)) : attemptOf(changed)));
@@ -648,6 +645,11 @@ export function joinPath(base: string, path: string): URL {
   url.search = joined.search;
   url.hash = "";
   return url;
+}
+
+/** The base URL of a named service of the running configuration; throws for a name nobody declared. */
+export function serviceUrl(name: string): string {
+  return serviceNamed(name).url;
 }
 
 /** The six methods of the client of service `name`, bound to `binding`. */

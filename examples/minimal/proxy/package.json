@@ -5,6 +5,7 @@
   "scripts": {
     "build": "quickservicets build",
     "catalog": "bun scripts/catalog.ts",
+    "orders": "bun scripts/orders.ts",
     "test": "bun test tests"
   },
   "dependencies": {

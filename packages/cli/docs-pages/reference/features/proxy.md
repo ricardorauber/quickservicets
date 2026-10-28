@@ -22,11 +22,16 @@ It is not enabled by default: turn it on with `proxy: {}` or `QS_PROXY_ENABLED=t
 
 | Key | Type | Default | Environment variable | Per request | Description |
 | --- | --- | --- | --- | --- | --- |
+| `proxy.beforeProxy` | `hook` | — | not overridable | no | Runs before each upstream call with the request, the route and the upstream URL and headers; it may return a changed upstream on the same origin, or throw an HttpError to refuse. |
+| `proxy.afterProxy` | `hook` | — | not overridable | no | Runs once the upstream answered, with the request, the route, the status, the headers and the duration. |
+| `proxy.onProxyError` | `hook` | — | not overridable | no | Runs when an upstream call fails, with the request, the route and the error. |
+| `proxy.forwarder` | `ProxyForwarder` | — | not overridable | no | Replaces how the gateway calls upstreams; authentication, identity headers, security options and hooks still apply. |
 | `proxy.identity.secret` | `string` | — | `QS_PROXY_IDENTITY_SECRET` | no | Signs every proxied request's forwarded identity with HMAC-SHA256, for proxyIdentity() in the upstream. |
 | `proxy.identity.header` | `string` | `"x-quickservicets-identity"` | `QS_PROXY_IDENTITY_HEADER` | no | The header carrying the signed identity. |
 | `proxy.identity.maxAge` | `duration` | `"60s"` | `QS_PROXY_IDENTITY_MAX_AGE` | no | How old a signed identity may be when the upstream checks it. |
 | `proxy.routes.<name>.path` | `record of string` | — | `QS_PROXY_ROUTES_<NAME>_PATH` | no | The path the route serves: an exact path, or a prefix ending in /* like /billing/*. |
-| `proxy.routes.<name>.target` | `record of url` | — | `QS_PROXY_ROUTES_<NAME>_TARGET` | no | The upstream's base URL; set this or service. |
+| `proxy.routes.<name>.target` | `record of url` | — | `QS_PROXY_ROUTES_<NAME>_TARGET` | yes | The upstream's base URL; set this or service. A function of the request, its user and tenant chooses it per request, among allowedTargets. |
+| `proxy.routes.<name>.allowedTargets` | `record of url[]` | `[]` | `QS_PROXY_ROUTES_<NAME>_ALLOWED_TARGETS` | no | The base URLs a target function may choose; any other origin answers 502. Required with a target function. |
 | `proxy.routes.<name>.service` | `record of string` | — | `QS_PROXY_ROUTES_<NAME>_SERVICE` | no | The http.services entry the route calls, with its headers, authentication, TLS and modifiers; set this or target. |
 | `proxy.routes.<name>.methods` | `record of string[]` | `["GET","HEAD","POST","PUT","PATCH","DELETE","OPTIONS"]` | `QS_PROXY_ROUTES_<NAME>_METHODS` | no | The methods the route forwards. |
 | `proxy.routes.<name>.timeout` | `record of duration` | `"30s"` | `QS_PROXY_ROUTES_<NAME>_TIMEOUT` | no | How long the upstream may take to send its response headers; longer answers 504. |
@@ -48,3 +53,21 @@ It is not enabled by default: turn it on with `proxy: {}` or `QS_PROXY_ENABLED=t
 | `proxy.routes.<name>.ip.deny` | `record of cidr[]` | — | `QS_PROXY_ROUTES_<NAME>_IP_DENY` | no | Addresses refused on the route, on top of the global lists. |
 | `proxy.routes.<name>.maxBodySize` | `record of size` | — | `QS_PROXY_ROUTES_<NAME>_MAX_BODY_SIZE` | no | The largest request body the route streams to the upstream; larger ones answer 413. |
 | `proxy.enabled` | `boolean` | `true` | `QS_PROXY_ENABLED` | no | Turns the feature off when false. |
+
+## Hooks
+
+Hooks are functions (or lists of functions) written in the config; `before` hooks may change the value or cancel the step by throwing, `after` and `on` hooks observe.
+
+| Hook | Kind | Description |
+| --- | --- | --- |
+| `proxy.beforeProxy` | before | Runs before each upstream call with the request, the route and the upstream URL and headers; it may return a changed upstream on the same origin, or throw an HttpError to refuse. |
+| `proxy.afterProxy` | after | Runs once the upstream answered, with the request, the route, the status, the headers and the duration. |
+| `proxy.onProxyError` | on | Runs when an upstream call fails, with the request, the route and the error. |
+
+## Tags
+
+The proxy has no JSDoc tags: its routes are configuration, not entity or endpoint files, so per-route settings (authentication, forwarding, rate limits, CORS, address lists and body limits) are route options.
+
+## Routes and variables
+
+Every option of a route has its variable, with the route's name in upper case and hyphens as underscores: `QS_PROXY_ROUTES_<NAME>_TARGET`, `QS_PROXY_ROUTES_<NAME>_TIMEOUT`, `QS_PROXY_ROUTES_<NAME>_STRIP_PREFIX`, `QS_PROXY_ROUTES_<NAME>_RATE_LIMIT_LIMIT`; `QS_PROXY_ROUTES` sets the whole record as JSON. `proxyRequest(req, routeName, overrides)` forwards a request with a route's settings from a project endpoint, and `proxyIdentity({ secret })` verifies the signed identity in services behind the gateway.

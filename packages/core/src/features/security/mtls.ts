@@ -1,4 +1,4 @@
-import { cidrMatcher, clientCertificateOf, clientFromEscapedPem, clientFromXfcc, HttpError, peerAddress, safeLog, setClientCertificate, type ClientCertificate, type Logger, type ParsedTag } from "../public.ts";
+import { cidrMatcher, clientCertificateOf, OptionError, resolveOption, type FeatureHook, type OptionFunction, type ServiceRequest, clientFromEscapedPem, clientFromXfcc, HttpError, peerAddress, safeLog, setClientCertificate, type ClientCertificate, type Logger, type ParsedTag } from "../public.ts";
 import { EXEMPT } from "./exempt.ts";
 import type { SecurityState, SecurityStep } from "./pipeline.ts";
 import type { SecurityRoute } from "./routes.ts";
@@ -68,9 +68,18 @@ export const certificateRequired = () => new HttpError(401, "Client certificate 
 /** The 403 of a client certificate outside the allowlist. */
 export const clientNotAllowed = () => new HttpError(403, "Client certificate not allowed", { code: "CLIENT_NOT_ALLOWED" });
 
+/** Checks a client certificate beyond its chain, like revocation lists or OCSP; true admits it, a text refuses it. */
+export interface ClientCertificateVerifier {
+  verify(input: { client: ClientCertificate; certificate: string | undefined }): boolean | string | Promise<boolean | string>;
+}
+
 /** What the mTLS step needs. */
 export interface MtlsSettings {
-  allow: readonly string[];
+  /** The admitted identities, or a function of the request, its client and tenant returning them. */
+  allow: readonly string[] | OptionFunction<string[]>;
+  /** Runs after verification with the client and the request; may return a changed client or throw to refuse. */
+  beforeClient?: readonly FeatureHook<{ client: ClientCertificate; req: ServiceRequest }, undefined>[];
+  verifier?: ClientCertificateVerifier;
   logger: Logger;
   /** Refuses requests without a client certificate everywhere (in the handshake on the TLS path). */
   required?: boolean;
@@ -127,9 +136,21 @@ function routeCheck(route: SecurityRoute, tag: ParsedTag, global: ClientCheck | 
  * exempted paths skip the checks.
  */
 export function mtlsStep(settings: MtlsSettings): SecurityStep {
-  const global = allowCheck(settings.allow);
+  const fixed = typeof settings.allow === "function" ? undefined : settings.allow;
+  const global = fixed ? allowCheck(fixed) : undefined;
   const readForwarded = settings.forwarded ? forwardedReader(settings.forwarded, settings.logger, settings.production === true) : undefined;
-  return {
+  const beforeClient = settings.beforeClient ?? [];
+  // A per-request allowlist, client hooks or a verifier need the request's user and tenant: the identity checks then
+  // run in the handler stage, after authentication and tenant resolution.
+  const late = typeof settings.allow === "function" || beforeClient.length > 0 || settings.verifier !== undefined;
+  /** Refuses a certificate, logging it and handing the reason and the client to the refusal hooks. */
+  const reject = (state: SecurityState, client: ClientCertificate, reason: string) => {
+    safeLog(settings.logger, "warn", { timestamp: new Date().toISOString(), message: "security.mtls.rejected", commonName: client.subject.commonName, fingerprint256: client.fingerprint256, reason });
+    return state.refuse("mtls", clientNotAllowed(), { reason, client: { commonName: client.subject.commonName, fingerprint256: client.fingerprint256 } });
+  };
+  /** Whether the route skips the identity checks: an exempt path, or `@mtls off`. */
+  const skipped = (state: SecurityState) => (state.exempt & EXEMPT.mtls) !== 0 || state.route?.tags.mtls?.on === false;
+  const step: SecurityStep = {
     name: "mtls",
     before(state: SecurityState) {
       // The forwarded header is read (or removed) before anything else sees the request, exempt paths included.
@@ -140,19 +161,46 @@ export function mtlsStep(settings: MtlsSettings): SecurityStep {
           throw state.refuse("mtls", error as HttpError);
         }
       }
-      if (state.exempt & EXEMPT.mtls) return;
+      if (skipped(state)) return;
       const tag = state.route?.tags.mtls;
-      if (tag && !tag.on) return;
       const client = clientCertificateOf(state.ctx.request);
       if (!client) {
         if (tag?.on || settings.required) throw state.refuse("mtls", certificateRequired());
         return;
       }
+      if (late) return;
       const check = tag?.on ? routeCheck(state.route!, tag, global) : global;
-      if (check && !check(client)) {
-        safeLog(settings.logger, "warn", { timestamp: new Date().toISOString(), message: "security.mtls.rejected", commonName: client.subject.commonName, fingerprint256: client.fingerprint256 });
-        throw state.refuse("mtls", clientNotAllowed());
-      }
+      if (check && !check(client)) throw reject(state, client, "not on the allowlist");
     },
   };
+  if (late) {
+    step.handler = async (req, state) => {
+      if (skipped(state)) return;
+      let client = req.client;
+      if (!client) return;
+      for (const hook of beforeClient) {
+        const changed = (await hook({ client, req }, undefined)) as unknown;
+        if (changed && typeof changed === "object") client = ("client" in changed ? (changed as { client: ClientCertificate }).client : changed) as ClientCertificate;
+      }
+      if (client !== req.client) {
+        setClientCertificate(req.raw, client);
+        Object.defineProperty(req, "client", { value: client, configurable: true, enumerable: true, writable: true });
+      }
+      if (settings.verifier) {
+        const verdict = await settings.verifier.verify({ client, certificate: client.pem });
+        if (verdict !== true) throw reject(state, client, typeof verdict === "string" ? verdict : "refused by the verifier");
+      }
+      const tag = state.route?.tags.mtls;
+      let check: ClientCheck | undefined;
+      if (tag?.on && tag.options.allow !== undefined) check = routeCheck(state.route!, tag, global);
+      else if (typeof settings.allow === "function") {
+        const entries = (await resolveOption(settings.allow, { req, client, tenant: req.tenant } as never)) ?? [];
+        const problems = allowProblems(entries, "security.mtls.allow");
+        if (problems.length > 0) throw new OptionError(problems.join("\n"));
+        check = allowCheck(entries);
+      } else check = global;
+      if (check && !check(client)) throw reject(state, client, "not on the allowlist");
+    };
+  }
+  return step;
 }

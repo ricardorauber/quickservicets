@@ -310,6 +310,7 @@ registerShippedNative(proxyNative);
 export {
   addAuthScheme,
   AuthError,
+  certificateAuth,
   authFeature,
   dummyPasswordCheck,
   identifierHash,
@@ -325,7 +326,7 @@ export {
   tokenHashOf,
   tooManyAttempts,
 } from "./features/auth/index.ts";
-export type { LoginCheck, LoginGuard, LoginGuardOptions, LoginThrottleRecord, LoginThrottleStore, SessionRevokedEvent, SessionStore, SessionStoreOptions, StoredSession } from "./features/auth/index.ts";
+export type { CertificateAuthOptions, LoginCheck, LoginGuard, LoginGuardOptions, LoginThrottleRecord, LoginThrottleStore, SessionRevokedEvent, SessionStore, SessionStoreOptions, StoredSession } from "./features/auth/index.ts";
 export type { AuthApi, AuthCredentials, AuthenticatedUser, AuthMethod, AuthProvider, AuthResult, AuthResultUser, RequestAuth, RevokeTarget } from "./features/auth/index.ts";
 export { LatencySketch, metricsFeature, queryMetrics, setMetricsClock } from "./features/metrics/index.ts";
 export type { EncodedSketch, MetricsApi, MetricsFigures, MetricsQuery, MetricsResult, MetricsSeries, MetricsStore, MetricWindow, StoredSeries, StoredWindow, WindowClosed } from "./features/metrics/index.ts";
@@ -335,7 +336,7 @@ export { addOutboxPatterns, events, eventsFeature, listen, memoryEventBus, readO
 export type { ConsumerOptions, DeliveryContext, DeliveryStatus, OutboxRecord } from "./features/events/index.ts";
 export type { EventBus, EventListener, Events, EventsApi, ListenerContext, ListenerFile, ListenerPhase, ListenOptions, MemoryEventBus } from "./features/events/index.ts";
 export { DEFAULT_MASKED_KEYS, maskEntry, maskText, maskUrl, memoryRateLimitStore, securityFeature, slidingWindowHit } from "./features/security/index.ts";
-export type { ClientIpResolver, ExemptibleItem, SecurityRouteOptions, MaskingRules, MemoryRateLimitStore, RateLimitRefusal, SecurityRefusal, RateLimitHit, RateLimitResult, RateLimitStore, SecurityApi, WindowCounts } from "./features/security/index.ts";
+export type { ClientCertificateVerifier, ClientIpResolver, ExemptibleItem, SecurityRouteOptions, MaskingRules, MemoryRateLimitStore, RateLimitRefusal, SecurityRefusal, RateLimitHit, RateLimitResult, RateLimitStore, SecurityApi, WindowCounts } from "./features/security/index.ts";
 
 export { databaseBroker, isQueueDefinition, QUEUE_MESSAGE_STATUSES, queue, queueMessageEntity, queues, queuesFeature } from "./features/queues/index.ts";
 export type {

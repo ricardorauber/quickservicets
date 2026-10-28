@@ -6,6 +6,8 @@ import { clientFromPeer, setClientCertificate } from "../client-certificates.ts"
 /** What serving with client certificates needs: the TLS material, the trusted CAs, the mode and the request handler. */
 export interface ClientCertificateServerOptions {
   port: number;
+  /** The address to listen on; all interfaces when left out. */
+  hostname?: string;
   /** The server certificate, key, passphrase and version options. */
   tls: { cert: string; key: string; ca?: string[]; passphrase?: string; secureOptions?: number };
   /** The authorities client certificates must chain to. */
@@ -15,7 +17,7 @@ export interface ClientCertificateServerOptions {
   /** Seconds an idle connection stays open, 0 for never. */
   idleTimeout?: number;
   /** Answers one request; `peer` is the client's address. */
-  fetch(request: Request, peer: string): Promise<Response>;
+  fetch(request: Request, peer: string): Response | Promise<Response>;
 }
 
 /** A server listening with client certificates. */
@@ -80,8 +82,7 @@ export function listenWithClientCertificates(options: ClientCertificateServerOpt
       const peer = socket.getPeerCertificate(true);
       if (peer && Object.keys(peer).length > 0) setClientCertificate(request, () => clientFromPeer(peer));
     }
-    options
-      .fetch(request, socket.remoteAddress ?? "unknown")
+    Promise.try(() => options.fetch(request, socket.remoteAddress ?? "unknown"))
       .then((response) => writeResponse(response, outgoing))
       .catch(() => {
         if (!outgoing.headersSent) outgoing.writeHead(500);
@@ -114,7 +115,8 @@ export function listenWithClientCertificates(options: ClientCertificateServerOpt
   };
   let current = listener(options.tls, options.clientCa);
   let clientCa = options.clientCa;
-  current.listen({ port: options.port, reusePort: true } as never);
+  const host = options.hostname !== undefined ? { host: options.hostname } : {};
+  current.listen({ port: options.port, ...host, reusePort: true } as never);
   const address = current.address();
   const port = typeof address === "object" && address ? address.port : options.port;
   const retired = new Set<ReturnType<typeof createTlsServer>>();
@@ -124,7 +126,7 @@ export function listenWithClientCertificates(options: ClientCertificateServerOpt
     reload(next) {
       clientCa = next.clientCa ?? clientCa;
       const replacement = listener(next.tls, clientCa);
-      replacement.listen({ port, reusePort: true } as never);
+      replacement.listen({ port, ...host, reusePort: true } as never);
       const previous = current;
       current = replacement;
       retired.add(previous);

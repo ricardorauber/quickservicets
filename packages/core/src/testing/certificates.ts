@@ -30,6 +30,8 @@ export interface TestCertificates {
   reports: TestCertificate;
   /** Client `CN=orders-api`, with the SAN `spiffe://cluster.local/ns/orders/sa/api`. */
   orders: TestCertificate;
+  /** Client `CN=orders-api` that expires in one day. */
+  shortLived: TestCertificate;
   /** Client `CN=billing` signed by `otherCa`. */
   otherClient: TestCertificate;
 }
@@ -79,6 +81,7 @@ export function createTestCertificates(): TestCertificates {
     billing: issue(dir, "client-billing", "ca", "/CN=billing/O=Acme/OU=Payments", client("URI:spiffe://cluster.local/ns/billing/sa/billing,DNS:billing.internal"), 3650),
     reports: issue(dir, "client-reports", "ca", "/CN=reports/O=Acme", client(), 3650),
     orders: issue(dir, "client-orders", "ca", "/CN=orders-api/O=Acme", client("URI:spiffe://cluster.local/ns/orders/sa/api"), 3650),
+    shortLived: issue(dir, "client-short-lived", "ca", "/CN=orders-api/O=Acme", client(), 1),
     otherClient: issue(dir, "client-other", "other-ca", "/CN=billing/O=Acme", client(), 3650),
   };
   return created;

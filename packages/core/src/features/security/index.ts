@@ -1,4 +1,4 @@
-import { coreInstruments, metricsEnabled, anyOf, hook, normalizeAddress, provider, runAfterHooks, secretVariableValues, boolean, cidr, defineFeature, duration, integer, list, object, oneOf, parseDuration, parseSize, peerAddress, rate, safeLog, size, string, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext, type LogMasker, type ServiceRequest, activeSetup, readCertificates, reloadTls, type Logger, type HandlerMiddleware, type ParsedTags, type RequestMiddleware, type ServerSettings, type TaggedRoute } from "../public.ts";
+import { coreInstruments, metricsEnabled, anyOf, hook, normalizeAddress, provider, runAfterHooks, secretVariableValues, boolean, cidr, defineFeature, duration, integer, list, object, oneOf, parseDuration, parseSize, peerAddress, rate, safeLog, size, string, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext, type LogMasker, type ServiceRequest, activeSetup, readCertificates, reloadTls, type Logger, type ClientCertificate, type FeatureHook, type OptionFunction, type HandlerMiddleware, type ParsedTags, type RequestMiddleware, type ServerSettings, type TaggedRoute } from "../public.ts";
 import type { SecurityRouteOptions } from "./api.ts";
 import type { ClientIpResolver, RateLimitRefusal, SecurityApi, SecurityRefusal } from "./api.ts";
 import { corsProblems, corsStep, ownOptionsRoutes, routeCorsOptions } from "./cors.ts";
@@ -10,7 +10,7 @@ import { DEFAULT_CSP, DEFAULT_DOCS_CSP, headersStep } from "./headers.ts";
 import { bodyStep, FORM_OVERHEAD, largestUpload, limitsStep, routeBodyLimit } from "./limits.ts";
 import { SECURITY_ITEMS, securityMiddlewares, type RefusalListener, type SecurityMiddlewares, type SecurityStep } from "./pipeline.ts";
 import { proxyResolver } from "./proxy.ts";
-import { allowProblems, mtlsStep } from "./mtls.ts";
+import { allowProblems, mtlsStep, type ClientCertificateVerifier } from "./mtls.ts";
 import { KEY_PARTS, rateLimitStep, routePatterns } from "./rate-limit.ts";
 import { loadSheddingStep } from "./shedding.ts";
 import { memoryRateLimitStore, type RateLimitStore } from "./store.ts";
@@ -108,7 +108,13 @@ const options = object({
     ca: list(string()).default([]).describe("The certificate authorities client certificates must chain to, as file paths or PEM text; required while mtls is on."),
     allow: list(string())
       .default([])
-      .describe("The client identities admitted: CN=, O=, OU=, dns: (*. for subdomains), uri: (a trailing * for SPIFFE prefixes), email: or sha256: entries; empty admits every verified certificate."),
+      .perRequest()
+      .describe("The client identities admitted: CN=, O=, OU=, dns: (*. for subdomains), uri: (a trailing * for SPIFFE prefixes), email: or sha256: entries; empty admits every verified certificate. A function of the request, its client and tenant lists them per request."),
+    beforeClient: hook<{ client: ClientCertificate; req: ServiceRequest }, undefined>().describe("Runs after a client certificate was verified, with the client and the request; it may return a changed client, or throw an HttpError to refuse."),
+    onRejected: hook<SecurityRefusal, undefined>().describe("Runs after a request is refused for its client certificate, with the request, address, route, reason and client."),
+    verifier: provider<ClientCertificateVerifier>("ClientCertificateVerifier", ["verify"])
+      .optional()
+      .describe("Checks a verified client certificate further, like revocation (CRL or OCSP) or SPIFFE trust bundles: true admits it, a text refuses it with 403."),
     forwarded: toggle({
       header: string().default("x-forwarded-client-cert").describe("The header a trusted proxy or service mesh forwards the verified client certificate in."),
       format: oneOf(["xfcc", "pem"]).default("xfcc").describe("xfcc reads Envoy's x-forwarded-client-cert elements (Istio, Linkerd, Envoy); pem reads a URL-encoded certificate (NGINX $ssl_client_escaped_cert)."),
@@ -200,7 +206,9 @@ interface MtlsOptions {
   enabled: boolean;
   mode: "required" | "optional";
   ca: string[];
-  allow: string[];
+  allow: string[] | OptionFunction<string[]>;
+  beforeClient: FeatureHook<{ client: ClientCertificate; req: ServiceRequest }, undefined>[];
+  verifier?: ClientCertificateVerifier;
   forwarded: { enabled: boolean; header: string; format: "xfcc" | "pem"; trust: string[] };
 }
 
@@ -208,11 +216,12 @@ interface MtlsOptions {
 function mtlsProblems(mtls: MtlsOptions, config: Readonly<Record<string, unknown>>): string[] {
   const tls = (config.server as { tls?: { cert?: string } } | undefined)?.tls;
   // With forwarded certificates the proxy verified them: no TLS of the service's own and no authorities are needed.
-  if (mtls.forwarded.enabled) return allowProblems(mtls.allow);
+  const allow = typeof mtls.allow === "function" ? [] : allowProblems(mtls.allow);
+  if (mtls.forwarded.enabled) return allow;
   return [
     ...(tls?.cert === undefined ? ["security.mtls needs server.tls"] : []),
     ...(mtls.ca.length === 0 ? ["Invalid security.mtls.ca: give the certificate authorities client certificates chain to"] : []),
-    ...allowProblems(mtls.allow),
+    ...allow,
   ];
 }
 
@@ -272,7 +281,17 @@ function itemSteps(options: SecurityOptions, production: boolean, shared: Shared
   if (options.mtls.enabled) {
     const mtls = options.mtls as MtlsOptions;
     const forwarded = mtls.forwarded.enabled ? { header: mtls.forwarded.header.toLowerCase(), format: mtls.forwarded.format, trust: mtls.forwarded.trust.length > 0 ? mtls.forwarded.trust : options.proxy.trust } : undefined;
-    steps.push(mtlsStep({ allow: mtls.allow, logger: shared.logger!, required: mtls.mode === "required", production, ...(forwarded ? { forwarded } : {}) }));
+    steps.push(
+      mtlsStep({
+        allow: mtls.allow,
+        logger: shared.logger!,
+        required: mtls.mode === "required",
+        production,
+        beforeClient: mtls.beforeClient,
+        ...(mtls.verifier ? { verifier: mtls.verifier } : {}),
+        ...(forwarded ? { forwarded } : {}),
+      }),
+    );
   }
   if (options.limits.enabled) steps.push(limitsStep(options.limits));
   if (options.limits.enabled || options.timeouts.enabled) {
@@ -329,7 +348,7 @@ export function withRouteOptions(routes: readonly TaggedRoute[], entries: readon
 type SecurityOptions = FeatureOptions<typeof options>;
 
 /** The hook option of each item whose refusals run hooks. */
-const REFUSAL_HOOKS = { rateLimit: "onLimited", ip: "onBlocked", cors: "onRejected", loadShedding: "onShed", limits: "onRejected" } as const;
+const REFUSAL_HOOKS = { rateLimit: "onLimited", ip: "onBlocked", cors: "onRejected", loadShedding: "onShed", limits: "onRejected", mtls: "onRejected" } as const;
 
 /**
  * Runs the item's after-hooks once a refusal is decided, with the request, its address and route, the item and the
@@ -597,6 +616,7 @@ const securityFeature = defineFeature({
 export default securityFeature;
 export { securityFeature };
 export type { ClientIpResolver, RateLimitRefusal, SecurityApi, SecurityRefusal, SecurityRouteOptions } from "./api.ts";
+export type { ClientCertificateVerifier } from "./mtls.ts";
 export type { ExemptibleItem } from "./exempt.ts";
 export { memoryRateLimitStore, slidingWindowHit } from "./store.ts";
 export { DEFAULT_MASKED_KEYS, maskEntry, maskText, maskUrl } from "./masking.ts";

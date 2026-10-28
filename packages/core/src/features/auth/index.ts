@@ -87,6 +87,8 @@ const authOf = new WeakMap<ServiceRequest, RequestAuth>();
 
 /** The credential names of the registered providers, each with the providers that read it. */
 interface CredentialIndex {
+  /** The providers that read client certificates. */
+  certificate: AuthProvider[];
   headers: [string, AuthProvider[]][];
   cookies: [string, AuthProvider[]][];
   query: [string, AuthProvider[]][];
@@ -105,7 +107,12 @@ function credentialIndex(providers: readonly AuthProvider[]): CredentialIndex {
     }
     return [...owners];
   };
-  return { headers: group("headers", (name) => name.toLowerCase()), cookies: group("cookies", (name) => name), query: group("query", (name) => name) };
+  return {
+    headers: group("headers", (name) => name.toLowerCase()),
+    cookies: group("cookies", (name) => name),
+    query: group("query", (name) => name),
+    certificate: providers.filter((provider) => provider.credentials?.clientCertificate === true),
+  };
 }
 
 /** The providers owning a credential the request carries, in registration order; empty after one lookup per name. */
@@ -121,6 +128,7 @@ function presentProviders(req: ServiceRequest, index: CredentialIndex, order: re
     if (cookie !== null) for (const [name, owners] of index.cookies) if (cookieValue(cookie, name) !== undefined) add(owners);
   }
   for (const [name, owners] of index.query) if (req.query.has(name)) add(owners);
+  if (index.certificate.length > 0 && req.client) add(index.certificate);
   return found === undefined ? [] : order.filter((provider) => found!.has(provider));
 }
 
@@ -403,3 +411,6 @@ export type { OperationAuth } from "./openapi.ts";
 export { buildRouteRules, parseRoleEntry, ROLE_GROUPS, ROLE_OPERATIONS, ruleOf } from "./routes.ts";
 export type { RoleEntry, RouteRule, RuleOptions } from "./routes.ts";
 export type { TestAuthOptions } from "./test-provider.ts";
+
+export { certificateAuth } from "./certificate-auth.ts";
+export type { CertificateAuthOptions } from "./certificate-auth.ts";

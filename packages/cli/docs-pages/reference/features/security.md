@@ -75,7 +75,10 @@ It is enabled by default; turn it off with `security: false` or `QS_SECURITY_ENA
 | `security.mtls.enabled` | `boolean` | `true` | `QS_SECURITY_MTLS_ENABLED` | no | Asks callers for client certificates (mutual TLS), verified against the project's authorities, with the identity in req.client. Turns it off when false. |
 | `security.mtls.mode` | `"required" \| "optional"` | `"required"` | `QS_SECURITY_MTLS_MODE` | no | required refuses clients without a valid certificate in the TLS handshake; optional lets them in, and @mtls protects chosen routes. |
 | `security.mtls.ca` | `string[]` | `[]` | `QS_SECURITY_MTLS_CA` | no | The certificate authorities client certificates must chain to, as file paths or PEM text; required while mtls is on. |
-| `security.mtls.allow` | `string[]` | `[]` | `QS_SECURITY_MTLS_ALLOW` | no | The client identities admitted: CN=, O=, OU=, dns: (*. for subdomains), uri: (a trailing * for SPIFFE prefixes), email: or sha256: entries; empty admits every verified certificate. |
+| `security.mtls.allow` | `string[]` | `[]` | `QS_SECURITY_MTLS_ALLOW` | yes | The client identities admitted: CN=, O=, OU=, dns: (*. for subdomains), uri: (a trailing * for SPIFFE prefixes), email: or sha256: entries; empty admits every verified certificate. A function of the request, its client and tenant lists them per request. |
+| `security.mtls.beforeClient` | `hook` | — | not overridable | no | Runs after a client certificate was verified, with the client and the request; it may return a changed client, or throw an HttpError to refuse. |
+| `security.mtls.onRejected` | `hook` | — | not overridable | no | Runs after a request is refused for its client certificate, with the request, address, route, reason and client. |
+| `security.mtls.verifier` | `ClientCertificateVerifier` | — | not overridable | no | Checks a verified client certificate further, like revocation (CRL or OCSP) or SPIFFE trust bundles: true admits it, a text refuses it with 403. |
 | `security.mtls.forwarded.enabled` | `boolean` | `true` | `QS_SECURITY_MTLS_FORWARDED_ENABLED` | no | Takes the client identity a trusted proxy verified and forwarded, so mTLS can terminate in front of the service; server.tls is then not needed. Turns it off when false. |
 | `security.mtls.forwarded.header` | `string` | `"x-forwarded-client-cert"` | `QS_SECURITY_MTLS_FORWARDED_HEADER` | no | The header a trusted proxy or service mesh forwards the verified client certificate in. |
 | `security.mtls.forwarded.format` | `"xfcc" \| "pem"` | `"xfcc"` | `QS_SECURITY_MTLS_FORWARDED_FORMAT` | no | xfcc reads Envoy's x-forwarded-client-cert elements (Istio, Linkerd, Envoy); pem reads a URL-encoded certificate (NGINX $ssl_client_escaped_cert). |
@@ -234,6 +237,8 @@ Hooks are functions (or lists of functions) written in the config; `before` hook
 | `security.loadShedding.onShed` | on | Runs after a request is refused because the worker is busy. |
 | `security.rateLimit.onLimited` | on | Runs after a request is refused with 429, with the bucket's key and limit. |
 | `security.ip.onBlocked` | on | Runs after a request is refused for its address. |
+| `security.mtls.beforeClient` | before | Runs after a client certificate was verified, with the client and the request; it may return a changed client, or throw an HttpError to refuse. |
+| `security.mtls.onRejected` | on | Runs after a request is refused for its client certificate, with the request, address, route, reason and client. |
 
 ## Feature API
 

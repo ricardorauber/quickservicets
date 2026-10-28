@@ -15,6 +15,8 @@ let elsewhere: ClientCertificateServer;
 const server = (name: string, required: boolean, answer: (request: Request) => Response) =>
   listenWithClientCertificates({
     port: 0,
+    // Bound to the loopback name its URL uses: the redirect target is reached by IP.
+    hostname: name === "elsewhere" ? "127.0.0.1" : "localhost",
     tls: { cert: certs.server.certPem, key: certs.server.keyPem },
     clientCa: [certs.ca.certPem],
     required,

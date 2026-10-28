@@ -35,6 +35,8 @@ export interface AuthCredentials {
   cookies?: readonly string[];
   /** Query parameter names, like `access_token`. */
   query?: readonly string[];
+  /** True for providers that read the caller's client certificate (`req.client`), run when the request has one. */
+  clientCertificate?: boolean;
 }
 
 /** What a session revocation names: one session, or every session of a user. */

@@ -250,6 +250,7 @@ An error thrown by the logger never changes the response.
 - [Authentication](/guides/authentication/): the `auth` key, for one authentication contract, `@auth` and `@roles`, OpenAPI security, the account protection kit and CSRF for cookie sessions.
 - [Usage metrics](/guides/usage-metrics/): the `metrics` key, for requests, errors and latency per route, tenant and user, served at `/_metrics` as JSON and for Prometheus.
 - [API gateway](/guides/api-gateway/): the `proxy` key, for forwarding path prefixes to other services with rewriting, authentication, signed identity headers and security per route.
+- [mTLS](/guides/mtls/): `server.tls` and the `security.mtls` item, for HTTPS from the service, client certificates, forwarded identities and certificates for outgoing calls.
 - [HTTP client](/guides/http-client/): the `http` key, on by default: outgoing calls with SSRF protection, named services, retries, circuit breakers, caching and mocks.
 
 Next: [Jobs](/guides/jobs/).

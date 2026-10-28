@@ -59,9 +59,11 @@ export interface SecurityRefusal {
   /** The matched route, like `GET /posts/[id]`, or undefined for an unknown path. */
   route: string | undefined;
   /** The item that refused the request. */
-  item: "rateLimit" | "ip" | "cors" | "loadShedding" | "limits";
+  item: "rateLimit" | "ip" | "cors" | "loadShedding" | "limits" | "mtls";
   /** The message of the refusal, like `Too many requests`. */
   reason: string;
+  /** The caller's client certificate, for refusals of the `mtls` item. */
+  client?: { commonName?: string; fingerprint256: string };
 }
 
 /** What `rateLimit.onLimited` receives: a refusal with the bucket's key and limit. */

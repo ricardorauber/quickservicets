@@ -1,4 +1,5 @@
-import { coreInstruments, metricsEnabled, anyOf, hook, normalizeAddress, provider, runAfterHooks, secretVariableValues, boolean, cidr, defineFeature, duration, integer, list, object, oneOf, parseDuration, parseSize, peerAddress, rate, safeLog, size, string, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext, type LogMasker, type ServiceRequest } from "../public.ts";
+import { coreInstruments, metricsEnabled, anyOf, hook, normalizeAddress, provider, runAfterHooks, secretVariableValues, boolean, cidr, defineFeature, duration, integer, list, object, oneOf, parseDuration, parseSize, peerAddress, rate, safeLog, size, string, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext, type LogMasker, type ServiceRequest, activeSetup, type HandlerMiddleware, type ParsedTags, type RequestMiddleware, type ServerSettings, type TaggedRoute } from "../public.ts";
+import type { SecurityRouteOptions } from "./api.ts";
 import type { ClientIpResolver, RateLimitRefusal, SecurityApi, SecurityRefusal } from "./api.ts";
 import { corsProblems, corsStep, ownOptionsRoutes, routeCorsOptions } from "./cors.ts";
 import { Exemptions } from "./exempt.ts";
@@ -7,7 +8,7 @@ import { ipStep } from "./ip.ts";
 import { DEFAULT_ATTACHMENT_TYPES, fileHeaders } from "./files.ts";
 import { DEFAULT_CSP, DEFAULT_DOCS_CSP, headersStep } from "./headers.ts";
 import { bodyStep, FORM_OVERHEAD, largestUpload, limitsStep, routeBodyLimit } from "./limits.ts";
-import { SECURITY_ITEMS, securityMiddlewares, type RefusalListener, type SecurityStep } from "./pipeline.ts";
+import { SECURITY_ITEMS, securityMiddlewares, type RefusalListener, type SecurityMiddlewares, type SecurityStep } from "./pipeline.ts";
 import { proxyResolver } from "./proxy.ts";
 import { KEY_PARTS, rateLimitStep, routePatterns } from "./rate-limit.ts";
 import { loadSheddingStep } from "./shedding.ts";
@@ -127,6 +128,17 @@ interface SetupState {
   store: StoreSlot;
   /** The masking of log entries, while `masking` is on. */
   mask?: LogMasker;
+  /** The route options features gave during setup, by pattern. */
+  routeOptions: { pattern: string; tags: ParsedTags }[];
+  /** Whether route options are still accepted. */
+  open: boolean;
+  /** The server settings of the service, whose body limit route options raise. */
+  server?: ServerSettings;
+  /** The handler-stage middleware delegating to the current steps, and whether it was added. */
+  handler?: HandlerMiddleware;
+  handlerAdded?: boolean;
+  /** Rebuilds the route index and the steps with the route options. */
+  rebuild?: () => void;
 }
 
 const setupStates = new WeakMap<object, SetupState>();
@@ -164,10 +176,16 @@ function databaseStore(ctx: FeatureSetupContext<SecurityOptions>): RateLimitStor
   return store;
 }
 
-/** The steps of the enabled items, in no particular order; the pipeline orders them. */
-function itemSteps(ctx: FeatureSetupContext<SecurityOptions>, index: () => RouteIndex | undefined, ipOf: (request: Request) => string, slot: StoreSlot): SecurityStep[] {
+/** What the steps share across rebuilds: the rate limit store and the load shedding step, which hold state. */
+interface SharedSteps {
+  store?: RateLimitStore;
+  shedding?: SecurityStep;
+}
+
+/** Prepares the parts of the steps that hold state, once per setup. */
+function sharedSteps(ctx: FeatureSetupContext<SecurityOptions>, slot: StoreSlot): SharedSteps {
   const { options } = ctx;
-  const steps: SecurityStep[] = [];
+  const shared: SharedSteps = {};
   if (options.rateLimit.enabled) {
     const { rateLimit } = options;
     if (isStore(rateLimit.store)) slot.current = rateLimit.store;
@@ -176,15 +194,25 @@ function itemSteps(ctx: FeatureSetupContext<SecurityOptions>, index: () => Route
       safeLog(ctx.logger, "warn", { timestamp: new Date().toISOString(), message: 'security.rateLimit uses per-worker memory counters; set security.rateLimit.store to "database" to share them' });
     }
     // A feature may still replace the store during setup, so hits go through the slot.
-    const store: RateLimitStore = { hit: (key, hit) => slot.current.hit(key, hit), reset: (key) => slot.current.reset(key) };
-    steps.push(rateLimitStep(rateLimit, { store, ipOf, tagged: index()?.routes ?? [], ...(rateLimit.by.includes("route") ? { routes: routePatterns(taggedRoutes()) } : {}) }));
+    shared.store = { hit: (key, hit) => slot.current.hit(key, hit), reset: (key) => slot.current.reset(key) };
   }
-  if (options.headers.enabled) steps.push(headersStep(options.headers, ctx.config.production));
   if (options.loadShedding.enabled) {
     const shedding = loadSheddingStep(options.loadShedding, ctx.logger);
     ctx.app.onStop(() => shedding.stop());
-    steps.push(shedding);
+    shared.shedding = shedding;
   }
+  return shared;
+}
+
+/** The steps of the enabled items, in no particular order; the pipeline orders them. */
+function itemSteps(options: SecurityOptions, production: boolean, shared: SharedSteps, index: () => RouteIndex | undefined, ipOf: (request: Request) => string): SecurityStep[] {
+  const steps: SecurityStep[] = [];
+  if (options.rateLimit.enabled) {
+    const { rateLimit } = options;
+    steps.push(rateLimitStep(rateLimit, { store: shared.store!, ipOf, tagged: index()?.routes ?? [], ...(rateLimit.by.includes("route") ? { routes: routePatterns(taggedRoutes()) } : {}) }));
+  }
+  if (options.headers.enabled) steps.push(headersStep(options.headers, production));
+  if (shared.shedding) steps.push(shared.shedding);
   if (options.ip.enabled) {
     const step = ipStep(options.ip, ipOf, index()?.routes ?? []);
     if (step) steps.push(step);
@@ -201,6 +229,45 @@ function itemSteps(ctx: FeatureSetupContext<SecurityOptions>, index: () => Route
     );
   }
   return steps;
+}
+
+/** The methods a route option covers: every method a route may have. */
+const ROUTE_OPTION_METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
+
+/** The tags a route option stands for, as the items read them from a tagged route. */
+export function routeOptionTags(options: SecurityRouteOptions): ParsedTags {
+  const tags: ParsedTags = {};
+  if (options.rateLimit) tags.rateLimit = { on: true, options: { limit: options.rateLimit.limit, ...(options.rateLimit.by ? { by: [...options.rateLimit.by] } : {}) } };
+  if (options.cors) tags.cors = { on: true, options: { ...options.cors } };
+  if (options.ip?.allow) tags.ipAllow = { on: true, options: { allow: [...options.ip.allow] } };
+  if (options.ip?.deny) tags.ipDeny = { on: true, options: { deny: [...options.ip.deny] } };
+  if (options.limits) tags.limits = { on: true, options: { body: options.limits.body } };
+  return tags;
+}
+
+/** Whether a route path is covered by a route option's pattern: the same path, or a path under its `/*` prefix. */
+function coveredBy(pattern: string, path: string): boolean {
+  if (!pattern.endsWith("/*")) return path === pattern;
+  const prefix = pattern.slice(0, -2);
+  return path === prefix || path.startsWith(`${prefix}/`);
+}
+
+/** The app's routes with the tags of the route options added: to the routes they cover, and as routes of their own. */
+export function withRouteOptions(routes: readonly TaggedRoute[], entries: readonly { pattern: string; tags: ParsedTags }[]): TaggedRoute[] {
+  const merged = routes.map((route) => {
+    const tags = entries.filter((entry) => coveredBy(entry.pattern, route.path)).reduce<ParsedTags | undefined>((all, entry) => ({ ...all, ...entry.tags }), undefined);
+    return tags ? { ...route, tags: { ...route.tags, ...tags } } : route;
+  });
+  const taken = new Set(merged.map((route) => `${route.method} ${route.path}`));
+  for (const entry of entries) {
+    const path = entry.pattern.endsWith("/*") ? `${entry.pattern.slice(0, -2) === "/" ? "" : entry.pattern.slice(0, -2)}/[...rest]` : entry.pattern;
+    for (const method of ROUTE_OPTION_METHODS) {
+      if (taken.has(`${method} ${path}`)) continue;
+      taken.add(`${method} ${path}`);
+      merged.push({ method, path, tags: entry.tags } as TaggedRoute);
+    }
+  }
+  return merged;
 }
 
 type SecurityOptions = FeatureOptions<typeof options>;
@@ -318,10 +385,10 @@ const securityFeature = defineFeature({
   setup(ctx) {
     const exemptions = new Exemptions();
     const slot: StoreSlot = { current: memoryRateLimitStore({ maxKeys: ctx.options.rateLimit.memory.maxKeys }), open: true, ...(isStore(ctx.options.rateLimit.store) ? { owner: "the config" } : {}) };
-    setupStates.set(ctx.app, { exemptions, store: slot });
+    setupStates.set(ctx.app, { exemptions, store: slot, routeOptions: [], open: true });
     const enabled = SECURITY_ITEMS.filter((item) => ctx.options[item].enabled);
     // Routes are indexed only when one carries a security tag, so other requests do no lookup.
-    const index: RouteIndex | undefined = buildRouteIndex(taggedRoutes(), Object.keys(securityFeature.tags ?? {}));
+    let index: RouteIndex | undefined = buildRouteIndex(taggedRoutes(), Object.keys(securityFeature.tags ?? {}));
     const problems = (index?.routes ?? []).flatMap((route) => (route.tags.cors?.on ? corsProblems(routeCorsOptions(ctx.options.cors, route), `@cors of ${route.method} ${route.path}`) : []));
     if (problems.length > 0) throw new Error(problems.join("\n"));
     const proxy = ctx.options.proxy;
@@ -348,13 +415,17 @@ const securityFeature = defineFeature({
       ctx.app.configureServer({ clientIp });
       ipOf = (request) => clientIp(request, peerAddress(request));
     }
-    const steps = itemSteps(ctx, () => index, ipOf, slot);
+    const shared = sharedSteps(ctx, slot);
+    const steps = itemSteps(ctx.options, ctx.config.production, shared, () => index, ipOf);
     if (ctx.options.limits.enabled) {
       // The socket refuses bodies no route could accept: larger than every body limit and than any upload the model allows.
       const upload = largestUpload(ctx.models, ctx.config.files.maxSize);
       const tagged = (index?.routes ?? []).map((route) => routeBodyLimit(route) ?? 0);
       ctx.app.configureServer({ maxRequestBodySize: Math.max(parseSize(ctx.options.limits.body)!, ...tagged, upload > 0 ? upload + FORM_OVERHEAD : 0) });
     }
+    // Route options of later features raise the socket's limit on the same server settings.
+    const state = setupStates.get(ctx.app)!;
+    state.server = activeSetup()?.server;
     if (ctx.options.masking.enabled) {
       const secrets = [
         ...secretVariableValues(),
@@ -387,14 +458,26 @@ const securityFeature = defineFeature({
       );
     }
     if (steps.length > 0) {
-      const middlewares = securityMiddlewares(steps, exemptions, () => index, withRateLimitMetric(refusalHooks(ctx, ipOf)));
-      ctx.app.use(middlewares.request);
-      if (middlewares.handler) ctx.app.use(middlewares.handler);
+      const refusals = withRateLimitMetric(refusalHooks(ctx, ipOf));
+      let current: SecurityMiddlewares = securityMiddlewares(steps, exemptions, () => index, refusals);
+      if (current.handler) state.handlerAdded = true;
+      // The middlewares delegate to the current steps, which route options of later features rebuild once at start.
+      const request: RequestMiddleware = { stage: "request", order: -1000, run: (context, next) => current.request.run(context, next) };
+      const handler: HandlerMiddleware = { stage: "handler", order: 1000, run: (req, res, next) => (current.handler ? current.handler.run(req, res, next) : next()) };
+      ctx.app.use(request);
+      if (current.handler) ctx.app.use(handler);
+      state.handler = handler;
+      state.rebuild = () => {
+        index = buildRouteIndex(withRouteOptions(taggedRoutes(), state.routeOptions), Object.keys(securityFeature.tags ?? {}));
+        current = securityMiddlewares(itemSteps(ctx.options, ctx.config.production, shared, () => index, ipOf), exemptions, () => index, refusals);
+      };
     }
     // Features that run after this one add their exemptions in their own setup; the list is final once the app starts.
     ctx.app.onStart(() => {
       exemptions.close();
       slot.open = false;
+      state.open = false;
+      if (state.routeOptions.length > 0) state.rebuild?.();
     });
     safeLog(ctx.logger, "info", { timestamp: new Date().toISOString(), message: "security.enabled", items: enabled });
   },
@@ -404,6 +487,29 @@ const securityFeature = defineFeature({
     return {
       masker: () => state.mask,
       exempt: (pattern, items) => exemptions.add(pattern, items),
+      routeOptions(pattern, options) {
+        if (!state.open || !activeSetup()) throw new Error("security routeOptions() is only available during setup");
+        if (typeof pattern !== "string" || !/^\/[^*]*(\/\*)?$/.test(pattern)) throw new Error(`Invalid security route pattern ${JSON.stringify(pattern)}: expected a path or a prefix ending in /*`);
+        const tags = routeOptionTags(options ?? {});
+        if (Object.keys(tags).length === 0) return;
+        const caller = ctx.currentFeature() ?? "a feature";
+        if (tags.cors) {
+          const problems = corsProblems(routeCorsOptions(ctx.options.cors, { tags } as never), `security route options of ${pattern} (${caller})`);
+          if (problems.length > 0) throw new Error(problems.join("\n"));
+        }
+        state.routeOptions.push({ pattern, tags });
+        const body = tags.limits ? parseSize(tags.limits.options.body as string | number) : undefined;
+        if (body !== undefined && ctx.options.limits.enabled && state.server && body > (state.server.maxRequestBodySize ?? 0)) state.server.maxRequestBodySize = body;
+        // A limit keyed by user or tenant, or computed per request, runs in the handler stage, which the caller adds.
+        const late = tags.rateLimit && (typeof tags.rateLimit.options.limit === "function" || ((tags.rateLimit.options.by as string[] | undefined) ?? []).some((part) => part === "user" || part === "tenant"));
+        if (late && !state.handlerAdded && state.handler) {
+          activeSetup()?.use?.(state.handler);
+          state.handlerAdded = true;
+        }
+      },
+      limit(pattern, options) {
+        this.routeOptions(pattern, { rateLimit: { limit: options.limit, ...(options.by ? { by: options.by } : {}) } });
+      },
       rateLimitStore(replacement) {
         const caller = ctx.currentFeature() ?? "a feature";
         if (!store.open) throw new Error("security rateLimitStore() is only available during setup");
@@ -418,7 +524,7 @@ const securityFeature = defineFeature({
 
 export default securityFeature;
 export { securityFeature };
-export type { ClientIpResolver, RateLimitRefusal, SecurityApi, SecurityRefusal } from "./api.ts";
+export type { ClientIpResolver, RateLimitRefusal, SecurityApi, SecurityRefusal, SecurityRouteOptions } from "./api.ts";
 export type { ExemptibleItem } from "./exempt.ts";
 export { memoryRateLimitStore, slidingWindowHit } from "./store.ts";
 export { DEFAULT_MASKED_KEYS, maskEntry, maskText, maskUrl } from "./masking.ts";

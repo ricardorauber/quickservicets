@@ -16,7 +16,7 @@ It is not enabled by default: turn it on with `proxy: {}` or `QS_PROXY_ENABLED=t
 
 **Requires:** [`http`](/reference/features/http/) (proxy routes call their upstreams through the HTTP client)
 
-**Runs after:** `auth`
+**Runs after:** `auth`, `security`
 
 ## Options
 
@@ -38,4 +38,13 @@ It is not enabled by default: turn it on with `proxy: {}` or `QS_PROXY_ENABLED=t
 | `proxy.routes.<name>.roles` | `record of string[]` | `[]` | `QS_PROXY_ROUTES_<NAME>_ROLES` | no | Roles of which the user needs one; answers 403 Not allowed otherwise. |
 | `proxy.routes.<name>.scopes` | `record of string[]` | `[]` | `QS_PROXY_ROUTES_<NAME>_SCOPES` | no | Token scopes the credentials need, all of them; answers 403 Insufficient scope otherwise. |
 | `proxy.routes.<name>.forward` | `record of ("user" \| "roles" \| "tenant" \| "authorization" \| "cookie")[]` | `["user","tenant"]` | `QS_PROXY_ROUTES_<NAME>_FORWARD` | no | What the upstream receives of the request's identity: user as x-user-id, roles as x-user-roles, tenant as x-tenant-id, and the incoming authorization or cookie headers. |
+| `proxy.routes.<name>.rateLimit.limit` | `record of rate` | — | `QS_PROXY_ROUTES_<NAME>_RATE_LIMIT_LIMIT` | no | The route's own limit, like 100/min, on top of the global one. |
+| `proxy.routes.<name>.rateLimit.by` | `record of ("ip" \| "user" \| "tenant" \| "route")[]` | — | `QS_PROXY_ROUTES_<NAME>_RATE_LIMIT_BY` | no | What the route's limit counts by (default the global rateLimit.by). |
+| `proxy.routes.<name>.cors.origins` | `record of string[]` | — | `QS_PROXY_ROUTES_<NAME>_CORS_ORIGINS` | no | The browser origins allowed to call the route. |
+| `proxy.routes.<name>.cors.credentials` | `record of boolean` | — | `QS_PROXY_ROUTES_<NAME>_CORS_CREDENTIALS` | no | Allows credentialed requests from those origins. |
+| `proxy.routes.<name>.cors.methods` | `record of string[]` | — | `QS_PROXY_ROUTES_<NAME>_CORS_METHODS` | no | The methods preflights allow. |
+| `proxy.routes.<name>.cors.headers` | `record of string[]` | — | `QS_PROXY_ROUTES_<NAME>_CORS_HEADERS` | no | The request headers preflights allow. |
+| `proxy.routes.<name>.ip.allow` | `record of cidr[]` | — | `QS_PROXY_ROUTES_<NAME>_IP_ALLOW` | no | Addresses served on the route, on top of the global lists. |
+| `proxy.routes.<name>.ip.deny` | `record of cidr[]` | — | `QS_PROXY_ROUTES_<NAME>_IP_DENY` | no | Addresses refused on the route, on top of the global lists. |
+| `proxy.routes.<name>.maxBodySize` | `record of size` | — | `QS_PROXY_ROUTES_<NAME>_MAX_BODY_SIZE` | no | The largest request body the route streams to the upstream; larger ones answer 413. |
 | `proxy.enabled` | `boolean` | `true` | `QS_PROXY_ENABLED` | no | Turns the feature off when false. |

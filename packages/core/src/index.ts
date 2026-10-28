@@ -63,6 +63,8 @@ export type { ErrorReport, ErrorReporter, ErrorReportKind, ErrorReportRequest, F
 export { observeJobRuns } from "./jobs/observers.ts";
 export { contextFlags, setContextFlags } from "./context-flags.ts";
 export { contextHttp, setContextHttp } from "./context-http.ts";
+export { activeSetup } from "./setup-phase.ts";
+export type { ActiveSetup } from "./setup-phase.ts";
 export { activeSpan, formatTraceparent, noopTracer, parseTraceparent, setTracer, spanAttributes, startSpan, tracingEnabled, withSpan } from "./tracing.ts";
 export { observeRequests, requestsObserved } from "./request-observers.ts";
 export type { RequestObservation, RequestObserver } from "./request-observers.ts";
@@ -325,7 +327,7 @@ export { addOutboxPatterns, events, eventsFeature, listen, memoryEventBus, readO
 export type { ConsumerOptions, DeliveryContext, DeliveryStatus, OutboxRecord } from "./features/events/index.ts";
 export type { EventBus, EventListener, Events, EventsApi, ListenerContext, ListenerFile, ListenerPhase, ListenOptions, MemoryEventBus } from "./features/events/index.ts";
 export { DEFAULT_MASKED_KEYS, maskEntry, maskText, maskUrl, memoryRateLimitStore, securityFeature, slidingWindowHit } from "./features/security/index.ts";
-export type { ClientIpResolver, ExemptibleItem, MaskingRules, MemoryRateLimitStore, RateLimitRefusal, SecurityRefusal, RateLimitHit, RateLimitResult, RateLimitStore, SecurityApi, WindowCounts } from "./features/security/index.ts";
+export type { ClientIpResolver, ExemptibleItem, SecurityRouteOptions, MaskingRules, MemoryRateLimitStore, RateLimitRefusal, SecurityRefusal, RateLimitHit, RateLimitResult, RateLimitStore, SecurityApi, WindowCounts } from "./features/security/index.ts";
 
 export { databaseBroker, isQueueDefinition, QUEUE_MESSAGE_STATUSES, queue, queueMessageEntity, queues, queuesFeature } from "./features/queues/index.ts";
 export type {

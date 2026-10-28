@@ -245,3 +245,21 @@ masker(): LogMasker | undefined;
 
 The masking of `security.masking` (secret values, `@sensitive` fields and secret-looking keys), for features that
 send values out of the service, like error reports; undefined while masking is off.
+
+### `routeOptions`
+
+```ts
+routeOptions(pattern: string, options: SecurityRouteOptions): void;
+```
+
+Gives the paths matching `pattern` (a path, or a prefix ending in `/*`) the route options the `@rateLimit`, `@cors`,
+`@ipAllow`/`@ipDeny` and `@limits` tags would give an endpoint, for routes that have no file to tag, like proxy
+routes. Only available during setup.
+
+### `limit`
+
+```ts
+limit(pattern: string, options: { limit: string | ((ctx: never) => unknown); by?: readonly string[] }): void;
+```
+
+`routeOptions(pattern, { rateLimit: { limit, by } })`.

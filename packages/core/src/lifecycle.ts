@@ -370,7 +370,7 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
         extendContext?.(context, feature);
         const { setup, api } = feature.definition;
         settingUp = feature.key;
-        setActiveSetup({ feature: feature.key, server });
+        setActiveSetup({ feature: feature.key, server, use: app.use });
         try {
           if (setup) await around(feature.key, "setup", () => withTimeout(() => setup(context as never), startTimeout, `${feature.key} setup`));
           if (api) apis.set(feature.key, await around(feature.key, "setup", () => withTimeout(() => api(context as never), startTimeout, `${feature.key} api`)));

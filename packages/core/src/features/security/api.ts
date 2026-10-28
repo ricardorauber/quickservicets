@@ -19,6 +19,26 @@ export interface SecurityApi {
    * send values out of the service, like error reports; undefined while masking is off.
    */
   masker(): LogMasker | undefined;
+  /**
+   * Gives the paths matching `pattern` (a path, or a prefix ending in `/*`) the route options the `@rateLimit`, `@cors`,
+   * `@ipAllow`/`@ipDeny` and `@limits` tags would give an endpoint, for routes that have no file to tag, like proxy
+   * routes. Only available during setup.
+   */
+  routeOptions(pattern: string, options: SecurityRouteOptions): void;
+  /** `routeOptions(pattern, { rateLimit: { limit, by } })`. */
+  limit(pattern: string, options: { limit: string | ((ctx: never) => unknown); by?: readonly string[] }): void;
+}
+
+/** What `routeOptions` gives a path: the shapes of the matching security items. */
+export interface SecurityRouteOptions {
+  /** A rate limit of the path's own, like `@rateLimit`: `limit` (`10/min`) and optionally `by`. */
+  rateLimit?: { limit: string | ((ctx: never) => unknown); by?: readonly string[] };
+  /** The CORS options of the path, like `@cors`. */
+  cors?: { origins?: readonly string[] | ((ctx: never) => unknown); credentials?: boolean; methods?: readonly string[]; headers?: readonly string[] };
+  /** Address lists of the path, like `@ipAllow` and `@ipDeny`. */
+  ip?: { allow?: readonly string[]; deny?: readonly string[] };
+  /** The body limit of the path, like `@limits body=`. */
+  limits?: { body: string | number };
 }
 
 /** Computes the client address of a request, replacing the trusted walk of `security.proxy` (`proxy.resolver`). */

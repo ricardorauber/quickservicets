@@ -1,4 +1,4 @@
-import { boolean, defineFeature, duration, HttpError, list, object, oneOf, parseDuration, record, requireRole, requireUser, secret, string, url, type ServiceRequest } from "../public.ts";
+import { boolean, cidr, defineFeature, duration, HttpError, list, object, oneOf, parseDuration, rate, record, requireRole, requireUser, secret, size, string, url, type SecurityRouteOptions, type ServiceRequest } from "../public.ts";
 import { forwardRequest, type ProxyRoute } from "./forward.ts";
 import { IDENTITY_HEADER } from "./identity.ts";
 
@@ -24,6 +24,27 @@ const routeOptions = object({
   forward: list(oneOf(["user", "roles", "tenant", "authorization", "cookie"]))
     .default(["user", "tenant"])
     .describe("What the upstream receives of the request's identity: user as x-user-id, roles as x-user-roles, tenant as x-tenant-id, and the incoming authorization or cookie headers."),
+  rateLimit: object({
+    limit: rate().describe("The route's own limit, like 100/min, on top of the global one."),
+    by: list(oneOf(["ip", "user", "tenant", "route"])).optional().describe("What the route's limit counts by (default the global rateLimit.by)."),
+  })
+    .optional()
+    .describe("A rate limit of the route, like @rateLimit on an endpoint."),
+  cors: object({
+    origins: list(string()).optional().describe("The browser origins allowed to call the route."),
+    credentials: boolean().optional().describe("Allows credentialed requests from those origins."),
+    methods: list(string()).optional().describe("The methods preflights allow."),
+    headers: list(string()).optional().describe("The request headers preflights allow."),
+  })
+    .optional()
+    .describe("The route's CORS policy, answered by the gateway: preflights never reach the upstream, and the upstream's own CORS headers are removed."),
+  ip: object({
+    allow: list(cidr()).optional().describe("Addresses served on the route, on top of the global lists."),
+    deny: list(cidr()).optional().describe("Addresses refused on the route, on top of the global lists."),
+  })
+    .optional()
+    .describe("Address lists of the route, like @ipAllow and @ipDeny."),
+  maxBodySize: size().optional().describe("The largest request body the route streams to the upstream; larger ones answer 413."),
 });
 
 const options = object({
@@ -40,6 +61,10 @@ const options = object({
 });
 
 type RouteOptions = {
+  rateLimit?: { limit: string; by?: string[] };
+  cors?: { origins?: string[]; credentials?: boolean; methods?: string[]; headers?: string[] };
+  ip?: { allow?: string[]; deny?: string[] };
+  maxBodySize?: string | number;
   path: string;
   target?: string;
   service?: string;
@@ -109,6 +134,17 @@ function upstreamPathOf(options: RouteOptions): Pick<ProxyRoute, "upstreamPath">
   };
 }
 
+/** The security route options of a proxy route, or undefined when it has none, so it adds no route index entry. */
+function securityOptionsOf(options: RouteOptions): SecurityRouteOptions | undefined {
+  const security: SecurityRouteOptions = {
+    ...(options.rateLimit ? { rateLimit: { limit: options.rateLimit.limit, ...(options.rateLimit.by ? { by: options.rateLimit.by } : {}) } } : {}),
+    ...(options.cors ? { cors: options.cors } : {}),
+    ...(options.ip ? { ip: options.ip } : {}),
+    ...(options.maxBodySize !== undefined ? { limits: { body: options.maxBodySize } } : {}),
+  };
+  return Object.keys(security).length > 0 ? security : undefined;
+}
+
 /** The 403 of credentials without a required scope. */
 const insufficientScope = (scopes: readonly string[]) =>
   new HttpError(403, "Insufficient scope", { headers: { "www-authenticate": `Bearer error="insufficient_scope", scope="${scopes.join(" ")}"` } });
@@ -140,8 +176,8 @@ const proxyFeature = defineFeature({
   options,
   requires: [{ name: "http", hint: "proxy routes call their upstreams through the HTTP client" }],
   validate: (resolved, config) => routeProblems(resolved.routes as Record<string, RouteOptions>, config),
-  // Route authentication reads req.user, which the auth native sets in the handler stage.
-  after: ["auth"],
+  // Route authentication reads req.user, which the auth native sets in the handler stage; route options go to security.
+  after: ["auth", "security"],
   setup(ctx) {
     const routes = Object.entries(ctx.options.routes as Record<string, RouteOptions>);
     for (let i = 0; i < routes.length; i++) {
@@ -168,10 +204,17 @@ const proxyFeature = defineFeature({
         identityHeader: ctx.options.identity.header.toLowerCase(),
         ...(identity ? { identity } : {}),
         ...upstreamPathOf(options),
+        ...(options.cors ? { cors: true } : {}),
         ...authorizerOf(options),
       };
       const handler = (_repos: unknown, req: ServiceRequest) => forwardRequest(req, route, ctx.config.production);
       const routeAuth = options.auth === "public" ? { auth: false } : {};
+      // Per-route security goes through the security native, like the tags of an endpoint would.
+      const security = securityOptionsOf(options);
+      if (security) {
+        if (!ctx.config.features.some((feature) => feature.key === "security")) throw new Error(`proxy.routes.${name} has security options, which need the security native`);
+        ctx.feature("security").routeOptions(options.path, security);
+      }
       for (const method of new Set(options.methods.map((method) => method.toUpperCase()))) ctx.app.route(method, routerPath(options.path), handler as never, routeAuth);
     }
   },

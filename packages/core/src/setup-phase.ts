@@ -1,4 +1,5 @@
 import type { ServerSettings } from "./http/server.ts";
+import type { Middleware } from "./middleware.ts";
 
 /** The feature whose setup runs now, with the server settings of its service; the lifecycle sets it around each setup. */
 export interface ActiveSetup {
@@ -6,6 +7,11 @@ export interface ActiveSetup {
   feature: string;
   /** The server settings of the service being set up, which the core's setup-only functions fill. */
   server: ServerSettings;
+  /**
+   * Adds a middleware for the feature whose setup runs now; a feature API called from that setup uses it to add a
+   * middleware the call needs.
+   */
+  use?: (middleware: Middleware) => void;
 }
 
 let active: ActiveSetup | undefined;

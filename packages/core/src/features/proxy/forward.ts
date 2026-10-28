@@ -1,4 +1,4 @@
-import { deferRequestLog, HttpClientError, HttpError, peerAddress, streamCall, type HttpRequest, type ServiceRequest } from "../public.ts";
+import { bodyPolicyOf, bodyTooLarge, deferRequestLog, HttpClientError, HttpError, peerAddress, streamCall, type HttpRequest, type ServiceRequest } from "../public.ts";
 import { IDENTITY_HEADERS, signIdentity } from "./identity.ts";
 
 /** The hop-by-hop headers, never forwarded in either direction. */
@@ -24,6 +24,29 @@ export interface ProxyRoute {
   identityHeader: string;
   /** The signed identity header added to every proxied request, when a secret is set. */
   identity?: { secret: string; header: string };
+  /** Whether the gateway answers CORS for the route, so the upstream's `access-control-*` headers are removed. */
+  cors?: boolean;
+}
+
+/**
+ * The request body counted as it streams to the upstream, failing once it passes `maxBytes` (the route's or the
+ * service's body limit), which aborts the upstream call.
+ */
+function limitedBody(body: ReadableStream<Uint8Array>, maxBytes: number, onTooLarge: () => void): ReadableStream<Uint8Array> {
+  let received = 0;
+  return body.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        received += chunk.byteLength;
+        if (received > maxBytes) {
+          onTooLarge();
+          controller.error(bodyTooLarge(maxBytes));
+          return;
+        }
+        controller.enqueue(chunk);
+      },
+    }),
+  );
 }
 
 /** Removes the hop-by-hop headers, and those `connection` lists, from a copy of `headers`. */
@@ -95,28 +118,36 @@ export async function forwardRequest(req: ServiceRequest, route: ProxyRoute, pro
   const path = route.upstreamPath ? route.upstreamPath(req) : req.path;
   const method = req.method;
   const hasBody = method !== "GET" && method !== "HEAD" && req.raw.body !== null;
+  const maxBytes = hasBody ? bodyPolicyOf(req.raw)?.maxBytes : undefined;
+  let tooLarge = false;
+  const aborted = new AbortController();
+  const body = !hasBody ? undefined : maxBytes === undefined ? req.raw.body! : limitedBody(req.raw.body!, maxBytes, () => ((tooLarge = true), aborted.abort()));
   let upstream: Response;
   try {
     upstream = await streamCall({
       method,
       path: `${path}${new URL(req.raw.url).search}`,
       headers: forwardedHeaders(req, route),
-      ...(hasBody ? { body: req.raw.body! } : {}),
+      ...(body ? { body } : {}),
       service: route.service,
       timeout: route.timeoutMs,
       idleTimeout: route.idleTimeoutMs,
-      signal: req.raw.signal,
+      signal: AbortSignal.any([req.raw.signal, aborted.signal]),
       req,
       ...(route.identity ? { prepare: signed(route.identity) } : {}),
     });
   } catch (error) {
+    if (tooLarge) throw bodyTooLarge(maxBytes!);
     throw upstreamError(error, production);
   }
   let ended!: () => void;
   const finished = new Promise<Record<string, unknown>>((resolve) => (ended = () => resolve({ proxy: route.name })));
-  const body = upstream.body ? upstream.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({ flush: () => ended() })) : null;
-  if (!body) ended();
-  const response = new Response(body, { status: upstream.status, statusText: upstream.statusText, headers: withoutHopByHop(upstream.headers) });
+  const answered = upstream.body ? upstream.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({ flush: () => ended() })) : null;
+  if (!answered) ended();
+  const headers = withoutHopByHop(upstream.headers);
+  // With the gateway's CORS policy, the browser sees only that one.
+  if (route.cors) for (const name of [...headers.keys()]) if (name.startsWith("access-control-")) headers.delete(name);
+  const response = new Response(answered, { status: upstream.status, statusText: upstream.statusText, headers });
   // A cancelled download ends the entry too.
   req.raw.signal.addEventListener("abort", () => ended(), { once: true });
   deferRequestLog(response, finished);

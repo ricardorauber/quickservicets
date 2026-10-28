@@ -1,4 +1,4 @@
-import { bodyPolicyOf, bodyTooLarge, deferRequestLog, HttpClientError, HttpError, joinPath, parseDuration, peerAddress, runAfterHooks, runBeforeHooks, safeLog, serviceUrl, streamCall, type FeatureHook, type Logger, type ServiceRequest } from "../public.ts";
+import { bodyPolicyOf, bodyTooLarge, deferRequestLog, HttpClientError, HttpError, joinPath, parseDuration, peerAddress, runAfterHooks, runBeforeHooks, safeLog, serviceUrl, streamCall, type FeatureHook, type ForeignSockets, type Logger, type ServiceRequest } from "../public.ts";
 import { IDENTITY_HEADERS, signIdentity } from "./identity.ts";
 
 /** The hop-by-hop headers, never forwarded in either direction. */
@@ -27,6 +27,8 @@ export interface ProxyRoute {
   identity?: { secret: string; header: string };
   /** Whether the gateway answers CORS for the route, so the upstream's `access-control-*` headers are removed. */
   cors?: boolean;
+  /** Whether upgrade requests on the route become WebSockets piped to the upstream. */
+  websocket?: boolean;
   /**
    * Chooses the upstream per request (a target function): resolves the base URL, which must be on one of the route's
    * allowed origins, each a service of its own.
@@ -77,6 +79,8 @@ export interface ForwardContext {
   identityHeader: string;
   /** The signed identity header added to every forwarded request, when a secret is set. */
   identity?: { secret: string; header: string };
+  /** The shared WebSocket handler of `realtime`, for upgrade requests, while `realtime.websockets` is on. */
+  sockets?: ForeignSockets;
 }
 
 /** What a `forward()` call with a route name may change of the route's forwarding for that call. */
@@ -260,11 +264,19 @@ export function upstreamError(error: unknown, production: boolean): HttpError {
 }
 
 
+/** The upstream request of a forwarded request: its URL, its headers and the service it goes through. */
+export interface UpstreamRequest {
+  url: string;
+  headers: Headers;
+  service: string;
+  trustedHost?: string;
+}
+
 /**
- * Forwards a request to its route's upstream, streaming the body both ways, and returns the upstream's response with
- * the hop-by-hop headers removed; the request log entry gets `proxy: <route>` once the response body ended.
+ * The upstream request of a request on a route: the route's checks first, then the URL from the route's base and path
+ * rule, the forwarding and identity headers, the `beforeProxy` hooks and the signature.
  */
-export async function forwardRequest(req: ServiceRequest, route: ProxyRoute, context: ForwardContext, extraHeaders?: Readonly<Record<string, string>>): Promise<Response> {
+export async function prepareUpstream(req: ServiceRequest, route: ProxyRoute, context: ForwardContext, extraHeaders?: Readonly<Record<string, string>>): Promise<UpstreamRequest> {
   route.authorize?.(req);
   const path = route.upstreamPath ? route.upstreamPath(req) : req.path;
   // A path with its own query string replaces the request's.
@@ -288,7 +300,6 @@ export async function forwardRequest(req: ServiceRequest, route: ProxyRoute, con
     trustedHost = new URL(chosen).host.toLowerCase();
   } else base = serviceUrl(service);
   let url = joinPath(base, `${path}${search}`).href;
-  const method = req.method;
   const headers = forwardedHeaders(req, route);
   if (extraHeaders) for (const [name, value] of Object.entries(extraHeaders)) if (settable(name, route)) headers.set(name, value);
   if (context.beforeProxy.length > 0) {
@@ -299,7 +310,17 @@ export async function forwardRequest(req: ServiceRequest, route: ProxyRoute, con
     url = next.url;
     if (next.headers !== headers) for (const [name, value] of new Headers(next.headers)) headers.set(name, value);
   }
-  if (route.identity) sign(route.identity, method, url, headers);
+  if (route.identity) sign(route.identity, req.method, url, headers);
+  return { url, headers, service, ...(trustedHost !== undefined ? { trustedHost } : {}) };
+}
+
+/**
+ * Forwards a request to its route's upstream, streaming the body both ways, and returns the upstream's response with
+ * the hop-by-hop headers removed; the request log entry gets `proxy: <route>` once the response body ended.
+ */
+export async function forwardRequest(req: ServiceRequest, route: ProxyRoute, context: ForwardContext, extraHeaders?: Readonly<Record<string, string>>): Promise<Response> {
+  const { url, headers, service, trustedHost } = await prepareUpstream(req, route, context, extraHeaders);
+  const method = req.method;
   const hasBody = method !== "GET" && method !== "HEAD" && req.raw.body !== null;
   const maxBytes = hasBody ? bodyPolicyOf(req.raw)?.maxBytes : undefined;
   let tooLarge = false;

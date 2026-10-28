@@ -114,10 +114,27 @@ interface RoomContext {
   mayJoin(socket: OpenSocket, room: string): boolean;
 }
 
-/** What Bun keeps with each upgraded socket. */
-interface SocketData {
-  socket: OpenSocket;
+/** The part of Bun's `ServerWebSocket` a foreign connection uses. */
+export interface ForeignSocket {
+  readonly readyState: number;
+  send(data: string | Uint8Array): number;
+  close(code?: number, reason?: string): void;
 }
+
+/**
+ * A connection another feature serves on the shared WebSocket handler, like a socket the proxy pipes to an upstream:
+ * it counts toward `maxConnections` and is shut down with the others.
+ */
+export interface ForeignConnection {
+  open(ws: ForeignSocket): void;
+  message(ws: ForeignSocket, data: string | Uint8Array): void;
+  close(ws: ForeignSocket, code: number, reason: string): void;
+  /** Closes the connection for a shutdown. */
+  shutdown(code: number, reason: string): void;
+}
+
+/** What Bun keeps with each upgraded socket: a `ws.ts` socket, or a foreign connection. */
+type SocketData = { socket: OpenSocket; foreign?: undefined } | { foreign: ForeignConnection; socket?: undefined };
 
 /** The part of Bun's `ServerWebSocket` the native uses. */
 interface BunSocket {
@@ -227,6 +244,12 @@ export interface SocketServer {
   readonly sockets: Sockets;
   /** This process's id in envelopes. */
   readonly origin: string;
+  /** The foreign connections open now. */
+  readonly foreign: ReadonlySet<ForeignConnection>;
+  /** Checks an upgrade for a foreign connection: the origin against the global origins and the connection limit. */
+  admit(req: ServiceRequest): Promise<void>;
+  /** Upgrades a request to a foreign connection; false when the request cannot be upgraded. */
+  upgradeForeign(req: ServiceRequest, connection: ForeignConnection, headers?: Record<string, string>): boolean;
   /** Starts delivering through a transport: envelopes from other processes reach this worker's sockets. */
   startTransport(transport: SocketTransport): Promise<void>;
   /** Stops the transport. */
@@ -292,6 +315,7 @@ async function tracedMessage<T>(socket: OpenSocket, handle: () => Promise<T>): P
 
 export function socketServer(settings: SocketSettings): SocketServer {
   const open = new Set<OpenSocket>();
+  const foreign = new Set<ForeignConnection>();
   const hooks: SocketHooks = { ...NO_HOOKS, ...settings.hooks };
   const defaults: SocketLimits = { maxMessageSize: settings.maxMessageSize, messages: settings.messages };
   /** Runs the `beforePublish` hooks, then publishes the data (or nothing when a hook returns null). */
@@ -366,7 +390,7 @@ export function socketServer(settings: SocketSettings): SocketServer {
     const limits = settings.limitsFor ? await settings.limitsFor(req) : defaults;
     const origin = req.headers.get("origin");
     if (origin !== null && !(await originAllowed(req, origin, limits.origins))) throw new HttpError(403, "Origin not allowed");
-    if (open.size >= settings.maxConnections) throw new HttpError(503, "Too many open sockets", { headers: { "retry-after": "5" } });
+    if (open.size + foreign.size >= settings.maxConnections) throw new HttpError(503, "Too many open sockets", { headers: { "retry-after": "5" } });
     for (const fn of hooks.beforeConnect) await fn({ req, user: req.user, tenant: req.tenant, route: req.route }, undefined);
     const ctx: SocketContext = { params: req.params, query: req.query, user: req.user, tenant: req.tenant, repos, log: settings.logger, req };
     const socket = new OpenSocket(definition, ctx, req.route, req.id, rooms, req.auth?.sessionId, limits);
@@ -386,7 +410,12 @@ export function socketServer(settings: SocketSettings): SocketServer {
     idleTimeout: settings.idleTimeout,
     sendPings: true,
     async open(ws) {
-      const socket = ws.data.socket;
+      const other = ws.data.foreign;
+      if (other) {
+        foreign.add(other);
+        return other.open(ws as unknown as ForeignSocket);
+      }
+      const socket = ws.data.socket!;
       socket.ws = ws as unknown as BunSocket;
       open.add(socket);
       const { open: onOpen } = socket.definition.handlers;
@@ -402,7 +431,9 @@ export function socketServer(settings: SocketSettings): SocketServer {
       if (hooks.afterConnect.length > 0) await runAfterHooks(hooks.afterConnect, { ws: socket }, undefined);
     },
     async message(ws, message) {
-      const socket = ws.data.socket;
+      const other = ws.data.foreign;
+      if (other) return other.message(ws as unknown as ForeignSocket, typeof message === "string" ? message : new Uint8Array(message.buffer, message.byteOffset, message.byteLength));
+      const socket = ws.data.socket!;
       socket.messagesIn += 1;
       const now = performance.now();
       const { limits } = socket;
@@ -463,6 +494,7 @@ export function socketServer(settings: SocketSettings): SocketServer {
     },
     async drain(ws) {
       const socket = ws.data.socket;
+      if (!socket) return;
       const { drain } = socket.definition.handlers;
       if (!drain) return;
       try {
@@ -472,7 +504,12 @@ export function socketServer(settings: SocketSettings): SocketServer {
       }
     },
     async close(ws, code, reason) {
-      const socket = ws.data.socket;
+      const other = ws.data.foreign;
+      if (other) {
+        foreign.delete(other);
+        return other.close(ws as unknown as ForeignSocket, code, reason);
+      }
+      const socket = ws.data.socket!;
       open.delete(socket);
       const closeCode = socket.closeCode ?? code;
       endUpgradedRequest(socket.ctx.req.raw, closeCode);
@@ -567,6 +604,16 @@ export function socketServer(settings: SocketSettings): SocketServer {
     run,
     handler,
     open,
+    foreign,
+    async admit(req) {
+      const header = req.headers.get("origin");
+      if (header !== null && !(await originAllowed(req, header))) throw new HttpError(403, "Origin not allowed");
+      if (open.size + foreign.size >= settings.maxConnections) throw new HttpError(503, "Too many open sockets", { headers: { "retry-after": "5" } });
+    },
+    upgradeForeign(req, connection, headers) {
+      bunServer ??= bunServerOf(req.raw);
+      return upgradeRequest(req.raw, { foreign: connection } satisfies SocketData, headers);
+    },
     sockets,
     origin,
     async startTransport(next) {
@@ -596,6 +643,7 @@ export function socketServer(settings: SocketSettings): SocketServer {
     },
     closeAll(code, reason) {
       for (const socket of [...open]) socket.close(code, reason);
+      for (const connection of [...foreign]) connection.shutdown(code, reason);
     },
   };
 }

@@ -872,4 +872,5 @@ Every option, tag, command and hook of `proxy` is on [its reference page](/refer
 | `proxy.routes.<name>.ip.allow` | `record of cidr[]` | — | `QS_PROXY_ROUTES_<NAME>_IP_ALLOW` | Addresses served on the route, on top of the global lists. |
 | `proxy.routes.<name>.ip.deny` | `record of cidr[]` | — | `QS_PROXY_ROUTES_<NAME>_IP_DENY` | Addresses refused on the route, on top of the global lists. |
 | `proxy.routes.<name>.maxBodySize` | `record of size` | — | `QS_PROXY_ROUTES_<NAME>_MAX_BODY_SIZE` | The largest request body the route streams to the upstream; larger ones answer 413. |
+| `proxy.routes.<name>.websocket` | `record of boolean` | `false` | `QS_PROXY_ROUTES_<NAME>_WEBSOCKET` | Proxies WebSocket upgrades on the route's path to the upstream (ws:// or wss://), with the route's checks and the limits of realtime.websockets; needs realtime: {}. |
 | `proxy.enabled` | `boolean` | `true` | `QS_PROXY_ENABLED` | Turns the feature off when false. |

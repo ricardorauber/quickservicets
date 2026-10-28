@@ -74,6 +74,30 @@ Routes are configuration, not files, so they cannot carry JSDoc tags; per-route 
 
 Security headers are added to proxied responses only where the upstream did not set them. Any feature gives such options to its own routes with `ctx.feature("security").routeOptions(pattern, options)`.
 
+## WebSockets
+
+A route with `websocket: true` also carries WebSocket connections; it needs `realtime: {}`, whose `websockets` limits apply to proxied sockets too:
+
+```ts
+realtime: {},
+proxy: { routes: { live: { path: "/live/*", target: "http://live.internal:8080", websocket: true, auth: "required" } } },
+```
+
+- A `GET` with `Upgrade: websocket` on the route's path runs the route's checks first (authentication, `roles`, `scopes`, the route's security options), then the origin check and `maxConnections` of `realtime.websockets` and `beforeProxy`; refusals are HTTP answers (401, 403 `Origin not allowed`, 503 `Too many open sockets`). Plain requests on the path are still proxied as HTTP.
+- The gateway opens the upstream socket at the upstream URL with `ws://` or `wss://`, sending the forwarded and signed identity headers and the client's `sec-websocket-protocol`, never the client's own `x-user-id`, `x-user-roles` or `x-tenant-id`, nor `cookie` or `authorization` unless `forward` lists them.
+- The client is upgraded only once the upstream accepted, with the subprotocol the upstream chose. An upstream that refuses or cannot be reached answers 502 `Upstream request failed`, and one that does not finish the handshake within the route's `timeout` answers 504 `Upstream request timed out`; `onProxyError` runs for both.
+- Frames go both ways keeping their type, text or binary. Close codes:
+
+| Code | When |
+| --- | --- |
+| the peer's | A close from either side reaches the other with its code and reason. |
+| 1001 | `Idle timeout` after `realtime.websockets.idleTimeout` without frames; a client that drops; `Server shutting down` on shutdown. |
+| 1009 | `Message too big`: a frame over `realtime.websockets.maxMessageSize` from either side closes both. |
+| 1014 | `Bad gateway`: the upstream dropped the connection or failed. |
+
+- Proxied sockets count toward `maxConnections`, and each writes one request log entry when it closes, with `proxy`, `durationMs`, `messagesIn`, `messagesOut` and `closeCode`.
+- `forward(req, "live")` from an endpoint proxies an upgrade request the same way. Bun's WebSocket handler is passed to the server only when a `ws.ts` route exists or a route sets `websocket: true`, so a gateway without proxied sockets keeps its request path unchanged.
+
 ## Forwarding from code with forward()
 
 A route is not the only way in: `forward(req, options, overrides?)` from `@quickservicets/core` forwards the current request from any endpoint, hook or feature handler through the same pipeline (streaming both ways, hop-by-hop and forwarding headers, the forwarded and signed identity, SSRF trust, timeouts, the hooks and the `forwarder`) and resolves the upstream `Response`, for every status. `proxy: {}` without routes is enough.

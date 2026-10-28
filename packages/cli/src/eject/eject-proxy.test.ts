@@ -25,7 +25,7 @@ test("quickservicets eject proxy turns the native into features/proxy/ and the g
   expect(lines).toContain("features/proxy/ now replaces the proxy native.");
   expect(existsSync(join(root, "features/proxy/index.ts"))).toBe(true);
   const files: Record<string, string> = { "quickservicets.config.ts": config };
-  for (const file of ["index.ts", "forward.ts", "identity.ts"]) files[`features/proxy/${file}`] = readFileSync(join(root, "features/proxy", file), "utf8");
+  for (const file of ["index.ts", "forward.ts", "identity.ts", "sockets.ts"]) files[`features/proxy/${file}`] = readFileSync(join(root, "features/proxy", file), "utf8");
   const env = { GATEWAY_SECRET: SECRET, QS_PROXY_ROUTES_CATALOG_TARGET: `http://127.0.0.1:${catalog.port}`, QS_PROXY_ROUTES_ORDERS_TARGET: `http://127.0.0.1:${orders.port}` };
   const service = await startTestService({ files, env, auth: testAuth() });
   try {

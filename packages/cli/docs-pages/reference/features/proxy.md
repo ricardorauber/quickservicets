@@ -16,7 +16,7 @@ It is not enabled by default: turn it on with `proxy: {}` or `QS_PROXY_ENABLED=t
 
 **Requires:** [`http`](/reference/features/http/) (proxy routes call their upstreams through the HTTP client)
 
-**Runs after:** `auth`, `security`
+**Runs after:** `auth`, `security`, `realtime`
 
 ## Options
 
@@ -53,6 +53,7 @@ It is not enabled by default: turn it on with `proxy: {}` or `QS_PROXY_ENABLED=t
 | `proxy.routes.<name>.ip.allow` | `record of cidr[]` | — | `QS_PROXY_ROUTES_<NAME>_IP_ALLOW` | no | Addresses served on the route, on top of the global lists. |
 | `proxy.routes.<name>.ip.deny` | `record of cidr[]` | — | `QS_PROXY_ROUTES_<NAME>_IP_DENY` | no | Addresses refused on the route, on top of the global lists. |
 | `proxy.routes.<name>.maxBodySize` | `record of size` | — | `QS_PROXY_ROUTES_<NAME>_MAX_BODY_SIZE` | no | The largest request body the route streams to the upstream; larger ones answer 413. |
+| `proxy.routes.<name>.websocket` | `record of boolean` | `false` | `QS_PROXY_ROUTES_<NAME>_WEBSOCKET` | no | Proxies WebSocket upgrades on the route's path to the upstream (ws:// or wss://), with the route's checks and the limits of realtime.websockets; needs realtime: {}. |
 | `proxy.enabled` | `boolean` | `true` | `QS_PROXY_ENABLED` | no | Turns the feature off when false. |
 
 ## Hooks
@@ -72,6 +73,10 @@ The proxy has no JSDoc tags: its routes are configuration, not entity or endpoin
 ## Routes and variables
 
 Every option of a route has its variable, with the route's name in upper case and hyphens as underscores: `QS_PROXY_ROUTES_<NAME>_TARGET`, `QS_PROXY_ROUTES_<NAME>_TIMEOUT`, `QS_PROXY_ROUTES_<NAME>_STRIP_PREFIX`, `QS_PROXY_ROUTES_<NAME>_RATE_LIMIT_LIMIT`; `QS_PROXY_ROUTES` sets the whole record as JSON. `proxyIdentity({ secret })` verifies the signed identity in services behind the gateway.
+
+## WebSockets
+
+A route with `websocket: true` (`QS_PROXY_ROUTES_<NAME>_WEBSOCKET`, which needs `realtime: {}`) proxies `GET` upgrades on its path to the upstream at `ws://` or `wss://`, while plain requests stay HTTP. The route's authentication, roles, scopes and security options, the origin check and `maxConnections` of `realtime.websockets` and `beforeProxy` run first and answer refusals as HTTP (401, 403 `Origin not allowed`, 503 `Too many open sockets`). The upstream receives the forwarded and signed identity headers and the client's `sec-websocket-protocol`, never the client's own identity headers; the client is upgraded only after the upstream handshake, with the upstream's subprotocol; a refusing or unreachable upstream answers 502 `Upstream request failed` and one that does not complete the handshake within `timeout` answers 504 `Upstream request timed out`, with `onProxyError` called. Frames are piped both ways keeping their type. Close codes: a close from either side reaches the other with its code and reason; 1009 `Message too big` closes both for a frame over `realtime.websockets.maxMessageSize`; 1001 `Idle timeout` closes both after `realtime.websockets.idleTimeout` without frames; 1014 `Bad gateway` closes the client when the upstream drops or fails; a client that drops closes the upstream with 1001; shutdown closes with 1001 `Server shutting down`. Proxied sockets count toward `maxConnections`, and each writes one request log entry when it closes with `proxy`, `durationMs`, `messagesIn`, `messagesOut` and `closeCode`. `forward(req, options)` proxies an upgrade request the same way and resolves a 101 response; without any route setting `websocket: true` (nor a ws.ts route), it throws `forward() received a WebSocket upgrade, but no proxy route sets websocket: true`. Bun's WebSocket handler is passed to the server only when a ws.ts route exists or a route sets `websocket: true`.
 
 ## forward() from code
 

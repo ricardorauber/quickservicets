@@ -2,6 +2,8 @@ import { existsSync } from "node:fs";
 import type { SocketServer } from "./sockets.ts";
 import { join } from "node:path";
 import {
+  activeSetup,
+  type ServerSettings,
   currentMeter,
   metricsEnabled,
   type ObservableGauge,
@@ -220,6 +222,13 @@ interface SocketState {
   /** Set once a feature used the sockets API during setup, so the transport starts without ws.ts routes. */
   used: boolean;
   open: boolean;
+  /** The server settings of the service, which get Bun's WebSocket handler when a feature needs it later in setup. */
+  settings: ServerSettings | undefined;
+  /** Whether Bun's WebSocket handler is passed to the server. */
+  passed: boolean;
+  /** The limits foreign connections follow. */
+  maxMessageSize: number;
+  idleTimeoutMs: number;
 }
 
 const socketStates = new WeakMap<object, SocketState>();
@@ -268,12 +277,13 @@ function socketLimits(options: SocketOptions["websockets"]): (req: ServiceReques
 }
 
 /**
- * Serves the `ws.ts` endpoints while `websockets` is on: Bun gets a WebSocket handler only when such a route exists,
+ * Serves the `ws.ts` endpoints while `websockets` is on: Bun gets a WebSocket handler only when such a route exists
+ * (or a feature asks for it, like the proxy for its socket routes),
  * and the transport starts when one exists or a feature used the sockets API during setup.
  */
 function setUpSockets(ctx: FeatureSetupContext<SocketOptions>): SocketServer | undefined {
   const options = ctx.options.websockets;
-  const state: SocketState = { server: undefined, transport: undefined, owner: undefined, used: false, open: true };
+  const state: SocketState = { server: undefined, transport: undefined, owner: undefined, used: false, open: true, settings: activeSetup()?.server, passed: false, maxMessageSize: 0, idleTimeoutMs: 0 };
   socketStates.set(ctx.options, state);
   if (!options.enabled) return;
   if (typeof options.transport === "object") {
@@ -311,9 +321,12 @@ function setUpSockets(ctx: FeatureSetupContext<SocketOptions>): SocketServer | u
     hooks: options as unknown as Partial<SocketHooks>,
   });
   state.server = server;
+  state.maxMessageSize = parseSize(options.maxMessageSize) ?? 1_048_576;
+  state.idleTimeoutMs = (parseDuration(options.idleTimeout) ?? 120_000);
   setSocketHub(server.sockets);
   const hasSockets = taggedRoutes().some((route) => route.kind === "websocket");
   if (hasSockets) {
+    state.passed = true;
     ctx.app.configureServer({ websocket: server.handler as never, socketRunner: server.run });
     // Revoking a session closes its sockets.
     if (ctx.config.features.some((feature) => feature.key === "auth")) {
@@ -443,7 +456,7 @@ const realtimeFeature = defineFeature({
     ctx.app.onStart(() => {
       if (!metricsEnabled()) return;
       gauge = currentMeter().observableGauge("quickservicets.realtime.connections", { description: "Open WebSockets and Server-Sent Events streams of this worker.", unit: "{connection}" }, (observe) => {
-        if (sockets) observe(sockets.open.size, { "quickservicets.realtime.kind": "websocket" });
+        if (sockets) observe(sockets.open.size + sockets.foreign.size, { "quickservicets.realtime.kind": "websocket" });
         if (streams) observe(streams.count(), { "quickservicets.realtime.kind": "sse" });
       });
     });
@@ -567,6 +580,25 @@ const realtimeFeature = defineFeature({
       if (typeof fn !== "function") throw new Error(`Hook ${name} of realtime must be a function`);
       (ctx.options.websockets as unknown as Record<string, unknown[]>)[name]!.push(fn);
     },
+    foreignSockets(pass) {
+      const state = socketStates.get(ctx.options);
+      const server = state?.server;
+      if (!state || !server) return undefined;
+      if (pass && !state.passed) {
+        if (!state.open || !state.settings) throw new Error("realtime foreignSockets(true) is only available during setup");
+        state.settings.websocket = server.handler as never;
+        state.passed = true;
+      }
+      return {
+        get passed() {
+          return state.passed;
+        },
+        maxMessageSize: state.maxMessageSize,
+        idleTimeoutMs: state.idleTimeoutMs,
+        admit: (req) => server.admit(req),
+        upgrade: (req, connection, headers) => server.upgradeForeign(req, connection, headers),
+      };
+    },
     setTransport(transport) {
       const state = socketStates.get(ctx.options);
       const caller = ctx.currentFeature() ?? "a feature";
@@ -592,9 +624,9 @@ export type { ChangeCoverage, ChangeEvent, ChangeMessage, ChangeQuery } from "./
 export { followChanges, MAX_REPLAY, RETRY_MS } from "./follow.ts";
 export { postgresTransport, socketChannel } from "./postgres-transport.ts";
 export type { PostgresTransport, PostgresTransportOptions } from "./postgres-transport.ts";
-export type { SocketConnect, SocketHooks, SocketLimits } from "./sockets.ts";
+export type { ForeignConnection, ForeignSocket, SocketConnect, SocketHooks, SocketLimits } from "./sockets.ts";
 export type { ResetReason } from "./follow.ts";
 export { eventIdFloor, isEventId, outboxSource, POLL_OVERLAP_MS, ringBufferSource, timeOfEventId } from "./source.ts";
 export type { ChangeSource } from "./source.ts";
 export type { HeartbeatTimer, OpenStream } from "./stream.ts";
-export type { ChangeDelivery, ChangeSend, RealtimeApi } from "./api.ts";
+export type { ChangeDelivery, ChangeSend, ForeignSockets, RealtimeApi } from "./api.ts";

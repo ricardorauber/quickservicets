@@ -1,4 +1,5 @@
 import { boolean, cidr, defineFeature, duration, hook, HttpError, list, noteRequestLog, object, oneOf, parseDuration, provider, rate, record, requireRole, requireUser, resolveOption, secret, serviceUrl, size, string, url, type FeatureHook, type OptionFunction, type SecurityRouteOptions, type ServiceRequest } from "../public.ts";
+import { isUpgrade, proxySocket } from "./sockets.ts";
 import { forwardRequest, routeWith, templatePath, type ForwardContext, type ForwardOptions, type ProxyDone, type ProxyFailure, type ProxyForwarder, type ProxyOverrides, type ProxyRoute, type ProxyStep } from "./forward.ts";
 
 export type { ForwardOptions, ProxyDone, ProxyFailure, ProxyForwarder, ProxyOverrides, ProxyStep } from "./forward.ts";
@@ -51,6 +52,9 @@ const routeOptions = object({
     .optional()
     .describe("Address lists of the route, like @ipAllow and @ipDeny."),
   maxBodySize: size().optional().describe("The largest request body the route streams to the upstream; larger ones answer 413."),
+  websocket: boolean()
+    .default(false)
+    .describe("Proxies WebSocket upgrades on the route's path to the upstream (ws:// or wss://), with the route's checks and the limits of realtime.websockets; needs realtime: {}."),
 });
 
 const options = object({
@@ -79,6 +83,7 @@ type RouteOptions = {
   cors?: { origins?: string[]; credentials?: boolean; methods?: string[]; headers?: string[] };
   ip?: { allow?: string[]; deny?: string[] };
   maxBodySize?: string | number;
+  websocket: boolean;
   path: string;
   target?: string | OptionFunction<string>;
   service?: string;
@@ -220,6 +225,11 @@ export function forward(req: ServiceRequest, options: string | ForwardOptions, o
     route = routeWith(inline, { ...base, ...overrides });
     headers = options.headers || overrides?.headers ? { ...options.headers, ...overrides?.headers } : undefined;
   }
+  if (isUpgrade(req)) {
+    const sockets = running.context.sockets;
+    if (!sockets?.passed) throw new Error("forward() received a WebSocket upgrade, but no proxy route sets websocket: true");
+    return proxySocket(req, route, running.context, sockets, headers);
+  }
   // Sending an empty body in place of one the handler already read would corrupt the upstream call.
   if (req.raw.bodyUsed) throw new Error("forward(): the request body was already read");
   noteRequestLog(req.raw, { proxy: route.name ?? "forward" });
@@ -281,6 +291,10 @@ const proxyFeature = defineFeature({
         text: "Every option of a route has its variable, with the route's name in upper case and hyphens as underscores: `QS_PROXY_ROUTES_<NAME>_TARGET`, `QS_PROXY_ROUTES_<NAME>_TIMEOUT`, `QS_PROXY_ROUTES_<NAME>_STRIP_PREFIX`, `QS_PROXY_ROUTES_<NAME>_RATE_LIMIT_LIMIT`; `QS_PROXY_ROUTES` sets the whole record as JSON. `proxyIdentity({ secret })` verifies the signed identity in services behind the gateway.",
       },
       {
+        title: "WebSockets",
+        text: "A route with `websocket: true` (`QS_PROXY_ROUTES_<NAME>_WEBSOCKET`, which needs `realtime: {}`) proxies `GET` upgrades on its path to the upstream at `ws://` or `wss://`, while plain requests stay HTTP. The route's authentication, roles, scopes and security options, the origin check and `maxConnections` of `realtime.websockets` and `beforeProxy` run first and answer refusals as HTTP (401, 403 `Origin not allowed`, 503 `Too many open sockets`). The upstream receives the forwarded and signed identity headers and the client's `sec-websocket-protocol`, never the client's own identity headers; the client is upgraded only after the upstream handshake, with the upstream's subprotocol; a refusing or unreachable upstream answers 502 `Upstream request failed` and one that does not complete the handshake within `timeout` answers 504 `Upstream request timed out`, with `onProxyError` called. Frames are piped both ways keeping their type. Close codes: a close from either side reaches the other with its code and reason; 1009 `Message too big` closes both for a frame over `realtime.websockets.maxMessageSize`; 1001 `Idle timeout` closes both after `realtime.websockets.idleTimeout` without frames; 1014 `Bad gateway` closes the client when the upstream drops or fails; a client that drops closes the upstream with 1001; shutdown closes with 1001 `Server shutting down`. Proxied sockets count toward `maxConnections`, and each writes one request log entry when it closes with `proxy`, `durationMs`, `messagesIn`, `messagesOut` and `closeCode`. `forward(req, options)` proxies an upgrade request the same way and resolves a 101 response; without any route setting `websocket: true` (nor a ws.ts route), it throws `forward() received a WebSocket upgrade, but no proxy route sets websocket: true`. Bun's WebSocket handler is passed to the server only when a ws.ts route exists or a route sets `websocket: true`.",
+      },
+      {
         title: "forward() from code",
         text: "`forward(req, options, overrides?)` from `@quickservicets/core` forwards the current request from any endpoint, hook or feature handler through the whole proxy pipeline (streaming, forwarding and identity headers with the signature, SSRF trust, timeouts, the hooks with `route: null` for inline calls, and the `forwarder`) and resolves the upstream `Response` for every status, so the caller can inspect it, read it or return it unchanged. `options` is a route name, whose `auth`, `roles` and `scopes` are checked first, or an inline object with exactly one of `service` (an `http.services` entry) and `target` (an origin of `proxy.allowedTargets`, any other answers 502 and logs `proxy.target.refused`), plus `path`, `stripPrefix` or `rewrite` (only one), `timeout`, `idleTimeout`, `preserveHost`, `forward` and `headers` (never hop-by-hop or identity headers); `overrides` takes the same keys except `service` and `target`. A timeout, a connection failure, an open circuit or a full bulkhead rejects with the `HttpError` (504, 502 or 503) a proxy route would answer. `proxy: {}` without routes is enough, `QS_PROXY_ALLOWED_TARGETS` takes the allowed targets comma-separated, each call writes an `http.call` entry (service `proxy/forward` for an inline target) and the request log adds `proxy: <route>` or `proxy: \"forward\"`. `proxyRequest(req, routeName, overrides)` is an alias of `forward(req, routeName, overrides)`.",
       },
@@ -289,8 +303,9 @@ const proxyFeature = defineFeature({
   options,
   requires: [{ name: "http", hint: "proxy routes call their upstreams through the HTTP client" }],
   validate: (resolved, config) => routeProblems(resolved.routes as Record<string, RouteOptions>, config, resolved.allowedTargets as string[]),
-  // Route authentication reads req.user, which the auth native sets in the handler stage; route options go to security.
-  after: ["auth", "security"],
+  // Route authentication reads req.user, which the auth native sets in the handler stage; route options go to security;
+  // proxied sockets use the WebSocket handler of realtime.
+  after: ["auth", "security", "realtime"],
   setup(ctx) {
     const routes = Object.entries(ctx.options.routes as Record<string, RouteOptions>);
     for (let i = 0; i < routes.length; i++) {
@@ -304,7 +319,15 @@ const proxyFeature = defineFeature({
     const hooks = ctx.options as unknown as { beforeProxy: FeatureHook<ProxyStep, undefined>[]; afterProxy: FeatureHook<ProxyDone, undefined>[]; onProxyError: FeatureHook<ProxyFailure, undefined>[] };
     const identitySecret = (ctx.options.identity as { secret?: string }).secret;
     const identity = identitySecret ? { secret: identitySecret, header: ctx.options.identity.header.toLowerCase() } : undefined;
+    // Proxied sockets share the WebSocket handler of realtime, which the server gets only when some route proxies sockets
+    // (or a ws.ts route exists), so a gateway without them keeps its request path unchanged.
+    const socketRoute = routes.find(([, options]) => options.websocket)?.[0];
+    const realtime = ctx.config.features.find((feature) => feature.key === "realtime");
+    const websockets = (realtime?.options as { websockets?: { enabled?: boolean } } | undefined)?.websockets?.enabled === true;
+    if (socketRoute !== undefined && !websockets) throw new Error(`proxy.routes.${socketRoute}.websocket needs realtime: {} in quickservicets.config.ts`);
+    const sockets = websockets ? ctx.feature("realtime").foreignSockets(socketRoute !== undefined) : undefined;
     const context: ForwardContext = {
+      ...(sockets ? { sockets } : {}),
       identityHeader: ctx.options.identity.header.toLowerCase(),
       ...(identity ? { identity } : {}),
       production: ctx.config.production,
@@ -353,11 +376,14 @@ const proxyFeature = defineFeature({
         ...(identity ? { identity } : {}),
         ...upstreamPathOf(options),
         ...(options.cors ? { cors: true } : {}),
+        ...(options.websocket ? { websocket: true } : {}),
         ...authorizerOf(options),
       };
       const prefix = prefixOf(options.path);
       running.routes.set(name, { route, rest: (req) => restOf(req.path, prefix) });
-      const handler = (_repos: unknown, req: ServiceRequest) => forwardRequest(req, route, context);
+      const handler = route.websocket
+        ? (_repos: unknown, req: ServiceRequest) => (isUpgrade(req) ? proxySocket(req, route, context, sockets!) : forwardRequest(req, route, context))
+        : (_repos: unknown, req: ServiceRequest) => forwardRequest(req, route, context);
       const routeAuth = options.auth === "public" ? { auth: false } : {};
       // Per-route security goes through the security native, like the tags of an endpoint would.
       const security = securityOptionsOf(options);

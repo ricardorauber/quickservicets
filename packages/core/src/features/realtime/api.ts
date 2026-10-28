@@ -1,4 +1,18 @@
-import type { SocketHooks } from "./sockets.ts";
+import type { ForeignConnection, SocketHooks } from "./sockets.ts";
+
+/** The shared WebSocket handler as another feature uses it for connections of its own, like proxied sockets. */
+export interface ForeignSockets {
+  /** Whether Bun's WebSocket handler is passed to the server. */
+  readonly passed: boolean;
+  /** `realtime.websockets.maxMessageSize` in bytes. */
+  readonly maxMessageSize: number;
+  /** `realtime.websockets.idleTimeout` in milliseconds. */
+  readonly idleTimeoutMs: number;
+  /** Checks an upgrade: the origin against `realtime.websockets.origins` (403) and `maxConnections` (503). */
+  admit(req: ServiceRequest): Promise<void>;
+  /** Upgrades the request to the connection, with response headers like the chosen subprotocol; false when it cannot. */
+  upgrade(req: ServiceRequest, connection: ForeignConnection, headers?: Record<string, string>): boolean;
+}
 import type { FeatureHook, RequestTenant, RequestUser, ServiceRequest, Sockets, SocketTransport, WriteEvent } from "../public.ts";
 
 /** What `sse.beforeDeliver` hooks receive for each change and stream: returning false skips it for that stream. */
@@ -33,6 +47,11 @@ export interface RealtimeApi {
    * `onClose`) after the config's.
    */
   addHook<K extends keyof SocketHooks>(name: K, fn: SocketHooks[K][number]): void;
+  /**
+   * The shared WebSocket handler for connections of another feature, or undefined while `realtime.websockets` is off;
+   * `pass` (during setup) makes the server get Bun's WebSocket handler even without `ws.ts` routes.
+   */
+  foreignSockets(pass: boolean): ForeignSockets | undefined;
   /** Replaces the local transport during setup; a second source (the config or another feature) fails startup naming both. */
   setTransport(transport: SocketTransport): void;
 }

@@ -143,6 +143,15 @@ addHook<K extends keyof SocketHooks>(name: K, fn: SocketHooks[K][number]): void;
 Appends a WebSocket hook (`beforeConnect`, `afterConnect`, `beforeMessage`, `beforeSubscribe`, `beforePublish` or
 `onClose`) after the config's.
 
+### `foreignSockets`
+
+```ts
+foreignSockets(pass: boolean): ForeignSockets | undefined;
+```
+
+The shared WebSocket handler for connections of another feature, or undefined while `realtime.websockets` is off;
+`pass` (during setup) makes the server get Bun's WebSocket handler even without `ws.ts` routes.
+
 ### `setTransport`
 
 ```ts

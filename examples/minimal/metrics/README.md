@@ -18,7 +18,7 @@ Another feature reads the windows with `ctx.feature("metrics").query({ last: "15
 
 ## Level 1: options and environment
 
-`window`, `retention`, `rollup`, `by`, `maxSeries` and `exclude` shape the windows and series, and every option has a `QS_*` variable:
+`window`, `retention`, `rollup`, `by`, `maxSeries` and `exclude` shape the windows and series, `store: "database"` keeps closed windows in the project's database so every worker and replica reads them all, and every option has a `QS_*` variable:
 
 ```ts
 metrics: { by: ["route", "tenant", "user"], retention: "6h" }
@@ -50,7 +50,7 @@ Not applicable: the `metrics` native has no routes to override yet.
 
 ## Level 6: replace the implementation
 
-Not applicable: the `metrics` native keeps its windows in the worker's memory and has no replaceable store yet.
+Not applicable: the `metrics` native keeps its windows in the worker's memory or in the `MetricWindow` table, and has no replaceable store yet.
 
 ## Level 7: eject
 

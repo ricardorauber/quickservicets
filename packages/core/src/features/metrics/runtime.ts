@@ -1,0 +1,108 @@
+import { safeLog, type JobClock, type Logger } from "../public.ts";
+import { queryWindows, rangeOf, type MetricsQuery, type MetricsResult } from "./query.ts";
+import { storedWindow, usageWindow, type MetricsStore } from "./store.ts";
+import { UsageRecorder, type RecorderSettings, type UsageObservation, type UsageWindow } from "./windows.ts";
+
+/** The most closed windows a worker keeps while its store fails. */
+export const MAX_UNFLUSHED = 10;
+/** How often a failing flush may log `metrics.flush.failed`. */
+const FAILURE_LOG_MS = 60_000;
+
+/** What the runtime of one worker needs. */
+export interface MetricsRuntimeOptions {
+  settings: RecorderSettings;
+  clock: JobClock;
+  logger: Logger;
+  /** Where closed windows go so every worker reads them; without one, they stay in this worker's memory. */
+  store?: MetricsStore;
+  /** `<hostname>:<pid>:<worker index>`, the instance of the rows this worker writes. */
+  instance: string;
+}
+
+/**
+ * The usage metrics of one worker: the recorder, the closed windows not yet in the store, flushing on each window
+ * boundary, and queries merging the stored windows with this worker's own.
+ */
+export class MetricsRuntime {
+  readonly recorder: UsageRecorder;
+  /** Closed windows the store has not accepted yet, oldest first. */
+  readonly unflushed: UsageWindow[] = [];
+  private lastFailureLog = Number.NEGATIVE_INFINITY;
+  private dropped = 0;
+  private flushing: Promise<void> | undefined;
+
+  constructor(readonly options: MetricsRuntimeOptions) {
+    this.recorder = new UsageRecorder(options.settings, options.clock.now());
+  }
+
+  record(observation: UsageObservation): void {
+    this.recorder.record(observation);
+  }
+
+  /** Closes the window when its boundary passed; with a store, hands the closed windows to it. */
+  rotate(): Promise<void> {
+    const closed = this.recorder.rotate(this.options.clock.now());
+    if (!this.options.store) return Promise.resolve();
+    // The store keeps closed windows, rollups and their retention; the worker keeps only what it has not written.
+    this.recorder.closed.length = 0;
+    this.recorder.rollups.length = 0;
+    this.unflushed.push(...closed);
+    if (this.unflushed.length > MAX_UNFLUSHED) this.dropped += this.unflushed.splice(0, this.unflushed.length - MAX_UNFLUSHED).length;
+    return this.flush();
+  }
+
+  /** Writes the unflushed windows to the store; a failure keeps them for the next boundary. */
+  flush(): Promise<void> {
+    const store = this.options.store;
+    if (!store || this.unflushed.length === 0) {
+      this.logDropped();
+      return Promise.resolve();
+    }
+    this.flushing ??= (async () => {
+      const batch = [...this.unflushed];
+      try {
+        await store.write(batch.map((window) => storedWindow(window, this.options.instance)));
+        this.unflushed.splice(0, batch.length);
+      } catch (error) {
+        this.failed(error);
+      } finally {
+        this.flushing = undefined;
+        this.logDropped();
+      }
+    })();
+    return this.flushing;
+  }
+
+  private failed(error: unknown): void {
+    this.lastError = (error as Error)?.message ?? String(error);
+  }
+
+  private lastError: string | undefined;
+
+  /** Logs the windows dropped since the last entry, at most once per minute. */
+  private logDropped(): void {
+    if (this.dropped === 0) return;
+    const now = this.options.clock.now();
+    if (now - this.lastFailureLog < FAILURE_LOG_MS) return;
+    this.lastFailureLog = now;
+    safeLog(this.options.logger, "error", {
+      timestamp: new Date(now).toISOString(),
+      message: "metrics.flush.failed",
+      dropped: this.dropped,
+      ...(this.lastError ? { error: { message: this.lastError } } : {}),
+    });
+    this.dropped = 0;
+  }
+
+  /** The series of a range: the stored windows of every worker and replica, with this worker's own unflushed ones. */
+  async query(query: MetricsQuery = {}): Promise<MetricsResult> {
+    const now = this.options.clock.now();
+    const { settings, store } = this.options;
+    const local = this.recorder.windows();
+    if (!store) return queryWindows(local, settings, query, now);
+    const { from, to } = rangeOf(query, now);
+    // Rollup windows start up to one rollup before the range and still overlap it.
+    const stored = (await store.read({ from: new Date(from - settings.rollupMs), to: new Date(to + 1) })).map(usageWindow);
+    return queryWindows([...stored, ...this.unflushed, ...local], settings, query, now);
+  }
+}

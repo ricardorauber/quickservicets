@@ -766,4 +766,5 @@ Every option, tag, command and hook of `metrics` is on [its reference page](/ref
 | `metrics.by` | `("route" \| "tenant" \| "user")[]` | `["route","tenant"]` | `QS_METRICS_BY` | The dimensions of each series: the route as its method and pattern (GET /posts), and the tenant and user ids (- when absent). |
 | `metrics.maxSeries` | `integer` | `10000` | `QS_METRICS_MAX_SERIES` | The most series per window and worker; further ones are counted in one series whose dimensions are all other. |
 | `metrics.exclude` | `string[]` | `["/health/*","/_metrics","/docs"]` | `QS_METRICS_EXCLUDE` | Route patterns that are not counted; a pattern ending in /* covers every route under it. |
+| `metrics.store` | `"memory" \| "database"` | `"memory"` | `QS_METRICS_STORE` | Where closed windows are kept: the worker's memory, or the MetricWindow table of the project's database, shared by every worker and replica. |
 | `metrics.enabled` | `boolean` | `true` | `QS_METRICS_ENABLED` | Turns the feature off when false. |

@@ -80,7 +80,7 @@ export async function queryWindows(windows: readonly UsageWindow[], settings: Pi
   const total = emptySeries({});
   let seen = 0;
   for (const window of windows) {
-    if (window.start >= to || window.start + windowSize(window, settings) <= from) continue;
+    if (window.start > to || window.start + windowSize(window, settings) <= from) continue;
     for (const series of window.series.values()) {
       if (++seen % YIELD_EVERY === 0) await pause();
       if (DIMENSIONS.some((dimension) => filter[dimension] !== undefined && series[dimension] !== filter[dimension])) continue;

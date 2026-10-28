@@ -66,6 +66,8 @@ QS_SERVER_TLS_CERT=/etc/certs/tls.crt QS_SERVER_TLS_KEY=/etc/certs/tls.key QS_SE
 
 `cert`, `key` and `ca` take file paths or PEM text; the port then answers HTTPS only, with TLS 1.2 as the lowest version by default, and there is no HTTP-to-HTTPS redirect listener (leave redirects to the load balancer). Startup checks the files (`Invalid server.tls.key: not a PEM private key`, `Invalid server.tls: the key does not match the certificate`), logs `server.tls` with the certificate's subject, issuer, expiry and fingerprint, and warns `server.tls certificate expires in <n> days` when fewer days than `server.tls.expiryWarning` (14 days) remain.
 
+Renewed certificates (cert-manager, Let's Encrypt, a mounted secret) need no restart: every worker checks the files by content every `server.tls.reloadInterval` (1 minute) and at once on `SIGHUP`, checks a changed set like at startup (an invalid one keeps the current certificates and logs `tls.reload.failed`), and serves new connections with it while open ones finish, logging `tls.reloaded`. `server.tls.watch: false` turns the checks off.
+
 ## Releases
 
 1. `bun run build` and `bun test` in CI.

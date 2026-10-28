@@ -13,6 +13,7 @@ import type { TenantRuns } from "../tenant-runs.ts";
 import type { SocketRunner } from "./socket.ts";
 import { bunTlsOptions, loadServerTls, type ServerTlsConfig } from "../tls.ts";
 import { listenWithClientCertificates } from "./tls-server.ts";
+import { requestTlsRestart, TlsReloader, type ReloadedTls } from "../tls-reload.ts";
 import { clientCertificateOf } from "../client-certificates.ts";
 import { notifyRequestObservers, requestsObserved } from "../request-observers.ts";
 import { coreInstruments, metricsEnabled, tenantAttributes, type MeterSetting, type MetricAttributes } from "../metering.ts";
@@ -77,7 +78,7 @@ export interface ServerSettings {
    * Asks callers for client certificates checked against `ca` (`required` refuses the handshake without one); the
    * server then listens through `node:tls`, which gives each request its verified certificate as `req.client`.
    */
-  clientCertificates?: { ca: string[]; required: boolean };
+  clientCertificates?: { ca: string[]; required: boolean; sources?: string[] };
 }
 
 export interface ServerOptions extends ServerSettings {
@@ -562,35 +563,79 @@ export function createServer({ routes, repos, config: serverConfig, jobs = noReq
   return {
     fetch,
     listen(port = config.server?.port) {
-      if (clientCertificates && config.server?.tls) {
-        const tls = loadServerTls(config.server.tls);
-        return listenWithClientCertificates({
+      const tlsConfig = config.server?.tls as (ServerTlsConfig & { watch?: boolean; reloadInterval?: string }) | undefined;
+      // With server.tls, the files are watched and changed certificates reach new connections without a restart.
+      const reloader = (apply: (next: ReloadedTls) => void | Promise<void>) => {
+        if (!tlsConfig) return undefined;
+        const watcher = new TlsReloader({ tls: tlsConfig, ...(clientCertificates?.sources ? { clientCa: clientCertificates.sources } : {}), logger, apply, restart: requestTlsRestart });
+        watcher.start();
+        return watcher;
+      };
+      if (clientCertificates && tlsConfig) {
+        const tls = loadServerTls(tlsConfig);
+        const listener = listenWithClientCertificates({
           port: port ?? 0,
           tls: { cert: tls.cert, key: tls.key, ...(tls.ca ? { ca: tls.ca } : {}), ...(tls.passphrase !== undefined ? { passphrase: tls.passphrase } : {}), secureOptions: tls.secureOptions },
           clientCa: clientCertificates.ca,
           required: clientCertificates.required,
           ...(idleTimeout !== undefined ? { idleTimeout } : {}),
           fetch: (request, peer) => fetch(request, { peer }),
-        }) as unknown as ReturnType<typeof Bun.serve>;
+        });
+        const watcher = reloader((next) =>
+          listener.reload({ tls: { cert: next.cert, key: next.key, ...(next.passphrase !== undefined ? { passphrase: next.passphrase } : {}), secureOptions: next.secureOptions }, ...(next.clientCa ? { clientCa: next.clientCa } : {}) }),
+        );
+        return {
+          port: listener.port,
+          stop: (close?: boolean) => {
+            watcher?.stop();
+            return listener.stop(close);
+          },
+        } as unknown as ReturnType<typeof Bun.serve>;
       }
-      // Worker processes share the port; on Linux the kernel spreads the connections across them.
-      const options = {
-        port,
-        fetch: (request: Request, server: BunServer & { requestIP(request: Request): { address: string } | null }) => {
-          // The peer address is read from the server only when a request asks for it.
-          peers.set(request, server);
-          if (websocket) servers.set(request, server);
-          return fetch(request);
-        },
-        // Bun's WebSocket handler is passed only when a socket route exists.
-        ...(websocket ? { websocket } : {}),
-        ...((config.server?.workers ?? 1) > 1 ? { reusePort: true } : {}),
-        ...(maxRequestBodySize !== undefined ? { maxRequestBodySize } : {}),
-        ...(idleTimeout !== undefined ? { idleTimeout } : {}),
-        // With server.tls the port answers HTTPS only.
-        ...(config.server?.tls ? { tls: bunTlsOptions(loadServerTls(config.server.tls)) } : {}),
+      const watched = tlsConfig !== undefined && tlsConfig.watch !== false;
+      /** Starts a Bun server on the port, with the given TLS options. */
+      const serve = (listenPort: number | undefined, tls: Record<string, unknown> | undefined) => {
+        const options = {
+          port: listenPort,
+          fetch: (request: Request, server: BunServer & { requestIP(request: Request): { address: string } | null }) => {
+            // The peer address is read from the server only when a request asks for it.
+            peers.set(request, server);
+            if (websocket) servers.set(request, server);
+            return fetch(request);
+          },
+          // Bun's WebSocket handler is passed only when a socket route exists.
+          ...(websocket ? { websocket } : {}),
+          // Worker processes share the port (on Linux the kernel spreads the connections across them), and a reloaded
+          // certificate starts a new listener on it before the old one closes.
+          ...((config.server?.workers ?? 1) > 1 || watched ? { reusePort: true } : {}),
+          ...(maxRequestBodySize !== undefined ? { maxRequestBodySize } : {}),
+          ...(idleTimeout !== undefined ? { idleTimeout } : {}),
+          // With server.tls the port answers HTTPS only.
+          ...(tls ? { tls } : {}),
+        };
+        return Bun.serve(options as unknown as Parameters<typeof Bun.serve>[0]);
       };
-      return Bun.serve(options as unknown as Parameters<typeof Bun.serve>[0]);
+      let current = serve(port, tlsConfig ? bunTlsOptions(loadServerTls(tlsConfig)) : undefined);
+      if (!tlsConfig) return current;
+      const retired = new Set<ReturnType<typeof Bun.serve>>();
+      // Bun's server.reload keeps the TLS options it started with, so a new listener with the new certificates takes
+      // the port and the old one stops accepting, letting its requests in progress finish.
+      const watcher = reloader((next) => {
+        const replacement = serve(current.port, { cert: next.cert, key: next.key, ...(next.ca ? { ca: next.ca } : {}), ...(next.passphrase !== undefined ? { passphrase: next.passphrase } : {}), secureOptions: next.secureOptions });
+        const previous = current;
+        current = replacement;
+        retired.add(previous);
+        void Promise.resolve(previous.stop(false)).finally(() => retired.delete(previous));
+      });
+      return {
+        get port() {
+          return current.port;
+        },
+        stop: async (close?: boolean) => {
+          watcher?.stop();
+          await Promise.all([current.stop(close), ...[...retired].map((server) => server.stop(close))]);
+        },
+      } as unknown as ReturnType<typeof Bun.serve>;
     },
   };
 }

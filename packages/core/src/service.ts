@@ -13,6 +13,10 @@ import { reportStartupFailure } from "./error-reports.ts";
 import type { EntityModel } from "./model.ts";
 import type { ResolvedFeature } from "./features.ts";
 import { loadServerTls, logServerCertificate } from "./tls.ts";
+import { reloadTls, setTlsRestart } from "./tls-reload.ts";
+
+/** The pause between two workers restarting for renewed certificates, after the previous one stopped. */
+export const TLS_RESTART_GAP_MS = 2000;
 import { isPrimary, runsScheduledWork, runWorkers, workerIndex } from "./workers.ts";
 
 /** What the generated `server.ts` passes to `startService`: the project's config and generated files. */
@@ -138,8 +142,28 @@ export async function startService(options: StartServiceOptions): Promise<Runnin
   const listening = app.server.listen();
   console.log(`QuickService.ts listening on ${config.server.tls ? "https" : "http"}://localhost:${listening.port}`);
   if (runsScheduledWork(env)) app.scheduler.start();
-  const stop = () => stopService(config, app, lifecycle, listening);
+  const stopping = () => stopService(config, app, lifecycle, listening);
+  let stopped: Promise<void> | undefined;
+  const stop = () => {
+    stopped ??= stopping().finally(() => {
+      if (onHangup) process.off("SIGHUP", onHangup);
+      setTlsRestart(undefined);
+    });
+    return stopped;
+  };
   handleShutdownSignals(stop, target);
+  // SIGHUP checks the certificate files at once; a runtime refusing renewed certificates drains this worker, which
+  // exits so the supervisor starts a replacement, one worker at a time (later workers wait their turn).
+  let onHangup: (() => void) | undefined;
+  if (config.server.tls) {
+    onHangup = () => void reloadTls(logger);
+    process.on("SIGHUP", onHangup);
+    const index = workerIndex(env) ?? 0;
+    setTlsRestart(() => {
+      const turn = index * ((parseDuration(config.lifecycle.stopTimeout) ?? 10_000) + TLS_RESTART_GAP_MS);
+      setTimeout(() => void stop().then(() => target.exit(0)), turn);
+    });
+  }
   return { config, app, port: listening.port ?? 0, stop };
 }
 

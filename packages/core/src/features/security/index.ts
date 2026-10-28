@@ -1,4 +1,4 @@
-import { coreInstruments, metricsEnabled, anyOf, hook, normalizeAddress, provider, runAfterHooks, secretVariableValues, boolean, cidr, defineFeature, duration, integer, list, object, oneOf, parseDuration, parseSize, peerAddress, rate, safeLog, size, string, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext, type LogMasker, type ServiceRequest, activeSetup, readCertificates, type Logger, type HandlerMiddleware, type ParsedTags, type RequestMiddleware, type ServerSettings, type TaggedRoute } from "../public.ts";
+import { coreInstruments, metricsEnabled, anyOf, hook, normalizeAddress, provider, runAfterHooks, secretVariableValues, boolean, cidr, defineFeature, duration, integer, list, object, oneOf, parseDuration, parseSize, peerAddress, rate, safeLog, size, string, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext, type LogMasker, type ServiceRequest, activeSetup, readCertificates, reloadTls, type Logger, type HandlerMiddleware, type ParsedTags, type RequestMiddleware, type ServerSettings, type TaggedRoute } from "../public.ts";
 import type { SecurityRouteOptions } from "./api.ts";
 import type { ClientIpResolver, RateLimitRefusal, SecurityApi, SecurityRefusal } from "./api.ts";
 import { corsProblems, corsStep, ownOptionsRoutes, routeCorsOptions } from "./cors.ts";
@@ -213,7 +213,7 @@ export const MTLS_WEBSOCKETS = "realtime.websockets is not available while the s
 function setUpClientCertificates(ctx: FeatureSetupContext<SecurityOptions>): void {
   const mtls = ctx.options.mtls as MtlsOptions;
   if (taggedRoutes().some((route) => route.kind === "websocket")) throw new Error(MTLS_WEBSOCKETS);
-  ctx.app.configureServer({ clientCertificates: { ca: readCertificates(mtls.ca, "security.mtls.ca").pems, required: mtls.mode === "required" } });
+  ctx.app.configureServer({ clientCertificates: { ca: readCertificates(mtls.ca, "security.mtls.ca").pems, required: mtls.mode === "required", sources: [...mtls.ca] } });
 }
 
 /** What the steps share across rebuilds: the rate limit store and the load shedding step, which hold state. */
@@ -544,6 +544,7 @@ const securityFeature = defineFeature({
     return {
       masker: () => state.mask,
       exempt: (pattern, items) => exemptions.add(pattern, items),
+      reloadTls: () => reloadTls(ctx.logger),
       routeOptions(pattern, options) {
         if (!state.open || !activeSetup()) throw new Error("security routeOptions() is only available during setup");
         if (typeof pattern !== "string" || !/^\/[^*]*(\/\*)?$/.test(pattern)) throw new Error(`Invalid security route pattern ${JSON.stringify(pattern)}: expected a path or a prefix ending in /*`);

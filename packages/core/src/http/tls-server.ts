@@ -21,8 +21,11 @@ export interface ClientCertificateServerOptions {
 /** A server listening with client certificates. */
 export interface ClientCertificateServer {
   port: number;
-  /** Replaces the certificates and authorities new connections use, keeping the open ones. */
-  setSecureContext(options: SecureContextOptions): void;
+  /**
+   * Replaces the certificates and authorities new connections use, keeping the open ones: a new listener takes the
+   * port and the old one stops accepting, since the runtime does not apply `setSecureContext`.
+   */
+  reload(next: { tls: ClientCertificateServerOptions["tls"]; clientCa?: string[] }): void;
   /** Stops accepting connections; with `close`, ends the open ones too. */
   stop(close?: boolean): Promise<void>;
 }
@@ -86,36 +89,52 @@ export function listenWithClientCertificates(options: ClientCertificateServerOpt
       });
   });
   if (options.idleTimeout !== undefined) http.keepAliveTimeout = options.idleTimeout * 1000;
-  const tls = createTlsServer(
-    {
-      cert: options.tls.cert,
-      key: options.tls.key,
-      ...(options.tls.passphrase !== undefined ? { passphrase: options.tls.passphrase } : {}),
-      ...(options.tls.secureOptions !== undefined ? { secureOptions: options.tls.secureOptions } : {}),
-      ca: options.clientCa,
-      requestCert: true,
-      rejectUnauthorized: options.required,
-    },
-    (socket) => http.emit("connection", socket),
-  );
   const sockets = new Set<TLSSocket>();
-  tls.on("secureConnection", (socket: TLSSocket) => {
-    sockets.add(socket);
-    socket.on("close", () => sockets.delete(socket));
-  });
-  // Handshake failures (a missing or untrusted certificate in required mode) close that connection only.
-  tls.on("tlsClientError", () => {});
-  tls.listen(options.port);
-  const address = tls.address();
+  /** A TLS listener with the given certificates, handing its connections to the HTTP server. */
+  const listener = (tlsOptions: ClientCertificateServerOptions["tls"], clientCa: string[]) => {
+    const server = createTlsServer(
+      {
+        cert: tlsOptions.cert,
+        key: tlsOptions.key,
+        ...(tlsOptions.passphrase !== undefined ? { passphrase: tlsOptions.passphrase } : {}),
+        ...(tlsOptions.secureOptions !== undefined ? { secureOptions: tlsOptions.secureOptions } : {}),
+        ca: clientCa,
+        requestCert: true,
+        rejectUnauthorized: options.required,
+      } as SecureContextOptions,
+      (socket) => http.emit("connection", socket),
+    );
+    server.on("secureConnection", (socket: TLSSocket) => {
+      sockets.add(socket);
+      socket.on("close", () => sockets.delete(socket));
+    });
+    // Handshake failures (a missing or untrusted certificate in required mode) close that connection only.
+    server.on("tlsClientError", () => {});
+    return server;
+  };
+  let current = listener(options.tls, options.clientCa);
+  let clientCa = options.clientCa;
+  current.listen({ port: options.port, reusePort: true } as never);
+  const address = current.address();
+  const port = typeof address === "object" && address ? address.port : options.port;
+  const retired = new Set<ReturnType<typeof createTlsServer>>();
+  const close = (server: ReturnType<typeof createTlsServer>) => new Promise<void>((resolve) => server.close(() => resolve()));
   return {
-    port: typeof address === "object" && address ? address.port : options.port,
-    setSecureContext: (context) => tls.setSecureContext({ ...context, ca: context.ca ?? options.clientCa } as SecureContextOptions),
-    stop(close = false) {
-      return new Promise<void>((resolve) => {
-        tls.close(() => resolve());
-        if (close) for (const socket of sockets) socket.destroy();
-        else for (const socket of sockets) if (!(socket as unknown as { _httpMessage?: unknown })._httpMessage) socket.end();
-      });
+    port,
+    reload(next) {
+      clientCa = next.clientCa ?? clientCa;
+      const replacement = listener(next.tls, clientCa);
+      replacement.listen({ port, reusePort: true } as never);
+      const previous = current;
+      current = replacement;
+      retired.add(previous);
+      void close(previous).finally(() => retired.delete(previous));
+    },
+    async stop(force = false) {
+      const closing = [current, ...retired].map(close);
+      if (force) for (const socket of sockets) socket.destroy();
+      else for (const socket of sockets) if (!(socket as unknown as { _httpMessage?: unknown })._httpMessage) socket.end();
+      await Promise.all(closing);
     },
   };
 }

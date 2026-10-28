@@ -20,6 +20,10 @@ export interface ServerTlsConfig {
   expiryWarning?: string;
   /** The window the certificate expiry monitoring treats as critical (default `3d`). */
   expiryCritical?: string;
+  /** Checks the files for changes and applies renewed certificates without a restart (default true). */
+  watch?: boolean;
+  /** How often the files are checked (default `1m`). */
+  reloadInterval?: string;
 }
 
 /** What a log line and an expiry check need of a certificate. */

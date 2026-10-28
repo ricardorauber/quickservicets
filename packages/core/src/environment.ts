@@ -49,6 +49,8 @@ export const CONFIG_OVERRIDES: readonly ConfigOverride[] = [
   { path: "server.tls.minVersion", schema: oneOf(["TLSv1.2", "TLSv1.3"]) },
   { path: "server.tls.expiryWarning", schema: duration() },
   { path: "server.tls.expiryCritical", schema: duration() },
+  { path: "server.tls.watch", schema: boolean() },
+  { path: "server.tls.reloadInterval", schema: duration() },
   { path: "production", schema: boolean(), alias: { name: "NODE_ENV", map: (raw) => (raw === "production" ? "true" : undefined) } },
   { path: "docs.enabled", schema: boolean() },
   { path: "schema", schema: string(), alias: { name: "DATABASE_SCHEMA" }, custom: true },

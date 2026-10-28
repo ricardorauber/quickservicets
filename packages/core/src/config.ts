@@ -51,6 +51,10 @@ export interface ServiceConfig extends NativeFeatures {
       expiryWarning?: string;
       /** How close to expiry the certificate counts as critical for expiry monitoring (default "3d"). */
       expiryCritical?: string;
+      /** Checks the certificate, key and CA files for changes and applies renewed ones without a restart (default true). */
+      watch?: boolean;
+      /** How often the files are checked; `SIGHUP` checks at once (default "1m"). */
+      reloadInterval?: string;
     };
   };
   /** Production mode: hides internal error details and disables the API docs (default false); `NODE_ENV=production` turns it on. */

@@ -24,6 +24,8 @@ Every key that holds a value can also be set by an environment variable named af
 | `server.tls.minVersion` | `"TLSv1.2" \| "TLSv1.3"` | "TLSv1.2" | `QS_SERVER_TLS_MIN_VERSION` | The lowest TLS version accepted, `"TLSv1.2"` or `"TLSv1.3"` (default "TLSv1.2"). |
 | `server.tls.expiryWarning` | `string` | "14d" | `QS_SERVER_TLS_EXPIRY_WARNING` | Logs a warning at startup when the certificate expires within this duration (default "14d"). |
 | `server.tls.expiryCritical` | `string` | "3d" | `QS_SERVER_TLS_EXPIRY_CRITICAL` | How close to expiry the certificate counts as critical for expiry monitoring (default "3d"). |
+| `server.tls.watch` | `boolean` | true | `QS_SERVER_TLS_WATCH` | Checks the certificate, key and CA files for changes and applies renewed ones without a restart (default true). |
+| `server.tls.reloadInterval` | `string` | "1m" | `QS_SERVER_TLS_RELOAD_INTERVAL` | How often the files are checked; `SIGHUP` checks at once (default "1m"). |
 | `production` | `boolean` | false | `QS_PRODUCTION` (or `NODE_ENV`) | Production mode: hides internal error details and disables the API docs (default false); `NODE_ENV=production` turns it on. |
 | `docs` | `object` | — | — | API docs settings. |
 | `docs.enabled` | `boolean` | enabled unless `production` | `QS_DOCS_ENABLED` | Serve the API docs at `GET /docs` and `GET /openapi.json` (default: enabled unless `production`). |

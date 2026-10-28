@@ -25,6 +25,11 @@ export interface SecurityApi {
    * routes. Only available during setup.
    */
   routeOptions(pattern: string, options: SecurityRouteOptions): void;
+  /**
+   * Checks the files of `server.tls` and `security.mtls.ca` at once, like `SIGHUP`, applying renewed certificates to
+   * new connections; resolves whether a file changed and whether the change was applied.
+   */
+  reloadTls(): Promise<{ changed: boolean; applied: boolean }>;
   /** `routeOptions(pattern, { rateLimit: { limit, by } })`. */
   limit(pattern: string, options: { limit: string | ((ctx: never) => unknown); by?: readonly string[] }): void;
 }

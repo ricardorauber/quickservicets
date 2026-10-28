@@ -275,6 +275,15 @@ Gives the paths matching `pattern` (a path, or a prefix ending in `/*`) the rout
 `@ipAllow`/`@ipDeny` and `@limits` tags would give an endpoint, for routes that have no file to tag, like proxy
 routes. Only available during setup.
 
+### `reloadTls`
+
+```ts
+reloadTls(): Promise<{ changed: boolean; applied: boolean }>;
+```
+
+Checks the files of `server.tls` and `security.mtls.ca` at once, like `SIGHUP`, applying renewed certificates to
+new connections; resolves whether a file changed and whether the change was applied.
+
 ### `limit`
 
 ```ts

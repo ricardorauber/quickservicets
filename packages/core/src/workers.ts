@@ -131,6 +131,10 @@ export function runPrimary({ workers, spawn, logger = jsonLogger, target = proce
     settle();
   };
   target.on("SIGTERM", () => onSignal("SIGTERM"));
+  // SIGHUP asks every worker to check its certificate files.
+  target.on("SIGHUP", () => {
+    for (const worker of running.values()) worker.kill("SIGHUP");
+  });
   target.on("SIGINT", () => onSignal("SIGINT"));
 
   for (let index = 0; index < workers; index++) start(index);

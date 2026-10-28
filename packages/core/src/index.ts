@@ -64,6 +64,8 @@ export { observeJobRuns } from "./jobs/observers.ts";
 export { contextFlags, setContextFlags } from "./context-flags.ts";
 export { contextHttp, setContextHttp } from "./context-http.ts";
 export { activeSetup } from "./setup-phase.ts";
+export { reloadTls, requestTlsRestart, setTlsRestart, TlsReloader } from "./tls-reload.ts";
+export type { ReloadedTls, TlsReloaderOptions, TlsReloadResult } from "./tls-reload.ts";
 export { clientCertificateOf, clientFromPeer, clientFromPem, parseAltNames, setClientCertificate } from "./client-certificates.ts";
 export type { ClientCertificate } from "./client-certificates.ts";
 export { listenWithClientCertificates } from "./http/tls-server.ts";

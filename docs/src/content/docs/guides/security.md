@@ -150,6 +150,25 @@ export type IpRule = {
 
 Without a source the item does exactly the work of the static lists: no timer and no observer.
 
+### Temporary blocks and automatic blocking
+
+`ipBlocks` from `@quickservicets/core` (and `ctx.feature("security").ip` in a feature) blocks an address or a network for a while:
+
+```ts
+import { ipBlocks } from "@quickservicets/core";
+
+await ipBlocks.block("203.0.113.9", { for: "10m", reason: "abuse" }); // resolves { cidr, until, reason, source: "manual", createdAt }
+await ipBlocks.unblock("203.0.113.9"); // resolves whether a block with exactly that cidr existed
+await ipBlocks.blocked(); // the blocks still in effect
+```
+
+- A blocked address is refused in the request stage, before CORS and rate limits, with `403 Address not allowed` whatever the allow list says, and `ip.onBlocked` runs with reason `blocked`; paths exempted from `ip` (like the health routes) skip blocks. `block` takes an address or a CIDR block (`block() needs for, like "15m"` without `for`), and a second block of the same `cidr` replaces the first, keeping the later `until`.
+- `ip.blocks.store` is `"memory"` by default: blocks live in the worker that made them, at most `ip.blocks.maxEntries` (the one closest to expiry is evicted first), and several workers log a warning. `"database"` (`QS_SECURITY_IP_BLOCKS_STORE`) adds the system entity `IpBlock` (run `quickservicets migration add`): blocks are written there, the calling worker applies them at once, and every worker reloads the active ones every `ip.blocks.syncInterval` (default `5s`), so the check never waits for the database.
+- A block stops applying at its `until`; every minute expired blocks are removed and logged as `security.ip.unblocked` with reason `expired`.
+- `ip.autoBlock` (off by default; `autoBlock: true` or `{ after, within, statuses, for }`) counts, per `req.ip`, the answers with a listed status (default 401, 403 and 429) in a sliding window of `within` (default `1m`) and blocks the address (`/32` or `/128`) for `for` (default `15m`) with `source: "auto"` once the count reaches `after` (default 20). It never counts or blocks loopback, `unknown`, an address an allow list in effect covers, or a path exempted from `ip`, and the 403s of a block never extend it. Counters are per worker, bounded by `maxEntries`; blocks follow the store.
+- Each block logs `security.ip.blocked` with `cidr`, `reason`, `source` and `until`, and each removal `security.ip.unblocked` with `cidr`, `reason` (`manual` or `expired`) and the former `until`; the hooks `ip.onBlock` and `ip.onUnblock` receive the same fields, and their errors are logged without changing the outcome.
+- `ipBlocks` throws `ipBlocks needs security.ip enabled` while the item is off. With no block stored and `autoBlock` off, the item adds one size check per request and no work on responses.
+
 ## Masking
 
 `masking` passes every log entry through `maskEntry`: a property whose name contains one of `keys` (`password`, `token`, `authorization` and the other defaults, ignoring case, `-` and `_`) shows `[secret]`, a property named like a field tagged `@sensitive` shows `[sensitive]`, and the values of secret variables and options show `[secret]` wherever they appear in a string. Job run records store masked logs, results and errors, and development error responses mask secret values in the stack. `@sensitive` never changes API responses; `@hidden` is what leaves a field out of them.

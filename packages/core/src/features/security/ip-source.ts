@@ -30,6 +30,8 @@ export interface IpSourceSetup {
 export interface DynamicIpLists {
   /** The compiled check in effect: whether an address passes the global lists; undefined lets every address pass. */
   readonly check: ((address: string) => boolean) | undefined;
+  /** Whether an address matches an allow list in effect, the config's or the loaded one. */
+  allows(address: string): boolean;
   /** Loads the source now (after a load in flight, if any) and resolves the counts once the new lists are in effect. */
   reload(): Promise<IpListCounts>;
   /** Loads once, then on every `refresh` and every `watch` notification; a failed first load keeps the config lists. */
@@ -69,7 +71,9 @@ export function dynamicIpLists(options: { config: IpLists; source: IpListSource;
     }
     return kept;
   };
-  const state: { check: ((address: string) => boolean) | undefined } = { check: compileLists(config, compile) };
+  const allowOf = (entries: readonly string[]) => (entries.length > 0 ? compile(entries) : undefined);
+  const state: { check: ((address: string) => boolean) | undefined; allowed: ((address: string) => boolean) | undefined } = { check: compileLists(config, compile), allowed: undefined };
+  let configAllowed: ((address: string) => boolean) | undefined | null = null;
   let counts: IpListCounts = { allow: config.allow.length, deny: config.deny.length };
 
   /** One load: within `refreshMs`, then validated, merged, compiled and swapped in. */
@@ -88,6 +92,7 @@ export function dynamicIpLists(options: { config: IpLists; source: IpListSource;
       const merged: IpLists = { allow: [...config.allow, ...valid(loaded?.allow)], deny: [...config.deny, ...valid(loaded?.deny)] };
       const compiled = compileLists(merged, compile);
       state.check = compiled;
+      state.allowed = merged.allow.length > config.allow.length ? allowOf(merged.allow) : undefined;
       counts = { allow: merged.allow.length, deny: merged.deny.length };
       return counts;
     } catch (error) {
@@ -127,6 +132,12 @@ export function dynamicIpLists(options: { config: IpLists; source: IpListSource;
   return {
     get check() {
       return state.check;
+    },
+    allows(address) {
+      if (state.allowed) return state.allowed(address);
+      // Until a load brings allow entries, the config's allow list is the one in effect; compiled when first asked.
+      if (configAllowed === null) configAllowed = allowOf(config.allow);
+      return configAllowed?.(address) ?? false;
     },
     reload: trigger,
     async start() {

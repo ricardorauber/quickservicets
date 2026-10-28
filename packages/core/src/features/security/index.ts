@@ -1,10 +1,11 @@
-import { coreInstruments, metricsEnabled, anyOf, hook, normalizeAddress, provider, runAfterHooks, secretVariableValues, boolean, cidr, defineFeature, duration, integer, list, object, oneOf, parseDuration, parseSize, peerAddress, rate, safeLog, size, string, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext, type LogMasker, type ServiceRequest, activeSetup, readCertificates, reloadTls, type Logger, type ClientCertificate, type FeatureHook, type OptionFunction, type HandlerMiddleware, type ParsedTags, type RequestMiddleware, type ServerSettings, type TaggedRoute } from "../public.ts";
+import { cidrMatcher, coreInstruments, type DatabaseAdapter, type EntityModel, metricsEnabled, anyOf, hook, normalizeAddress, provider, runAfterHooks, secretVariableValues, boolean, cidr, defineFeature, duration, integer, list, object, oneOf, parseDuration, parseSize, peerAddress, rate, safeLog, size, string, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext, type LogMasker, type ServiceRequest, activeSetup, readCertificates, reloadTls, type Logger, type ClientCertificate, type FeatureHook, type OptionFunction, type HandlerMiddleware, type ParsedTags, type RequestMiddleware, type ServerSettings, type TaggedRoute } from "../public.ts";
 import type { SecurityRouteOptions } from "./api.ts";
 import type { ClientIpResolver, RateLimitRefusal, SecurityApi, SecurityRefusal } from "./api.ts";
 import { corsProblems, corsStep, ownOptionsRoutes, routeCorsOptions } from "./cors.ts";
 import { Exemptions } from "./exempt.ts";
 import { DEFAULT_MASKED_KEYS, masker, secretOptionValues, sensitiveFieldNames } from "./masking.ts";
 import { ipStep } from "./ip.ts";
+import { AutoBlocker, IP_DISABLED, ipBlockEntity, IpBlockList, neverAutoBlocked, setIpBlocksHub, type IpBlockEvent, type IpUnblockEvent } from "./ip-blocks.ts";
 import { BIND_SOURCE, dynamicIpLists, type DynamicIpLists, type IpListSource, type IpSourceSetup } from "./ip-source.ts";
 import { DEFAULT_ATTACHMENT_TYPES, fileHeaders } from "./files.ts";
 import { DEFAULT_CSP, DEFAULT_DOCS_CSP, headersStep } from "./headers.ts";
@@ -96,6 +97,25 @@ const options = object({
       .optional()
       .describe("Where more allow and deny entries come from while the service runs, like databaseIpList over a project entity; merged with the config lists, loaded at startup, every refresh and on watch changes."),
     refresh: duration().default("30s").describe("How often the source is loaded again; a load taking longer fails and keeps the lists in effect."),
+    blocks: object({
+      store: oneOf(["memory", "database"])
+        .default("memory")
+        .describe('Where temporary blocks live: "memory" in the worker that made them, "database" in the IpBlock entity, shared by every worker and replica.'),
+      maxEntries: integer().min(1).default(100_000).describe("The most blocks (and automatic-blocking counters) a worker keeps; the block closest to expiry is evicted first."),
+      syncInterval: duration().default("5s").describe('How often each worker reloads the active blocks of the "database" store.'),
+    })
+      .default({ store: "memory", maxEntries: 100_000, syncInterval: "5s" })
+      .describe("Temporary blocks of addresses and networks, made with ipBlocks.block() or by autoBlock."),
+    autoBlock: toggle({
+      after: integer().min(1).default(20).describe("How many listed answers within the window block an address."),
+      within: duration().default("1m").describe("The sliding window the answers are counted in."),
+      statuses: list(integer()).default([401, 403, 429]).describe("The statuses counted."),
+      for: duration().default("15m").describe("How long an automatic block lasts."),
+    })
+      .default(false)
+      .describe("Blocks an address automatically after repeated refusals; loopback, unknown, allow-listed addresses and paths exempted from ip are never blocked."),
+    onBlock: hook<IpBlockEvent, undefined>().describe("Runs after a block is made, with its cidr, reason, source and until."),
+    onUnblock: hook<IpUnblockEvent, undefined>().describe("Runs after a block is removed, with its cidr, the reason (manual or expired) and its former until."),
     onBlocked: hook<SecurityRefusal, undefined>().describe("Runs after a request is refused for its address."),
   }).describe("Accepts or refuses requests by client address (req.ip), for the whole service or with tags for single routes."),
   csrf: toggle({
@@ -166,6 +186,8 @@ interface SetupState {
   server?: ServerSettings;
   /** The lists of `ip.source`, while one is set. */
   ipLists?: DynamicIpLists;
+  /** The temporary blocks, while the `ip` item is on. */
+  ipBlocks?: IpBlockList;
   /** The counts of the config lists. */
   ipCounts?: { allow: number; deny: number };
   /** The handler-stage middleware delegating to the current steps, and whether it was added. */
@@ -251,6 +273,10 @@ interface SharedSteps {
   shedding?: SecurityStep;
   /** The lists of `ip.source`, which the `ip` step reads per request. */
   ipLists?: DynamicIpLists;
+  /** The temporary blocks, while the `ip` item is on. */
+  ipBlocks?: IpBlockList;
+  /** Automatic blocking, while `ip.autoBlock` is on. */
+  autoBlock?: { statuses: ReadonlySet<number>; count(address: string): void; exempt(address: string): boolean };
 }
 
 /** Prepares the parts of the steps that hold state, once per setup. */
@@ -277,12 +303,66 @@ function sharedSteps(ctx: FeatureSetupContext<SecurityOptions>, slot: StoreSlot)
     ctx.app.onStop(() => lists.stop());
     shared.ipLists = lists;
   }
+  if (options.ip.enabled) setUpIpBlocks(ctx, shared);
   if (options.loadShedding.enabled) {
     const shedding = loadSheddingStep(options.loadShedding, ctx.logger);
     ctx.app.onStop(() => shedding.stop());
     shared.shedding = shedding;
   }
   return shared;
+}
+
+/** How often expired blocks are removed and logged. */
+export const BLOCK_CLEANUP_INTERVAL = 60_000;
+
+/**
+ * The temporary blocks of the `ip` item: in memory, or written to the `IpBlock` entity and reloaded every
+ * `syncInterval`; expired ones removed every minute; automatic blocking when `autoBlock` is on; `ipBlocks` set.
+ */
+function setUpIpBlocks(ctx: FeatureSetupContext<SecurityOptions>, shared: SharedSteps): void {
+  const ip = ctx.options.ip;
+  const blocks = ip.blocks;
+  let database: { adapter: DatabaseAdapter; model: EntityModel } | undefined;
+  if (blocks.store === "database") {
+    const model = ctx.models.find((candidate) => candidate.key === "IpBlock" && candidate.system);
+    if (!model) throw new Error('security.ip.blocks.store is "database", but the build did not include IpBlock; rebuild and run quickservicets migration add');
+    database = { adapter: ctx.config.database, model };
+  } else if (Math.max(ctx.worker.count, ctx.config.server.workers) > 1) {
+    safeLog(ctx.logger, "warn", { timestamp: new Date().toISOString(), message: 'security.ip.blocks uses per-worker memory; set security.ip.blocks.store to "database" to share blocks' });
+  }
+  const hooks = ip as unknown as { onBlock: FeatureHook<IpBlockEvent, undefined>[]; onUnblock: FeatureHook<IpUnblockEvent, undefined>[] };
+  const list = new IpBlockList({ maxEntries: blocks.maxEntries, logger: ctx.logger, onBlock: hooks.onBlock, onUnblock: hooks.onUnblock, ...(database ? { database } : {}) });
+  shared.ipBlocks = list;
+  setIpBlocksHub(list);
+  const failed = (operation: string) => (error: unknown) =>
+    safeLog(ctx.logger, "error", { timestamp: new Date().toISOString(), message: `security.ip.blocks.${operation}-failed`, error: { message: (error as Error)?.message ?? String(error) } });
+  const timers: ReturnType<typeof setInterval>[] = [];
+  ctx.app.onStart(async () => {
+    if (database) {
+      await list.sync().catch(failed("sync"));
+      timers.push(setInterval(() => void list.sync().catch(failed("sync")), parseDuration(blocks.syncInterval) ?? 5000));
+    }
+    // With the database store, one worker per process deletes the expired rows; every worker drops its own copies.
+    const fromDatabase = database !== undefined && ctx.worker.runsScheduledWork;
+    timers.push(setInterval(() => void list.cleanup(fromDatabase).catch(failed("cleanup")), BLOCK_CLEANUP_INTERVAL));
+    for (const timer of timers) timer.unref?.();
+  });
+  ctx.app.onStop(() => {
+    for (const timer of timers.splice(0)) clearInterval(timer);
+    setIpBlocksHub(undefined, list);
+  });
+  const auto = ip.autoBlock;
+  if (auto.enabled) {
+    const blocker = new AutoBlocker(
+      { after: auto.after, withinMs: parseDuration(auto.within) ?? 60_000, withinText: auto.within, forText: auto.for, statuses: auto.statuses, maxEntries: blocks.maxEntries },
+      list,
+      ctx.logger,
+    );
+    // An address any allow list in effect covers is never blocked automatically.
+    const configAllow = ip.allow.length > 0 ? cidrMatcher(ip.allow) : undefined;
+    const allowed = (address: string) => (shared.ipLists ? shared.ipLists.allows(address) : (configAllow?.(address) ?? false));
+    shared.autoBlock = { statuses: blocker.statuses, count: (address) => blocker.count(address), exempt: (address) => neverAutoBlocked(address) || allowed(address) };
+  }
 }
 
 /** The steps of the enabled items, in no particular order; the pipeline orders them. */
@@ -295,7 +375,11 @@ function itemSteps(options: SecurityOptions, production: boolean, shared: Shared
   if (options.headers.enabled) steps.push(headersStep(options.headers, production));
   if (shared.shedding) steps.push(shared.shedding);
   if (options.ip.enabled) {
-    const step = ipStep(options.ip, ipOf, index()?.routes ?? [], undefined, shared.ipLists);
+    const step = ipStep(options.ip, ipOf, index()?.routes ?? [], undefined, {
+      ...(shared.ipLists ? { dynamic: shared.ipLists } : {}),
+      ...(shared.ipBlocks ? { blocks: shared.ipBlocks } : {}),
+      ...(shared.autoBlock ? { auto: shared.autoBlock } : {}),
+    });
     if (step) steps.push(step);
   }
   if (options.cors.enabled) steps.push(corsStep(options.cors, ownOptionsRoutes(taggedRoutes()), index, ipOf));
@@ -418,7 +502,10 @@ const securityFeature = defineFeature({
   enabledByDefault: true,
   options,
   // The shared counters are part of the model only while the database store is on.
-  entities: ({ options }) => (options.rateLimit.enabled && options.rateLimit.store === "database" ? [rateLimitCounterEntity()] : []),
+  entities: ({ options }) => [
+    ...(options.rateLimit.enabled && options.rateLimit.store === "database" ? [rateLimitCounterEntity()] : []),
+    ...(options.ip.enabled && options.ip.blocks.store === "database" ? [ipBlockEntity()] : []),
+  ],
   validate: (resolved, config) => [
     ...(resolved.cors.enabled ? corsProblems(resolved.cors, "security.cors") : []),
     ...(resolved.timeouts.enabled ? idleProblems(resolved.timeouts.idle) : []),
@@ -528,6 +615,7 @@ const securityFeature = defineFeature({
     }
     const shared = sharedSteps(ctx, slot);
     setupStates.get(ctx.app)!.ipLists = shared.ipLists;
+    setupStates.get(ctx.app)!.ipBlocks = shared.ipBlocks;
     setupStates.get(ctx.app)!.ipCounts = { allow: ctx.options.ip.allow.length, deny: ctx.options.ip.deny.length };
     const steps = itemSteps(ctx.options, ctx.config.production, shared, () => index, ipOf);
     if (ctx.options.limits.enabled) {
@@ -603,6 +691,9 @@ const securityFeature = defineFeature({
       reloadTls: () => reloadTls(ctx.logger),
       ip: {
         reload: () => (state.ipLists ? state.ipLists.reload() : Promise.resolve({ ...(state.ipCounts ?? { allow: 0, deny: 0 }) })),
+        block: (target, options) => (state.ipBlocks ? state.ipBlocks.block(target, options) : Promise.reject(new Error(IP_DISABLED))),
+        unblock: (target) => (state.ipBlocks ? state.ipBlocks.unblock(target) : Promise.reject(new Error(IP_DISABLED))),
+        blocked: () => (state.ipBlocks ? state.ipBlocks.blocked() : Promise.reject(new Error(IP_DISABLED))),
       },
       routeOptions(pattern, options) {
         if (!state.open || !activeSetup()) throw new Error("security routeOptions() is only available during setup");
@@ -649,6 +740,8 @@ export { DEFAULT_MASKED_KEYS, maskEntry, maskText, maskUrl } from "./masking.ts"
 export type { MaskingRules } from "./masking.ts";
 export { databaseRateLimitStore } from "./db-store.ts";
 export { databaseIpList, dynamicIpLists } from "./ip-source.ts";
+export { ipBlockEntity, ipBlocks } from "./ip-blocks.ts";
+export type { IpBlock, IpBlockEvent, IpBlocks, IpUnblockEvent } from "./ip-blocks.ts";
 export type { DynamicIpLists, IpListCounts, IpListSource } from "./ip-source.ts";
 export { csrfMiddleware, csrfRejected } from "./csrf.ts";
 export type { CsrfOptions } from "./csrf.ts";

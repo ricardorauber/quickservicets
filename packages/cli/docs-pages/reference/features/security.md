@@ -68,6 +68,16 @@ It is enabled by default; turn it off with `security: false` or `QS_SECURITY_ENA
 | `security.ip.deny` | `cidr[]` | `[]` | `QS_SECURITY_IP_DENY` | no | Addresses refused with 403; a deny match wins over an allow match. |
 | `security.ip.source` | `IpListSource` | — | not overridable | no | Where more allow and deny entries come from while the service runs, like databaseIpList over a project entity; merged with the config lists, loaded at startup, every refresh and on watch changes. |
 | `security.ip.refresh` | `duration` | `"30s"` | `QS_SECURITY_IP_REFRESH` | no | How often the source is loaded again; a load taking longer fails and keeps the lists in effect. |
+| `security.ip.blocks.store` | `"memory" \| "database"` | `"memory"` | `QS_SECURITY_IP_BLOCKS_STORE` | no | Where temporary blocks live: "memory" in the worker that made them, "database" in the IpBlock entity, shared by every worker and replica. |
+| `security.ip.blocks.maxEntries` | `integer` | `100000` | `QS_SECURITY_IP_BLOCKS_MAX_ENTRIES` | no | The most blocks (and automatic-blocking counters) a worker keeps; the block closest to expiry is evicted first. |
+| `security.ip.blocks.syncInterval` | `duration` | `"5s"` | `QS_SECURITY_IP_BLOCKS_SYNC_INTERVAL` | no | How often each worker reloads the active blocks of the "database" store. |
+| `security.ip.autoBlock.enabled` | `boolean` | `true` | `QS_SECURITY_IP_AUTO_BLOCK_ENABLED` | no | Blocks an address automatically after repeated refusals; loopback, unknown, allow-listed addresses and paths exempted from ip are never blocked. Turns it off when false. |
+| `security.ip.autoBlock.after` | `integer` | `20` | `QS_SECURITY_IP_AUTO_BLOCK_AFTER` | no | How many listed answers within the window block an address. |
+| `security.ip.autoBlock.within` | `duration` | `"1m"` | `QS_SECURITY_IP_AUTO_BLOCK_WITHIN` | no | The sliding window the answers are counted in. |
+| `security.ip.autoBlock.statuses` | `integer[]` | `[401,403,429]` | `QS_SECURITY_IP_AUTO_BLOCK_STATUSES` | no | The statuses counted. |
+| `security.ip.autoBlock.for` | `duration` | `"15m"` | `QS_SECURITY_IP_AUTO_BLOCK_FOR` | no | How long an automatic block lasts. |
+| `security.ip.onBlock` | `hook` | — | not overridable | no | Runs after a block is made, with its cidr, reason, source and until. |
+| `security.ip.onUnblock` | `hook` | — | not overridable | no | Runs after a block is removed, with its cidr, the reason (manual or expired) and its former until. |
 | `security.ip.onBlocked` | `hook` | — | not overridable | no | Runs after a request is refused for its address. |
 | `security.csrf.enabled` | `boolean` | `true` | `QS_SECURITY_CSRF_ENABLED` | no | Refuses cross-site writes (POST, PUT, PATCH, DELETE) that ride on a session cookie with 403; requests authenticated by tokens, or not at all, skip it. Turns it off when false. |
 | `security.csrf.mode` | `"origin" \| "token"` | `"origin"` | `QS_SECURITY_CSRF_MODE` | no | How cookie-authenticated writes prove they come from the service's pages: their Origin (or Referer) and Sec-Fetch-Site headers, or a token header equal to the CSRF cookie. |
@@ -238,6 +248,8 @@ Hooks are functions (or lists of functions) written in the config; `before` hook
 | `security.limits.onRejected` | on | Runs after a request is refused for its URL, headers or declared body size. |
 | `security.loadShedding.onShed` | on | Runs after a request is refused because the worker is busy. |
 | `security.rateLimit.onLimited` | on | Runs after a request is refused with 429, with the bucket's key and limit. |
+| `security.ip.onBlock` | on | Runs after a block is made, with its cidr, reason, source and until. |
+| `security.ip.onUnblock` | on | Runs after a block is removed, with its cidr, the reason (manual or expired) and its former until. |
 | `security.ip.onBlocked` | on | Runs after a request is refused for its address. |
 | `security.mtls.beforeClient` | before | Runs after a client certificate was verified, with the client and the request; it may return a changed client, or throw an HttpError to refuse. |
 | `security.mtls.onRejected` | on | Runs after a request is refused for its client certificate, with the request, address, route, reason and client. |
@@ -300,7 +312,8 @@ ip: SecurityIpApi;
 
 The `ip` item at runtime: `reload()` loads `ip.source` now in this worker and resolves the `allow` and `deny`
 counts once the new lists are in effect, or rejects with the load error; without a source, it resolves the config
-counts. Available during setup and later through the API object a feature keeps.
+counts. `block(target, { for, reason })`, `unblock(target)` and `blocked()` manage temporary blocks like `ipBlocks`.
+Available during setup and later through the API object a feature keeps.
 
 ### `limit`
 

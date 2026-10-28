@@ -14,6 +14,8 @@ export interface Series {
   requests: number;
   errors: number;
   clientErrors: number;
+  /** The requests of each status class, by its first digit (index 1 for 1xx to 5 for 5xx). */
+  classes: number[];
   sketch: LatencySketch;
 }
 
@@ -50,7 +52,7 @@ export const seriesKey = (series: Pick<Series, Dimension>): string => `${series.
 
 /** An empty series with the given dimensions. */
 export function emptySeries(dimensions: Pick<Series, Dimension>): Series {
-  return { ...dimensions, requests: 0, errors: 0, clientErrors: 0, sketch: new LatencySketch() };
+  return { ...dimensions, requests: 0, errors: 0, clientErrors: 0, classes: [0, 0, 0, 0, 0, 0], sketch: new LatencySketch() };
 }
 
 /** Adds a series' counts and sketch to another. */
@@ -58,6 +60,7 @@ export function mergeSeries(target: Series, source: Series): Series {
   target.requests += source.requests;
   target.errors += source.errors;
   target.clientErrors += source.clientErrors;
+  for (let index = 0; index < 6; index++) target.classes[index]! += source.classes[index] ?? 0;
   target.sketch.merge(source.sketch);
   return target;
 }
@@ -128,6 +131,7 @@ export class UsageRecorder {
       }
     }
     series.requests += 1;
+    series.classes[Math.min(Math.max(Math.floor(observation.status / 100), 0), 5)]! += 1;
     if (observation.status >= 500) series.errors += 1;
     else if (observation.status >= 400) series.clientErrors += 1;
     series.sketch.add(observation.durationMs);

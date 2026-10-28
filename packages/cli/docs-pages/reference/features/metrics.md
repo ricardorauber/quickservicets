@@ -14,6 +14,8 @@ metrics: {}
 
 It is not enabled by default: turn it on with `metrics: {}` or `QS_METRICS_ENABLED=true`, and off with `metrics: false` or `QS_METRICS_ENABLED=false`.
 
+**Runs after:** `security`, `tenancy`, `auth`
+
 ## Options
 
 | Key | Type | Default | Environment variable | Per request | Description |
@@ -26,6 +28,9 @@ It is not enabled by default: turn it on with `metrics: {}` or `QS_METRICS_ENABL
 | `metrics.maxSeries` | `integer` | `10000` | `QS_METRICS_MAX_SERIES` | no | The most series per window and worker; further ones are counted in one series whose dimensions are all other. |
 | `metrics.exclude` | `string[]` | `["/health/*","/_metrics","/docs"]` | `QS_METRICS_EXCLUDE` | no | Route patterns that are not counted; a pattern ending in /* covers every route under it. |
 | `metrics.store` | `"memory" \| "database"` | `"memory"` | `QS_METRICS_STORE` | no | Where closed windows are kept: the worker's memory, or the MetricWindow table of the project's database, shared by every worker and replica. |
+| `metrics.path` | `string` | `"/_metrics"` | `QS_METRICS_PATH` | no | The path of the route serving the metrics as JSON and in the Prometheus text format. |
+| `metrics.access.allow` | `cidr[]` | `["loopback","private"]` | `QS_METRICS_ACCESS_ALLOW` | no | The addresses that may read the metrics; an empty list allows any address that has the token. |
+| `metrics.access.token` | `string` | — | `QS_METRICS_ACCESS_TOKEN` | no | Requires this bearer token in the Authorization header of the metrics route. |
 | `metrics.enabled` | `boolean` | `true` | `QS_METRICS_ENABLED` | no | Turns the feature off when false. |
 
 ## Jobs
@@ -48,3 +53,11 @@ query(options?: MetricsQuery): Promise<MetricsResult>;
 
 The usage series of the windows in a range, merged and grouped by the chosen dimensions, with `requests`, `errors`,
 `clientErrors`, `p50`, `p95`, `p99` and `max` (milliseconds), plus totals.
+
+## The metrics route
+
+`GET /_metrics` (the `path` option) answers JSON for dashboards and people: `last` (default `15m`, at most `rollup.retention`) or `from` and `to` (ISO 8601), `by`, the exact filters `route`, `tenant` and `user`, `sort` (`requests`, `errors`, `p95` or `p99`) and `limit` (default 100, at most 1000); a bad parameter answers 400 `VALIDATION_ERROR` naming it. The body is `{ from, to, window, totals, series }`, with latencies in milliseconds and `errorRate` as errors divided by requests.
+
+With `format=prometheus`, or an `Accept` header preferring `text/plain` or `application/openmetrics-text`, it answers the Prometheus text format 0.0.4: `quickservicets_http_requests_total` by method, route, status class and (when `by` lists it) tenant, and the `quickservicets_http_request_duration_seconds` histogram. These counters are cumulative per worker since it started, and with several workers every sample carries `worker`; a scraper reaches one worker per connection, so run one worker per container for scraping, or export through a meter set with `setMeter` (an OpenTelemetry exporter) instead.
+
+The route answers only `access.allow` addresses (loopback and private networks by default; 403 `Metrics are not available from this address` otherwise) and, with `access.token`, only requests with `Authorization: Bearer <token>` (401 otherwise). It skips tenant resolution, `auth.required`, rate limits and load shedding, writes no request log entries and is not in the OpenAPI document.

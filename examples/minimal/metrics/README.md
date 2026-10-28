@@ -14,7 +14,7 @@ Turn the native on; every request is counted from the next one on:
 export default defineConfig({ database: memoryAdapter(), metrics: {} });
 ```
 
-Another feature reads the windows with `ctx.feature("metrics").query({ last: "15m" })`.
+`GET /_metrics` answers the series as JSON from loopback and private addresses, and `GET /_metrics?format=prometheus` in the Prometheus text format; another feature reads the windows with `ctx.feature("metrics").query({ last: "15m" })`.
 
 ## Level 1: options and environment
 

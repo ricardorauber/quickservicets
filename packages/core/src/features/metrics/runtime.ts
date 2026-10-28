@@ -1,7 +1,7 @@
 import { safeLog, type JobClock, type Logger } from "../public.ts";
 import { queryWindows, rangeOf, type MetricsQuery, type MetricsResult } from "./query.ts";
 import { storedWindow, usageWindow, type MetricsStore } from "./store.ts";
-import { UsageRecorder, type RecorderSettings, type UsageObservation, type UsageWindow } from "./windows.ts";
+import { emptySeries, mergeSeries, UsageRecorder, type RecorderSettings, type Series, type UsageObservation, type UsageWindow } from "./windows.ts";
 
 /** The most closed windows a worker keeps while its store fails. */
 export const MAX_UNFLUSHED = 10;
@@ -30,6 +30,8 @@ export class MetricsRuntime {
   private lastFailureLog = Number.NEGATIVE_INFINITY;
   private dropped = 0;
   private flushing: Promise<void> | undefined;
+  /** Every closed window of this worker since it started, merged by series, for counters that never reset. */
+  private readonly cumulative = new Map<string, Series>();
 
   constructor(readonly options: MetricsRuntimeOptions) {
     this.recorder = new UsageRecorder(options.settings, options.clock.now());
@@ -42,6 +44,13 @@ export class MetricsRuntime {
   /** Closes the window when its boundary passed; with a store, hands the closed windows to it. */
   rotate(): Promise<void> {
     const closed = this.recorder.rotate(this.options.clock.now());
+    for (const window of closed) {
+      for (const [key, series] of window.series) {
+        let target = this.cumulative.get(key);
+        if (!target) this.cumulative.set(key, (target = emptySeries({ ...(series.route !== undefined ? { route: series.route } : {}), ...(series.tenant !== undefined ? { tenant: series.tenant } : {}), ...(series.user !== undefined ? { user: series.user } : {}) })));
+        mergeSeries(target, series);
+      }
+    }
     if (!this.options.store) return Promise.resolve();
     // The store keeps closed windows, rollups and their retention; the worker keeps only what it has not written.
     this.recorder.closed.length = 0;
@@ -92,6 +101,19 @@ export class MetricsRuntime {
       ...(this.lastError ? { error: { message: this.lastError } } : {}),
     });
     this.dropped = 0;
+  }
+
+  /** Every series of this worker since it started, its closed windows with the open one, never reset by retention. */
+  sinceStart(): Series[] {
+    const merged = new Map<string, Series>();
+    for (const source of [this.cumulative, this.recorder.current.series]) {
+      for (const [key, series] of source) {
+        let target = merged.get(key);
+        if (!target) merged.set(key, (target = emptySeries({ ...(series.route !== undefined ? { route: series.route } : {}), ...(series.tenant !== undefined ? { tenant: series.tenant } : {}), ...(series.user !== undefined ? { user: series.user } : {}) })));
+        mergeSeries(target, series);
+      }
+    }
+    return [...merged.values()];
   }
 
   /** The series of a range: the stored windows of every worker and replica, with this worker's own unflushed ones. */

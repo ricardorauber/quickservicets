@@ -54,7 +54,7 @@ export function usageWindow(window: StoredWindow): UsageWindow {
   const series = new Map<string, Series>();
   for (const stored of window.series) {
     const sketch = LatencySketch.decode(stored.sketch);
-    series.set(stored.seriesKey, { ...dimensionsOf(stored), requests: stored.requests, errors: stored.errors, clientErrors: stored.clientErrors, sketch });
+    series.set(stored.seriesKey, { ...dimensionsOf(stored), requests: stored.requests, errors: stored.errors, clientErrors: stored.clientErrors, classes: [0, 0, 0, 0, 0, 0], sketch });
   }
   return { start: window.windowStart.getTime(), resolution: window.resolution, series };
 }
@@ -190,7 +190,7 @@ export function databaseMetricsStore(adapter: DatabaseAdapter, model: EntityMode
             const stored = toSeries(row);
             let target = hours.get(key);
             if (!target) hours.set(key, (target = { instance: row.instance as string, windowStart, series: { ...emptySeries(dimensionsOf(stored)), seriesKey: stored.seriesKey } }));
-            mergeSeries(target.series, { ...stored, sketch: LatencySketch.decode(stored.sketch) });
+            mergeSeries(target.series, { ...stored, classes: [0, 0, 0, 0, 0, 0], sketch: LatencySketch.decode(stored.sketch) });
           }
           for (const { instance, windowStart, series } of hours.values()) {
             const keyRow = { instance, resolution: "hour", windowStart, seriesKey: series.seriesKey };
@@ -198,7 +198,7 @@ export function databaseMetricsStore(adapter: DatabaseAdapter, model: EntityMode
             if (existing) {
               await adapter.lockForUpdate?.(model, existing.id);
               const current = (await adapter.findById(model, existing.id)) ?? existing;
-              mergeSeries(series, { ...toSeries(current), sketch: LatencySketch.decode(current.sketch as unknown as EncodedSketch) });
+              mergeSeries(series, { ...toSeries(current), classes: [0, 0, 0, 0, 0, 0], sketch: LatencySketch.decode(current.sketch as unknown as EncodedSketch) });
               await adapter.updateById(model, existing.id, { requests: series.requests, errors: series.errors, clientErrors: series.clientErrors, sketch: series.sketch.encode() as unknown as StoredRecord[string], updatedAt: new Date() });
             } else {
               const now = new Date();

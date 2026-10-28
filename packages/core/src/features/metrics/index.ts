@@ -1,5 +1,6 @@
 import { hostname } from "node:os";
-import { defineFeature, duration, integer, list, object, observeRequests, oneOf, parseDuration, safeLog, string, systemClock, type JobClock, type RequestObservation } from "../public.ts";
+import { cidr, defineFeature, duration, integer, list, object, observeRequests, oneOf, parseDuration, safeLog, secret, string, systemClock, type JobClock, type RequestObservation } from "../public.ts";
+import { metricsEndpoint } from "./route.ts";
 import type { MetricsApi } from "./api.ts";
 import { metricWindowEntity } from "./model.ts";
 import type { MetricsQuery } from "./query.ts";
@@ -34,6 +35,15 @@ const options = object({
   store: oneOf(["memory", "database"])
     .default("memory")
     .describe("Where closed windows are kept: the worker's memory, or the MetricWindow table of the project's database, shared by every worker and replica."),
+  path: string().default("/_metrics").describe("The path of the route serving the metrics as JSON and in the Prometheus text format."),
+  access: object({
+    allow: list(cidr())
+      .default(["loopback", "private"])
+      .describe("The addresses that may read the metrics; an empty list allows any address that has the token."),
+    token: secret().optional().describe("Requires this bearer token in the Authorization header of the metrics route."),
+  })
+    .default({ allow: ["loopback", "private"] })
+    .describe("Who may read the metrics route."),
 });
 
 /** The startup error of a database store without its entity in the build. */
@@ -89,11 +99,27 @@ export async function rollupStoredWindows(): Promise<{ rolled: number; pruned: n
  */
 const metricsFeature = defineFeature({
   key: "metrics",
-  docs: { summary: "API usage metrics: requests, errors and p50, p95 and p99 latency per route, tenant and optionally user, in time windows inside the service." },
+  docs: {
+    summary: "API usage metrics: requests, errors and p50, p95 and p99 latency per route, tenant and optionally user, in time windows inside the service.",
+    sections: [
+      {
+        title: "The metrics route",
+        text: [
+          "`GET /_metrics` (the `path` option) answers JSON for dashboards and people: `last` (default `15m`, at most `rollup.retention`) or `from` and `to` (ISO 8601), `by`, the exact filters `route`, `tenant` and `user`, `sort` (`requests`, `errors`, `p95` or `p99`) and `limit` (default 100, at most 1000); a bad parameter answers 400 `VALIDATION_ERROR` naming it. The body is `{ from, to, window, totals, series }`, with latencies in milliseconds and `errorRate` as errors divided by requests.",
+          "",
+          "With `format=prometheus`, or an `Accept` header preferring `text/plain` or `application/openmetrics-text`, it answers the Prometheus text format 0.0.4: `quickservicets_http_requests_total` by method, route, status class and (when `by` lists it) tenant, and the `quickservicets_http_request_duration_seconds` histogram. These counters are cumulative per worker since it started, and with several workers every sample carries `worker`; a scraper reaches one worker per connection, so run one worker per container for scraping, or export through a meter set with `setMeter` (an OpenTelemetry exporter) instead.",
+          "",
+          "The route answers only `access.allow` addresses (loopback and private networks by default; 403 `Metrics are not available from this address` otherwise) and, with `access.token`, only requests with `Authorization: Bearer <token>` (401 otherwise). It skips tenant resolution, `auth.required`, rate limits and load shedding, writes no request log entries and is not in the OpenAPI document.",
+        ].join("\n"),
+      },
+    ],
+  },
   options,
   // The shared table of closed windows exists only with the database store.
   entities: ({ options }) => (options.store === "database" ? [metricWindowEntity()] : []),
   jobs: "./jobs",
+  // The metrics route skips rate limits, load shedding and tenant resolution when those natives run.
+  after: ["security", "tenancy", "auth"],
   setup(ctx) {
     const clock = clocks.current;
     const windowMs = parseDuration(ctx.options.window) ?? 60_000;
@@ -118,7 +144,23 @@ const metricsFeature = defineFeature({
     }
     const runtime = new MetricsRuntime({ settings, clock, logger: ctx.logger, instance: `${hostname()}:${process.pid}:${ctx.worker.index}`, ...(store ? { store } : {}) });
     runtimes.set(ctx.options, runtime);
-    const excluded = excludedBy(ctx.options.exclude);
+    const excluded = excludedBy([...ctx.options.exclude, ctx.options.path]);
+    const path = ctx.options.path;
+    ctx.app.route(
+      "GET",
+      path,
+      metricsEndpoint(() => runtimes.get(ctx.options), {
+        access: ctx.options.access as { allow: string[]; token?: string },
+        window: ctx.options.window,
+        by: settings.by,
+        maxRangeMs: settings.rollupRetentionMs,
+        ...(ctx.config.server.workers > 1 ? { worker: ctx.worker.index } : {}),
+      }),
+      { log: false, auth: false },
+    );
+    const enabled = (key: string) => ctx.config.features.some((feature) => feature.key === key);
+    if (enabled("security")) ctx.feature("security").exempt(path, ["rateLimit", "loadShedding"]);
+    if (enabled("tenancy")) ctx.feature("tenancy").exempt(path);
     const observe = (observation: RequestObservation) => {
       if (!excluded(observation.route)) runtime.record(observation);
     };

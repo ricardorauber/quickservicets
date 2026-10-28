@@ -64,6 +64,13 @@ export class LatencySketch {
     return this.max;
   }
 
+  /** How many values were at most `value`, within the sketch's 1% accuracy (each bucket counts by its middle value). */
+  countAtMost(value: number): number {
+    let total = 0;
+    for (const [index, count] of this.counts) if ((2 * GAMMA ** (index + OFFSET)) / (GAMMA + 1) <= value) total += count;
+    return total;
+  }
+
   /** The sketch as stores keep it. */
   encode(): EncodedSketch {
     const b: number[] = [];

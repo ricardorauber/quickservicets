@@ -1,5 +1,9 @@
-import { boolean, defineFeature, duration, list, object, parseDuration, record, string, url, type ServiceRequest } from "../public.ts";
+import { boolean, defineFeature, duration, HttpError, list, object, oneOf, parseDuration, record, requireRole, requireUser, secret, string, url, type ServiceRequest } from "../public.ts";
 import { forwardRequest, type ProxyRoute } from "./forward.ts";
+import { IDENTITY_HEADER } from "./identity.ts";
+
+export { proxyIdentity, signIdentity, IDENTITY_HEADER } from "./identity.ts";
+export type { ProxyIdentityOptions } from "./identity.ts";
 
 /** The methods a route forwards when it lists none. */
 export const DEFAULT_METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
@@ -12,21 +16,55 @@ const routeOptions = object({
   timeout: duration().default("30s").describe("How long the upstream may take to send its response headers; longer answers 504."),
   idleTimeout: duration().default("60s").describe("How long the upstream may pause between body chunks."),
   preserveHost: boolean().default(false).describe("Sends the client's host header to the upstream instead of the upstream's own."),
+  stripPrefix: boolean().default(false).describe("Removes the route's prefix from the upstream path: /billing/invoices goes up as /invoices."),
+  rewrite: string().optional().describe("The upstream path as a template, with [...rest] for the rest of the path after the prefix, like /api/v2/[...rest]."),
+  auth: oneOf(["inherit", "public", "required"]).default("inherit").describe("Who may use the route: inherit follows auth.required, public allows anyone, required needs a signed-in user."),
+  roles: list(string()).default([]).describe("Roles of which the user needs one; answers 403 Not allowed otherwise."),
+  scopes: list(string()).default([]).describe("Token scopes the credentials need, all of them; answers 403 Insufficient scope otherwise."),
+  forward: list(oneOf(["user", "roles", "tenant", "authorization", "cookie"]))
+    .default(["user", "tenant"])
+    .describe("What the upstream receives of the request's identity: user as x-user-id, roles as x-user-roles, tenant as x-tenant-id, and the incoming authorization or cookie headers."),
 });
 
 const options = object({
+  identity: object({
+    secret: secret().optional().describe("Signs every proxied request's forwarded identity with HMAC-SHA256, for proxyIdentity() in the upstream."),
+    header: string().default(IDENTITY_HEADER).describe("The header carrying the signed identity."),
+    maxAge: duration().default("60s").describe("How old a signed identity may be when the upstream checks it."),
+  })
+    .default({ header: IDENTITY_HEADER, maxAge: "60s" })
+    .describe("The signed header that lets upstream services trust the forwarded user, roles and tenant."),
   routes: record(routeOptions)
     .keys(/^[a-z][a-z0-9-]*$/, "a route name starts with a lowercase letter and uses lowercase letters, digits and -")
     .describe("The proxy routes, by name, each forwarding the requests of its path to an upstream URL or a named service."),
 });
 
-type RouteOptions = { path: string; target?: string; service?: string; methods: string[]; timeout: string; idleTimeout: string; preserveHost: boolean };
+type RouteOptions = {
+  path: string;
+  target?: string;
+  service?: string;
+  methods: string[];
+  timeout: string;
+  idleTimeout: string;
+  preserveHost: boolean;
+  stripPrefix: boolean;
+  rewrite?: string;
+  auth: "inherit" | "public" | "required";
+  roles: string[];
+  scopes: string[];
+  forward: ("user" | "roles" | "tenant" | "authorization" | "cookie")[];
+};
 
-/** The problems of the configured routes: exactly one of target and service, and a valid path. */
-export function routeProblems(routes: Readonly<Record<string, RouteOptions>>): string[] {
+/** The problems of the configured routes: exactly one of target and service, a valid path, one way of rewriting. */
+export function routeProblems(routes: Readonly<Record<string, RouteOptions>>, config: Readonly<Record<string, unknown>> = {}): string[] {
   const problems: string[] = [];
+  const authOn = config.auth !== undefined && config.auth !== false && (config.auth as { enabled?: boolean } | undefined)?.enabled !== false;
   for (const [name, route] of Object.entries(routes)) {
     if ((route.target === undefined) === (route.service === undefined)) problems.push(`Invalid proxy.routes.${name}: set target or service`);
+    if (route.stripPrefix && route.rewrite !== undefined) problems.push(`Invalid proxy.routes.${name}: use stripPrefix or rewrite, not both`);
+    if ((route.auth === "required" || (route.roles ?? []).length > 0 || (route.scopes ?? []).length > 0) && !authOn) {
+      problems.push(`proxy.routes.${name} checks users, which needs the auth native; add auth: {} to quickservicets.config.ts`);
+    }
     if (!/^\/[^*]*(\/\*)?$/.test(route.path)) problems.push(`Invalid proxy.routes.${name}.path: expected a path like /billing or a prefix like /billing/*`);
   }
   return problems;
@@ -48,6 +86,50 @@ const routerPath = (path: string) => {
   return prefix === undefined ? path : `${prefix === "/" ? "" : prefix}/[...rest]`;
 };
 
+/** The rest of a request's path after a prefix route's prefix (`/invoices` for `/billing/invoices`), or `` for an exact route. */
+function restOf(path: string, prefix: string | undefined): string {
+  if (prefix === undefined) return "";
+  const rest = path.slice(prefix === "/" ? 0 : prefix.length);
+  return rest === "" ? "" : rest.startsWith("/") ? rest : `/${rest}`;
+}
+
+/** How a route computes the upstream path, built once: nothing (the path unchanged), stripping the prefix or a template. */
+function upstreamPathOf(options: RouteOptions): Pick<ProxyRoute, "upstreamPath"> {
+  const prefix = prefixOf(options.path);
+  if (options.stripPrefix) return { upstreamPath: (req) => restOf(req.path, prefix) || "/" };
+  const template = options.rewrite;
+  if (template === undefined) return {};
+  const [before, after] = template.includes("[...rest]") ? template.split("[...rest]") : [template, undefined];
+  return {
+    upstreamPath: (req) => {
+      if (after === undefined) return before!;
+      const rest = restOf(req.path, prefix).replace(/^\//, "");
+      return `${before}${rest}${after}`.replace(/\/{2,}/g, "/");
+    },
+  };
+}
+
+/** The 403 of credentials without a required scope. */
+const insufficientScope = (scopes: readonly string[]) =>
+  new HttpError(403, "Insufficient scope", { headers: { "www-authenticate": `Bearer error="insufficient_scope", scope="${scopes.join(" ")}"` } });
+
+/** The user checks of a route, built once: none for inherit and public routes without roles or scopes. */
+function authorizerOf(options: RouteOptions): Pick<ProxyRoute, "authorize"> {
+  const roles = options.roles ?? [];
+  const scopes = options.scopes ?? [];
+  if (options.auth !== "required" && roles.length === 0 && scopes.length === 0) return {};
+  return {
+    authorize(req) {
+      if (roles.length > 0) requireRole(req, ...roles);
+      else requireUser(req);
+      if (scopes.length > 0) {
+        const granted = req.auth?.scopes ?? [];
+        if (!scopes.every((scope) => granted.includes(scope))) throw insufficientScope(scopes);
+      }
+    },
+  };
+}
+
 /**
  * The `proxy` native: the service acts as an API gateway, forwarding the requests of configured path prefixes to an
  * upstream URL or a named service, streaming both ways. Off unless `proxy: {}` (or `QS_PROXY_ENABLED=true`) is set.
@@ -57,7 +139,9 @@ const proxyFeature = defineFeature({
   docs: { summary: "Proxy routes: the service forwards the requests of configured paths to an upstream URL or a named service, streaming both ways, with timeouts and proxy headers." },
   options,
   requires: [{ name: "http", hint: "proxy routes call their upstreams through the HTTP client" }],
-  validate: (resolved) => routeProblems(resolved.routes as Record<string, RouteOptions>),
+  validate: (resolved, config) => routeProblems(resolved.routes as Record<string, RouteOptions>, config),
+  // Route authentication reads req.user, which the auth native sets in the handler stage.
+  after: ["auth"],
   setup(ctx) {
     const routes = Object.entries(ctx.options.routes as Record<string, RouteOptions>);
     for (let i = 0; i < routes.length; i++) {
@@ -68,6 +152,8 @@ const proxyFeature = defineFeature({
       }
     }
     const http = ctx.feature("http");
+    const identitySecret = (ctx.options.identity as { secret?: string }).secret;
+    const identity = identitySecret ? { secret: identitySecret, header: ctx.options.identity.header.toLowerCase() } : undefined;
     for (const [name, options] of routes) {
       // A target becomes a service of its own, so SSRF protection trusts its host like any configured service.
       if (options.target !== undefined) http.addService(name, { url: options.target });
@@ -78,9 +164,15 @@ const proxyFeature = defineFeature({
         timeoutMs: parseDuration(options.timeout) ?? 30_000,
         idleTimeoutMs: parseDuration(options.idleTimeout) ?? 60_000,
         preserveHost: options.preserveHost,
+        forward: new Set(options.forward),
+        identityHeader: ctx.options.identity.header.toLowerCase(),
+        ...(identity ? { identity } : {}),
+        ...upstreamPathOf(options),
+        ...authorizerOf(options),
       };
       const handler = (_repos: unknown, req: ServiceRequest) => forwardRequest(req, route, ctx.config.production);
-      for (const method of new Set(options.methods.map((method) => method.toUpperCase()))) ctx.app.route(method, routerPath(options.path), handler as never);
+      const routeAuth = options.auth === "public" ? { auth: false } : {};
+      for (const method of new Set(options.methods.map((method) => method.toUpperCase()))) ctx.app.route(method, routerPath(options.path), handler as never, routeAuth);
     }
   },
 });

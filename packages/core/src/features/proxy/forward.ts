@@ -1,4 +1,5 @@
-import { deferRequestLog, HttpClientError, HttpError, peerAddress, streamCall, type ServiceRequest } from "../public.ts";
+import { deferRequestLog, HttpClientError, HttpError, peerAddress, streamCall, type HttpRequest, type ServiceRequest } from "../public.ts";
+import { IDENTITY_HEADERS, signIdentity } from "./identity.ts";
 
 /** The hop-by-hop headers, never forwarded in either direction. */
 export const HOP_BY_HOP = ["connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade"];
@@ -13,6 +14,16 @@ export interface ProxyRoute {
   timeoutMs: number;
   idleTimeoutMs: number;
   preserveHost: boolean;
+  /** The upstream path of a request, when the route strips its prefix or rewrites; the full path otherwise. */
+  upstreamPath?: (req: ServiceRequest) => string;
+  /** Checks the request's user, roles and scopes before any upstream call; throws the 401 or 403. */
+  authorize?: (req: ServiceRequest) => void;
+  /** What the route forwards of the request's identity and credentials. */
+  forward: ReadonlySet<"user" | "roles" | "tenant" | "authorization" | "cookie">;
+  /** The header of the signed identity, removed from every client request. */
+  identityHeader: string;
+  /** The signed identity header added to every proxied request, when a secret is set. */
+  identity?: { secret: string; header: string };
 }
 
 /** Removes the hop-by-hop headers, and those `connection` lists, from a copy of `headers`. */
@@ -28,10 +39,18 @@ export function withoutHopByHop(headers: Headers): Headers {
  * `x-forwarded-for` (the trusted chain with the peer appended), `x-forwarded-proto`, `x-forwarded-host`,
  * `x-request-id` and the upstream's own `host` unless `preserveHost`.
  */
-export function forwardedHeaders(req: ServiceRequest, route: Pick<ProxyRoute, "preserveHost">): Headers {
+export function forwardedHeaders(req: ServiceRequest, route: Pick<ProxyRoute, "preserveHost" | "forward" | "identityHeader">): Headers {
   const headers = withoutHopByHop(req.headers);
-  headers.delete("cookie");
-  headers.delete("authorization");
+  // A client never claims an identity: its own identity headers go, whatever the route forwards.
+  for (const name of IDENTITY_HEADERS) headers.delete(name);
+  headers.delete(route.identityHeader);
+  if (!route.forward.has("cookie")) headers.delete("cookie");
+  if (!route.forward.has("authorization")) headers.delete("authorization");
+  const user = req.user as { id?: unknown; roles?: unknown } | undefined;
+  if (route.forward.has("user") && user?.id !== undefined) headers.set("x-user-id", String(user.id));
+  if (route.forward.has("roles") && Array.isArray(user?.roles)) headers.set("x-user-roles", (user!.roles as string[]).join(","));
+  const tenant = (req.tenant as { id?: unknown } | undefined)?.id;
+  if (route.forward.has("tenant") && tenant !== undefined) headers.set("x-tenant-id", String(tenant));
   const peer = peerAddress(req.raw);
   const incoming = req.headers.get("x-forwarded-for");
   // When a trusted proxy's chain gave req.ip, the chain goes on with the peer; otherwise the peer starts it.
@@ -43,6 +62,15 @@ export function forwardedHeaders(req: ServiceRequest, route: Pick<ProxyRoute, "p
   headers.set("x-request-id", req.id);
   if (!route.preserveHost) headers.delete("host");
   return headers;
+}
+
+/** Signs the forwarded identity of an upstream request over its final method and path. */
+function signed(identity: { secret: string; header: string }): (request: HttpRequest) => void {
+  return (request) => {
+    const path = new URL(request.url).pathname;
+    const values = { user: request.headers.get("x-user-id"), roles: request.headers.get("x-user-roles"), tenant: request.headers.get("x-tenant-id") };
+    request.headers.set(identity.header, signIdentity(identity.secret, Math.floor(Date.now() / 1000), request.method, path, values));
+  };
 }
 
 /** The answer of a failed upstream call: 504 for a timeout, 503 for an open circuit or a full bulkhead, else 502. */
@@ -57,14 +85,14 @@ export function upstreamError(error: unknown, production: boolean): HttpError {
   return new HttpError(502, "Upstream request failed", { code: "BAD_GATEWAY", ...(details ? { details } : {}) });
 }
 
-/** The upstream path of a request: the full path, unchanged. */
-export const unchangedPath = (req: ServiceRequest) => req.path;
 
 /**
  * Forwards a request to its route's upstream, streaming the body both ways, and returns the upstream's response with
  * the hop-by-hop headers removed; the request log entry gets `proxy: <route>` once the response body ended.
  */
-export async function forwardRequest(req: ServiceRequest, route: ProxyRoute, production: boolean, path = unchangedPath(req)): Promise<Response> {
+export async function forwardRequest(req: ServiceRequest, route: ProxyRoute, production: boolean): Promise<Response> {
+  route.authorize?.(req);
+  const path = route.upstreamPath ? route.upstreamPath(req) : req.path;
   const method = req.method;
   const hasBody = method !== "GET" && method !== "HEAD" && req.raw.body !== null;
   let upstream: Response;
@@ -79,6 +107,7 @@ export async function forwardRequest(req: ServiceRequest, route: ProxyRoute, pro
       idleTimeout: route.idleTimeoutMs,
       signal: req.raw.signal,
       req,
+      ...(route.identity ? { prepare: signed(route.identity) } : {}),
     });
   } catch (error) {
     throw upstreamError(error, production);

@@ -335,6 +335,8 @@ export interface StreamCallSpec {
   signal?: AbortSignal;
   /** The request the call is made for, which the service's header and authentication functions receive. */
   req?: ServiceRequest;
+  /** Changes the request once its URL is known, before the modifiers run, like signing its final path. */
+  prepare?: (request: HttpRequest) => void;
 }
 
 /**
@@ -349,6 +351,7 @@ export async function streamCall(spec: StreamCallSpec): Promise<Response> {
   const headers = new Headers(spec.headers);
   await applyService(headers, service, spec.req ? { req: spec.req } : {}, false);
   const request: HttpRequest = { method: spec.method, url: joinPath(service.url, spec.path).href, headers, body: spec.body, timeout: spec.timeout, signal: spec.signal, attempt: 1, service: service.name };
+  spec.prepare?.(request);
   const sendOne = (changed: HttpRequest) => streamTransport(changed, settings, service.host, spec.idleTimeout);
   const attemptOf = (changed: HttpRequest) => (tracingEnabled() ? tracedAttempt(changed, settings, sendOne) : sendOne(changed));
   const send = (attempt: HttpRequest) => withHooks(attempt, settings, (changed) => (metricsEnabled() ? measuredAttempt(changed, () => attemptOf(changed)) : attemptOf(changed)));

@@ -319,7 +319,8 @@ export type { LoginCheck, LoginGuard, LoginGuardOptions, LoginThrottleRecord, Lo
 export type { AuthApi, AuthCredentials, AuthenticatedUser, AuthMethod, AuthProvider, AuthResult, AuthResultUser, RequestAuth, RevokeTarget } from "./features/auth/index.ts";
 export { LatencySketch, metricsFeature, queryMetrics, setMetricsClock } from "./features/metrics/index.ts";
 export type { EncodedSketch, MetricsApi, MetricsFigures, MetricsQuery, MetricsResult, MetricsSeries, MetricsStore, MetricWindow, StoredSeries, StoredWindow, WindowClosed } from "./features/metrics/index.ts";
-export { proxyFeature } from "./features/proxy/index.ts";
+export { IDENTITY_HEADER, proxyFeature, proxyIdentity, signIdentity } from "./features/proxy/index.ts";
+export type { ProxyIdentityOptions } from "./features/proxy/index.ts";
 export { addOutboxPatterns, events, eventsFeature, listen, memoryEventBus, readOutbox, tailOutbox } from "./features/events/index.ts";
 export type { ConsumerOptions, DeliveryContext, DeliveryStatus, OutboxRecord } from "./features/events/index.ts";
 export type { EventBus, EventListener, Events, EventsApi, ListenerContext, ListenerFile, ListenerPhase, ListenOptions, MemoryEventBus } from "./features/events/index.ts";

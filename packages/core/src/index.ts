@@ -64,6 +64,8 @@ export { observeJobRuns } from "./jobs/observers.ts";
 export { contextFlags, setContextFlags } from "./context-flags.ts";
 export { contextHttp, setContextHttp } from "./context-http.ts";
 export { activeSetup } from "./setup-phase.ts";
+export { bunTlsOptions, certificateInfo, fingerprintOf, loadCertificatePair, loadServerTls, logServerCertificate, secureOptionsFor } from "./tls.ts";
+export type { CertificateInfo, LoadedTls, ServerTlsConfig } from "./tls.ts";
 export type { ActiveSetup } from "./setup-phase.ts";
 export { activeSpan, formatTraceparent, noopTracer, parseTraceparent, setTracer, spanAttributes, startSpan, tracingEnabled, withSpan } from "./tracing.ts";
 export { observeRequests, requestsObserved } from "./request-observers.ts";

@@ -12,6 +12,7 @@ import { MIGRATIONS_TABLE_RENAMED, renameLegacyMigrationTables } from "./legacy-
 import { reportStartupFailure } from "./error-reports.ts";
 import type { EntityModel } from "./model.ts";
 import type { ResolvedFeature } from "./features.ts";
+import { loadServerTls, logServerCertificate } from "./tls.ts";
 import { isPrimary, runsScheduledWork, runWorkers, workerIndex } from "./workers.ts";
 
 /** What the generated `server.ts` passes to `startService`: the project's config and generated files. */
@@ -90,6 +91,14 @@ export async function startService(options: StartServiceOptions): Promise<Runnin
     return undefined;
   };
 
+  // The certificate and key are read and checked before anything starts, and described once per worker.
+  if (config.server.tls) {
+    try {
+      logServerCertificate(logger, loadServerTls(config.server.tls).info, config.server.tls);
+    } catch (error) {
+      return fail(error, false, "tls");
+    }
+  }
   try {
     await lifecycle.setup();
   } catch (error) {
@@ -127,7 +136,7 @@ export async function startService(options: StartServiceOptions): Promise<Runnin
     return fail(error, true);
   }
   const listening = app.server.listen();
-  console.log(`QuickService.ts listening on http://localhost:${listening.port}`);
+  console.log(`QuickService.ts listening on ${config.server.tls ? "https" : "http"}://localhost:${listening.port}`);
   if (runsScheduledWork(env)) app.scheduler.start();
   const stop = () => stopService(config, app, lifecycle, listening);
   handleShutdownSignals(stop, target);

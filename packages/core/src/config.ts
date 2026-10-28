@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import type { ServerTlsConfig } from "./tls.ts";
 import { join } from "node:path";
 import type { DatabaseAdapter } from "./adapter.ts";
 import type { Logger } from "./logger.ts";
@@ -34,6 +35,23 @@ export interface ServiceConfig extends NativeFeatures {
     publicUrl?: string;
     /** Processes serving requests on the shared port, an integer or `"auto"` for the CPUs available, read from the container's CPU quota on Linux (default `"auto"` in production on Linux with PostgreSQL or MongoDB, otherwise 1); `QS_WORKERS` overrides it. Above 1 it needs PostgreSQL or MongoDB, and connections spread across the processes only on Linux. */
     workers?: number | "auto";
+    /** Serves HTTPS on `port` itself, for deployments without a TLS proxy; setting `cert` and `key` (or their variables) turns it on. */
+    tls?: {
+      /** The certificate (with its chain), as a file path or PEM text. */
+      cert: string;
+      /** The private key, as a file path or PEM text. */
+      key: string;
+      /** Certificate authorities, as file paths or PEM text, one or a list. */
+      ca?: string | string[];
+      /** The passphrase of an encrypted key, a secret. */
+      passphrase?: string;
+      /** The lowest TLS version accepted, `"TLSv1.2"` or `"TLSv1.3"` (default "TLSv1.2"). */
+      minVersion?: "TLSv1.2" | "TLSv1.3";
+      /** Logs a warning at startup when the certificate expires within this duration (default "14d"). */
+      expiryWarning?: string;
+      /** How close to expiry the certificate counts as critical for expiry monitoring (default "3d"). */
+      expiryCritical?: string;
+    };
   };
   /** Production mode: hides internal error details and disables the API docs (default false); `NODE_ENV=production` turns it on. */
   production?: boolean;
@@ -133,7 +151,7 @@ export interface ResolvedConfig
   lifecycle: { startTimeout: string; stopTimeout: string };
   docs: { enabled: boolean; openapi?: NonNullable<ServiceConfig["docs"]>["openapi"] };
   /** `workers` is the resolved number of processes, `"auto"` included. */
-  server: { port: number; publicUrl?: string; workers: number };
+  server: { port: number; publicUrl?: string; workers: number; tls?: ServerTlsConfig };
   files: {
     maxSize: number;
     accept: string[];

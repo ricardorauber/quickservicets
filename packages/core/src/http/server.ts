@@ -11,6 +11,7 @@ import { readBodyText } from "./body.ts";
 import type { RepositoryResolver } from "../repository-resolver.ts";
 import type { TenantRuns } from "../tenant-runs.ts";
 import type { SocketRunner } from "./socket.ts";
+import { bunTlsOptions, loadServerTls, type ServerTlsConfig } from "../tls.ts";
 import { notifyRequestObservers, requestsObserved } from "../request-observers.ts";
 import { coreInstruments, metricsEnabled, tenantAttributes, type MeterSetting, type MetricAttributes } from "../metering.ts";
 import { parseTraceparent, spanAttributes, startSpan, tracingEnabled, withSpan, type Span, type TracerSetting } from "../tracing.ts";
@@ -75,7 +76,7 @@ export interface ServerSettings {
 export interface ServerOptions extends ServerSettings {
   routes: Route[];
   repos: Repositories;
-  config: { production: boolean; server?: { port: number; workers?: number }; logger?: Logger };
+  config: { production: boolean; server?: { port: number; workers?: number; tls?: ServerTlsConfig }; logger?: Logger };
   /** `req.jobs` of every request (default: no jobs). */
   jobs?: RequestJobs;
   /** The middlewares of each stage, in the order they run (default: none). */
@@ -556,6 +557,8 @@ export function createServer({ routes, repos, config: serverConfig, jobs = noReq
         ...((config.server?.workers ?? 1) > 1 ? { reusePort: true } : {}),
         ...(maxRequestBodySize !== undefined ? { maxRequestBodySize } : {}),
         ...(idleTimeout !== undefined ? { idleTimeout } : {}),
+        // With server.tls the port answers HTTPS only.
+        ...(config.server?.tls ? { tls: bunTlsOptions(loadServerTls(config.server.tls)) } : {}),
       };
       return Bun.serve(options as unknown as Parameters<typeof Bun.serve>[0]);
     },

@@ -17,3 +17,5 @@ export { testAuth } from "../features/auth/test-provider.ts";
 export type { TestAuthOptions } from "../features/auth/test-provider.ts";
 export { inProcessTransports, runSocketTransportContract } from "./socket-transport-contract.ts";
 export type { SocketTransportContractOptions } from "./socket-transport-contract.ts";
+export { createTestCertificates } from "./certificates.ts";
+export type { TestCertificate, TestCertificates } from "./certificates.ts";

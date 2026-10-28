@@ -51,6 +51,21 @@ CMD ["bun", "run", "start"]
 
 Run `bun run quickservicets migrate` as a separate release step (a job or an init container) with the same image and environment, before the new containers start.
 
+## TLS in the service or at a proxy
+
+Most deployments terminate HTTPS at a load balancer, an ingress or a service mesh, and the service listens on plain HTTP behind it; set `security.proxy.trust` so `req.ip` and the scheme come from the proxy. When nothing sits in front (a single host, a private network that requires encryption end to end, or client certificates checked by the service), the service terminates TLS itself with `server.tls`:
+
+```ts
+// quickservicets.config.ts
+export default defineConfig({ database, server: { tls: { cert: "/etc/certs/tls.crt", key: "/etc/certs/tls.key" } } });
+```
+
+```bash
+QS_SERVER_TLS_CERT=/etc/certs/tls.crt QS_SERVER_TLS_KEY=/etc/certs/tls.key QS_SERVER_TLS_MIN_VERSION=TLSv1.3 bun run start
+```
+
+`cert`, `key` and `ca` take file paths or PEM text; the port then answers HTTPS only, with TLS 1.2 as the lowest version by default, and there is no HTTP-to-HTTPS redirect listener (leave redirects to the load balancer). Startup checks the files (`Invalid server.tls.key: not a PEM private key`, `Invalid server.tls: the key does not match the certificate`), logs `server.tls` with the certificate's subject, issuer, expiry and fingerprint, and warns `server.tls certificate expires in <n> days` when fewer days than `server.tls.expiryWarning` (14 days) remain.
+
 ## Releases
 
 1. `bun run build` and `bun test` in CI.

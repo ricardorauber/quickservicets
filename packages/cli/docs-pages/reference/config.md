@@ -13,6 +13,14 @@ Every key that holds a value can also be set by an environment variable named af
 | `server.port` | `number` | 3000 | `QS_SERVER_PORT` (or `PORT`) | Port to listen on (default 3000); `PORT` overrides it. |
 | `server.publicUrl` | `string` | relative URLs | `QS_SERVER_PUBLIC_URL` | Absolute base URL of the API, used in file URLs (default: relative URLs). |
 | `server.workers` | `number \| "auto"` | `"auto"` in production on Linux with PostgreSQL or MongoDB, otherwise 1 | `QS_SERVER_WORKERS` (or `QS_WORKERS`) | Processes serving requests on the shared port, an integer or `"auto"` for the CPUs available, read from the container's CPU quota on Linux (default `"auto"` in production on Linux with PostgreSQL or MongoDB, otherwise 1); `QS_WORKERS` overrides it. Above 1 it needs PostgreSQL or MongoDB, and connections spread across the processes only on Linux. |
+| `server.tls` | `object` | — | — | Serves HTTPS on `port` itself, for deployments without a TLS proxy; setting `cert` and `key` (or their variables) turns it on. |
+| `server.tls.cert` | `string` | — | `QS_SERVER_TLS_CERT` | The certificate (with its chain), as a file path or PEM text. |
+| `server.tls.key` | `string` | — | `QS_SERVER_TLS_KEY` | The private key, as a file path or PEM text. |
+| `server.tls.ca` | `string \| string[]` | — | `QS_SERVER_TLS_CA` | Certificate authorities, as file paths or PEM text, one or a list. |
+| `server.tls.passphrase` | `string` | — | `QS_SERVER_TLS_PASSPHRASE` | The passphrase of an encrypted key, a secret. |
+| `server.tls.minVersion` | `"TLSv1.2" \| "TLSv1.3"` | "TLSv1.2" | `QS_SERVER_TLS_MIN_VERSION` | The lowest TLS version accepted, `"TLSv1.2"` or `"TLSv1.3"` (default "TLSv1.2"). |
+| `server.tls.expiryWarning` | `string` | "14d" | `QS_SERVER_TLS_EXPIRY_WARNING` | Logs a warning at startup when the certificate expires within this duration (default "14d"). |
+| `server.tls.expiryCritical` | `string` | "3d" | `QS_SERVER_TLS_EXPIRY_CRITICAL` | How close to expiry the certificate counts as critical for expiry monitoring (default "3d"). |
 | `production` | `boolean` | false | `QS_PRODUCTION` (or `NODE_ENV`) | Production mode: hides internal error details and disables the API docs (default false); `NODE_ENV=production` turns it on. |
 | `docs` | `object` | — | — | API docs settings. |
 | `docs.enabled` | `boolean` | enabled unless `production` | `QS_DOCS_ENABLED` | Serve the API docs at `GET /docs` and `GET /openapi.json` (default: enabled unless `production`). |

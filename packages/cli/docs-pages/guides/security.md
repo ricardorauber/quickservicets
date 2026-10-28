@@ -117,6 +117,36 @@ const stats: Endpoint<unknown, { posts: number; customers: number }> = async (re
 export default stats;
 ```
 
+### Lists that change while the service runs
+
+`ip.source` adds entries that come from somewhere that changes at runtime, without a restart. A source is an `IpListSource`: `load()` resolves `{ allow, deny }`, and an optional `watch(onChange)` calls `onChange` when the lists changed and returns a function that stops watching. The lists in effect are the config lists plus the loaded ones, with the same rules.
+
+```ts
+import { databaseIpList, defineConfig } from "@quickservicets/core";
+
+export default defineConfig({
+  security: { ip: { deny: ["198.51.100.7"], source: databaseIpList({ entity: "IpRule" }), refresh: "30s" } },
+});
+```
+
+- Each worker loads the source once before it accepts requests, then every `refresh` (`QS_SECURITY_IP_REFRESH`, default `30s`) and after every `watch` notification; loads never overlap, and notifications during a load cause one more load after it.
+- Every successful load is validated (invalid entries are skipped and logged as `security.ip.source.invalid`), compiled off the request path and swapped in with one assignment, so a request sees the old or the new lists, never a mix.
+- A load that fails or takes longer than `refresh` keeps the lists in effect (the config lists when no load succeeded yet) and logs `security.ip.source.failed` at most once a minute; startup never fails because of it.
+- `ctx.feature("security").ip.reload()` loads the source now in the calling worker and resolves the `{ allow, deny }` counts once the new lists apply, or rejects with the load error.
+- `databaseIpList({ entity })` reads every record of a project entity with the fields `cidr`, `list` (`"allow"` or `"deny"`), `expiresAt?` and `note?`, skipping expired records and reading in the root scope with tenancy; every write to the entity in the process reloads the lists at once, so admins manage them through the entity's normal routes. An entity without `cidr` and `list` fails startup with `databaseIpList: entity <name> needs the fields cidr and list`.
+
+```ts
+// entities/IpRule.ts
+export type IpRule = {
+  cidr: string;
+  list: "allow" | "deny";
+  expiresAt?: Date;
+  note?: string;
+};
+```
+
+Without a source the item does exactly the work of the static lists: no timer and no observer.
+
 ## Masking
 
 `masking` passes every log entry through `maskEntry`: a property whose name contains one of `keys` (`password`, `token`, `authorization` and the other defaults, ignoring case, `-` and `_`) shows `[secret]`, a property named like a field tagged `@sensitive` shows `[sensitive]`, and the values of secret variables and options show `[secret]` wherever they appear in a string. Job run records store masked logs, results and errors, and development error responses mask secret values in the stack. `@sensitive` never changes API responses; `@hidden` is what leaves a field out of them.

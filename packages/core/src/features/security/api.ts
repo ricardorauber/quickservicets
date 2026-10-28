@@ -30,8 +30,20 @@ export interface SecurityApi {
    * new connections; resolves whether a file changed and whether the change was applied.
    */
   reloadTls(): Promise<{ changed: boolean; applied: boolean }>;
+  /**
+   * The `ip` item at runtime: `reload()` loads `ip.source` now in this worker and resolves the `allow` and `deny`
+   * counts once the new lists are in effect, or rejects with the load error; without a source, it resolves the config
+   * counts. Available during setup and later through the API object a feature keeps.
+   */
+  ip: SecurityIpApi;
   /** `routeOptions(pattern, { rateLimit: { limit, by } })`. */
   limit(pattern: string, options: { limit: string | ((ctx: never) => unknown); by?: readonly string[] }): void;
+}
+
+/** The `ip` item of the security API. */
+export interface SecurityIpApi {
+  /** Loads `ip.source` now and resolves the counts in effect, or rejects with the load error. */
+  reload(): Promise<{ allow: number; deny: number }>;
 }
 
 /** What `routeOptions` gives a path: the shapes of the matching security items. */

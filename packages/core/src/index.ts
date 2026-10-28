@@ -269,7 +269,7 @@ export type { OperationInfo } from "./operation-context.ts";
 export type { AnyEvent, CustomEvent, EventActor, EventFor, EventMap, EventOf, PatternMatches, PayloadOf, WriteEvent, WriteOperation } from "./event-types.ts";
 export { parseRate } from "./rates.ts";
 export type { Rate } from "./rates.ts";
-export { cidrMatcher, matchesCidr, normalizeAddress } from "./cidr.ts";
+export { cidrMatcher, isCidr, matchesCidr, normalizeAddress } from "./cidr.ts";
 export { cookieValue, sessionCookie } from "./cookies.ts";
 export { normalizeOrigin, OriginMatcher, ownOriginReader } from "./origins.ts";
 export type { SessionCookieOptions } from "./cookies.ts";
@@ -335,8 +335,8 @@ export type { ForwardOptions, ProxyDone, ProxyFailure, ProxyForwarder, ProxyIden
 export { addOutboxPatterns, events, eventsFeature, listen, memoryEventBus, readOutbox, tailOutbox } from "./features/events/index.ts";
 export type { ConsumerOptions, DeliveryContext, DeliveryStatus, OutboxRecord } from "./features/events/index.ts";
 export type { EventBus, EventListener, Events, EventsApi, ListenerContext, ListenerFile, ListenerPhase, ListenOptions, MemoryEventBus } from "./features/events/index.ts";
-export { DEFAULT_MASKED_KEYS, maskEntry, maskText, maskUrl, memoryRateLimitStore, securityFeature, slidingWindowHit } from "./features/security/index.ts";
-export type { ClientCertificateVerifier, ClientIpResolver, ExemptibleItem, SecurityRouteOptions, MaskingRules, MemoryRateLimitStore, RateLimitRefusal, SecurityRefusal, RateLimitHit, RateLimitResult, RateLimitStore, SecurityApi, WindowCounts } from "./features/security/index.ts";
+export { databaseIpList, DEFAULT_MASKED_KEYS, maskEntry, maskText, maskUrl, memoryRateLimitStore, securityFeature, slidingWindowHit } from "./features/security/index.ts";
+export type { ClientCertificateVerifier, ClientIpResolver, ExemptibleItem, IpListCounts, IpListSource, SecurityIpApi, SecurityRouteOptions, MaskingRules, MemoryRateLimitStore, RateLimitRefusal, SecurityRefusal, RateLimitHit, RateLimitResult, RateLimitStore, SecurityApi, WindowCounts } from "./features/security/index.ts";
 
 export { databaseBroker, isQueueDefinition, QUEUE_MESSAGE_STATUSES, queue, queueMessageEntity, queues, queuesFeature } from "./features/queues/index.ts";
 export type {

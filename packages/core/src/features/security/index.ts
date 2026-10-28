@@ -5,6 +5,7 @@ import { corsProblems, corsStep, ownOptionsRoutes, routeCorsOptions } from "./co
 import { Exemptions } from "./exempt.ts";
 import { DEFAULT_MASKED_KEYS, masker, secretOptionValues, sensitiveFieldNames } from "./masking.ts";
 import { ipStep } from "./ip.ts";
+import { BIND_SOURCE, dynamicIpLists, type DynamicIpLists, type IpListSource, type IpSourceSetup } from "./ip-source.ts";
 import { DEFAULT_ATTACHMENT_TYPES, fileHeaders } from "./files.ts";
 import { DEFAULT_CSP, DEFAULT_DOCS_CSP, headersStep } from "./headers.ts";
 import { bodyStep, FORM_OVERHEAD, largestUpload, limitsStep, routeBodyLimit } from "./limits.ts";
@@ -91,6 +92,10 @@ const options = object({
   ip: toggle({
     allow: list(cidr()).default([]).describe("When not empty, only these addresses are served: addresses, CIDR blocks or loopback, private and linklocal."),
     deny: list(cidr()).default([]).describe("Addresses refused with 403; a deny match wins over an allow match."),
+    source: provider<IpListSource>("IpListSource", ["load"])
+      .optional()
+      .describe("Where more allow and deny entries come from while the service runs, like databaseIpList over a project entity; merged with the config lists, loaded at startup, every refresh and on watch changes."),
+    refresh: duration().default("30s").describe("How often the source is loaded again; a load taking longer fails and keeps the lists in effect."),
     onBlocked: hook<SecurityRefusal, undefined>().describe("Runs after a request is refused for its address."),
   }).describe("Accepts or refuses requests by client address (req.ip), for the whole service or with tags for single routes."),
   csrf: toggle({
@@ -159,6 +164,10 @@ interface SetupState {
   open: boolean;
   /** The server settings of the service, whose body limit route options raise. */
   server?: ServerSettings;
+  /** The lists of `ip.source`, while one is set. */
+  ipLists?: DynamicIpLists;
+  /** The counts of the config lists. */
+  ipCounts?: { allow: number; deny: number };
   /** The handler-stage middleware delegating to the current steps, and whether it was added. */
   handler?: HandlerMiddleware;
   handlerAdded?: boolean;
@@ -240,6 +249,8 @@ interface SharedSteps {
   logger?: Logger;
   store?: RateLimitStore;
   shedding?: SecurityStep;
+  /** The lists of `ip.source`, which the `ip` step reads per request. */
+  ipLists?: DynamicIpLists;
 }
 
 /** Prepares the parts of the steps that hold state, once per setup. */
@@ -255,6 +266,16 @@ function sharedSteps(ctx: FeatureSetupContext<SecurityOptions>, slot: StoreSlot)
     }
     // A feature may still replace the store during setup, so hits go through the slot.
     shared.store = { hit: (key, hit) => slot.current.hit(key, hit), reset: (key) => slot.current.reset(key) };
+  }
+  const source = options.ip.enabled ? (options.ip.source as IpListSource | undefined) : undefined;
+  if (source) {
+    // A source reading the project's database checks its entity now, so a wrong one fails startup.
+    (source as { [BIND_SOURCE]?: (setup: IpSourceSetup) => void })[BIND_SOURCE]?.({ models: ctx.models, database: ctx.config.database });
+    const lists = dynamicIpLists({ config: options.ip, source, refreshMs: parseDuration(options.ip.refresh) ?? 30_000, logger: ctx.logger });
+    // Each worker loads the source before its listener accepts requests; a failed load keeps the config lists.
+    ctx.app.onStart(() => lists.start());
+    ctx.app.onStop(() => lists.stop());
+    shared.ipLists = lists;
   }
   if (options.loadShedding.enabled) {
     const shedding = loadSheddingStep(options.loadShedding, ctx.logger);
@@ -274,7 +295,7 @@ function itemSteps(options: SecurityOptions, production: boolean, shared: Shared
   if (options.headers.enabled) steps.push(headersStep(options.headers, production));
   if (shared.shedding) steps.push(shared.shedding);
   if (options.ip.enabled) {
-    const step = ipStep(options.ip, ipOf, index()?.routes ?? []);
+    const step = ipStep(options.ip, ipOf, index()?.routes ?? [], undefined, shared.ipLists);
     if (step) steps.push(step);
   }
   if (options.cors.enabled) steps.push(corsStep(options.cors, ownOptionsRoutes(taggedRoutes()), index, ipOf));
@@ -506,6 +527,8 @@ const securityFeature = defineFeature({
       ipOf = (request) => clientIp(request, peerAddress(request));
     }
     const shared = sharedSteps(ctx, slot);
+    setupStates.get(ctx.app)!.ipLists = shared.ipLists;
+    setupStates.get(ctx.app)!.ipCounts = { allow: ctx.options.ip.allow.length, deny: ctx.options.ip.deny.length };
     const steps = itemSteps(ctx.options, ctx.config.production, shared, () => index, ipOf);
     if (ctx.options.limits.enabled) {
       // The socket refuses bodies no route could accept: larger than every body limit and than any upload the model allows.
@@ -578,6 +601,9 @@ const securityFeature = defineFeature({
       masker: () => state.mask,
       exempt: (pattern, items) => exemptions.add(pattern, items),
       reloadTls: () => reloadTls(ctx.logger),
+      ip: {
+        reload: () => (state.ipLists ? state.ipLists.reload() : Promise.resolve({ ...(state.ipCounts ?? { allow: 0, deny: 0 }) })),
+      },
       routeOptions(pattern, options) {
         if (!state.open || !activeSetup()) throw new Error("security routeOptions() is only available during setup");
         if (typeof pattern !== "string" || !/^\/[^*]*(\/\*)?$/.test(pattern)) throw new Error(`Invalid security route pattern ${JSON.stringify(pattern)}: expected a path or a prefix ending in /*`);
@@ -615,13 +641,15 @@ const securityFeature = defineFeature({
 
 export default securityFeature;
 export { securityFeature };
-export type { ClientIpResolver, RateLimitRefusal, SecurityApi, SecurityRefusal, SecurityRouteOptions } from "./api.ts";
+export type { ClientIpResolver, RateLimitRefusal, SecurityApi, SecurityIpApi, SecurityRefusal, SecurityRouteOptions } from "./api.ts";
 export type { ClientCertificateVerifier } from "./mtls.ts";
 export type { ExemptibleItem } from "./exempt.ts";
 export { memoryRateLimitStore, slidingWindowHit } from "./store.ts";
 export { DEFAULT_MASKED_KEYS, maskEntry, maskText, maskUrl } from "./masking.ts";
 export type { MaskingRules } from "./masking.ts";
 export { databaseRateLimitStore } from "./db-store.ts";
+export { databaseIpList, dynamicIpLists } from "./ip-source.ts";
+export type { DynamicIpLists, IpListCounts, IpListSource } from "./ip-source.ts";
 export { csrfMiddleware, csrfRejected } from "./csrf.ts";
 export type { CsrfOptions } from "./csrf.ts";
 export type { DatabaseRateLimitStore } from "./db-store.ts";

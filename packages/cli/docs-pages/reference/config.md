@@ -123,6 +123,8 @@ Every option, tag, command and hook of `security` is on [its reference page](/re
 | `security.ip.enabled` | `boolean` | `true` | `QS_SECURITY_IP_ENABLED` | Accepts or refuses requests by client address (req.ip), for the whole service or with tags for single routes. Turns it off when false. |
 | `security.ip.allow` | `cidr[]` | `[]` | `QS_SECURITY_IP_ALLOW` | When not empty, only these addresses are served: addresses, CIDR blocks or loopback, private and linklocal. |
 | `security.ip.deny` | `cidr[]` | `[]` | `QS_SECURITY_IP_DENY` | Addresses refused with 403; a deny match wins over an allow match. |
+| `security.ip.source` | `IpListSource` | — | not overridable | Where more allow and deny entries come from while the service runs, like databaseIpList over a project entity; merged with the config lists, loaded at startup, every refresh and on watch changes. |
+| `security.ip.refresh` | `duration` | `"30s"` | `QS_SECURITY_IP_REFRESH` | How often the source is loaded again; a load taking longer fails and keeps the lists in effect. |
 | `security.ip.onBlocked` | `hook` | — | not overridable | Runs after a request is refused for its address. |
 | `security.csrf.enabled` | `boolean` | `true` | `QS_SECURITY_CSRF_ENABLED` | Refuses cross-site writes (POST, PUT, PATCH, DELETE) that ride on a session cookie with 403; requests authenticated by tokens, or not at all, skip it. Turns it off when false. |
 | `security.csrf.mode` | `"origin" \| "token"` | `"origin"` | `QS_SECURITY_CSRF_MODE` | How cookie-authenticated writes prove they come from the service's pages: their Origin (or Referer) and Sec-Fetch-Site headers, or a token header equal to the CSRF cookie. |

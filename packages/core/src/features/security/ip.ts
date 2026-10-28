@@ -43,13 +43,15 @@ function routeCheck(route: SecurityRoute, compile: CompileList): Check | undefin
  * refuses with 403 `Address not allowed` an address the global lists refuse (unless the path is exempted from `ip`)
  * or that its route's lists refuse.
  */
-export function ipStep(lists: IpLists, ipOf: (request: Request) => string, tagged: readonly SecurityRoute[], compile: CompileList = cidrMatcher): SecurityStep | undefined {
-  const global = compileLists(lists, compile);
+export function ipStep(lists: IpLists, ipOf: (request: Request) => string, tagged: readonly SecurityRoute[], compile: CompileList = cidrMatcher, dynamic?: { readonly check: Check | undefined }): SecurityStep | undefined {
+  // With a source, the global check is the one its last load swapped in; otherwise it is compiled once here.
+  const fixed = dynamic ? undefined : compileLists(lists, compile);
   const byRoute = tagged.some((route) => route.tags.ipAllow || route.tags.ipDeny);
-  if (!global && !byRoute) return undefined;
+  if (!fixed && !dynamic && !byRoute) return undefined;
   return {
     name: "ip",
     before(state: SecurityState) {
+      const global = dynamic ? dynamic.check : fixed;
       const own = byRoute && state.route ? routeCheck(state.route, compile) : undefined;
       const checksGlobal = global !== undefined && !(state.exempt & EXEMPT.ip);
       if (!checksGlobal && !own) return;

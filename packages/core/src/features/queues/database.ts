@@ -124,6 +124,7 @@ const receivedOf = (row: QueueMessage): QueueReceivedMessage => ({
   ...(row.dedupeKey ? { dedupeKey: row.dedupeKey } : {}),
   ...(row.requestId ? { requestId: row.requestId } : {}),
   ...(row.tenant ? { tenant: row.tenant } : {}),
+  ...(row.trace ? { trace: row.trace } : {}),
   ...(row.actor && (row.actor.user || row.actor.tenant) ? { actor: { ...(row.actor.user ? { user: row.actor.user } : {}), ...(row.actor.tenant ? { tenant: row.actor.tenant } : {}) } } : {}),
 });
 
@@ -532,6 +533,7 @@ export function databaseBroker(options: DatabaseBrokerOptions = {}): DatabaseBro
         ...(message.requestId ? { requestId: message.requestId } : {}),
         ...(message.tenant ? { tenant: message.tenant } : {}),
         ...(message.actor ? { actor: message.actor as StoredRecord[string] } : {}),
+        ...(message.trace ? { trace: message.trace } : {}),
       };
       const wake = () => void afterCommit(() => wakeLoop(loops.get(name)));
       // The database of the current scope (a tenant's, say), so the insert joins the transaction open there.

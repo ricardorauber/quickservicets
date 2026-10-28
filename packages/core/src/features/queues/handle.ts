@@ -1,4 +1,4 @@
-import { contextFlags, contextHttp, operationContextEnabled, runForTenant, safeLog, systemClock, withOperation, type JobClock, type JobLogFields, type JobLogger, type Logger, type Repositories } from "../public.ts";
+import { contextFlags, contextHttp, operationContextEnabled, parseTraceparent, spanAttributes, startSpan, tracingEnabled, withSpan, runForTenant, safeLog, systemClock, withOperation, type JobClock, type JobLogFields, type JobLogger, type Logger, type Repositories } from "../public.ts";
 import type { QueueBrokerContext, QueueReceivedMessage } from "./broker.ts";
 import { queueClient } from "./client.ts";
 import type { QueueContext, QueueDefinition } from "./queue.ts";
@@ -25,7 +25,7 @@ function httpOf(messageId: string): { http?: QueueContext["http"] } {
 /** The `handle` of a broker's start context: runs a message's consumer with its context, inside its operation. */
 export function consumerHandler(options: ConsumerHandlerOptions): QueueBrokerContext["handle"] {
   const clock = options.clock ?? systemClock;
-  return async (message, { signal }) => {
+  const handle: QueueBrokerContext["handle"] = async (message, { signal }) => {
     const write = (level: "info" | "warn" | "error") => (line: string, fields?: JobLogFields) =>
       safeLog(options.logger, level, { timestamp: new Date(clock.now()).toISOString(), message: String(line), ...fields, queue: message.queue, messageId: message.id });
     const log: JobLogger = { info: write("info"), warn: write("warn"), error: write("error") };
@@ -51,6 +51,32 @@ export function consumerHandler(options: ConsumerHandlerOptions): QueueBrokerCon
       return { completed: true, result };
     } catch (error) {
       return { failed: error };
+    }
+  };
+  // With a tracer, each run starts a new trace in a `consumer` span linked to the span that added the message.
+  return async (message, context) => {
+    if (!tracingEnabled()) return handle(message, context);
+    const link = parseTraceparent(message.trace);
+    const span = startSpan(`process ${message.queue}`, {
+      kind: "consumer",
+      parent: null,
+      ...(link ? { links: [{ context: link }] } : {}),
+      attributes: spanAttributes({
+        "messaging.system": "quickservicets",
+        "messaging.destination.name": message.queue,
+        "messaging.message.id": message.id,
+        "quickservicets.queue.attempt": message.attempt,
+      }),
+    });
+    try {
+      const outcome = await withSpan(span, () => handle(message, context));
+      if ("failed" in outcome) {
+        span.recordException(outcome.failed);
+        span.setStatus("error");
+      }
+      return outcome;
+    } finally {
+      span.end();
     }
   };
 }

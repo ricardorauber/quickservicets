@@ -33,6 +33,8 @@ export type QueueMessage = {
   tenant?: string | null;
   /** The ids of the user and tenant of the request that added it. */
   actor?: { user?: string | null; tenant?: string | null; scope?: string | null } | null;
+  /** The W3C `traceparent` of the span that added it, while a tracer is set; its run's span links to it. */
+  trace?: string | null;
 };
 
 const column = (field: NestedFieldModel): FieldModel => ({ ...field, storage: "column" });
@@ -78,6 +80,7 @@ export function queueMessageEntity(): EntityModel {
         { name: "scope", type: "string", optional: true },
       ],
     }),
+    column({ name: "trace", type: "string", optional: true }),
   ];
   const include = ["id", "createdAt", "updatedAt", ...fields.map((field) => field.name)];
   return {

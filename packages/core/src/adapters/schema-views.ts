@@ -112,6 +112,7 @@ export function placedView(parent: DatabaseAdapter, schema: string): DatabaseAda
   const pulls = (list: ReferencePull[]): ReferencePull[] => list.map((pull) => ({ ...pull, owner: place(pull.owner) }));
   const view: DatabaseAdapter = {
     ...(parent.kind ? { kind: parent.kind } : {}),
+    namespace: schema,
     get supportsRollback() {
       return parent.supportsRollback;
     },

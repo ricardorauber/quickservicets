@@ -24,6 +24,11 @@ import {
   type FeatureSetupContext,
   type Repositories,
   type WriteEvent,
+  formatTraceparent,
+  spanAttributes,
+  startSpan,
+  tracingEnabled,
+  withSpan,
 } from "../public.ts";
 import { brokerMethod, type QueueBroker, type QueueBrokerMessage, type QueueOutcomeReport, type QueueSettings } from "./broker.ts";
 import type { QueueDeadMessage, QueueEnqueueContext, QueueEnqueued, QueueEnqueueStep, QueueMessageEvent, QueueProcessed, QueueProcessStep, QueuesApi } from "./api.ts";
@@ -108,6 +113,25 @@ function jsonPayload(payload: unknown): unknown {
     return text === undefined ? undefined : (JSON.parse(text) as unknown);
   } catch {
     return undefined;
+  }
+}
+
+/** Adds a message in a `producer` span named `send <queue>`, storing the span's `traceparent` on the message. */
+async function tracedEnqueue(broker: QueueBroker, message: QueueBrokerMessage) {
+  const span = startSpan(`send ${message.queue}`, {
+    kind: "producer",
+    attributes: spanAttributes({ "messaging.system": "quickservicets", "messaging.destination.name": message.queue }),
+  });
+  try {
+    const added = await withSpan(span, () => broker.enqueue({ ...message, trace: formatTraceparent(span.context()) }, { transactional: inTransaction() }));
+    span.setAttribute("messaging.message.id", added.id);
+    return added;
+  } catch (error) {
+    span.recordException(error);
+    span.setStatus("error");
+    throw error;
+  } finally {
+    span.end();
   }
 }
 
@@ -273,7 +297,8 @@ const queuesFeature = defineFeature({
           // The tenant of the current scope (a request's, a job's, a consumer's), so the consumer runs for it too.
           ...(currentDatabaseScope().tenant ? { tenant: currentDatabaseScope().tenant!.id } : {}),
         };
-        const added = await brokerOf().enqueue(message, { transactional: inTransaction() });
+        // With a tracer, the message is sent in a producer span whose context it carries to its run.
+        const added = tracingEnabled() ? await tracedEnqueue(brokerOf(), message) : await brokerOf().enqueue(message, { transactional: inTransaction() });
         if (ctx.options.afterEnqueue.length > 0) await runAfterHooks(ctx.options.afterEnqueue, { queue: name, id: added.id, deduplicated: added.deduplicated }, undefined);
         return added;
       },

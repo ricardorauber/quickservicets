@@ -1,7 +1,18 @@
 import { inEventTenant } from "./bus.ts";
-import { parseDuration, reportFailure, safeLog, type AnyEvent, type Condition, type DatabaseAdapter, type EntityModel, type FieldModel, type Logger, type StoredRecord } from "../public.ts";
+import { parseDuration, parseTraceparent, reportFailure, safeLog, startSpan, tracingEnabled, withSpan, type AnyEvent, type Condition, type DatabaseAdapter, type EntityModel, type FieldModel, type Logger, type StoredRecord } from "../public.ts";
 import { compilePattern, type CompiledPattern } from "./patterns.ts";
 import { sharedState } from "./state.ts";
+
+/** Runs a delivery in a `consumer` span named `deliver <consumer>` of a new trace, linked to the span that wrote the event. */
+async function tracedDelivery(consumer: string, trace: string | undefined, run: () => Promise<void>): Promise<void> {
+  const link = parseTraceparent(trace);
+  const span = startSpan(`deliver ${consumer}`, { kind: "consumer", parent: null, ...(link ? { links: [{ context: link }] } : {}) });
+  try {
+    await withSpan(span, run);
+  } finally {
+    span.end();
+  }
+}
 
 /** The user, tenant and request of an event, as failure reports carry them. */
 function actorOf(event: AnyEvent | undefined) {
@@ -250,6 +261,7 @@ export function createDispatcher({ adapter, outboxModel, deliveryModel, settings
     const ids = [...new Set(claimed.map((row) => row.event as string))];
     const { data } = await adapter.findMany(outboxModel, { where: [condition("id", "in", ids)], sort: [{ field: "id", direction: "asc" }], limit: ids.length, offset: 0, withTotal: false });
     const eventsById = new Map(data.map((row) => [row.id, { ...(row.event as Record<string, unknown>), at: new Date((row.event as { at: string }).at) } as unknown as AnyEvent]));
+    const traces = new Map(data.flatMap((row) => (typeof row.trace === "string" ? [[row.id, row.trace] as const] : [])));
     // Each consumer gets its deliveries in event id order; consumers do not wait for each other.
     const byConsumer = new Map<string, StoredRecord[]>();
     for (const row of claimed.sort((a, b) => String(a.event).localeCompare(String(b.event)))) {
@@ -259,7 +271,12 @@ export function createDispatcher({ adapter, outboxModel, deliveryModel, settings
     }
     const work = Promise.all(
       [...byConsumer.values()].map(async (list) => {
-        for (const row of list) await deliver(row, eventsById.get(row.event as string));
+        for (const row of list) {
+          const event = eventsById.get(row.event as string);
+          // With a tracer, each delivery runs in a consumer span of a new trace, linked to the span that wrote the event.
+          if (tracingEnabled()) await tracedDelivery(String(row.consumer), traces.get(row.event as string), () => deliver(row, event));
+          else await deliver(row, event);
+        }
       }),
     ).then(() => undefined);
     running.add(work);

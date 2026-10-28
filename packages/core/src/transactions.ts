@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { DatabaseAdapter } from "./adapter.ts";
 import { databaseScopesEnabled, scopedAdapter, scopeKeyOf, sharesConnection } from "./database-scope.ts";
 import { jsonLogger, safeLog, type Logger } from "./logger.ts";
+import { startSpan, tracingEnabled, withSpan } from "./tracing.ts";
 
 /** One open transaction: the adapter it runs on and the callbacks queued for its end. */
 interface TransactionScope {
@@ -83,7 +84,23 @@ export function publicTransaction<T>(adapter: DatabaseAdapter, fn: () => Promise
     warned.add(adapter);
     log("warn", "transactions are not atomic on this database; writes in a failed transaction are kept");
   }
+  // With a tracer, an outermost transaction runs in a span of its own, with a rollback event when it rolls back.
+  if (tracingEnabled() && !scopes.getStore()) return tracedTransaction(adapter, fn);
   return runInTransaction(adapter, fn);
+}
+
+async function tracedTransaction<T>(adapter: DatabaseAdapter, fn: () => Promise<T>): Promise<T> {
+  const span = startSpan("transaction", { kind: "internal" });
+  try {
+    return await withSpan(span, () => runInTransaction(adapter, fn));
+  } catch (error) {
+    span.addEvent("rollback");
+    span.recordException(error);
+    span.setStatus("error");
+    throw error;
+  } finally {
+    span.end();
+  }
 }
 
 /**

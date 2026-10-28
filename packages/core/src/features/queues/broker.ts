@@ -34,6 +34,8 @@ export interface QueueBrokerMessage {
   actor?: QueueActor;
   /** The tenant the message was added for; its consumer runs in that tenant's scope. */
   tenant?: string;
+  /** The W3C `traceparent` of the span that added it, while a tracer is set; brokers keep it when they can. */
+  trace?: string;
 }
 
 /** Who added a message: the ids of the request's user and tenant. */
@@ -59,6 +61,8 @@ export interface QueueReceivedMessage {
   actor?: QueueActor;
   /** The tenant the message was added for, when the broker keeps it. */
   tenant?: string;
+  /** The `traceparent` of the span that added it, when the broker keeps it. */
+  trace?: string;
 }
 
 /** How a run ended: completed with the consumer's return value, or failed with what it threw. */

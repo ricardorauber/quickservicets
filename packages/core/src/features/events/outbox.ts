@@ -1,7 +1,8 @@
-import { assertWritable, parseDuration, runInTransaction, scopedAdapter, systemTarget, type AnyEvent, type DatabaseAdapter, type EntityModel, type FieldModel, type StoredRecord } from "../public.ts";
+import { assertWritable, formatTraceparent, parseDuration, runInTransaction, scopedAdapter, systemTarget, type AnyEvent, type DatabaseAdapter, type EntityModel, type FieldModel, type StoredRecord } from "../public.ts";
 import { compilePattern, type CompiledPattern } from "./patterns.ts";
 import { deliveryRows } from "./delivery.ts";
 import { sharedState } from "./state.ts";
+import { eventTraces } from "./traces.ts";
 
 /** One stored event of the outbox, as `readOutbox` returns it. */
 export interface OutboxRecord {
@@ -21,6 +22,8 @@ export function outboxEventEntity(): EntityModel {
     { name: "event", type: "json", optional: false, storage: "json" },
     { name: "at", type: "date", optional: false, storage: "column" },
     { name: "requestId", type: "string", optional: true, storage: "column" },
+    // The traceparent of the span that wrote the event, while a tracer is set; deliveries link to it.
+    { name: "trace", type: "string", optional: true, storage: "column" },
   ] as FieldModel[];
   const include = ["id", "createdAt", "updatedAt", ...fields.map((field) => field.name)];
   return {
@@ -133,6 +136,8 @@ export async function insertOutboxRow(event: AnyEvent): Promise<void> {
     at,
     ...(event.requestId ? { requestId: event.requestId } : {}),
   };
+  const trace = eventTraces.get(event);
+  if (trace) row.trace = formatTraceparent(trace);
   assertWritable(adapter);
   await adapter.insert(model, row);
   if (deliveries) for (const delivery of deliveryRows(event, at)) await deliveries.adapter.insert(deliveries.model, delivery);

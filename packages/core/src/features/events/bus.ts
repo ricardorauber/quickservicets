@@ -9,6 +9,11 @@ import {
   jsonLogger,
   runAfterHooks,
   safeLog,
+  activeSpan,
+  startSpan,
+  tracingEnabled,
+  withSpan,
+  type SpanContext,
   type AnyEvent,
   type CustomEvent,
   type EventActor,
@@ -21,6 +26,7 @@ import {
   type WriteEvent,
 } from "../public.ts";
 import * as patterns from "./patterns.ts";
+import { eventTraces } from "./traces.ts";
 import { addOutboxPatterns, inOutboxTransaction, insertOutboxRow, outboxRunning, storesType } from "./outbox.ts";
 import { registerConsumer, type ConsumerOptions } from "./delivery.ts";
 import { sharedState } from "./state.ts";
@@ -202,7 +208,7 @@ export const events: Events = {
         shared.inTransactionLookup!.reset();
       };
     }
-    const tenantListener: EventListener = (event) => inEventTenant(event, () => (listener as EventListener)(event));
+    const tenantListener: EventListener = (event) => (tracingEnabled() ? tracedListener(event, () => inEventTenant(event, () => (listener as EventListener)(event))) : inEventTenant(event, () => (listener as EventListener)(event)));
     const unsubscribe = shared.bus!.subscribe(pattern, tenantListener) ?? (() => {});
     shared.unsubscribes.push(unsubscribe);
     return unsubscribe;
@@ -211,6 +217,7 @@ export const events: Events = {
     enabledCheck();
     patterns.assertCustomType(type);
     const event: CustomEvent = { id: Bun.randomUUIDv7(), type, payload, ...operationFields(), at: new Date() };
+    keepTrace(event);
     await publish(event, true);
     return event.id;
   },
@@ -278,9 +285,31 @@ function operationFields(): { actor: EventActor; requestId?: string } {
 
 const lowerFirst = (name: string) => `${name.charAt(0).toLowerCase()}${name.slice(1)}`;
 
+/** Keeps the context of the span that created an event, while a tracer is set. */
+function keepTrace(event: AnyEvent): void {
+  if (!tracingEnabled()) return;
+  const context = activeSpan()?.context();
+  if (context) eventTraces.set(event, context);
+}
+
+/** Runs an after-commit listener in an internal span named `event <type>`, linked to the span that created the event. */
+async function tracedListener(event: AnyEvent, run: () => unknown): Promise<void> {
+  const link = eventTraces.get(event);
+  const span = startSpan(`event ${event.type}`, { kind: "internal", parent: null, ...(link ? { links: [{ context: link }] } : {}) });
+  try {
+    await withSpan(span, run);
+  } catch (error) {
+    span.recordException(error);
+    span.setStatus("error");
+    throw error;
+  } finally {
+    span.end();
+  }
+}
+
 /** The event of a reported write, with the actor and request of the current operation. */
 export function toEvent(change: WriteChange): WriteEvent {
-  return {
+  const event = {
     id: Bun.randomUUIDv7(),
     type: `${lowerFirst(change.entity.entityName)}.${change.operation}`,
     entity: change.entity.entityName,
@@ -293,6 +322,8 @@ export function toEvent(change: WriteChange): WriteEvent {
     ...operationFields(),
     at: new Date(),
   } as WriteEvent;
+  keepTrace(event);
+  return event;
 }
 
 /** The event after the `beforeEmit` hooks: changed (keeping its id, type and time) or null when one drops it. */
@@ -304,6 +335,8 @@ async function beforeEmit(event: AnyEvent): Promise<AnyEvent | null> {
     if (result === null) return null;
     if (result !== undefined) current = { ...result, id: event.id, type: event.type, at: event.at } as AnyEvent;
   }
+  const trace = eventTraces.get(event);
+  if (trace && current !== event) eventTraces.set(current, trace);
   return current;
 }
 

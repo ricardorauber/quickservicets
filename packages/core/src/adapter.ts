@@ -73,6 +73,8 @@ export interface ConnectOptions {
 export interface DatabaseAdapter {
   /** Identifies built-in adapters, so tools such as migrations know the database dialect. */
   readonly kind?: AdapterKind;
+  /** The schema (or database) a view places the default-schema entities in, for traces; undefined for the adapter itself. */
+  readonly namespace?: string;
   connect(models: EntityModel[], options?: ConnectOptions): Promise<void>;
   disconnect(): Promise<void>;
   findById(entity: EntityModel, id: string, options?: ReadColumns): Promise<StoredRecord | null>;

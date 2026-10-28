@@ -5,6 +5,7 @@ import { withJobOperation } from "../operation-context.ts";
 import { jobRunsObserved, notifyJobRun } from "./observers.ts";
 import { contextFlags } from "../context-flags.ts";
 import { contextHttp } from "../context-http.ts";
+import { activeSpan, spanAttributes, startSpan, tracingEnabled, withSpan, type Span, type SpanContext } from "../tracing.ts";
 import { queueClient } from "../features/queues/client.ts";
 import type { ResolvedConfig } from "../config.ts";
 import { parseSize } from "../files/limits.ts";
@@ -69,6 +70,8 @@ export interface RunRequest {
   onClaimed?: (run: JobRun) => void;
   /** For a job with `tenants: "each"`: runs it for this tenant only. */
   tenant?: string;
+  /** The span that started the run (a request, or `job run`), which the run's span links to while a tracer is set. */
+  link?: SpanContext;
 }
 
 /** A run being executed in this instance. */
@@ -220,6 +223,8 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
   const active = new Map<string, ActiveRun>();
   /** The one tenant a run of a `tenants: "each"` job is for, by run id. */
   const onlyTenant = new Map<string, string>();
+  /** The span that started each claimed run, while a tracer is set. */
+  const runLinks = new Map<string, SpanContext>();
   const pending = new Set<Promise<unknown>>();
   const timestamp = () => new Date(clock.now()).toISOString();
 
@@ -358,6 +363,18 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
       ...(flags ? { flags } : {}),
       ...(client ? { http: client } : {}),
     } as JobContext;
+    // With a tracer, each run starts a new trace, linked to the span that started it on demand.
+    let span: Span | undefined;
+    if (tracingEnabled()) {
+      const link = runLinks.get(run.id);
+      runLinks.delete(run.id);
+      span = startSpan(`job ${run.job}`, {
+        kind: "consumer",
+        parent: null,
+        ...(link ? { links: [{ context: link }] } : {}),
+        attributes: spanAttributes({ "quickservicets.job.name": run.job, "quickservicets.job.run_id": run.id, "quickservicets.job.attempt": run.attempt }),
+      });
+    }
     const done = (async (): Promise<JobRun> => {
       logEvent("job.started", run);
       // The first outcome wins: once the run timed out or was interrupted, the closure settling later changes nothing.
@@ -388,8 +405,9 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
         const perTenant = definition.options.tenants === "each";
         const tenantOnly = onlyTenant.get(run.id);
         onlyTenant.delete(run.id);
+        const body = () => withJobOperation({ name: run.job, runId: run.id }, () => (perTenant ? eachTenant(definition, context, log, tenantOnly) : definition.run(context)));
         Promise.resolve()
-          .then(() => withJobOperation({ name: run.job, runId: run.id }, () => (perTenant ? eachTenant(definition, context, log, tenantOnly) : definition.run(context))))
+          .then(() => (span ? withSpan(span, body) : body()))
           .then(
             (value) => {
               if (settled) return;
@@ -411,6 +429,11 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
         logs: logs.lines(),
         updatedAt: finishedAt,
       });
+      if (span) {
+        span.setAttribute("quickservicets.job.status", String(changes.status));
+        if (changes.status !== "success") span.setStatus("error", (changes.error as { message?: string } | undefined)?.message);
+        span.end();
+      }
       await database.updateById(model, run.id, changes);
       const finished = { ...run, ...changes } as JobRun;
       logEvent("job.finished", finished);
@@ -485,6 +508,10 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
           if (claimed) request.onClaimed?.(claimed);
           if (!claimed || claimed.status !== "running") return claimed;
           if (request.tenant !== undefined) onlyTenant.set(claimed.id, request.tenant);
+          if (tracingEnabled() && request.trigger !== "schedule") {
+            const link = request.link ?? activeSpan()?.context();
+            if (link) runLinks.set(claimed.id, link);
+          }
           return execute(claimed);
         })(),
       );

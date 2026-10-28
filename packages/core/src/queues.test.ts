@@ -81,6 +81,7 @@ describe("the QueueMessage model", () => {
       "requestId",
       "tenant",
       "actor",
+      "trace",
     ]);
     expect(model.fields.find((field) => field.name === "status")).toMatchObject({ type: "enum", values: ["waiting", "active", "completed", "dead"] });
     expect(model.fields.find((field) => field.name === "priority")).toMatchObject({ type: "number", default: 0 });

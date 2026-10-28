@@ -1,5 +1,6 @@
 import { jsonLogger, safeLog, type Logger } from "./logger.ts";
 import type { FeatureHook } from "./options.ts";
+import { startSpan, tracingEnabled, withSpan } from "./tracing.ts";
 
 /** Where a resolved list of hooks came from: the option's path, like `audit.beforeWrite`. */
 export const HOOK_PATH = Symbol.for("quickservicets.hook.path");
@@ -21,10 +22,26 @@ export function setHookLogger(logger: Logger | undefined): void {
 export async function runBeforeHooks<V, C>(list: readonly FeatureHook<V, C>[], value: V, ctx: C): Promise<V> {
   let current = value;
   for (const hook of list) {
-    const result = await hook(current, ctx);
+    const input = current;
+    const result = tracingEnabled() ? await tracedFeatureHook(list, () => hook(input, ctx)) : await hook(current, ctx);
     if (result !== undefined) current = result as V;
   }
   return current;
+}
+
+/** Runs one feature hook in an internal span named after its option (`<feature>.<hook>`), recording a thrown error. */
+async function tracedFeatureHook<T>(list: readonly unknown[], run: () => T | Promise<T>): Promise<T> {
+  const name = (list as { [HOOK_PATH]?: string })[HOOK_PATH] ?? "feature";
+  const span = startSpan(`hook ${name}`, { kind: "internal" });
+  try {
+    return await withSpan(span, run);
+  } catch (error) {
+    span.recordException(error);
+    span.setStatus("error");
+    throw error;
+  } finally {
+    span.end();
+  }
 }
 
 /**
@@ -34,7 +51,8 @@ export async function runBeforeHooks<V, C>(list: readonly FeatureHook<V, C>[], v
 export async function runAfterHooks<V, C>(list: readonly FeatureHook<V, C>[], value: V, ctx: C): Promise<void> {
   for (const hook of list) {
     try {
-      await hook(value, ctx);
+      if (tracingEnabled()) await tracedFeatureHook(list, () => hook(value, ctx));
+      else await hook(value, ctx);
     } catch (error) {
       const path = (list as HookList<V, C>)[HOOK_PATH] ?? "";
       const [feature, ...rest] = path.split(".");

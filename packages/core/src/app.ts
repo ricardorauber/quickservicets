@@ -29,6 +29,7 @@ import { configureRunRepositories, resolveRunRepositories, type RepositoryResolv
 import { configureDatabaseScopes, currentDatabaseScope } from "./database-scope.ts";
 import { guardTenantRepositories } from "./tenant-repositories.ts";
 import { configureTenantRuns } from "./tenant-runs.ts";
+import { configureTracing, tracedLogger } from "./tracing.ts";
 
 /** A generated CRUD route with its resolved hook list. */
 export interface CrudRouteEntry {
@@ -197,7 +198,10 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
   prepareFeatureTargets(models, endpoints, crudRoutes);
   // A feature masking logs (the security native) wraps the logger of the server, the jobs and the file cleanup.
   const masked = settings.mask ? maskedLogger(config.logger ?? jsonLogger, settings.mask) : (config.logger ?? jsonLogger);
-  const logger = settings.wrapLogger ? settings.wrapLogger(masked) : masked;
+  const wrappedLogger = settings.wrapLogger ? settings.wrapLogger(masked) : masked;
+  // With a tracer, entries logged inside a span carry its trace and span ids.
+  configureTracing(settings.tracer, settings.mask);
+  const logger = settings.tracer ? tracedLogger(wrappedLogger) : wrappedLogger;
   const fileAccess = { storage: config.storage, files: config.files, publicUrl: config.server.publicUrl, ...(settings.fileHeaders ? { fileHeaders: settings.fileHeaders } : {}) };
   const fileCleanup = {
     storage: config.storage,

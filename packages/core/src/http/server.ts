@@ -11,6 +11,7 @@ import { readBodyText } from "./body.ts";
 import type { RepositoryResolver } from "../repository-resolver.ts";
 import type { TenantRuns } from "../tenant-runs.ts";
 import type { SocketRunner } from "./socket.ts";
+import type { TracerSetting } from "../tracing.ts";
 
 export type HandlerResult<Result> = Result | Response | undefined;
 
@@ -63,6 +64,8 @@ export interface ServerSettings {
   websocket?: Bun.WebSocketHandler<unknown>;
   /** What serves the upgrade requests of this service's `ws.ts` endpoints. */
   socketRunner?: SocketRunner;
+  /** Set by `setTracer()` during setup: the tracer of the service and the feature that set it. */
+  tracer?: TracerSetting;
 }
 
 export interface ServerOptions extends ServerSettings {

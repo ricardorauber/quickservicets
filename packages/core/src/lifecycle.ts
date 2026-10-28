@@ -12,6 +12,7 @@ import type { Middleware, OwnedMiddleware } from "./middleware.ts";
 import { prepareFeatureTargets, registerRuntimeTarget, resetRuntimeTargets } from "./feature-targets.ts";
 import type { CrudOperation, ParsedTags } from "./model.ts";
 import { setActiveSetup } from "./setup-phase.ts";
+import { configureTracing, tracedLogger } from "./tracing.ts";
 
 /** Which worker process runs a feature's setup. */
 export interface WorkerInfo {
@@ -244,11 +245,16 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
   const baseLogger = config.logger ?? jsonLogger;
   let masked: Logger | undefined;
   let wrapped: Logger | undefined;
+  let traced: { inner: Logger; logger: Logger } | undefined;
   // Once a feature gives the server a masker, every entry logged through the features' loggers is masked too, and a
-  // logger wrapper (like the tenant of the current scope) applies to them as well.
+  // logger wrapper (like the tenant of the current scope) applies to them as well; with a tracer, entries logged
+  // inside a span carry its ids.
   const current = () => {
     const base = server.mask ? (masked ??= maskedLogger(baseLogger, server.mask)) : baseLogger;
-    return server.wrapLogger ? (wrapped ??= server.wrapLogger(base)) : base;
+    const outer = server.wrapLogger ? (wrapped ??= server.wrapLogger(base)) : base;
+    if (!server.tracer) return outer;
+    if (traced?.inner !== outer) traced = { inner: outer, logger: tracedLogger(outer) };
+    return traced.logger;
   };
   const logger: Logger = { info: (entry) => current().info(entry), warn: (entry) => current().warn(entry), error: (entry) => current().error(entry), debug: (entry) => current().debug?.(entry) };
   const startTimeout = parseDuration(config.lifecycle.startTimeout) ?? 30_000;
@@ -288,6 +294,8 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
         crudRoutes,
       );
       resetRuntimeTargets();
+      // A service starts without the tracer of a service set up before it in this process.
+      configureTracing(undefined);
       for (const entry of registered) {
         const { feature } = entry;
         let open = true;

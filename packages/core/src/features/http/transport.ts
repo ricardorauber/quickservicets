@@ -5,6 +5,7 @@ import type { HttpBody, HttpRequest, HttpResponse, HttpSettings } from "./client
 import { answerFromMock, mockActive, MOCK_TIMEOUT } from "./mock.ts";
 import { allowList, blockedCategory, isReservedName, RESERVED_NAME, resolveHost, type AllowList } from "./ssrf.ts";
 import { HttpClientError } from "./errors.ts";
+import type { ServiceTls } from "./service-tls.ts";
 
 /** A URL as logs and errors show it: secret query values and user information replaced with `[secret]`. */
 export function maskedUrl(url: string, settings: Pick<HttpSettings, "maskKeys">): string {
@@ -75,6 +76,13 @@ async function readLimited(response: Response, limit: number, tooLarge: () => Er
     offset += chunk.byteLength;
   }
   return bytes;
+}
+
+/** Whether a failure is a TLS handshake failure: an untrusted, expired or mismatched certificate, or a refused one. */
+export function isTlsFailure(error: unknown): boolean {
+  const failure = error as { code?: unknown; message?: unknown } | undefined;
+  const text = `${typeof failure?.code === "string" ? failure.code : ""} ${typeof failure?.message === "string" ? failure.message : ""}`;
+  return /CERT|SSL|TLS|SELF_SIGNED|UNABLE_TO_VERIFY|HANDSHAKE|ERR_TLS|certificate/i.test(text);
 }
 
 /** The reason of a network failure, as the message shows it. */
@@ -169,7 +177,7 @@ export interface HttpTransport {
  * Sends one hop: through the configured transport, or to its validated address, with the original host in the
  * `host` header and as the TLS server name.
  */
-async function sendHop(hop: Hop, destination: Destination, signal: AbortSignal, custom: HttpTransport | undefined): Promise<Response> {
+async function sendHop(hop: Hop, destination: Destination, signal: AbortSignal, custom: HttpTransport | undefined, clientTls?: ServiceTls): Promise<Response> {
   if (custom) {
     const body = (hop.body ?? null) as RequestInit["body"];
     const request = new Request(hop.url.href, { method: hop.method, headers: hop.headers, body, signal, redirect: "manual", ...(body instanceof ReadableStream ? { duplex: "half" } : {}) } as RequestInit);
@@ -178,9 +186,20 @@ async function sendHop(hop: Hop, destination: Destination, signal: AbortSignal, 
   const headers = new Headers(hop.headers);
   const target = pinnedUrl(hop.url, destination.address);
   if (target !== hop.url.href) headers.set("host", hop.url.host);
-  const servername = hop.url.hostname;
-  const tls = hop.url.protocol === "https:" && target !== hop.url.href ? { tls: { serverName: servername, checkServerIdentity: (_host: string, cert: PeerCertificate) => checkServerIdentity(servername, cert) } } : {};
-  return fetch(target, { method: hop.method, headers, body: (hop.body ?? null) as RequestInit["body"], signal, redirect: "manual", ...tls } as RequestInit);
+  const servername = clientTls?.serverName ?? hop.url.hostname;
+  const pinned = hop.url.protocol === "https:" && target !== hop.url.href ? { serverName: servername, checkServerIdentity: (_host: string, cert: PeerCertificate) => checkServerIdentity(servername, cert) } : {};
+  // A service's certificate, key and authorities, only for its own origin.
+  const own = clientTls && hop.url.protocol === "https:"
+    ? {
+        ...(clientTls.cert ? { cert: clientTls.cert, key: clientTls.key } : {}),
+        ...(clientTls.ca ? { ca: clientTls.ca } : {}),
+        ...(clientTls.passphrase !== undefined ? { passphrase: clientTls.passphrase } : {}),
+        ...(clientTls.serverName !== undefined ? { serverName: clientTls.serverName, checkServerIdentity: (_host: string, cert: PeerCertificate) => checkServerIdentity(clientTls.serverName!, cert) } : {}),
+        ...(clientTls.rejectUnauthorized === false ? { rejectUnauthorized: false } : {}),
+      }
+    : {};
+  const tls = { ...pinned, ...own };
+  return fetch(target, { method: hop.method, headers, body: (hop.body ?? null) as RequestInit["body"], signal, redirect: "manual", ...(Object.keys(tls).length > 0 ? { tls } : {}) } as RequestInit);
 }
 
 /**
@@ -209,11 +228,14 @@ export async function transport(request: HttpRequest, settings: HttpSettings, tr
     }
     if (timedOut || (error as Record<symbol, unknown> | undefined)?.[MOCK_TIMEOUT] === true) return fail("TIMEOUT", `${method} ${url} timed out after ${formatTimeoutText(request.timeout)}`, error);
     if (request.signal?.aborted) return fail("ABORTED", `${method} ${url} was aborted`, request.signal.reason);
+    if (isTlsFailure(error)) return fail("TLS", `${method} ${url} failed TLS: ${reasonOf(error)}`, error);
     return fail("NETWORK", `${method} ${url} failed: ${reasonOf(error)}`, error);
   };
   const startedAt = performance.now();
   let status = 0;
   let failed: HttpClientError | undefined;
+  const serviceTls = request.service !== undefined ? settings.tls?.get(request.service) : undefined;
+  const origin = new URL(request.url).origin;
   try {
     let hop: Hop = { url: new URL(request.url), method, headers: new Headers(request.headers), body: request.body };
     let response: Response;
@@ -222,7 +244,10 @@ export async function transport(request: HttpRequest, settings: HttpSettings, tr
     if (mockActive()) response = await answerFromMock(request, signal, request.service === undefined ? undefined : settings.services.get(request.service)?.url, url);
     else for (let redirects = 0; ; redirects++) {
       const destination = await checkDestination(hop.url, settings, trustedHost);
-      response = await sendHop(hop, destination, signal, settings.options.transport as HttpTransport | undefined);
+      // The service's client certificate goes only to the service's own origin, never after a redirect elsewhere; its
+      // trusted authorities still verify the other origin.
+      const clientTls = !serviceTls || hop.url.origin === origin ? serviceTls : { rejectUnauthorized: serviceTls.rejectUnauthorized, ...(serviceTls.ca ? { ca: serviceTls.ca } : {}) };
+      response = await sendHop(hop, destination, signal, settings.options.transport as HttpTransport | undefined, clientTls);
       const location = response.headers.get("location");
       if (!REDIRECTS.has(response.status) || location === null) break;
       await response.body?.cancel().catch(() => undefined);
@@ -391,7 +416,7 @@ export async function streamTransport(request: HttpRequest, settings: HttpSettin
     if (mockActive()) response = await answerFromMock(request, signal, request.service === undefined ? undefined : settings.services.get(request.service)?.url, url);
     else {
       const destination = await checkDestination(hop.url, settings, trustedHost);
-      response = await sendHop(hop, destination, signal, settings.options.transport as HttpTransport | undefined);
+      response = await sendHop(hop, destination, signal, settings.options.transport as HttpTransport | undefined, request.service !== undefined ? settings.tls?.get(request.service) : undefined);
     }
     clearTimeout(timer);
     status = response.status;
@@ -402,6 +427,7 @@ export async function streamTransport(request: HttpRequest, settings: HttpSettin
     if (error instanceof HttpClientError) failed = error.method === "" ? new HttpClientError({ code: error.code, message: error.message, method, url: error.url, ...service }) : error;
     else if (timedOut || (error as Record<symbol, unknown> | undefined)?.[MOCK_TIMEOUT] === true) failed = fail("TIMEOUT", `${method} ${url} timed out after ${formatTimeoutText(request.timeout)}`, error);
     else if (request.signal?.aborted) failed = fail("ABORTED", `${method} ${url} was aborted`, request.signal.reason);
+    else if (isTlsFailure(error)) failed = fail("TLS", `${method} ${url} failed TLS: ${reasonOf(error)}`, error);
     else failed = fail("NETWORK", `${method} ${url} failed: ${reasonOf(error)}`, error);
     throw failed;
   } finally {

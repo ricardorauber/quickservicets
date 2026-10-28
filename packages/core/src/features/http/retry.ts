@@ -30,7 +30,7 @@ export const RETRY_DEFAULTS = {
 } as const;
 
 /** Codes no retry ever repeats: what failed would fail again, or the call must not be repeated. */
-const NEVER = new Set(["SSRF_BLOCKED", "RESPONSE_TOO_LARGE", "CIRCUIT_OPEN", "BULKHEAD_FULL", "ABORTED", "MODIFIER_FAILED", "UNMATCHED_MOCK"]);
+const NEVER = new Set(["SSRF_BLOCKED", "RESPONSE_TOO_LARGE", "CIRCUIT_OPEN", "BULKHEAD_FULL", "ABORTED", "MODIFIER_FAILED", "UNMATCHED_MOCK", "TLS"]);
 
 /** How retries wait and draw jitter; tests replace them. */
 export const retryTiming = sharedState("retry-timing", () => ({

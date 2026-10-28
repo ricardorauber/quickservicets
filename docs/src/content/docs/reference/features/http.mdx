@@ -28,6 +28,7 @@ It is enabled by default; turn it off with `http: false` or `QS_HTTP_ENABLED=fal
 | `http.userAgent` | `string` | `"quickservicets/0.2.0"` | `QS_HTTP_USER_AGENT` | no | The user-agent header of every outgoing call, unless the call sets one. |
 | `http.ssrf` | `boolean` | `true` | `QS_HTTP_SSRF` | no | Blocks calls to internal networks, the machine itself and cloud metadata endpoints, checking every resolved address and every redirect. |
 | `http.allow` | `string[]` | `[]` | `QS_HTTP_ALLOW` | no | Addresses, CIDR blocks (or loopback, private, linklocal) and host names like billing.internal or *.internal that SSRF protection lets through. |
+| `http.tlsReloadInterval` | `duration` | `"1m"` | `QS_HTTP_TLS_RELOAD_INTERVAL` | no | How often the certificate files of services with tls are checked for changes; SIGHUP checks at once. |
 | `http.maxRedirects` | `integer` | `5` | `QS_HTTP_MAX_REDIRECTS` | no | How many redirects a call follows before it fails with TOO_MANY_REDIRECTS. |
 | `http.log` | `"all" \| "errors" \| "off"` | `"all"` | `QS_HTTP_LOG` | no | Which calls write an http.call log entry: all of them, only failed calls and statuses of 400 and above, or none. |
 | `http.beforeRequest` | `hook` | — | not overridable | no | Runs before every attempt next to the transport, with the request; it may return a changed request, and a throw cancels the call with that error. |
@@ -66,6 +67,12 @@ It is enabled by default; turn it off with `http: false` or `QS_HTTP_ENABLED=fal
 | `http.services.<name>.cache.maxEntrySize` | `record of size` | `"1MB"` | `QS_HTTP_SERVICES_<NAME>_CACHE_MAX_ENTRY_SIZE` | no | The largest body stored; a larger one passes through. |
 | `http.services.<name>.cache.private` | `record of boolean` | `false` | `QS_HTTP_SERVICES_<NAME>_CACHE_PRIVATE` | no | Caches calls with authorization or cookie headers, keyed by a hash of them, and Cache-Control: private responses. |
 | `http.services.<name>.modifiers` | `record of string[]` | `[]` | `QS_HTTP_SERVICES_<NAME>_MODIFIERS` | no | Registered modifiers that wrap every call to the service, in order, inside the built-in ones. |
+| `http.services.<name>.tls.cert` | `record of string` | — | `QS_HTTP_SERVICES_<NAME>_TLS_CERT` | no | The client certificate presented to the service, as a file path or PEM text; set it with key. |
+| `http.services.<name>.tls.key` | `record of string` | — | `QS_HTTP_SERVICES_<NAME>_TLS_KEY` | no | The client certificate's private key, as a file path or PEM text. |
+| `http.services.<name>.tls.ca` | `record of string[]` | — | `QS_HTTP_SERVICES_<NAME>_TLS_CA` | no | The authorities the service's certificate must chain to, as file paths or PEM text, instead of the system ones. |
+| `http.services.<name>.tls.passphrase` | `record of string` | — | `QS_HTTP_SERVICES_<NAME>_TLS_PASSPHRASE` | no | The passphrase of an encrypted key. |
+| `http.services.<name>.tls.serverName` | `record of string` | — | `QS_HTTP_SERVICES_<NAME>_TLS_SERVER_NAME` | no | The TLS server name checked against the service's certificate, instead of the URL's host. |
+| `http.services.<name>.tls.rejectUnauthorized` | `record of boolean` | `true` | `QS_HTTP_SERVICES_<NAME>_TLS_REJECT_UNAUTHORIZED` | no | Refuses a service certificate that does not verify; false is refused in production. |
 | `http.enabled` | `boolean` | `true` | `QS_HTTP_ENABLED` | no | Turns the feature off when false. |
 
 ## Hooks

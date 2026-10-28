@@ -74,6 +74,16 @@ export const serviceOptions = object({
     .default(false)
     .describe("Keeps GET and HEAD responses of the service in memory, following its caching headers."),
   modifiers: list(string()).default([]).describe("Registered modifiers that wrap every call to the service, in order, inside the built-in ones."),
+  tls: object({
+    cert: string().optional().describe("The client certificate presented to the service, as a file path or PEM text; set it with key."),
+    key: string().optional().describe("The client certificate's private key, as a file path or PEM text."),
+    ca: list(string()).optional().describe("The authorities the service's certificate must chain to, as file paths or PEM text, instead of the system ones."),
+    passphrase: secret().optional().describe("The passphrase of an encrypted key."),
+    serverName: string().optional().describe("The TLS server name checked against the service's certificate, instead of the URL's host."),
+    rejectUnauthorized: boolean().default(true).describe("Refuses a service certificate that does not verify; false is refused in production."),
+  })
+    .optional()
+    .describe("Mutual TLS with the service: the client certificate it requires and the authorities it is trusted with."),
 });
 
 /** The resolved options of one named service. */
@@ -82,11 +92,14 @@ export type ServiceOptions = Options<typeof serviceOptions>;
 /** The options a named service is declared with. */
 export type ServiceOptionsInput = OptionsInput<typeof serviceOptions>;
 
-/** The problem of a service's options beyond their schema: more than one authentication method. */
-export function serviceProblems(name: string, service: Pick<ServiceOptions, "auth">): string[] {
-  if (typeof service.auth === "function") return [];
+/** The problems of a service's options beyond their schema: more than one authentication method, a lone cert or key. */
+export function serviceProblems(name: string, service: Pick<ServiceOptions, "auth"> & { tls?: ServiceOptions["tls"] }): string[] {
+  const problems: string[] = [];
+  const tls = service.tls;
+  if (tls && (tls.cert === undefined) !== (tls.key === undefined)) problems.push(`Invalid http.services.${name}.tls: cert and key go together`);
+  if (typeof service.auth === "function") return problems;
   const methods = ["bearer", "basic", "apiKey"].filter((method) => (service.auth as Record<string, unknown> | undefined)?.[method] !== undefined);
-  return methods.length > 1 ? [`Invalid http.services.${name}.auth: use only one of bearer, basic or apiKey`] : [];
+  return methods.length > 1 ? [...problems, `Invalid http.services.${name}.auth: use only one of bearer, basic or apiKey`] : problems;
 }
 
 /** The options of the `http` native. */
@@ -102,6 +115,7 @@ export const httpOptions = object({
   allow: list(string())
     .default([])
     .describe("Addresses, CIDR blocks (or loopback, private, linklocal) and host names like billing.internal or *.internal that SSRF protection lets through."),
+  tlsReloadInterval: duration().default("1m").describe("How often the certificate files of services with tls are checked for changes; SIGHUP checks at once."),
   maxRedirects: integer().min(0).max(20).default(5).describe("How many redirects a call follows before it fails with TOO_MANY_REDIRECTS."),
   log: oneOf(["all", "errors", "off"])
     .default("all")

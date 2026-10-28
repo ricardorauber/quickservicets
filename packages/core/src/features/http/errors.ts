@@ -1,5 +1,5 @@
 /** Why an outgoing call failed. */
-export type HttpClientErrorCode = "HTTP_STATUS" | "TIMEOUT" | "ABORTED" | "RESPONSE_TOO_LARGE" | "NETWORK" | "INVALID_RESPONSE" | (string & {});
+export type HttpClientErrorCode = "HTTP_STATUS" | "TIMEOUT" | "ABORTED" | "RESPONSE_TOO_LARGE" | "NETWORK" | "INVALID_RESPONSE" | "TLS" | (string & {});
 
 /** What an `HttpClientError` is built from. */
 export interface HttpClientErrorInit {

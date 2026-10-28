@@ -1,4 +1,5 @@
-import { DEFAULT_MASKED_KEYS, defineFeature, maskSecrets, resolveOptions, safeLog, setContextHttp, type ErrorMiddleware } from "../public.ts";
+import { DEFAULT_MASKED_KEYS, defineFeature, maskSecrets, parseDuration, resolveOptions, safeLog, setContextHttp, type ErrorMiddleware, type Logger } from "../public.ts";
+import { loadServiceTls, ServiceTlsWatcher, type ServiceTls } from "./service-tls.ts";
 import type { HttpApi } from "./api.ts";
 import { builtInModifiers, clientOf, configServices, modifierNamed, requestClient, running, serviceSettings, type RegisteredModifier, type RunningHttp, type ServiceSettings } from "./client.ts";
 import { isModifier } from "./modifiers.ts";
@@ -77,6 +78,26 @@ const httpFeature = defineFeature({
       modifiers: builtInModifiers(),
     };
     services.set(ctx.options, settings.services as Map<string, ServiceSettings>);
+    // Services with tls: their files are read and checked now, and watched for renewals.
+    const tlsEntries = new Map<string, { options: NonNullable<ServiceOptions["tls"]>; material: ServiceTls }>();
+    tlsStates.set(ctx.options, { entries: tlsEntries, logger: ctx.logger, production: ctx.config.production });
+    for (const service of settings.services.values()) addServiceTls(ctx.options, service.name, service.tls as ServiceOptions["tls"]);
+    settings.tls = new Map([...tlsEntries].map(([name, entry]) => [name, entry.material]));
+    let watcher: ServiceTlsWatcher | undefined;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const onHangup = () => watcher?.check();
+    ctx.app.onStart(() => {
+      settings.tls = new Map([...tlsEntries].map(([name, entry]) => [name, entry.material]));
+      if (tlsEntries.size === 0) return;
+      watcher = new ServiceTlsWatcher(tlsEntries, ctx.logger);
+      if (!watcher.watching) return;
+      timer = setInterval(() => watcher!.check(), parseDuration(ctx.options.tlsReloadInterval) ?? 60_000);
+      process.on("SIGHUP", onHangup);
+    });
+    ctx.app.onStop(() => {
+      if (timer) clearInterval(timer);
+      process.off("SIGHUP", onHangup);
+    });
     modifiers.set(ctx.options, settings.modifiers as Map<string, RegisteredModifier>);
     // Once every feature registered its modifiers, each service's list must name registered ones.
     ctx.app.onStart(() => {
@@ -113,6 +134,7 @@ const httpFeature = defineFeature({
       const auth = resolved.auth as Record<string, unknown> | undefined;
       if (auth) maskSecrets(resolved as Record<string, unknown>, ["auth.bearer", "auth.basic.password", "auth.apiKey.value"].filter((path) => path.split(".").slice(1).reduce<unknown>((value, key) => (value as Record<string, unknown> | undefined)?.[key], auth) !== undefined));
       registered.set(full, serviceSettings(full, owner, resolved));
+      addServiceTls(ctx.options, full, resolved.tls);
     },
     beforeRequest: (fn) => ctx.addHook("beforeRequest", fn as never),
     afterResponse: (fn) => ctx.addHook("afterResponse", fn as never),
@@ -128,6 +150,23 @@ const httpFeature = defineFeature({
     },
   }),
 });
+
+/** The TLS state of each running configuration: the services' material and how to log about it. */
+const tlsStates = new WeakMap<object, { entries: Map<string, { options: NonNullable<ServiceOptions["tls"]>; material: ServiceTls }>; logger: Logger; production: boolean }>();
+
+/**
+ * Reads a service's TLS options: `rejectUnauthorized: false` is refused in production and warned about once outside
+ * it, and the files are read and checked now.
+ */
+function addServiceTls(options: object, name: string, tls: ServiceOptions["tls"] | undefined): void {
+  const state = tlsStates.get(options);
+  if (!state || !tls) return;
+  if (tls.rejectUnauthorized === false) {
+    if (state.production) throw new Error(`http.services.${name}.tls.rejectUnauthorized cannot be false in production`);
+    safeLog(state.logger, "warn", { timestamp: new Date().toISOString(), message: "http.tls.insecure", service: name, hint: "the service's certificate is not verified" });
+  }
+  state.entries.set(name, { options: tls, material: loadServiceTls(name, tls) });
+}
 
 /** The named modifiers of each running configuration, which features add to. */
 const modifiers = new WeakMap<object, Map<string, RegisteredModifier>>();

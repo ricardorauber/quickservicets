@@ -8,6 +8,7 @@ import { withCache, type CacheOptions } from "./cache.ts";
 import { mockHttp, type HttpMock } from "./mock.ts";
 import { stateOf, withBulkhead, withCircuitBreaker, type BulkheadOptions, type CircuitBreakerOptions, type HttpState } from "./resilience.ts";
 import { maskedUrl, StreamedResponse, streamTransport, transport } from "./transport.ts";
+import type { ServiceTls } from "./service-tls.ts";
 
 /** A raw request body. */
 export type HttpBody = string | Uint8Array | ArrayBuffer | Blob | ReadableStream<Uint8Array> | URLSearchParams | FormData;
@@ -93,6 +94,8 @@ export interface RunningHttp {
   services: ReadonlyMap<string, ServiceSettings>;
   /** The named modifiers services list, by name, with who registered each. */
   modifiers: ReadonlyMap<string, RegisteredModifier>;
+  /** The TLS material of the services with `tls`, by name, read at startup and swapped when the files change. */
+  tls?: ReadonlyMap<string, ServiceTls>;
 }
 
 /** A named modifier and who registered it: `http` for the built-in ones, else a feature's key. */

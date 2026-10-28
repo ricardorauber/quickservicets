@@ -109,6 +109,13 @@ const options = object({
     allow: list(string())
       .default([])
       .describe("The client identities admitted: CN=, O=, OU=, dns: (*. for subdomains), uri: (a trailing * for SPIFFE prefixes), email: or sha256: entries; empty admits every verified certificate."),
+    forwarded: toggle({
+      header: string().default("x-forwarded-client-cert").describe("The header a trusted proxy or service mesh forwards the verified client certificate in."),
+      format: oneOf(["xfcc", "pem"]).default("xfcc").describe("xfcc reads Envoy's x-forwarded-client-cert elements (Istio, Linkerd, Envoy); pem reads a URL-encoded certificate (NGINX $ssl_client_escaped_cert)."),
+      trust: list(cidr()).default([]).describe("The proxies whose header is read (default: security.proxy.trust); from any other peer the header is removed."),
+    })
+      .default(false)
+      .describe("Takes the client identity a trusted proxy verified and forwarded, so mTLS can terminate in front of the service; server.tls is then not needed."),
   })
     .default(false)
     .describe("Asks callers for client certificates (mutual TLS), verified against the project's authorities, with the identity in req.client."),
@@ -194,11 +201,14 @@ interface MtlsOptions {
   mode: "required" | "optional";
   ca: string[];
   allow: string[];
+  forwarded: { enabled: boolean; header: string; format: "xfcc" | "pem"; trust: string[] };
 }
 
 /** The problems of the mtls item: server.tls must be set, an authority given, and every allow entry valid. */
 function mtlsProblems(mtls: MtlsOptions, config: Readonly<Record<string, unknown>>): string[] {
   const tls = (config.server as { tls?: { cert?: string } } | undefined)?.tls;
+  // With forwarded certificates the proxy verified them: no TLS of the service's own and no authorities are needed.
+  if (mtls.forwarded.enabled) return allowProblems(mtls.allow);
   return [
     ...(tls?.cert === undefined ? ["security.mtls needs server.tls"] : []),
     ...(mtls.ca.length === 0 ? ["Invalid security.mtls.ca: give the certificate authorities client certificates chain to"] : []),
@@ -259,7 +269,11 @@ function itemSteps(options: SecurityOptions, production: boolean, shared: Shared
     if (step) steps.push(step);
   }
   if (options.cors.enabled) steps.push(corsStep(options.cors, ownOptionsRoutes(taggedRoutes()), index, ipOf));
-  if (options.mtls.enabled) steps.push(mtlsStep({ allow: options.mtls.allow as string[], logger: shared.logger! }));
+  if (options.mtls.enabled) {
+    const mtls = options.mtls as MtlsOptions;
+    const forwarded = mtls.forwarded.enabled ? { header: mtls.forwarded.header.toLowerCase(), format: mtls.forwarded.format, trust: mtls.forwarded.trust.length > 0 ? mtls.forwarded.trust : options.proxy.trust } : undefined;
+    steps.push(mtlsStep({ allow: mtls.allow, logger: shared.logger!, required: mtls.mode === "required", production, ...(forwarded ? { forwarded } : {}) }));
+  }
   if (options.limits.enabled) steps.push(limitsStep(options.limits));
   if (options.limits.enabled || options.timeouts.enabled) {
     const timeouts = options.timeouts.enabled ? options.timeouts : undefined;
@@ -442,7 +456,7 @@ const securityFeature = defineFeature({
     const enabled: string[] = SECURITY_ITEMS.filter((item) => ctx.options[item].enabled);
     if (ctx.options.mtls.enabled) {
       enabled.push("mtls");
-      setUpClientCertificates(ctx);
+      if (!(ctx.options.mtls as MtlsOptions).forwarded.enabled) setUpClientCertificates(ctx);
     }
     // Routes are indexed only when one carries a security tag, so other requests do no lookup.
     let index: RouteIndex | undefined = buildRouteIndex(taggedRoutes(), Object.keys(securityFeature.tags ?? {}));

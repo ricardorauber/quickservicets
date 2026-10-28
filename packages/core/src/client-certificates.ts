@@ -9,9 +9,12 @@ export interface ClientCertificate {
   san: { dns: string[]; uri: string[]; email: string[]; ip: string[] };
   /** The SHA-256 fingerprint, lowercase hex without separators. */
   fingerprint256: string;
+  /** The serial number, lowercase hex; empty when a proxy forwarded only the identity. */
   serialNumber: string;
-  validFrom: Date;
-  validTo: Date;
+  /** When the certificate became valid, when the certificate itself is known. */
+  validFrom?: Date;
+  /** When the certificate expires, when the certificate itself is known. */
+  validTo?: Date;
   /** `tls` when the service verified it in the handshake, `forwarded` when a trusted proxy did. */
   source: "tls" | "forwarded";
   /** The certificate in PEM, when it is known. */
@@ -100,4 +103,103 @@ export function clientFromPeer(peer: PeerCertificate): ClientCertificate {
     validTo: new Date(peer.valid_to),
     source: "tls",
   };
+}
+
+/** A forwarded header the service cannot read. */
+export class InvalidForwardedCertificate extends Error {
+  constructor(reason: string) {
+    super(reason);
+    this.name = "InvalidForwardedCertificate";
+  }
+}
+
+/** Splits text on a separator outside double quotes, failing on an unbalanced quote. */
+function splitOutsideQuotes(text: string, separator: string): string[] {
+  const parts: string[] = [];
+  let current = "";
+  let quoted = false;
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index]!;
+    if (char === "\\" && quoted) {
+      current += char + (text[index + 1] ?? "");
+      index += 1;
+      continue;
+    }
+    if (char === '"') quoted = !quoted;
+    if (char === separator && !quoted) {
+      parts.push(current);
+      current = "";
+    } else current += char;
+  }
+  if (quoted) throw new InvalidForwardedCertificate("an unbalanced quote");
+  parts.push(current);
+  return parts;
+}
+
+/** A value of an XFCC pair: unquoted, with escaped quotes restored. */
+function unquote(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.startsWith('"') && trimmed.endsWith('"') && trimmed.length >= 2) return trimmed.slice(1, -1).replace(/\\(.)/g, "$1");
+  return trimmed;
+}
+
+/** The fields of a distinguished name written as `CN=billing,OU=Payments,O=Acme`. */
+function distinguishedName(text: string): ClientCertificate["subject"] {
+  const fields: Record<string, string> = {};
+  for (const part of text.split(/(?<!\\),/)) {
+    const at = part.indexOf("=");
+    if (at > 0) fields[part.slice(0, at).trim().toUpperCase()] ??= part.slice(at + 1).trim().replace(/\\,/g, ",");
+  }
+  return compact({ commonName: fields.CN, organization: fields.O, organizationalUnit: fields.OU });
+}
+
+/**
+ * The client of an Envoy `x-forwarded-client-cert` header: comma-separated elements of `key=value` pairs (`By`,
+ * `Hash`, `Cert`, `Chain`, `Subject`, `URI`, `DNS`), quoted values and URL-encoded certificates; the right-most element
+ * is the one the nearest proxy added. With `Cert`, the client comes from the certificate; otherwise from `Subject`,
+ * `URI`, `DNS` and `Hash`. Throws `InvalidForwardedCertificate` for a header it cannot read.
+ */
+export function clientFromXfcc(header: string): ClientCertificate {
+  const elements = splitOutsideQuotes(header, ",").filter((element) => element.trim() !== "");
+  const last = elements.at(-1);
+  if (last === undefined) throw new InvalidForwardedCertificate("no element");
+  const pairs = new Map<string, string[]>();
+  for (const pair of splitOutsideQuotes(last, ";")) {
+    if (pair.trim() === "") continue;
+    const at = pair.indexOf("=");
+    if (at <= 0) throw new InvalidForwardedCertificate("a pair without a key");
+    const key = pair.slice(0, at).trim().toLowerCase();
+    pairs.set(key, [...(pairs.get(key) ?? []), unquote(pair.slice(at + 1))]);
+  }
+  if (pairs.size === 0) throw new InvalidForwardedCertificate("an empty element");
+  const cert = pairs.get("cert")?.[0];
+  if (cert !== undefined) return clientFromEscapedPem(cert);
+  const hash = pairs.get("hash")?.[0]?.toLowerCase();
+  if (hash !== undefined && !/^[0-9a-f]{64}$/.test(hash)) throw new InvalidForwardedCertificate("a hash that is not a SHA-256 fingerprint");
+  const subject = pairs.get("subject")?.[0];
+  if (subject === undefined && hash === undefined && !pairs.has("uri") && !pairs.has("dns")) throw new InvalidForwardedCertificate("no identity");
+  return {
+    subject: subject === undefined ? {} : distinguishedName(subject),
+    issuer: {},
+    san: { dns: pairs.get("dns") ?? [], uri: pairs.get("uri") ?? [], email: [], ip: [] },
+    fingerprint256: hash ?? "",
+    serialNumber: "",
+    source: "forwarded",
+  };
+}
+
+/** The client of a URL-encoded PEM certificate (NGINX `$ssl_client_escaped_cert`). */
+export function clientFromEscapedPem(value: string): ClientCertificate {
+  let pem: string;
+  try {
+    pem = decodeURIComponent(value.replace(/\+/g, "%20"));
+  } catch {
+    throw new InvalidForwardedCertificate("a certificate that is not URL-encoded");
+  }
+  if (!pem.includes("-----BEGIN CERTIFICATE-----")) throw new InvalidForwardedCertificate("not a PEM certificate");
+  try {
+    return clientFromPem(pem, "forwarded");
+  } catch {
+    throw new InvalidForwardedCertificate("a certificate that cannot be read");
+  }
 }

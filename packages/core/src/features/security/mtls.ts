@@ -1,4 +1,4 @@
-import { clientCertificateOf, HttpError, safeLog, type ClientCertificate, type Logger, type ParsedTag } from "../public.ts";
+import { cidrMatcher, clientCertificateOf, clientFromEscapedPem, clientFromXfcc, HttpError, peerAddress, safeLog, setClientCertificate, type ClientCertificate, type Logger, type ParsedTag } from "../public.ts";
 import { EXEMPT } from "./exempt.ts";
 import type { SecurityState, SecurityStep } from "./pipeline.ts";
 import type { SecurityRoute } from "./routes.ts";
@@ -72,6 +72,45 @@ export const clientNotAllowed = () => new HttpError(403, "Client certificate not
 export interface MtlsSettings {
   allow: readonly string[];
   logger: Logger;
+  /** Refuses requests without a client certificate everywhere (in the handshake on the TLS path). */
+  required?: boolean;
+  production?: boolean;
+  /** Reads the identity a trusted proxy forwarded, instead of the service's own handshake. */
+  forwarded?: { header: string; format: "xfcc" | "pem"; trust: readonly string[] };
+}
+
+/** The 400 of a forwarded certificate header the service cannot read. */
+export const invalidForwarded = () => new HttpError(400, "Forwarded client certificate is invalid", { code: "INVALID_CLIENT_CERTIFICATE" });
+
+/**
+ * Reads the forwarded client certificate of a request: only from a trusted peer (the header is removed for any other,
+ * warning once in production), parsed once and kept as `req.client` with `source: "forwarded"`.
+ */
+function forwardedReader(settings: NonNullable<MtlsSettings["forwarded"]>, logger: Logger, production: boolean) {
+  const trusted = cidrMatcher(settings.trust);
+  const parse = settings.format === "pem" ? clientFromEscapedPem : clientFromXfcc;
+  let warned = false;
+  return (request: Request): void => {
+    const value = request.headers.get(settings.header);
+    if (value === null) return;
+    const peer = peerAddress(request);
+    if (!trusted(peer)) {
+      request.headers.delete(settings.header);
+      if (production && !warned) {
+        warned = true;
+        safeLog(logger, "warn", { timestamp: new Date().toISOString(), message: "security.mtls.forwarded.untrusted", peer, header: settings.header });
+      }
+      return;
+    }
+    let client: ClientCertificate;
+    try {
+      client = parse(value);
+    } catch (error) {
+      safeLog(logger, "warn", { timestamp: new Date().toISOString(), message: "security.mtls.forwarded.invalid", peer, reason: (error as Error)?.message ?? String(error) });
+      throw invalidForwarded();
+    }
+    setClientCertificate(request, client);
+  };
 }
 
 /** The allow check of a route's `@mtls allow=`, compiled once per route; the global check otherwise. */
@@ -89,15 +128,24 @@ function routeCheck(route: SecurityRoute, tag: ParsedTag, global: ClientCheck | 
  */
 export function mtlsStep(settings: MtlsSettings): SecurityStep {
   const global = allowCheck(settings.allow);
+  const readForwarded = settings.forwarded ? forwardedReader(settings.forwarded, settings.logger, settings.production === true) : undefined;
   return {
     name: "mtls",
     before(state: SecurityState) {
+      // The forwarded header is read (or removed) before anything else sees the request, exempt paths included.
+      if (readForwarded) {
+        try {
+          readForwarded(state.ctx.request);
+        } catch (error) {
+          throw state.refuse("mtls", error as HttpError);
+        }
+      }
       if (state.exempt & EXEMPT.mtls) return;
       const tag = state.route?.tags.mtls;
       if (tag && !tag.on) return;
       const client = clientCertificateOf(state.ctx.request);
       if (!client) {
-        if (tag?.on) throw state.refuse("mtls", certificateRequired());
+        if (tag?.on || settings.required) throw state.refuse("mtls", certificateRequired());
         return;
       }
       const check = tag?.on ? routeCheck(state.route!, tag, global) : global;

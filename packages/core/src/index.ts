@@ -280,6 +280,7 @@ import httpNative, { type Http, type HttpApi } from "./features/http/index.ts";
 import tenancyNative, { type TenancyApi } from "./features/tenancy/index.ts";
 import authNative, { type AuthApi, type RequestAuth, type SessionRevokedEvent } from "./features/auth/index.ts";
 import metricsNative, { type MetricsApi } from "./features/metrics/index.ts";
+import proxyNative from "./features/proxy/index.ts";
 import { registerNative as registerShippedNative, type FeatureConfig as NativeConfig } from "./features.ts";
 registerShippedNative(securityNative);
 registerShippedNative(eventsNative);
@@ -295,6 +296,7 @@ registerShippedNative(httpNative);
 registerShippedNative(tenancyNative);
 registerShippedNative(authNative);
 registerShippedNative(metricsNative);
+registerShippedNative(proxyNative);
 export {
   addAuthScheme,
   AuthError,
@@ -317,6 +319,7 @@ export type { LoginCheck, LoginGuard, LoginGuardOptions, LoginThrottleRecord, Lo
 export type { AuthApi, AuthCredentials, AuthenticatedUser, AuthMethod, AuthProvider, AuthResult, AuthResultUser, RequestAuth, RevokeTarget } from "./features/auth/index.ts";
 export { LatencySketch, metricsFeature, queryMetrics, setMetricsClock } from "./features/metrics/index.ts";
 export type { EncodedSketch, MetricsApi, MetricsFigures, MetricsQuery, MetricsResult, MetricsSeries, MetricsStore, MetricWindow, StoredSeries, StoredWindow, WindowClosed } from "./features/metrics/index.ts";
+export { proxyFeature } from "./features/proxy/index.ts";
 export { addOutboxPatterns, events, eventsFeature, listen, memoryEventBus, readOutbox, tailOutbox } from "./features/events/index.ts";
 export type { ConsumerOptions, DeliveryContext, DeliveryStatus, OutboxRecord } from "./features/events/index.ts";
 export type { EventBus, EventListener, Events, EventsApi, ListenerContext, ListenerFile, ListenerPhase, ListenOptions, MemoryEventBus } from "./features/events/index.ts";
@@ -387,8 +390,8 @@ export { realtimeFeature } from "./features/realtime/index.ts";
 export type { ChangeDelivery, ChangeSend, ChangeSource, RealtimeApi } from "./features/realtime/index.ts";
 export { consoleReporter, errorsFeature, setSamplingRandom } from "./features/errors/index.ts";
 export type { ErrorsApi } from "./features/errors/index.ts";
-export { defineModifier, http, HttpClientError, httpFeature, HttpRequestBuilder, withBulkhead, withCache, withCircuitBreaker, withRetry } from "./features/http/index.ts";
-export type { HttpTransport, HttpMock, MockCall, MockHandler, MockReply, MockRequest, MockService, BulkheadOptions, CacheOptions, CircuitBreakerOptions, HttpState, ModifierFunction, RetryOptions, Http, HttpApi, HttpBody, HttpClientErrorCode, HttpClientErrorInit, HttpMethods, HttpServiceMethods, HttpServiceNames, ServiceName, ServiceOptions, ServiceOptionsInput, HttpModifier, HttpQueryValue, HttpRequest, HttpResponse } from "./features/http/index.ts";
+export { defineModifier, http, HttpClientError, httpFeature, HttpRequestBuilder, streamCall, withBulkhead, withCache, withCircuitBreaker, withRetry } from "./features/http/index.ts";
+export type { StreamCallSpec, HttpTransport, HttpMock, MockCall, MockHandler, MockReply, MockRequest, MockService, BulkheadOptions, CacheOptions, CircuitBreakerOptions, HttpState, ModifierFunction, RetryOptions, Http, HttpApi, HttpBody, HttpClientErrorCode, HttpClientErrorInit, HttpMethods, HttpServiceMethods, HttpServiceNames, ServiceName, ServiceOptions, ServiceOptionsInput, HttpModifier, HttpQueryValue, HttpRequest, HttpResponse } from "./features/http/index.ts";
 export { bucketOf, evaluateRule, flagsFeature } from "./features/flags/index.ts";
 export { appliedTenantMigrations, migrateTenant, migrateTenantDatabase, migrationFiles, MONGO_MIGRATIONS_COLLECTION, provisionTenant, strategyOf, tenancyOptionsOf, tenantOperations } from "./features/tenancy/index.ts";
 export type { TenancyOptions, TenantOperations, TenantProvisionResult } from "./features/tenancy/index.ts";
@@ -476,6 +479,8 @@ declare module "./features.ts" {
     auth?: NativeConfig<typeof authNative>;
     /** API usage metrics per route, tenant and user, kept by the service; see the `metrics` reference page. */
     metrics?: NativeConfig<typeof metricsNative>;
+    /** Proxy routes forwarding paths to upstream services; see the `proxy` reference page. */
+    proxy?: NativeConfig<typeof proxyNative>;
   }
   interface FeatureApis {
     events: EventsApi;

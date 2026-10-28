@@ -786,3 +786,20 @@ Every option, tag, command and hook of `metrics` is on [its reference page](/ref
 /** @metrics by=route */
 export type Post = { title: string };
 ```
+
+### `proxy`
+
+Proxy routes: the service forwards the requests of configured paths to an upstream URL or a named service, streaming both ways, with timeouts and proxy headers.
+
+Every option, tag, command and hook of `proxy` is on [its reference page](/reference/features/proxy/).
+
+| Key | Type | Default | Environment variable | Description |
+| --- | --- | --- | --- | --- |
+| `proxy.routes.<name>.path` | `record of string` | — | `QS_PROXY_ROUTES_<NAME>_PATH` | The path the route serves: an exact path, or a prefix ending in /* like /billing/*. |
+| `proxy.routes.<name>.target` | `record of url` | — | `QS_PROXY_ROUTES_<NAME>_TARGET` | The upstream's base URL; set this or service. |
+| `proxy.routes.<name>.service` | `record of string` | — | `QS_PROXY_ROUTES_<NAME>_SERVICE` | The http.services entry the route calls, with its headers, authentication, TLS and modifiers; set this or target. |
+| `proxy.routes.<name>.methods` | `record of string[]` | `["GET","HEAD","POST","PUT","PATCH","DELETE","OPTIONS"]` | `QS_PROXY_ROUTES_<NAME>_METHODS` | The methods the route forwards. |
+| `proxy.routes.<name>.timeout` | `record of duration` | `"30s"` | `QS_PROXY_ROUTES_<NAME>_TIMEOUT` | How long the upstream may take to send its response headers; longer answers 504. |
+| `proxy.routes.<name>.idleTimeout` | `record of duration` | `"60s"` | `QS_PROXY_ROUTES_<NAME>_IDLE_TIMEOUT` | How long the upstream may pause between body chunks. |
+| `proxy.routes.<name>.preserveHost` | `record of boolean` | `false` | `QS_PROXY_ROUTES_<NAME>_PRESERVE_HOST` | Sends the client's host header to the upstream instead of the upstream's own. |
+| `proxy.enabled` | `boolean` | `true` | `QS_PROXY_ENABLED` | Turns the feature off when false. |

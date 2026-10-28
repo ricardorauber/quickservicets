@@ -113,6 +113,13 @@
         "@quickservicets/core": "workspace:*",
       },
     },
+    "examples/minimal/proxy": {
+      "name": "minimal-proxy",
+      "dependencies": {
+        "@quickservicets/cli": "workspace:*",
+        "@quickservicets/core": "workspace:*",
+      },
+    },
     "examples/minimal/queues": {
       "name": "minimal-queues",
       "dependencies": {
@@ -832,6 +839,8 @@
     "minimal-idempotency": ["minimal-idempotency@workspace:examples/minimal/idempotency"],
 
     "minimal-metrics": ["minimal-metrics@workspace:examples/minimal/metrics"],
+
+    "minimal-proxy": ["minimal-proxy@workspace:examples/minimal/proxy"],
 
     "minimal-queues": ["minimal-queues@workspace:examples/minimal/queues"],
 

@@ -1,0 +1,30 @@
+# proxy
+
+> Proxy routes: the service forwards the requests of configured paths to an upstream URL or a named service, streaming both ways, with timeouts and proxy headers.
+
+Proxy routes: the service forwards the requests of configured paths to an upstream URL or a named service, streaming both ways, with timeouts and proxy headers.
+
+## Enabling
+
+Turn it on in `quickservicets.config.ts`:
+
+```ts
+proxy: {}
+```
+
+It is not enabled by default: turn it on with `proxy: {}` or `QS_PROXY_ENABLED=true`, and off with `proxy: false` or `QS_PROXY_ENABLED=false`.
+
+**Requires:** [`http`](/reference/features/http/) (proxy routes call their upstreams through the HTTP client)
+
+## Options
+
+| Key | Type | Default | Environment variable | Per request | Description |
+| --- | --- | --- | --- | --- | --- |
+| `proxy.routes.<name>.path` | `record of string` | — | `QS_PROXY_ROUTES_<NAME>_PATH` | no | The path the route serves: an exact path, or a prefix ending in /* like /billing/*. |
+| `proxy.routes.<name>.target` | `record of url` | — | `QS_PROXY_ROUTES_<NAME>_TARGET` | no | The upstream's base URL; set this or service. |
+| `proxy.routes.<name>.service` | `record of string` | — | `QS_PROXY_ROUTES_<NAME>_SERVICE` | no | The http.services entry the route calls, with its headers, authentication, TLS and modifiers; set this or target. |
+| `proxy.routes.<name>.methods` | `record of string[]` | `["GET","HEAD","POST","PUT","PATCH","DELETE","OPTIONS"]` | `QS_PROXY_ROUTES_<NAME>_METHODS` | no | The methods the route forwards. |
+| `proxy.routes.<name>.timeout` | `record of duration` | `"30s"` | `QS_PROXY_ROUTES_<NAME>_TIMEOUT` | no | How long the upstream may take to send its response headers; longer answers 504. |
+| `proxy.routes.<name>.idleTimeout` | `record of duration` | `"60s"` | `QS_PROXY_ROUTES_<NAME>_IDLE_TIMEOUT` | no | How long the upstream may pause between body chunks. |
+| `proxy.routes.<name>.preserveHost` | `record of boolean` | `false` | `QS_PROXY_ROUTES_<NAME>_PRESERVE_HOST` | no | Sends the client's host header to the upstream instead of the upstream's own. |
+| `proxy.enabled` | `boolean` | `true` | `QS_PROXY_ENABLED` | no | Turns the feature off when false. |

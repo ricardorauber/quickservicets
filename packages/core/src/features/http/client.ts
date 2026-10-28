@@ -7,7 +7,7 @@ import { withRetry, type RetryOptions } from "./retry.ts";
 import { withCache, type CacheOptions } from "./cache.ts";
 import { mockHttp, type HttpMock } from "./mock.ts";
 import { stateOf, withBulkhead, withCircuitBreaker, type BulkheadOptions, type CircuitBreakerOptions, type HttpState } from "./resilience.ts";
-import { maskedUrl, transport } from "./transport.ts";
+import { maskedUrl, StreamedResponse, streamTransport, transport } from "./transport.ts";
 
 /** A raw request body. */
 export type HttpBody = string | Uint8Array | ArrayBuffer | Blob | ReadableStream<Uint8Array> | URLSearchParams | FormData;
@@ -167,25 +167,7 @@ export async function describeCall(spec: CallSpec, settings: HttpSettings, bindi
   const headers = new Headers({ "user-agent": settings.options.userAgent });
   if (binding.requestId !== undefined) headers.set("x-request-id", binding.requestId);
   const service = spec.service === undefined ? undefined : serviceNamed(spec.service, settings);
-  if (service) {
-    // Headers and authentication may be functions of the request, called on every call through the service.
-    const context = { req: binding.req, user: binding.req?.user, tenant: binding.req?.tenant, service: service.name };
-    const serviceHeaders = (await resolveOption(service.headers as ServiceHeaders, context)) as Record<string, string> | undefined;
-    for (const [name, value] of Object.entries(serviceHeaders ?? {})) headers.set(name, value);
-    const auth = (await resolveOption(service.auth as ServiceAuth, context)) as ResolvedAuth | undefined;
-    const problems = typeof service.auth === "function" ? serviceProblems(service.name, { auth } as never) : [];
-    if (problems.length > 0) throw new OptionError(problems.join("\n"));
-    if (auth?.bearer !== undefined) headers.set("authorization", `Bearer ${auth.bearer}`);
-    else if (auth?.basic !== undefined) headers.set("authorization", `Basic ${btoa(`${auth.basic.username}:${auth.basic.password}`)}`);
-    else if (auth?.apiKey !== undefined) headers.set(auth.apiKey.header, auth.apiKey.value);
-    // Only calls through a service bound to a request carry who the request is for.
-    if (binding.req) propagate(headers, service.propagate, binding.req);
-    else if (service.propagate.includes("tenant")) {
-      // A job or consumer running for a tenant carries it like a request of that tenant would.
-      const tenant = currentTenant();
-      if (tenant) headers.set("x-tenant-id", tenant.id);
-    }
-  }
+  if (service) await applyService(headers, service, binding);
   let body: HttpBody | undefined;
   if (spec.body?.kind === "json") {
     headers.set("content-type", "application/json");
@@ -211,6 +193,28 @@ export async function describeCall(spec: CallSpec, settings: HttpSettings, bindi
     attempt: 1,
     ...(spec.service !== undefined ? { service: spec.service } : {}),
   };
+}
+
+/** Adds what a service sends with every call: its headers, its authentication and the request values it propagates. */
+async function applyService(headers: Headers, service: ServiceSettings, binding: ClientBinding, propagateValues = true): Promise<void> {
+  // Headers and authentication may be functions of the request, called on every call through the service.
+  const context = { req: binding.req, user: binding.req?.user, tenant: binding.req?.tenant, service: service.name };
+  const serviceHeaders = (await resolveOption(service.headers as ServiceHeaders, context)) as Record<string, string> | undefined;
+  for (const [name, value] of Object.entries(serviceHeaders ?? {})) headers.set(name, value);
+  const auth = (await resolveOption(service.auth as ServiceAuth, context)) as ResolvedAuth | undefined;
+  const problems = typeof service.auth === "function" ? serviceProblems(service.name, { auth } as never) : [];
+  if (problems.length > 0) throw new OptionError(problems.join("\n"));
+  if (auth?.bearer !== undefined) headers.set("authorization", `Bearer ${auth.bearer}`);
+  else if (auth?.basic !== undefined) headers.set("authorization", `Basic ${btoa(`${auth.basic.username}:${auth.basic.password}`)}`);
+  else if (auth?.apiKey !== undefined) headers.set(auth.apiKey.header, auth.apiKey.value);
+  if (!propagateValues) return;
+  // Only calls through a service bound to a request carry who the request is for.
+  if (binding.req) propagate(headers, service.propagate, binding.req);
+  else if (service.propagate.includes("tenant")) {
+    // A job or consumer running for a tenant carries it like a request of that tenant would.
+    const tenant = currentTenant();
+    if (tenant) headers.set("x-tenant-id", tenant.id);
+  }
 }
 
 /** Sets the propagated request values a service asks for, each only when the request has it. */
@@ -313,6 +317,46 @@ async function tracedAttempt(request: HttpRequest, settings: HttpSettings, send:
   } finally {
     span.end();
   }
+}
+
+/** What `streamCall` sends: a request of a named service whose body and response are streamed. */
+export interface StreamCallSpec {
+  method: string;
+  /** The path and query string, joined to the service's base URL like `http.service(name).get(path)`. */
+  path: string;
+  headers: Headers;
+  body?: HttpBody;
+  /** The named service the call goes through: its headers, authentication, modifiers and trusted host. */
+  service: string;
+  /** Milliseconds until the response headers. */
+  timeout: number;
+  /** Milliseconds between body chunks. */
+  idleTimeout: number;
+  signal?: AbortSignal;
+  /** The request the call is made for, which the service's header and authentication functions receive. */
+  req?: ServiceRequest;
+}
+
+/**
+ * Sends a call through a named service without buffering either body: the service's headers, authentication and
+ * modifiers apply (retries skip streamed bodies), SSRF protection trusts the service's host, and the upstream's
+ * response comes back with its status, headers and a streaming body, redirects included. Failures reject with
+ * `HttpClientError` (`TIMEOUT` before the headers, `NETWORK`, `SSRF_BLOCKED`, `CIRCUIT_OPEN`, `BULKHEAD_FULL`).
+ */
+export async function streamCall(spec: StreamCallSpec): Promise<Response> {
+  const settings = currentSettings();
+  const service = serviceNamed(spec.service, settings);
+  const headers = new Headers(spec.headers);
+  await applyService(headers, service, spec.req ? { req: spec.req } : {}, false);
+  const request: HttpRequest = { method: spec.method, url: joinPath(service.url, spec.path).href, headers, body: spec.body, timeout: spec.timeout, signal: spec.signal, attempt: 1, service: service.name };
+  const sendOne = (changed: HttpRequest) => streamTransport(changed, settings, service.host, spec.idleTimeout);
+  const attemptOf = (changed: HttpRequest) => (tracingEnabled() ? tracedAttempt(changed, settings, sendOne) : sendOne(changed));
+  const send = (attempt: HttpRequest) => withHooks(attempt, settings, (changed) => (metricsEnabled() ? measuredAttempt(changed, () => attemptOf(changed)) : attemptOf(changed)));
+  const chain = serviceModifiers(service, settings);
+  const response = chain.length === 0 ? await send(request) : await runChain(chain, request, send, () => maskedUrl(request.url, settings));
+  if (response instanceof StreamedResponse) return response.raw;
+  // A modifier answered from elsewhere (a cache): its body is already read.
+  return new Response((await response.bytes()) as unknown as ConstructorParameters<typeof Response>[0], { status: response.status, headers: response.headers });
 }
 
 /**

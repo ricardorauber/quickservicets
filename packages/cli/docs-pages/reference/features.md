@@ -18,3 +18,4 @@
 | [`tenancy`](/reference/features/tenancy/) | Multi-tenancy: every request is resolved to a tenant from a header, a subdomain, a path prefix, the credentials or a function. | no |
 | [`auth`](/reference/features/auth/) | One authentication contract for every provider: the first provider that accepts a request's credentials fills req.user, req.auth and optionally req.tenant. | no |
 | [`metrics`](/reference/features/metrics/) | API usage metrics: requests, errors and p50, p95 and p99 latency per route, tenant and optionally user, in time windows inside the service. | no |
+| [`proxy`](/reference/features/proxy/) | Proxy routes: the service forwards the requests of configured paths to an upstream URL or a named service, streaming both ways, with timeouts and proxy headers. | no |

@@ -137,7 +137,8 @@ const services = new WeakMap<object, Map<string, ServiceSettings>>();
 
 export default httpFeature;
 export { httpFeature };
-export { http, HttpRequestBuilder } from "./client.ts";
+export { http, HttpRequestBuilder, streamCall } from "./client.ts";
+export type { StreamCallSpec } from "./client.ts";
 export type { HttpApi } from "./api.ts";
 export type { ServiceOptions, ServiceOptionsInput } from "./options.ts";
 export type { Http, HttpBody, HttpMethods, HttpServiceMethods, HttpServiceNames, ServiceName, HttpModifier, HttpQueryValue, HttpRequest, HttpResponse } from "./client.ts";

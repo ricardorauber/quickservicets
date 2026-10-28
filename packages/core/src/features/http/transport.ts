@@ -305,3 +305,106 @@ export function redirected(hop: Hop, status: number, location: URL): Hop {
 function formatTimeoutText(ms: number): string {
   return ms >= 1000 && ms % 1000 === 0 ? `${ms / 1000}s` : `${ms}ms`;
 }
+
+/** A response whose body is still streaming: the upstream's own `Response`, read by whoever forwards it. */
+export class StreamedResponse implements HttpResponse {
+  readonly ok: boolean;
+  readonly status: number;
+  readonly headers: Headers;
+
+  constructor(
+    readonly raw: Response,
+    readonly url: string,
+  ) {
+    this.status = raw.status;
+    this.headers = raw.headers;
+    this.ok = raw.status >= 200 && raw.status < 300;
+  }
+
+  async json<T = unknown>(): Promise<T> {
+    return (await this.raw.json()) as T;
+  }
+
+  text(): Promise<string> {
+    return this.raw.text();
+  }
+
+  async bytes(): Promise<Uint8Array> {
+    return new Uint8Array(await this.raw.arrayBuffer());
+  }
+}
+
+/**
+ * A body that fails with a `TIMEOUT` error when no chunk arrives for `idleMs`, aborting the upstream; the timer starts
+ * when the body is first read and restarts with every chunk.
+ */
+function idleBody(body: ReadableStream<Uint8Array>, idleMs: number, onIdle: () => void): ReadableStream<Uint8Array> {
+  const reader = body.getReader();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      timer = setTimeout(() => {
+        onIdle();
+        controller.error(new Error(`No body chunk within ${idleMs} ms`));
+        void reader.cancel().catch(() => undefined);
+      }, idleMs);
+      try {
+        const { done, value } = await reader.read();
+        clearTimeout(timer);
+        if (done) controller.close();
+        else controller.enqueue(value);
+      } catch (error) {
+        clearTimeout(timer);
+        controller.error(error);
+      }
+    },
+    cancel(reason) {
+      clearTimeout(timer);
+      return reader.cancel(reason);
+    },
+  });
+}
+
+/**
+ * Sends one attempt without reading its body: SSRF protection checks the destination as for any call, redirects are
+ * returned as they are, `request.timeout` bounds the time until the response headers, and `idleMs` the time between
+ * body chunks. Resolves a `StreamedResponse` whose body the caller streams on; failures become `HttpClientError`s.
+ */
+export async function streamTransport(request: HttpRequest, settings: HttpSettings, trustedHost: string | undefined, idleMs: number): Promise<HttpResponse> {
+  const { method } = request;
+  const url = maskedUrl(request.url, settings);
+  const service = request.service !== undefined ? { service: request.service } : {};
+  const fail = (code: string, message: string, cause?: unknown) => new HttpClientError({ code, message, method, url, ...(cause !== undefined ? { cause } : {}), ...service });
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, request.timeout);
+  const signal = request.signal ? AbortSignal.any([controller.signal, request.signal]) : controller.signal;
+  const startedAt = performance.now();
+  let status = 0;
+  let failed: HttpClientError | undefined;
+  try {
+    const hop: Hop = { url: new URL(request.url), method, headers: new Headers(request.headers), body: request.body };
+    let response: Response;
+    if (mockActive()) response = await answerFromMock(request, signal, request.service === undefined ? undefined : settings.services.get(request.service)?.url, url);
+    else {
+      const destination = await checkDestination(hop.url, settings, trustedHost);
+      response = await sendHop(hop, destination, signal, settings.options.transport as HttpTransport | undefined);
+    }
+    clearTimeout(timer);
+    status = response.status;
+    const body = response.body ? idleBody(response.body, idleMs, () => controller.abort()) : null;
+    return new StreamedResponse(new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers }), hop.url.href);
+  } catch (error) {
+    clearTimeout(timer);
+    if (error instanceof HttpClientError) failed = error.method === "" ? new HttpClientError({ code: error.code, message: error.message, method, url: error.url, ...service }) : error;
+    else if (timedOut || (error as Record<symbol, unknown> | undefined)?.[MOCK_TIMEOUT] === true) failed = fail("TIMEOUT", `${method} ${url} timed out after ${formatTimeoutText(request.timeout)}`, error);
+    else if (request.signal?.aborted) failed = fail("ABORTED", `${method} ${url} was aborted`, request.signal.reason);
+    else failed = fail("NETWORK", `${method} ${url} failed: ${reasonOf(error)}`, error);
+    throw failed;
+  } finally {
+    logCall(settings, request, { url, status: failed ? 0 : status, durationMs: performance.now() - startedAt, ...(failed ? { error: failed.code } : {}) });
+  }
+}

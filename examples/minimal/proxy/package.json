@@ -1,0 +1,14 @@
+{
+  "name": "minimal-proxy",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "quickservicets build",
+    "catalog": "bun scripts/catalog.ts",
+    "test": "bun test tests"
+  },
+  "dependencies": {
+    "@quickservicets/core": "workspace:*",
+    "@quickservicets/cli": "workspace:*"
+  }
+}

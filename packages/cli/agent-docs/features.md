@@ -1,6 +1,6 @@
 # Features
 
-The native features (security, events, queues, health, idempotency, etag, history, realtime, errors, flags, http, tenancy, auth, metrics) and how to turn them on, off and customize them.
+The native features (security, events, queues, health, idempotency, etag, history, realtime, errors, flags, http, tenancy, auth, metrics, proxy) and how to turn them on, off and customize them.
 
 Natives ship inside `@quickservicets/core`; nothing extra is installed. `security` and `http` are on by default; every other native is off until you turn it on.
 
@@ -20,6 +20,7 @@ Natives ship inside `@quickservicets/core`; nothing extra is installed. `securit
 | `tenancy` | The tenant of every request in `req.tenant.id`, from the `x-tenant-id` header (or a subdomain, a path prefix, the credentials or a function); 400 without one | `@tenancy` |
 | `auth` | One authentication contract: providers in `auth.providers` or registered by features fill `req.user`, `req.auth` and optionally `req.tenant`; 401 for invalid credentials or a missing user, 403 for a missing role or scope; `requireUser(req)` and `requireRole(req, ...roles)` in custom code; `loginGuard`, `invalidCredentials`, `dummyPasswordCheck` and `sessionStore` for providers' sign-in; `ctx.feature("auth").revoke({ userId })`; hooks `beforeUser`, `beforeAuthorize`, `onAuthenticated`, `onAuthFailed`; `testAuth()` for tests | `@auth`, `@roles` |
 | `metrics` | API usage kept by the service: requests, errors (5xx), client errors (4xx) and p50, p95 and p99 latency per route and tenant (`by` adds `user`) in one-minute windows rolled into hours; `store: "database"` shares them across workers and replicas (needs a migration); `GET /_metrics` answers JSON or, with `?format=prometheus`, the Prometheus text format, from loopback and private addresses (`access.token` for a bearer token); `ctx.feature("metrics").query(...)` and `queryMetrics(...)`; `record` per request; hooks `beforeRecord`, `onWindowClosed`; a `MetricsStore` replaces the store | `@metrics` |
+| `proxy` | An API gateway: `proxy.routes.<name>` with `path` (`/billing/*`) and `target` (a URL) or `service` (an `http.services` entry) forwards requests streaming both ways, with `x-forwarded-*` headers and the upstream's `host`, never `cookie`, `authorization` or hop-by-hop headers; `timeout` until headers (504), `idleTimeout` between chunks, 502 for connection failures and 503 for an open circuit; a project endpoint on the same or a more specific path wins | |
 
 ## Turn one on
 

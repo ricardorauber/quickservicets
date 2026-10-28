@@ -750,3 +750,20 @@ export type Post = { title: string };
 /** @roles editor:write,admin:delete */
 export type Post = { title: string };
 ```
+
+### `metrics`
+
+API usage metrics: requests, errors and p50, p95 and p99 latency per route, tenant and optionally user, in time windows inside the service.
+
+Every option, tag, command and hook of `metrics` is on [its reference page](/reference/features/metrics/).
+
+| Key | Type | Default | Environment variable | Description |
+| --- | --- | --- | --- | --- |
+| `metrics.window` | `duration` | `"1m"` | `QS_METRICS_WINDOW` | The length of each usage window. |
+| `metrics.retention` | `duration` | `"2h"` | `QS_METRICS_RETENTION` | How long minute windows are kept before they are rolled up. |
+| `metrics.rollup.window` | `duration` | `"1h"` | `QS_METRICS_ROLLUP_WINDOW` | The length of each rollup window. |
+| `metrics.rollup.retention` | `duration` | `"7d"` | `QS_METRICS_ROLLUP_RETENTION` | How long rollup windows are kept. |
+| `metrics.by` | `("route" \| "tenant" \| "user")[]` | `["route","tenant"]` | `QS_METRICS_BY` | The dimensions of each series: the route as its method and pattern (GET /posts), and the tenant and user ids (- when absent). |
+| `metrics.maxSeries` | `integer` | `10000` | `QS_METRICS_MAX_SERIES` | The most series per window and worker; further ones are counted in one series whose dimensions are all other. |
+| `metrics.exclude` | `string[]` | `["/health/*","/_metrics","/docs"]` | `QS_METRICS_EXCLUDE` | Route patterns that are not counted; a pattern ending in /* covers every route under it. |
+| `metrics.enabled` | `boolean` | `true` | `QS_METRICS_ENABLED` | Turns the feature off when false. |

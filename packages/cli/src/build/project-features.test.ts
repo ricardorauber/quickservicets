@@ -42,7 +42,7 @@ describe("discovery", () => {
   test("without its key it stays disabled; enabledByDefault enables it", async () => {
     const off = await loadConfig(project({ "features/greeting/index.ts": GREETING }), {});
     expect(off.features).toEqual([]);
-    expect(off.disabledFeatures).toEqual(["security", "events", "queues", "health", "idempotency", "etag", "history", "realtime", "errors", "flags", "http", "tenancy", "auth", "greeting"]);
+    expect(off.disabledFeatures).toEqual(["security", "events", "queues", "health", "idempotency", "etag", "history", "realtime", "errors", "flags", "http", "tenancy", "auth", "metrics", "greeting"]);
     const byDefault = GREETING.replace('key: "greeting",', 'key: "greeting", enabledByDefault: true,');
     const on = await loadConfig(project({ "features/greeting/index.ts": byDefault }), {});
     expect(on.features.map((feature) => feature.key)).toEqual(["greeting"]);

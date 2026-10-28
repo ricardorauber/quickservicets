@@ -20,3 +20,4 @@ description: Every native feature of QuickService.ts, with its reference page.
 | [`http`](/reference/features/http/) | A fluent, typed client for calling other HTTP services, with timeouts, size limits and clear errors by default. | yes |
 | [`tenancy`](/reference/features/tenancy/) | Multi-tenancy: every request is resolved to a tenant from a header, a subdomain, a path prefix, the credentials or a function. | no |
 | [`auth`](/reference/features/auth/) | One authentication contract for every provider: the first provider that accepts a request's credentials fills req.user, req.auth and optionally req.tenant. | no |
+| [`metrics`](/reference/features/metrics/) | API usage metrics: requests, errors and p50, p95 and p99 latency per route, tenant and optionally user, in time windows inside the service. | no |

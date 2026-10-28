@@ -11,6 +11,7 @@ import { readBodyText } from "./body.ts";
 import type { RepositoryResolver } from "../repository-resolver.ts";
 import type { TenantRuns } from "../tenant-runs.ts";
 import type { SocketRunner } from "./socket.ts";
+import { notifyRequestObservers, requestsObserved } from "../request-observers.ts";
 import { coreInstruments, metricsEnabled, tenantAttributes, type MeterSetting, type MetricAttributes } from "../metering.ts";
 import { parseTraceparent, spanAttributes, startSpan, tracingEnabled, withSpan, type Span, type TracerSetting } from "../tracing.ts";
 
@@ -343,6 +344,21 @@ function endMeasure(measure: Measure, request: Request, state: { route: string |
   });
 }
 
+/** Hands a completed request to the request observers. */
+function observeEnd(request: Request, state: { route: string | null; req?: ServiceRequest }, status: number, startedAt: number, observedAt: number): void {
+  const userId = idOf(state.req?.user);
+  const tenantId = idOf(state.req?.tenant);
+  notifyRequestObservers({
+    method: request.method,
+    route: state.route,
+    status,
+    durationMs: performance.now() - startedAt,
+    ...(userId !== undefined ? { userId } : {}),
+    ...(tenantId !== undefined ? { tenantId } : {}),
+    startedAt: observedAt,
+  });
+}
+
 /** The id of a request's user or tenant, as a text. */
 const idOf = (value: unknown): string | undefined => {
   const id = (value as { id?: unknown } | undefined)?.id;
@@ -477,12 +493,15 @@ export function createServer({ routes, repos, config: serverConfig, jobs = noReq
     if (span) state.span = span;
     // With a meter, the request counts as active until it ends.
     const metered = metricsEnabled() ? startMeasure(request) : undefined;
+    // With request observers, the wall-clock start is kept for the observation.
+    const observedAt = requestsObserved() ? Date.now() : undefined;
     const answered = span ? await withSpan(span, () => pipeline(request, requestId, state)) : await pipeline(request, requestId, state);
-    const observed = span !== undefined || metered !== undefined;
-    /** Ends what waits for the request's end: its span and its measurements. */
+    const observed = span !== undefined || metered !== undefined || observedAt !== undefined;
+    /** Ends what waits for the request's end: its span, its measurements and its observers. */
     const complete = (status: number, event?: (span: Span) => void) => {
       if (span) endServerSpan(span, request, state, status, event);
       if (metered) endMeasure(metered, request, state, status, startedAt);
+      if (observedAt !== undefined) observeEnd(request, state, status, startedAt, observedAt);
     };
     // An upgraded request is answered by Bun with 101; its socket writes the log entry when it closes.
     if (upgraded.has(request)) {

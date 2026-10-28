@@ -64,6 +64,8 @@ export { observeJobRuns } from "./jobs/observers.ts";
 export { contextFlags, setContextFlags } from "./context-flags.ts";
 export { contextHttp, setContextHttp } from "./context-http.ts";
 export { activeSpan, formatTraceparent, noopTracer, parseTraceparent, setTracer, spanAttributes, startSpan, tracingEnabled, withSpan } from "./tracing.ts";
+export { observeRequests, requestsObserved } from "./request-observers.ts";
+export type { RequestObservation, RequestObserver } from "./request-observers.ts";
 export { coreInstruments, currentMeter, DURATION_BUCKETS, metricsEnabled, noopMeter, setMeter, tenantAttributes } from "./metering.ts";
 export type { Counter, Histogram, HistogramOptions, InstrumentOptions, Meter, MeterOptions, MetricAttributes, ObservableGauge, Observe, UpDownCounter } from "./metering.ts";
 export type { Span, SpanAttributes, SpanAttributeValue, SpanContext, SpanKind, SpanLink, SpanOptions, Tracer } from "./tracing.ts";
@@ -277,6 +279,7 @@ import queuesNative, { type QueueClient, type QueueMessageEvent, type QueuesApi 
 import httpNative, { type Http, type HttpApi } from "./features/http/index.ts";
 import tenancyNative, { type TenancyApi } from "./features/tenancy/index.ts";
 import authNative, { type AuthApi, type RequestAuth, type SessionRevokedEvent } from "./features/auth/index.ts";
+import metricsNative, { type MetricsApi } from "./features/metrics/index.ts";
 import { registerNative as registerShippedNative, type FeatureConfig as NativeConfig } from "./features.ts";
 registerShippedNative(securityNative);
 registerShippedNative(eventsNative);
@@ -291,6 +294,7 @@ registerShippedNative(flagsNative);
 registerShippedNative(httpNative);
 registerShippedNative(tenancyNative);
 registerShippedNative(authNative);
+registerShippedNative(metricsNative);
 export {
   addAuthScheme,
   AuthError,
@@ -311,6 +315,8 @@ export {
 } from "./features/auth/index.ts";
 export type { LoginCheck, LoginGuard, LoginGuardOptions, LoginThrottleRecord, LoginThrottleStore, SessionRevokedEvent, SessionStore, SessionStoreOptions, StoredSession } from "./features/auth/index.ts";
 export type { AuthApi, AuthCredentials, AuthenticatedUser, AuthMethod, AuthProvider, AuthResult, AuthResultUser, RequestAuth, RevokeTarget } from "./features/auth/index.ts";
+export { LatencySketch, metricsFeature, setMetricsClock } from "./features/metrics/index.ts";
+export type { EncodedSketch, MetricsApi, MetricsFigures, MetricsQuery, MetricsResult, MetricsSeries } from "./features/metrics/index.ts";
 export { addOutboxPatterns, events, eventsFeature, listen, memoryEventBus, readOutbox, tailOutbox } from "./features/events/index.ts";
 export type { ConsumerOptions, DeliveryContext, DeliveryStatus, OutboxRecord } from "./features/events/index.ts";
 export type { EventBus, EventListener, Events, EventsApi, ListenerContext, ListenerFile, ListenerPhase, ListenOptions, MemoryEventBus } from "./features/events/index.ts";
@@ -468,6 +474,8 @@ declare module "./features.ts" {
     tenancy?: NativeConfig<typeof tenancyNative>;
     /** One authentication contract for every provider; see the `auth` reference page. */
     auth?: NativeConfig<typeof authNative>;
+    /** API usage metrics per route, tenant and user, kept by the service; see the `metrics` reference page. */
+    metrics?: NativeConfig<typeof metricsNative>;
   }
   interface FeatureApis {
     events: EventsApi;
@@ -482,6 +490,7 @@ declare module "./features.ts" {
     http: HttpApi;
     tenancy: TenancyApi;
     auth: AuthApi;
+    metrics: MetricsApi;
   }
 }
 

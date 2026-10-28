@@ -64,6 +64,8 @@ export { observeJobRuns } from "./jobs/observers.ts";
 export { contextFlags, setContextFlags } from "./context-flags.ts";
 export { contextHttp, setContextHttp } from "./context-http.ts";
 export { activeSpan, formatTraceparent, noopTracer, parseTraceparent, setTracer, spanAttributes, startSpan, tracingEnabled, withSpan } from "./tracing.ts";
+export { coreInstruments, currentMeter, DURATION_BUCKETS, metricsEnabled, noopMeter, setMeter, tenantAttributes } from "./metering.ts";
+export type { Counter, Histogram, HistogramOptions, InstrumentOptions, Meter, MeterOptions, MetricAttributes, ObservableGauge, Observe, UpDownCounter } from "./metering.ts";
 export type { Span, SpanAttributes, SpanAttributeValue, SpanContext, SpanKind, SpanLink, SpanOptions, Tracer } from "./tracing.ts";
 export type { ContextFlagEvaluator, FlagTarget } from "./context-flags.ts";
 export type { ObservedJobRun } from "./jobs/observers.ts";

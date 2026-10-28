@@ -25,6 +25,9 @@ import {
   type Repositories,
   type WriteEvent,
   formatTraceparent,
+  currentMeter,
+  metricsEnabled,
+  type ObservableGauge,
   spanAttributes,
   startSpan,
   tracingEnabled,
@@ -115,6 +118,9 @@ function jsonPayload(payload: unknown): unknown {
     return undefined;
   }
 }
+
+/** How long the waiting counts of the depth gauge are kept before they are read again. */
+export const DEPTH_REFRESH_MS = 30_000;
 
 /** Adds a message in a `producer` span named `send <queue>`, storing the span's `traceparent` on the message. */
 async function tracedEnqueue(broker: QueueBroker, message: QueueBrokerMessage) {
@@ -318,6 +324,29 @@ const queuesFeature = defineFeature({
     ctx.app.onStop(stop);
     // Brokers can no longer be set once every setup ran.
     ctx.app.onStart(() => void brokerOf());
+    // With a meter, the worker that runs scheduled work reports the waiting messages per queue, read at most every 30 s.
+    let depth: ObservableGauge | undefined;
+    if (ctx.worker.runsScheduledWork) {
+      let cached: { at: number; stats: Record<string, { waiting: number }> } | undefined;
+      ctx.app.onStart(() => {
+        if (!metricsEnabled()) return;
+        depth = currentMeter().observableGauge("quickservicets.queue.depth", { description: "Waiting messages per queue.", unit: "{message}" }, async (observe) => {
+          if (!cached || Date.now() - cached.at >= DEPTH_REFRESH_MS) {
+            try {
+              cached = { at: Date.now(), stats: await brokerOf().stats() };
+            } catch (error) {
+              safeLog(ctx.logger, "warn", { timestamp: new Date().toISOString(), message: "queue.depth.failed", error: { message: (error as Error)?.message ?? String(error) } });
+              if (!cached) return;
+            }
+          }
+          for (const [queue, stats] of Object.entries(cached.stats)) observe(stats.waiting, { "messaging.destination.name": queue });
+        });
+      });
+      ctx.app.onStop(() => {
+        depth?.remove?.();
+        depth = undefined;
+      });
+    }
     if (!ctx.options.consume) return;
     ctx.app.onStart(async (start) => {
       repos = start.repos;

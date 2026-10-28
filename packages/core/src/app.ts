@@ -30,6 +30,7 @@ import { configureDatabaseScopes, currentDatabaseScope } from "./database-scope.
 import { guardTenantRepositories } from "./tenant-repositories.ts";
 import { configureTenantRuns } from "./tenant-runs.ts";
 import { configureTracing, tracedLogger } from "./tracing.ts";
+import { configureMetrics } from "./metering.ts";
 
 /** A generated CRUD route with its resolved hook list. */
 export interface CrudRouteEntry {
@@ -201,6 +202,7 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
   const wrappedLogger = settings.wrapLogger ? settings.wrapLogger(masked) : masked;
   // With a tracer, entries logged inside a span carry its trace and span ids.
   configureTracing(settings.tracer, settings.mask);
+  configureMetrics(settings.meter);
   const logger = settings.tracer ? tracedLogger(wrappedLogger) : wrappedLogger;
   const fileAccess = { storage: config.storage, files: config.files, publicUrl: config.server.publicUrl, ...(settings.fileHeaders ? { fileHeaders: settings.fileHeaders } : {}) };
   const fileCleanup = {

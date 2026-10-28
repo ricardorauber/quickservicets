@@ -1,4 +1,7 @@
 import {
+  currentMeter,
+  metricsEnabled,
+  type ObservableGauge,
   afterCommit,
   currentDatabaseScope,
   enableDatabaseScopes,
@@ -411,6 +414,16 @@ const tenancyFeature = defineFeature({
     });
     poolsOf.set(ctx.options, pools);
     ctx.app.onStart(() => pools.start());
+    // With a meter, the open tenant pools of this worker are a gauge read at collection time.
+    let poolGauge: ObservableGauge | undefined;
+    ctx.app.onStart(() => {
+      if (!metricsEnabled()) return;
+      poolGauge = currentMeter().observableGauge("quickservicets.tenancy.pools", { description: "Open tenant database pools of this worker.", unit: "{pool}" }, (observe) => observe(pools.stats().open));
+    });
+    ctx.app.onStop(() => {
+      poolGauge?.remove?.();
+      poolGauge = undefined;
+    });
     let relayTimer: ReturnType<typeof setInterval> | undefined;
     if (coreModels.size > 0) {
       ctx.app.onStart(() => {

@@ -11,6 +11,7 @@ import { readBodyText } from "./body.ts";
 import type { RepositoryResolver } from "../repository-resolver.ts";
 import type { TenantRuns } from "../tenant-runs.ts";
 import type { SocketRunner } from "./socket.ts";
+import { coreInstruments, metricsEnabled, tenantAttributes, type MeterSetting, type MetricAttributes } from "../metering.ts";
 import { parseTraceparent, spanAttributes, startSpan, tracingEnabled, withSpan, type Span, type TracerSetting } from "../tracing.ts";
 
 export type HandlerResult<Result> = Result | Response | undefined;
@@ -66,6 +67,8 @@ export interface ServerSettings {
   socketRunner?: SocketRunner;
   /** Set by `setTracer()` during setup: the tracer of the service and the feature that set it. */
   tracer?: TracerSetting;
+  /** Set by `setMeter()` during setup: the meter of the service, the feature that set it and its options. */
+  meter?: MeterSetting;
 }
 
 export interface ServerOptions extends ServerSettings {
@@ -315,6 +318,31 @@ function serverSpan(request: Request, requestId: string): Span {
   return span;
 }
 
+/** The attributes of the active requests counter. */
+interface Measure {
+  attributes: MetricAttributes;
+}
+
+/** Counts a request as active, with its method and scheme. */
+function startMeasure(request: Request): Measure {
+  const scheme = request.url.startsWith("https:") ? "https" : "http";
+  const attributes: MetricAttributes = { "http.request.method": request.method, "url.scheme": scheme };
+  coreInstruments().activeRequests.add(1, attributes);
+  return { attributes };
+}
+
+/** Records a request's duration with its method, route (`unmatched` when none matched), status and scheme. */
+function endMeasure(measure: Measure, request: Request, state: { route: string | null; req?: ServiceRequest }, status: number, startedAt: number): void {
+  const instruments = coreInstruments();
+  instruments.activeRequests.add(-1, measure.attributes);
+  instruments.serverDuration.record((performance.now() - startedAt) / 1000, {
+    ...measure.attributes,
+    "http.route": state.route ?? "unmatched",
+    "http.response.status_code": status,
+    ...tenantAttributes(idOf(state.req?.tenant)),
+  });
+}
+
 /** The id of a request's user or tenant, as a text. */
 const idOf = (value: unknown): string | undefined => {
   const id = (value as { id?: unknown } | undefined)?.id;
@@ -447,22 +475,30 @@ export function createServer({ routes, repos, config: serverConfig, jobs = noReq
     // With a tracer, the whole pipeline runs in the request's server span.
     const span = tracingEnabled() ? serverSpan(request, requestId) : undefined;
     if (span) state.span = span;
+    // With a meter, the request counts as active until it ends.
+    const metered = metricsEnabled() ? startMeasure(request) : undefined;
     const answered = span ? await withSpan(span, () => pipeline(request, requestId, state)) : await pipeline(request, requestId, state);
+    const observed = span !== undefined || metered !== undefined;
+    /** Ends what waits for the request's end: its span and its measurements. */
+    const complete = (status: number, event?: (span: Span) => void) => {
+      if (span) endServerSpan(span, request, state, status, event);
+      if (metered) endMeasure(metered, request, state, status, startedAt);
+    };
     // An upgraded request is answered by Bun with 101; its socket writes the log entry when it closes.
     if (upgraded.has(request)) {
-      if (span) upgradeEnds.set(request, (closeCode) => endServerSpan(span, request, state, 101, (open) => open.addEvent("websocket.closed", { "websocket.close.code": closeCode })));
+      if (observed) upgradeEnds.set(request, (closeCode) => complete(101, (open) => open.addEvent("websocket.closed", { "websocket.close.code": closeCode })));
       return undefined as unknown as Response;
     }
     const deferred = deferredLogs.get(answered);
     const response = withHeader(answered, "x-request-id", requestId);
-    if (span) {
-      // A streaming response's span ends when its stream closes.
+    if (observed) {
+      // A streaming response ends when its stream closes.
       if (deferred) {
         void deferred.then(
-          (extra) => endServerSpan(span, request, state, response.status, (open) => open.addEvent("sse.message", { "quickservicets.sse.messages": Number(extra.messages ?? 0) })),
-          () => endServerSpan(span, request, state, response.status),
+          (extra) => complete(response.status, (open) => open.addEvent("sse.message", { "quickservicets.sse.messages": Number(extra.messages ?? 0) })),
+          () => complete(response.status),
         );
-      } else endServerSpan(span, request, state, response.status);
+      } else complete(response.status);
     }
     if (state.quiet && response.status < 500) return response;
     const write = (extra: Record<string, unknown>) =>

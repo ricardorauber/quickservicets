@@ -1,6 +1,8 @@
 import type { DatabaseAdapter, RelatedScope } from "./adapter.ts";
 import type { EntityModel } from "./model.ts";
-import { spanAttributes, startSpan, withSpan } from "./tracing.ts";
+import { spanAttributes, startSpan, tracingEnabled, withSpan } from "./tracing.ts";
+import { coreInstruments, metricsEnabled, tenantAttributes, type MetricAttributes } from "./metering.ts";
+import { currentTenant } from "./database-scope.ts";
 
 /** The `db.system.name` of each adapter kind. */
 const SYSTEMS: Record<string, string> = { postgres: "postgresql", sqlite: "sqlite", mongodb: "mongodb", memory: "memory" };
@@ -32,11 +34,25 @@ function errorType(error: unknown): string {
 
 /**
  * A view of `adapter` whose record reads, writes and aggregates each run in a `client` span named
- * `<operation> <collection>`, with the database semantic attributes and never the statement or its values. It shares
- * the adapter's connection and transactions; repositories use it while a tracer is set.
+ * `<operation> <collection>` while a tracer is set, with the database semantic attributes and never the statement or
+ * its values, and record `db.client.operation.duration` while a meter is set. It shares the adapter's connection and
+ * transactions; repositories use it while either is set.
  */
 export function tracedAdapter(adapter: DatabaseAdapter): DatabaseAdapter {
   const system = SYSTEMS[adapter.kind ?? "memory"] ?? String(adapter.kind);
+  /** Records the call's duration as `db.client.operation.duration`, with its error type when it fails. */
+  const measure = async (entity: EntityModel, operation: string, call: () => Promise<unknown>) => {
+    const started = performance.now();
+    const attributes: MetricAttributes = { "db.system.name": system, "db.operation.name": operation, "db.collection.name": entity.name };
+    try {
+      return await call();
+    } catch (error) {
+      attributes["error.type"] = errorType(error);
+      throw error;
+    } finally {
+      coreInstruments().databaseDuration.record((performance.now() - started) / 1000, { ...attributes, ...tenantAttributes(currentTenant()?.id) });
+    }
+  };
   const wrapped = new Map<PropertyKey, unknown>();
   const view: DatabaseAdapter = new Proxy(adapter, {
     get(target, property) {
@@ -50,6 +66,9 @@ export function tracedAdapter(adapter: DatabaseAdapter): DatabaseAdapter {
       if (!traced) {
         traced = (first: EntityModel | RelatedScope, ...rest: unknown[]) => {
           const entity = operation.scope ? (first as RelatedScope).target : (first as EntityModel);
+          const call = () => (value as (...args: unknown[]) => Promise<unknown>).call(target, first, ...rest);
+          const measured = metricsEnabled() ? () => measure(entity, String(property), call) : call;
+          if (!tracingEnabled()) return measured();
           const span = startSpan(`${String(property)} ${entity.name}`, {
             kind: "client",
             attributes: spanAttributes({
@@ -62,7 +81,7 @@ export function tracedAdapter(adapter: DatabaseAdapter): DatabaseAdapter {
           });
           return withSpan(span, async () => {
             try {
-              const result = await (value as (...args: unknown[]) => Promise<unknown>).call(target, first, ...rest);
+              const result = await measured();
               if (operation.rows && result !== null && result !== undefined) span.setAttribute("db.response.returned_rows", operation.rows(result));
               else if (operation.rows) span.setAttribute("db.response.returned_rows", 0);
               return result;

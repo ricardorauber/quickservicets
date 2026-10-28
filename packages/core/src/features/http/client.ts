@@ -1,4 +1,4 @@
-import { currentTenant, DEFAULT_MASKED_KEYS, formatTraceparent, spanAttributes, startSpan, tracingEnabled, withSpan, jsonLogger, lastResolvedFeatures, OptionError, parseDuration, resolveOption, resolveOptions, runAfterHooks, runBeforeHooks, type FeatureHook, type Logger, type OptionFunction, type ServiceRequest } from "../public.ts";
+import { coreInstruments, currentTenant, DEFAULT_MASKED_KEYS, formatTraceparent, metricsEnabled, tenantAttributes, spanAttributes, startSpan, tracingEnabled, withSpan, jsonLogger, lastResolvedFeatures, OptionError, parseDuration, resolveOption, resolveOptions, runAfterHooks, runBeforeHooks, type FeatureHook, type Logger, type OptionFunction, type ServiceRequest } from "../public.ts";
 import { HttpClientError } from "./errors.ts";
 import { httpOptions, serviceProblems, type HttpOptions, type ServiceOptions } from "./options.ts";
 import { sharedState } from "./state.ts";
@@ -243,8 +243,31 @@ export async function execute(spec: CallSpec, binding: ClientBinding): Promise<H
   const chain = [...(service ? serviceModifiers(service, settings) : []), ...spec.modifiers];
   const sendOne = (changed: HttpRequest) => transport(changed, settings, trustedHost);
   // With a tracer, each attempt runs in a client span whose context the call carries as `traceparent`.
-  const send = (attempt: HttpRequest) => withHooks(attempt, settings, (changed) => (tracingEnabled() ? tracedAttempt(changed, settings, sendOne) : sendOne(changed)));
+  // With a meter, each attempt's duration is recorded.
+  const attemptOf = (changed: HttpRequest) => (tracingEnabled() ? tracedAttempt(changed, settings, sendOne) : sendOne(changed));
+  const send = (attempt: HttpRequest) => withHooks(attempt, settings, (changed) => (metricsEnabled() ? measuredAttempt(changed, () => attemptOf(changed)) : attemptOf(changed)));
   return chain.length === 0 ? send(request) : runChain(chain, request, send, () => maskedUrl(request.url, settings));
+}
+
+/** Sends one attempt and records its duration as `http.client.request.duration`, with the status or the error code. */
+async function measuredAttempt(request: HttpRequest, send: () => Promise<HttpResponse>): Promise<HttpResponse> {
+  const started = performance.now();
+  const attributes: Record<string, string | number> = { "http.request.method": request.method, "server.address": new URL(request.url).hostname };
+  if (request.service !== undefined) attributes["quickservicets.http.service"] = request.service;
+  const record = () => coreInstruments().clientDuration.record((performance.now() - started) / 1000, { ...attributes, ...tenantAttributes(currentTenant()?.id) });
+  try {
+    const response = await send();
+    attributes["http.response.status_code"] = response.status;
+    record();
+    return response;
+  } catch (error) {
+    if (error instanceof HttpClientError) {
+      attributes["error.type"] = error.code;
+      if (error.status) attributes["http.response.status_code"] = error.status;
+    } else attributes["error.type"] = error instanceof Error ? error.name : "Error";
+    record();
+    throw error;
+  }
 }
 
 /**

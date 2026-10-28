@@ -1,4 +1,4 @@
-import { anyOf, hook, normalizeAddress, provider, runAfterHooks, secretVariableValues, boolean, cidr, defineFeature, duration, integer, list, object, oneOf, parseDuration, parseSize, peerAddress, rate, safeLog, size, string, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext, type LogMasker, type ServiceRequest } from "../public.ts";
+import { coreInstruments, metricsEnabled, anyOf, hook, normalizeAddress, provider, runAfterHooks, secretVariableValues, boolean, cidr, defineFeature, duration, integer, list, object, oneOf, parseDuration, parseSize, peerAddress, rate, safeLog, size, string, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext, type LogMasker, type ServiceRequest } from "../public.ts";
 import type { ClientIpResolver, RateLimitRefusal, SecurityApi, SecurityRefusal } from "./api.ts";
 import { corsProblems, corsStep, ownOptionsRoutes, routeCorsOptions } from "./cors.ts";
 import { Exemptions } from "./exempt.ts";
@@ -230,6 +230,22 @@ function refusalHooks(ctx: FeatureSetupContext<SecurityOptions>, ipOf: (request:
 }
 
 /**
+ * The refusal listener with the `quickservicets.security.rate_limited` counter added while a meter is set, counting
+ * each 429 of a rate limit by route (`unmatched` outside the routes).
+ */
+function withRateLimitMetric(hooks: RefusalListener | undefined): RefusalListener {
+  let patterns: ReturnType<typeof routePatterns> | undefined;
+  return (state, refusal) => {
+    if (refusal.item === "rateLimit" && metricsEnabled()) {
+      patterns ??= routePatterns(taggedRoutes());
+      const route = patterns.of(state.ctx.request.method, state.ctx.url.pathname);
+      coreInstruments().rateLimited.add(1, { "http.route": route === "-" ? "unmatched" : route.replace(/^[A-Z]+ /, "") });
+    }
+    hooks?.(state, refusal);
+  };
+}
+
+/**
  * The `security` native: safe defaults for every service, as separate items that can each be adjusted or switched
  * off, run in a fixed order before routing. Enabled by default; `security: false` removes it all.
  */
@@ -371,7 +387,7 @@ const securityFeature = defineFeature({
       );
     }
     if (steps.length > 0) {
-      const middlewares = securityMiddlewares(steps, exemptions, () => index, refusalHooks(ctx, ipOf));
+      const middlewares = securityMiddlewares(steps, exemptions, () => index, withRateLimitMetric(refusalHooks(ctx, ipOf)));
       ctx.app.use(middlewares.request);
       if (middlewares.handler) ctx.app.use(middlewares.handler);
     }

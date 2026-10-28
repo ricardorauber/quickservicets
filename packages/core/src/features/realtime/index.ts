@@ -1,6 +1,10 @@
 import { existsSync } from "node:fs";
+import type { SocketServer } from "./sockets.ts";
 import { join } from "node:path";
 import {
+  currentMeter,
+  metricsEnabled,
+  type ObservableGauge,
   tenantRuns,
   addOutboxPatterns,
   defineFeature,
@@ -267,7 +271,7 @@ function socketLimits(options: SocketOptions["websockets"]): (req: ServiceReques
  * Serves the `ws.ts` endpoints while `websockets` is on: Bun gets a WebSocket handler only when such a route exists,
  * and the transport starts when one exists or a feature used the sockets API during setup.
  */
-function setUpSockets(ctx: FeatureSetupContext<SocketOptions>): void {
+function setUpSockets(ctx: FeatureSetupContext<SocketOptions>): SocketServer | undefined {
   const options = ctx.options.websockets;
   const state: SocketState = { server: undefined, transport: undefined, owner: undefined, used: false, open: true };
   socketStates.set(ctx.options, state);
@@ -337,6 +341,7 @@ function setUpSockets(ctx: FeatureSetupContext<SocketOptions>): void {
     await server.stopTransport();
     setSocketHub(undefined, server.sockets);
   });
+  return server;
 }
 
 /**
@@ -429,9 +434,23 @@ const realtimeFeature = defineFeature({
     }
   },
   setup(ctx) {
-    setUpSockets(ctx);
+    const sockets = setUpSockets(ctx);
     const sse = ctx.options.sse;
     published = undefined;
+    // With a meter, the open sockets and streams of this worker are a gauge read at collection time.
+    let streams: { count(): number } | undefined;
+    let gauge: ObservableGauge | undefined;
+    ctx.app.onStart(() => {
+      if (!metricsEnabled()) return;
+      gauge = currentMeter().observableGauge("quickservicets.realtime.connections", { description: "Open WebSockets and Server-Sent Events streams of this worker.", unit: "{connection}" }, (observe) => {
+        if (sockets) observe(sockets.open.size, { "quickservicets.realtime.kind": "websocket" });
+        if (streams) observe(streams.count(), { "quickservicets.realtime.kind": "sse" });
+      });
+    });
+    ctx.app.onStop(() => {
+      gauge?.remove?.();
+      gauge = undefined;
+    });
     if (!sse.enabled) return;
     /** The events an entity's stream offers: its `@changes events=` tag, else `sse.events`. */
     const offered = (entity: EntityModel) => ((entity.tags?.changes?.options.events as ChangeEvent[] | undefined) ?? (sse.events as ChangeEvent[])).filter((name) => (CHANGE_EVENTS as readonly string[]).includes(name));
@@ -442,6 +461,7 @@ const realtimeFeature = defineFeature({
       log: (entry) => safeLog(ctx.logger, "error", { timestamp: new Date().toISOString(), ...entry }),
     });
     setSseRunner(runner.run);
+    streams = runner;
     // Idle connections closed by the security timeouts would cut streams quieter than the heartbeat.
     const timeouts = ctx.config.features.find((feature) => feature.key === "security")?.options.timeouts as { enabled?: boolean; idle?: string } | undefined;
     const idleMs = timeouts?.enabled ? parseDuration(timeouts.idle) : undefined;

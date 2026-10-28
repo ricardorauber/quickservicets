@@ -1,5 +1,6 @@
 import { assertWritable, publicTransaction, runInTransaction } from "./transactions.ts";
 import { tracingEnabled } from "./tracing.ts";
+import { metricsEnabled } from "./metering.ts";
 import { tracedAdapter } from "./traced-adapter.ts";
 import { etagOf, ifMatch as ifMatchTag, preconditionFailed } from "./entity-tags.ts";
 import { observersOf, reportChange } from "./write-observers.ts";
@@ -298,8 +299,8 @@ export function createRepository(
   models: EntityModel[] = [model],
   repositoryOptions: RepositoryOptions = {},
 ): Repository {
-  // With a tracer, every record read, write and aggregate of this repository runs in a span of its own.
-  if (tracingEnabled()) adapter = tracedAdapter(adapter);
+  // With a tracer or a meter, every record read, write and aggregate of this repository is traced or measured.
+  if (tracingEnabled() || metricsEnabled()) adapter = tracedAdapter(adapter);
   const maxDepth = repositoryOptions.populateMaxDepth ?? 2;
   const { hasDerived, syncsRelations, ownedFiles, cleansReplaced, hiddenPaths, cleansOnDelete, writesDirectly } = planOf(model, models, repositoryOptions);
   const atomically = <T>(fn: () => Promise<T>) => (syncsRelations ? runInTransaction(adapter, fn) : fn());

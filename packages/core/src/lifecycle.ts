@@ -13,6 +13,7 @@ import { prepareFeatureTargets, registerRuntimeTarget, resetRuntimeTargets } fro
 import type { CrudOperation, ParsedTags } from "./model.ts";
 import { setActiveSetup } from "./setup-phase.ts";
 import { configureTracing, tracedLogger } from "./tracing.ts";
+import { configureMetrics } from "./metering.ts";
 
 /** Which worker process runs a feature's setup. */
 export interface WorkerInfo {
@@ -296,6 +297,7 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
       resetRuntimeTargets();
       // A service starts without the tracer of a service set up before it in this process.
       configureTracing(undefined);
+      configureMetrics(undefined);
       for (const entry of registered) {
         const { feature } = entry;
         let open = true;

@@ -5,6 +5,7 @@ import { withJobOperation } from "../operation-context.ts";
 import { jobRunsObserved, notifyJobRun } from "./observers.ts";
 import { contextFlags } from "../context-flags.ts";
 import { contextHttp } from "../context-http.ts";
+import { coreInstruments, metricsEnabled } from "../metering.ts";
 import { activeSpan, spanAttributes, startSpan, tracingEnabled, withSpan, type Span, type SpanContext } from "../tracing.ts";
 import { queueClient } from "../features/queues/client.ts";
 import type { ResolvedConfig } from "../config.ts";
@@ -429,6 +430,7 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
         logs: logs.lines(),
         updatedAt: finishedAt,
       });
+      if (metricsEnabled()) coreInstruments().jobDuration.record((changes.durationMs as number) / 1000, { "quickservicets.job.name": run.job, "quickservicets.job.status": String(changes.status) });
       if (span) {
         span.setAttribute("quickservicets.job.status", String(changes.status));
         if (changes.status !== "success") span.setStatus("error", (changes.error as { message?: string } | undefined)?.message);

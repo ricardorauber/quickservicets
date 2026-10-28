@@ -1,9 +1,12 @@
 import { hostname } from "node:os";
-import { cidr, defineFeature, duration, integer, list, object, observeRequests, oneOf, parseDuration, safeLog, secret, string, systemClock, type JobClock, type RequestObservation } from "../public.ts";
+import { anyOf, boolean, cidr, defineFeature, duration, hook, integer, list, object, observeRequests, oneOf, parseDuration, provider, resolveOption, runAfterHooks, runBeforeHooks, safeLog, secret, string, systemClock, type FeatureHook, type JobClock, type OptionFunction, type RequestObservation } from "../public.ts";
+import { figuresOf, type MetricsResult } from "./query.ts";
+import type { MetricsStore } from "./store.ts";
+import type { UsageWindow } from "./windows.ts";
 import { metricsEndpoint } from "./route.ts";
 import type { MetricsApi } from "./api.ts";
 import { metricWindowEntity } from "./model.ts";
-import type { MetricsQuery } from "./query.ts";
+import type { MetricsQuery, MetricsSeries } from "./query.ts";
 import { MetricsRuntime } from "./runtime.ts";
 import { databaseMetricsStore, type DatabaseMetricsStore } from "./store.ts";
 import type { Dimension } from "./windows.ts";
@@ -32,9 +35,15 @@ const options = object({
   exclude: list(string())
     .default(["/health/*", "/_metrics", "/docs"])
     .describe("Route patterns that are not counted; a pattern ending in /* covers every route under it."),
-  store: oneOf(["memory", "database"])
+  store: anyOf(oneOf(["memory", "database"]), provider<MetricsStore>("MetricsStore", ["write", "read", "prune"]))
     .default("memory")
-    .describe("Where closed windows are kept: the worker's memory, or the MetricWindow table of the project's database, shared by every worker and replica."),
+    .describe("Where closed windows are kept: the worker's memory, the MetricWindow table of the project's database shared by every worker and replica, or a MetricsStore of the project."),
+  record: boolean()
+    .default(true)
+    .perRequest()
+    .describe("Whether a completed request is counted; a function of the request, its user, tenant and status decides per request, like leaving out synthetic checks."),
+  beforeRecord: hook<RequestObservation | null, undefined>().describe("Runs before an observation is counted; it may return a changed one (a grouped route, say) or null to skip it."),
+  onWindowClosed: hook<WindowClosed, undefined>().describe("Runs once per closed window and worker with its start and series, for pushing them elsewhere; a failure is logged."),
   path: string().default("/_metrics").describe("The path of the route serving the metrics as JSON and in the Prometheus text format."),
   access: object({
     allow: list(cidr())
@@ -45,6 +54,12 @@ const options = object({
     .default({ allow: ["loopback", "private"] })
     .describe("Who may read the metrics route."),
 });
+
+/** What `onWindowClosed` hooks receive: the window's start and its series with their figures. */
+export interface WindowClosed {
+  windowStart: Date;
+  series: MetricsSeries[];
+}
 
 /** The startup error of a database store without its entity in the build. */
 export const MISSING_ENTITY = 'metrics.store is "database", but the build did not include MetricWindow; rebuild and run quickservicets migration add';
@@ -75,11 +90,58 @@ function excludedBy(patterns: readonly string[]): (route: string | null) => bool
   };
 }
 
+/** A closed window as `onWindowClosed` hooks receive it. */
+function windowClosed(window: UsageWindow): WindowClosed {
+  return {
+    windowStart: new Date(window.start),
+    series: [...window.series.values()].map((series) => ({
+      ...(series.route !== undefined ? { route: series.route } : {}),
+      ...(series.tenant !== undefined ? { tenant: series.tenant } : {}),
+      ...(series.user !== undefined ? { user: series.user } : {}),
+      ...figuresOf(series),
+    })),
+  };
+}
+
+/**
+ * Whether each route is counted and with which dimensions, from its `@metrics` tag, decided once per method and route:
+ * `@metrics off` leaves it out, and `@metrics by=...` keeps only the dimensions it lists that `metrics.by` has.
+ */
+function routeSettings(by: readonly Dimension[]): (method: string, route: string | null) => { on: boolean; by: readonly Dimension[] } {
+  const decisions = new Map<string, { on: boolean; by: readonly Dimension[] }>();
+  const counted = { on: true, by };
+  return (method, route) => {
+    if (route === null) return counted;
+    const key = `${method} ${route}`;
+    let decision = decisions.get(key);
+    if (!decision) {
+      // A request-shaped target finds the tags of endpoints and of the entities behind generated routes.
+      const target = metricsFeature.optionsFor({ method, route, raw: undefined } as never);
+      const tagged = (target.by as Dimension[] | undefined) ?? by;
+      decision = target.on === false ? { on: false, by } : { on: true, by: target.on === true ? by.filter((dimension) => tagged.includes(dimension)) : by };
+      if (decisions.size < 10_000) decisions.set(key, decision);
+    }
+    return decision;
+  };
+}
+
 /** The running runtime of each set of resolved options, for the API. */
 const runtimes = new WeakMap<object, MetricsRuntime>();
 
+/** The runtime of the service running in this process, for `queryMetrics`. */
+let current: MetricsRuntime | undefined;
+
+/**
+ * The usage series of the running service, as `ctx.feature("metrics").query(options)` answers them, for project
+ * endpoints that replace the metrics route; rejects while the `metrics` native is not running.
+ */
+export function queryMetrics(options: MetricsQuery = {}): Promise<MetricsResult> {
+  if (!current) return Promise.reject(new Error("metrics is not running; add metrics: {} to quickservicets.config.ts"));
+  return current.query(options);
+}
+
 /** The database store and settings of the service running in this process, for the rollup job. */
-let rollupTarget: { store: DatabaseMetricsStore; retentionMs: number; rollupMs: number; rollupRetentionMs: number; clock: JobClock } | undefined;
+let rollupTarget: { store: DatabaseMetricsStore | MetricsStore; database: boolean; retentionMs: number; rollupMs: number; rollupRetentionMs: number; clock: JobClock } | undefined;
 
 /**
  * Rolls the stored minute windows older than the retention into hour windows and prunes the hour windows older than
@@ -87,9 +149,13 @@ let rollupTarget: { store: DatabaseMetricsStore; retentionMs: number; rollupMs: 
  */
 export async function rollupStoredWindows(): Promise<{ rolled: number; pruned: number } | { skipped: string }> {
   const target = rollupTarget;
-  if (!target) return { skipped: "metrics.store is not database" };
+  if (!target) return { skipped: "metrics.store is memory" };
   const now = target.clock.now();
-  return target.store.rollup({ before: new Date(now - target.retentionMs), pruneBefore: new Date(now - target.rollupRetentionMs), rollupMs: target.rollupMs });
+  if (target.database) return (target.store as DatabaseMetricsStore).rollup({ before: new Date(now - target.retentionMs), pruneBefore: new Date(now - target.rollupRetentionMs), rollupMs: target.rollupMs });
+  // A project's store receives the workers' rollups; the job prunes what they replaced and what expired.
+  const rolled = await target.store.prune({ resolution: "minute", before: new Date(now - target.retentionMs) });
+  const pruned = await target.store.prune({ resolution: "hour", before: new Date(now - target.rollupRetentionMs) });
+  return { rolled, pruned };
 }
 
 /**
@@ -115,6 +181,14 @@ const metricsFeature = defineFeature({
     ],
   },
   options,
+  tags: {
+    metrics: {
+      on: ["entity", "endpoint"],
+      options: ["by"],
+      description: "`@metrics off` leaves the routes of an entity or endpoint out of the usage metrics, and `@metrics by=route` counts them with fewer dimensions than `metrics.by`.",
+      example: "/** @metrics by=route */\nexport type Post = { title: string };",
+    },
+  },
   // The shared table of closed windows exists only with the database store.
   entities: ({ options }) => (options.store === "database" ? [metricWindowEntity()] : []),
   jobs: "./jobs",
@@ -132,19 +206,57 @@ const metricsFeature = defineFeature({
       maxSeries: ctx.options.maxSeries,
       onOverflow: (limit: number) => safeLog(ctx.logger, "warn", { timestamp: new Date(clock.now()).toISOString(), message: "metrics.series.overflow", limit }),
     };
-    let store: DatabaseMetricsStore | undefined;
+    let store: DatabaseMetricsStore | MetricsStore | undefined;
     rollupTarget = undefined;
-    if (ctx.options.store === "database") {
+    const projectStore = typeof ctx.options.store === "object" ? (ctx.options.store as MetricsStore) : undefined;
+    if (projectStore) {
+      store = projectStore;
+      rollupTarget = { store, database: false, retentionMs: settings.retentionMs, rollupMs: settings.rollupMs, rollupRetentionMs: settings.rollupRetentionMs, clock };
+    } else if (ctx.options.store === "database") {
       const model = ctx.models.find((candidate) => candidate.key === "MetricWindow" && candidate.system);
       if (!model) throw new Error(MISSING_ENTITY);
       store = databaseMetricsStore(ctx.config.database, model);
-      rollupTarget = { store, retentionMs: settings.retentionMs, rollupMs: settings.rollupMs, rollupRetentionMs: settings.rollupRetentionMs, clock };
+      rollupTarget = { store, database: true, retentionMs: settings.retentionMs, rollupMs: settings.rollupMs, rollupRetentionMs: settings.rollupRetentionMs, clock };
     } else if (ctx.config.server.workers > 1 && ctx.worker.runsScheduledWork) {
       safeLog(ctx.logger, "warn", { timestamp: new Date(clock.now()).toISOString(), message: MEMORY_WORKERS_WARNING });
     }
-    const runtime = new MetricsRuntime({ settings, clock, logger: ctx.logger, instance: `${hostname()}:${process.pid}:${ctx.worker.index}`, ...(store ? { store } : {}) });
+    const { beforeRecord, onWindowClosed } = ctx.options as unknown as { beforeRecord: FeatureHook<RequestObservation | null, undefined>[]; onWindowClosed: FeatureHook<WindowClosed, undefined>[] };
+    const runtime = new MetricsRuntime({
+      settings,
+      clock,
+      logger: ctx.logger,
+      instance: `${hostname()}:${process.pid}:${ctx.worker.index}`,
+      ...(store ? { store } : {}),
+      ...(projectStore ? { rollupLocally: true } : {}),
+      // The hooks see each closed window once per worker, outside the response path; a failure is logged.
+      ...(onWindowClosed.length > 0 ? { onWindowClosed: (window: UsageWindow) => void runAfterHooks(onWindowClosed, windowClosed(window), undefined) } : {}),
+    });
     runtimes.set(ctx.options, runtime);
     const excluded = excludedBy([...ctx.options.exclude, ctx.options.path]);
+    const routes = routeSettings(settings.by);
+    const decide = ctx.options.record as boolean | OptionFunction<boolean>;
+    const count = (observation: RequestObservation) => {
+      if (excluded(observation.route)) return;
+      const route = routes(observation.method, observation.route);
+      if (!route.on) return;
+      runtime.record(observation, route.by);
+    };
+    // Without a record function or beforeRecord hooks, recording stays synchronous: one lookup, increments and an insert.
+    const slow = typeof decide === "function" || beforeRecord.length > 0;
+    const observe = !slow
+      ? count
+      : (observation: RequestObservation) =>
+          void (async () => {
+            if (typeof decide === "function") {
+              const req = observation.req;
+              const allowed = await resolveOption(decide, { req, user: req?.user, tenant: req?.tenant, status: observation.status } as never);
+              if (allowed === false) return;
+            }
+            const changed = beforeRecord.length > 0 ? await runBeforeHooks(beforeRecord, observation as RequestObservation | null, undefined) : observation;
+            if (changed) count(changed);
+          })().catch((error: unknown) =>
+            safeLog(ctx.logger, "error", { timestamp: new Date(clock.now()).toISOString(), message: "metrics.record.failed", error: { message: (error as Error)?.message ?? String(error) } }),
+          );
     const path = ctx.options.path;
     ctx.app.route(
       "GET",
@@ -161,9 +273,6 @@ const metricsFeature = defineFeature({
     const enabled = (key: string) => ctx.config.features.some((feature) => feature.key === key);
     if (enabled("security")) ctx.feature("security").exempt(path, ["rateLimit", "loadShedding"]);
     if (enabled("tenancy")) ctx.feature("tenancy").exempt(path);
-    const observe = (observation: RequestObservation) => {
-      if (!excluded(observation.route)) runtime.record(observation);
-    };
     let unsubscribe: (() => void) | undefined;
     let timer: unknown;
     // Windows close on a timer at each boundary, never on the request path; with the database store they are written then.
@@ -176,6 +285,7 @@ const metricsFeature = defineFeature({
       }, Math.max(next - now, 1));
     };
     ctx.app.onStart(() => {
+      current = runtime;
       unsubscribe = observeRequests(observe);
       schedule();
     });
@@ -185,6 +295,7 @@ const metricsFeature = defineFeature({
       if (timer !== undefined) clock.clearTimeout(timer);
       timer = undefined;
       if (rollupTarget?.store === store) rollupTarget = undefined;
+      if (current === runtime) current = undefined;
     });
   },
   api: (ctx): MetricsApi => ({

@@ -132,7 +132,7 @@ endpoints/
 The build checks these rules and fails with a message naming the file:
 
 - File names are `get.ts`, `post.ts`, `put.ts`, `patch.ts`, `delete.ts` or `options.ts`, `sse.ts` for a `GET` route streaming Server-Sent Events, and `ws.ts` for a `GET` route upgraded to a WebSocket (both need the `realtime` native, and a folder has one `GET` route). Any other `.ts` file fails, for example `endpoints/health/index.ts: endpoint files must be named get, post, put, patch, delete, options, sse or ws (with .ts)`. An `options.ts` endpoint answers the CORS preflights of its path itself.
-- Static segments use only lowercase letters, digits, `-` and `.`, so `endpoints/Reports` fails with `path segments may only contain a-z, 0-9, "-" and "."`. Use `reports` or `monthly-reports`.
+- Static segments use only lowercase letters, digits, `-` and `.`, with an optional leading `_` for system-style paths like `endpoints/_metrics`, so `endpoints/Reports` fails with `path segments may only contain a-z, 0-9, "-" and ".", with an optional leading "_"`. Use `reports` or `monthly-reports`.
 - Parameter names match `^[a-zA-Z_][a-zA-Z0-9_]*$`, for example `[orgId]`.
 - Folders side by side must use the same parameter name: `organizations/[id]` next to `organizations/[orgId]` fails with `sibling dynamic segments must use the same name`.
 - Catch-all segments such as `[...slug]` are not supported.

@@ -1,3 +1,5 @@
+import type { ServiceRequest } from "./hooks.ts";
+
 /** What a request observer receives once a request's response is complete. */
 export interface RequestObservation {
   method: string;
@@ -9,6 +11,8 @@ export interface RequestObservation {
   tenantId?: string;
   /** When the request started, in milliseconds since the epoch. */
   startedAt: number;
+  /** The request, once routing matched; undefined for unmatched requests. */
+  req?: ServiceRequest;
 }
 
 /** Receives every completed request; it runs outside the response path and must not throw. */

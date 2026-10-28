@@ -17,6 +17,13 @@ export interface MetricsRuntimeOptions {
   store?: MetricsStore;
   /** `<hostname>:<pid>:<worker index>`, the instance of the rows this worker writes. */
   instance: string;
+  /**
+   * Rolls minute windows into hours in this worker and writes the rollups to the store too, for stores that keep what
+   * they receive (a project's store); the database store rolls up with its job instead.
+   */
+  rollupLocally?: boolean;
+  /** Called with each closed window of this worker. */
+  onWindowClosed?: (window: UsageWindow) => void;
 }
 
 /**
@@ -37,13 +44,14 @@ export class MetricsRuntime {
     this.recorder = new UsageRecorder(options.settings, options.clock.now());
   }
 
-  record(observation: UsageObservation): void {
-    this.recorder.record(observation);
+  record(observation: UsageObservation, by?: RecorderSettings["by"]): void {
+    this.recorder.record(observation, by);
   }
 
   /** Closes the window when its boundary passed; with a store, hands the closed windows to it. */
   rotate(): Promise<void> {
-    const closed = this.recorder.rotate(this.options.clock.now());
+    const { closed, rolled } = this.recorder.rotate(this.options.clock.now());
+    for (const window of closed) this.options.onWindowClosed?.(window);
     for (const window of closed) {
       for (const [key, series] of window.series) {
         let target = this.cumulative.get(key);
@@ -52,10 +60,14 @@ export class MetricsRuntime {
       }
     }
     if (!this.options.store) return Promise.resolve();
-    // The store keeps closed windows, rollups and their retention; the worker keeps only what it has not written.
-    this.recorder.closed.length = 0;
-    this.recorder.rollups.length = 0;
+    // The store keeps closed windows, rollups and their retention; the worker keeps only what it has not written, and
+    // the windows it rolls up itself when the store does not.
+    if (!this.options.rollupLocally) {
+      this.recorder.closed.length = 0;
+      this.recorder.rollups.length = 0;
+    }
     this.unflushed.push(...closed);
+    if (this.options.rollupLocally) for (const window of rolled) if (!this.unflushed.includes(window)) this.unflushed.push(window);
     if (this.unflushed.length > MAX_UNFLUSHED) this.dropped += this.unflushed.splice(0, this.unflushed.length - MAX_UNFLUSHED).length;
     return this.flush();
   }
@@ -124,7 +136,10 @@ export class MetricsRuntime {
     if (!store) return queryWindows(local, settings, query, now);
     const { from, to } = rangeOf(query, now);
     // Rollup windows start up to one rollup before the range and still overlap it.
-    const stored = (await store.read({ from: new Date(from - settings.rollupMs), to: new Date(to + 1) })).map(usageWindow);
-    return queryWindows([...stored, ...this.unflushed, ...local], settings, query, now);
+    let stored = (await store.read({ from: new Date(from - settings.rollupMs), to: new Date(to + 1) })).map(usageWindow);
+    // A store that keeps the worker's rollups also keeps the minute windows they came from until they are pruned.
+    if (this.options.rollupLocally) stored = stored.filter((window) => window.resolution === "hour" || window.start + settings.windowMs > now - settings.retentionMs);
+    const own = this.options.rollupLocally ? [this.recorder.current] : local;
+    return queryWindows([...stored, ...this.unflushed, ...own], settings, query, now);
   }
 }

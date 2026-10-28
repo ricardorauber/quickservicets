@@ -27,11 +27,31 @@ It is not enabled by default: turn it on with `metrics: {}` or `QS_METRICS_ENABL
 | `metrics.by` | `("route" \| "tenant" \| "user")[]` | `["route","tenant"]` | `QS_METRICS_BY` | no | The dimensions of each series: the route as its method and pattern (GET /posts), and the tenant and user ids (- when absent). |
 | `metrics.maxSeries` | `integer` | `10000` | `QS_METRICS_MAX_SERIES` | no | The most series per window and worker; further ones are counted in one series whose dimensions are all other. |
 | `metrics.exclude` | `string[]` | `["/health/*","/_metrics","/docs"]` | `QS_METRICS_EXCLUDE` | no | Route patterns that are not counted; a pattern ending in /* covers every route under it. |
-| `metrics.store` | `"memory" \| "database"` | `"memory"` | `QS_METRICS_STORE` | no | Where closed windows are kept: the worker's memory, or the MetricWindow table of the project's database, shared by every worker and replica. |
+| `metrics.store` | `"memory" \| "database" \| MetricsStore` | `"memory"` | `QS_METRICS_STORE` | no | Where closed windows are kept: the worker's memory, the MetricWindow table of the project's database shared by every worker and replica, or a MetricsStore of the project. |
+| `metrics.record` | `boolean` | `true` | `QS_METRICS_RECORD` | yes | Whether a completed request is counted; a function of the request, its user, tenant and status decides per request, like leaving out synthetic checks. |
+| `metrics.beforeRecord` | `hook` | — | not overridable | no | Runs before an observation is counted; it may return a changed one (a grouped route, say) or null to skip it. |
+| `metrics.onWindowClosed` | `hook` | — | not overridable | no | Runs once per closed window and worker with its start and series, for pushing them elsewhere; a failure is logged. |
 | `metrics.path` | `string` | `"/_metrics"` | `QS_METRICS_PATH` | no | The path of the route serving the metrics as JSON and in the Prometheus text format. |
 | `metrics.access.allow` | `cidr[]` | `["loopback","private"]` | `QS_METRICS_ACCESS_ALLOW` | no | The addresses that may read the metrics; an empty list allows any address that has the token. |
 | `metrics.access.token` | `string` | — | `QS_METRICS_ACCESS_TOKEN` | no | Requires this bearer token in the Authorization header of the metrics route. |
 | `metrics.enabled` | `boolean` | `true` | `QS_METRICS_ENABLED` | no | Turns the feature off when false. |
+
+## Tags
+
+### `@metrics`
+
+`@metrics off` leaves the routes of an entity or endpoint out of the usage metrics, and `@metrics by=route` counts them with fewer dimensions than `metrics.by`.
+
+**Applies to:** entities, endpoints
+
+**Syntax:** `@metrics [by=…]` or `@metrics off`
+
+**Options:** `metrics.by`
+
+```ts
+/** @metrics by=route */
+export type Post = { title: string };
+```
 
 ## Jobs
 
@@ -40,6 +60,15 @@ Jobs run while the feature is enabled; a project file `jobs/<name>.ts` replaces 
 | Job | Schedule | Description |
 | --- | --- | --- |
 | `metrics/rollup` | `@hourly` | Every hour, rolls the stored minute windows older than the retention into hour windows and prunes old hour windows. |
+
+## Hooks
+
+Hooks are functions (or lists of functions) written in the config; `before` hooks may change the value or cancel the step by throwing, `after` and `on` hooks observe.
+
+| Hook | Kind | Description |
+| --- | --- | --- |
+| `metrics.beforeRecord` | before | Runs before an observation is counted; it may return a changed one (a grouped route, say) or null to skip it. |
+| `metrics.onWindowClosed` | on | Runs once per closed window and worker with its start and series, for pushing them elsewhere; a failure is logged. |
 
 ## Feature API
 

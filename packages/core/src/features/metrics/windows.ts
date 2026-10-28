@@ -139,11 +139,12 @@ export class UsageRecorder {
 
   /**
    * Closes the open window once `now` passed its end, opening the window of `now`; merges closed windows older than the
-   * retention into rollups and drops rollups older than theirs. Returns the windows it closed.
+   * retention into rollups and drops rollups older than theirs. Returns the windows it closed and the rollups it changed.
    */
-  rotate(now: number): UsageWindow[] {
+  rotate(now: number): { closed: UsageWindow[]; rolled: UsageWindow[] } {
     const { windowMs, retentionMs, rollupMs, rollupRetentionMs } = this.settings;
     const closedNow: UsageWindow[] = [];
+    const rolled = new Set<UsageWindow>();
     if (now >= this.current.start + windowMs) {
       if (this.current.series.size > 0) {
         this.closed.push(this.current);
@@ -162,9 +163,10 @@ export class UsageRecorder {
         this.rollups.sort((a, b) => a.start - b.start);
       }
       mergeWindowInto(rollup, old);
+      rolled.add(rollup);
     }
-    while (this.rollups.length > 0 && this.rollups[0]!.start + rollupMs <= now - rollupRetentionMs) this.rollups.shift();
-    return closedNow;
+    while (this.rollups.length > 0 && this.rollups[0]!.start + rollupMs <= now - rollupRetentionMs) rolled.delete(this.rollups.shift()!);
+    return { closed: closedNow, rolled: [...rolled] };
   }
 
   /** Every window this worker keeps: rollups, closed windows and the open one. */

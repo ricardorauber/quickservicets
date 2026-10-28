@@ -29,7 +29,8 @@ export const SSE_FILE = "sse.ts";
 export const WS_FILE = "ws.ts";
 
 const PARAM_NAME = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
-const STATIC_SEGMENT = /^[a-z0-9.-]+$/;
+/** A static segment: lowercase letters, digits, `-` and `.`, with an optional leading `_` for system-style paths like `_metrics`. */
+const STATIC_SEGMENT = /^_?[a-z0-9.-]+$/;
 
 interface Segment {
   static?: string;
@@ -49,7 +50,7 @@ function parseSegment(folder: string, relativeFolder: string): Segment {
     return { param: name };
   }
   if (!STATIC_SEGMENT.test(folder)) {
-    throw new BuildError(`${relativeFolder}: path segments may only contain a-z, 0-9, "-" and "."`);
+    throw new BuildError(`${relativeFolder}: path segments may only contain a-z, 0-9, "-" and ".", with an optional leading "_"`);
   }
   return { static: folder };
 }

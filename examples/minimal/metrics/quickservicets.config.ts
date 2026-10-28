@@ -1,6 +1,8 @@
-import { defineConfig, memoryAdapter } from "@quickservicets/core";
+import { defineConfig, sqliteAdapter } from "@quickservicets/core";
 
 export default defineConfig({
-  database: memoryAdapter(),
-  metrics: {},
+  database: sqliteAdapter({ path: "data.db" }),
+  // Closed windows go to the MetricWindow table, so every worker and replica reports the whole service.
+  metrics: { store: "database" },
+  tenancy: { source: "config", tenants: { acme: {}, globex: {} } },
 });

@@ -356,6 +356,7 @@ function observeEnd(request: Request, state: { route: string | null; req?: Servi
     ...(userId !== undefined ? { userId } : {}),
     ...(tenantId !== undefined ? { tenantId } : {}),
     startedAt: observedAt,
+    ...(state.req ? { req: state.req } : {}),
   });
 }
 

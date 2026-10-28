@@ -1,7 +1,7 @@
-import { boolean, cidr, defineFeature, duration, hook, HttpError, list, object, oneOf, parseDuration, provider, rate, record, requireRole, requireUser, resolveOption, secret, size, string, url, type FeatureHook, type OptionFunction, type SecurityRouteOptions, type ServiceRequest } from "../public.ts";
-import { forwardRequest, type ForwardContext, type ProxyDone, type ProxyFailure, type ProxyForwarder, type ProxyOverrides, type ProxyRoute, type ProxyStep } from "./forward.ts";
+import { boolean, cidr, defineFeature, duration, hook, HttpError, list, noteRequestLog, object, oneOf, parseDuration, provider, rate, record, requireRole, requireUser, resolveOption, secret, serviceUrl, size, string, url, type FeatureHook, type OptionFunction, type SecurityRouteOptions, type ServiceRequest } from "../public.ts";
+import { forwardRequest, routeWith, templatePath, type ForwardContext, type ForwardOptions, type ProxyDone, type ProxyFailure, type ProxyForwarder, type ProxyOverrides, type ProxyRoute, type ProxyStep } from "./forward.ts";
 
-export type { ProxyDone, ProxyFailure, ProxyForwarder, ProxyOverrides, ProxyStep } from "./forward.ts";
+export type { ForwardOptions, ProxyDone, ProxyFailure, ProxyForwarder, ProxyOverrides, ProxyStep } from "./forward.ts";
 import { IDENTITY_HEADER } from "./identity.ts";
 
 export { proxyIdentity, signIdentity, IDENTITY_HEADER } from "./identity.ts";
@@ -60,6 +60,7 @@ const options = object({
   forwarder: provider<ProxyForwarder>("ProxyForwarder", ["forward"])
     .optional()
     .describe("Replaces how the gateway calls upstreams; authentication, identity headers, security options and hooks still apply."),
+  allowedTargets: list(url()).default([]).describe("The upstream base URLs forward() may call with an inline target; any other origin answers 502."),
   identity: object({
     secret: secret().optional().describe("Signs every proxied request's forwarded identity with HMAC-SHA256, for proxyIdentity() in the upstream."),
     header: string().default(IDENTITY_HEADER).describe("The header carrying the signed identity."),
@@ -94,8 +95,10 @@ type RouteOptions = {
 };
 
 /** The problems of the configured routes: exactly one of target and service, a valid path, one way of rewriting. */
-export function routeProblems(routes: Readonly<Record<string, RouteOptions>>, config: Readonly<Record<string, unknown>> = {}): string[] {
+export function routeProblems(routes: Readonly<Record<string, RouteOptions>>, config: Readonly<Record<string, unknown>> = {}, allowedTargets: readonly string[] = []): string[] {
   const problems: string[] = [];
+  // forward() calls inline targets through the proxy/forward service, which a route named forward would also declare.
+  if (allowedTargets.length > 0 && routes.forward?.target !== undefined && typeof routes.forward.target !== "function") problems.push("Invalid proxy.routes.forward: the name forward is reserved for forward() targets while proxy.allowedTargets is set");
   const authOn = config.auth !== undefined && config.auth !== false && (config.auth as { enabled?: boolean } | undefined)?.enabled !== false;
   for (const [name, route] of Object.entries(routes)) {
     if ((route.target === undefined) === (route.service === undefined)) problems.push(`Invalid proxy.routes.${name}: set target or service`);
@@ -138,35 +141,94 @@ function upstreamPathOf(options: RouteOptions): Pick<ProxyRoute, "upstreamPath">
   if (options.stripPrefix) return { upstreamPath: (req) => restOf(req.path, prefix) || "/" };
   const template = options.rewrite;
   if (template === undefined) return {};
-  const [before, after] = template.includes("[...rest]") ? template.split("[...rest]") : [template, undefined];
-  return {
-    upstreamPath: (req) => {
-      if (after === undefined) return before!;
-      const rest = restOf(req.path, prefix).replace(/^\//, "");
-      return `${before}${rest}${after}`.replace(/\/{2,}/g, "/");
-    },
-  };
+  return { upstreamPath: templatePath(template, (req) => restOf(req.path, prefix)) };
 }
 
-/** The routes of the running service, by name, for `proxyRequest`. */
+/** What `forward()` needs of the running service: the routes by name with their prefixes, and the allowed inline targets. */
 interface RunningProxy {
-  routes: Map<string, ProxyRoute>;
+  routes: Map<string, { route: ProxyRoute; rest: (req: ServiceRequest) => string }>;
   context: ForwardContext;
+  /** The service of each origin of `allowedTargets`. */
+  targets: ReadonlyMap<string, string>;
 }
 
 let current: RunningProxy | undefined;
 
+/** The keys `forward()` takes besides `service` and `target`. */
+const CALL_KEYS = new Set(["stripPrefix", "rewrite", "path", "timeout", "idleTimeout", "preserveHost", "forward", "headers"]);
+
+function checkKeys(options: object, allowed: ReadonlySet<string>): void {
+  for (const key of Object.keys(options)) if (!allowed.has(key)) throw new TypeError(`forward(): unknown option ${key}; the options are ${[...allowed].join(", ")}`);
+}
+
+function checkOverrides(overrides: ProxyOverrides | undefined): void {
+  if (overrides === undefined) return;
+  if (typeof overrides !== "object" || overrides === null) throw new TypeError("forward(): overrides must be an object");
+  checkKeys(overrides, CALL_KEYS);
+}
+
 /**
- * Forwards a request with a proxy route's settings (authentication, rewriting, identity headers, hooks and the
- * forwarder) and returns the upstream's `Response`, for project endpoints that wrap a route, like one adding checks
- * or changing the response; `overrides` may change the upstream path and add headers.
+ * Forwards the current request to an upstream with the whole proxy pipeline (streaming, forwarding and identity
+ * headers, SSRF trust, timeouts, hooks and the forwarder) and resolves the upstream's `Response` for every status, so
+ * the caller can inspect it, read it or return it unchanged. `options` is a configured route's name, whose
+ * authentication runs first and whose settings `overrides` change for this call, or an inline object with exactly
+ * one of `service` (an `http.services` entry) and `target` (one of `proxy.allowedTargets`). A timeout, a connection
+ * failure, a refused target, an open circuit or a full bulkhead rejects with the `HttpError` (504, 502 or 503) a
+ * proxy route would answer.
  */
-export function proxyRequest(req: ServiceRequest, routeName: string, overrides?: ProxyOverrides): Promise<Response> {
+export function forward(req: ServiceRequest, options: string | ForwardOptions, overrides?: ProxyOverrides): Promise<Response> {
   const running = current;
-  if (!running) return Promise.reject(new Error("proxy is not running; add proxy: {} to quickservicets.config.ts"));
-  const route = running.routes.get(routeName);
-  if (!route) return Promise.reject(new Error(`Unknown proxy route ${routeName}; the routes are ${[...running.routes.keys()].join(", ") || "none"}`));
-  return forwardRequest(req, route, running.context, overrides);
+  if (!running) throw new Error("forward() needs proxy: {} in quickservicets.config.ts");
+  let route: ProxyRoute;
+  let headers: Readonly<Record<string, string>> | undefined;
+  if (typeof options === "string") {
+    const named = running.routes.get(options);
+    if (!named) throw new Error(`Unknown proxy route ${options}`);
+    checkOverrides(overrides);
+    route = overrides ? routeWith(named.route, overrides, named.rest) : named.route;
+    headers = overrides?.headers;
+  } else {
+    if (typeof options !== "object" || options === null) throw new TypeError("forward(): options must be a route name or an object");
+    checkKeys(options, new Set([...CALL_KEYS, "service", "target"]));
+    if ((options.service === undefined) === (options.target === undefined)) throw new TypeError("forward(): set service or target");
+    const { context } = running;
+    const inline: ProxyRoute = {
+      name: null,
+      path: "",
+      service: "",
+      timeoutMs: 30_000,
+      idleTimeoutMs: 60_000,
+      preserveHost: false,
+      forward: new Set(["user", "tenant"]),
+      identityHeader: context.identityHeader,
+      ...(context.identity ? { identity: context.identity } : {}),
+    };
+    if (options.service !== undefined) {
+      // Throws Unknown service <name> for a name http.services does not declare.
+      serviceUrl(options.service);
+      inline.service = options.service;
+    } else {
+      const target = options.target!;
+      inline.service = "proxy/forward";
+      inline.pickTarget = () => Promise.resolve(target);
+      inline.allowed = running.targets;
+    }
+    checkOverrides(overrides);
+    // A path rule of the overrides replaces the options' one.
+    const ruled = overrides !== undefined && (overrides.path !== undefined || overrides.stripPrefix !== undefined || overrides.rewrite !== undefined);
+    const base: ProxyOverrides = ruled ? { ...options, path: undefined, stripPrefix: undefined, rewrite: undefined } : options;
+    route = routeWith(inline, { ...base, ...overrides });
+    headers = options.headers || overrides?.headers ? { ...options.headers, ...overrides?.headers } : undefined;
+  }
+  // Sending an empty body in place of one the handler already read would corrupt the upstream call.
+  if (req.raw.bodyUsed) throw new Error("forward(): the request body was already read");
+  noteRequestLog(req.raw, { proxy: route.name ?? "forward" });
+  return forwardRequest(req, route, running.context, headers);
+}
+
+/** `forward(req, routeName, overrides)` under its first name: forwards a request with a configured route's settings. */
+export function proxyRequest(req: ServiceRequest, routeName: string, overrides?: ProxyOverrides): Promise<Response> {
+  return forward(req, routeName, overrides);
 }
 
 /** The security route options of a proxy route, or undefined when it has none, so it adds no route index entry. */
@@ -216,13 +278,17 @@ const proxyFeature = defineFeature({
       },
       {
         title: "Routes and variables",
-        text: "Every option of a route has its variable, with the route's name in upper case and hyphens as underscores: `QS_PROXY_ROUTES_<NAME>_TARGET`, `QS_PROXY_ROUTES_<NAME>_TIMEOUT`, `QS_PROXY_ROUTES_<NAME>_STRIP_PREFIX`, `QS_PROXY_ROUTES_<NAME>_RATE_LIMIT_LIMIT`; `QS_PROXY_ROUTES` sets the whole record as JSON. `proxyRequest(req, routeName, overrides)` forwards a request with a route's settings from a project endpoint, and `proxyIdentity({ secret })` verifies the signed identity in services behind the gateway.",
+        text: "Every option of a route has its variable, with the route's name in upper case and hyphens as underscores: `QS_PROXY_ROUTES_<NAME>_TARGET`, `QS_PROXY_ROUTES_<NAME>_TIMEOUT`, `QS_PROXY_ROUTES_<NAME>_STRIP_PREFIX`, `QS_PROXY_ROUTES_<NAME>_RATE_LIMIT_LIMIT`; `QS_PROXY_ROUTES` sets the whole record as JSON. `proxyIdentity({ secret })` verifies the signed identity in services behind the gateway.",
+      },
+      {
+        title: "forward() from code",
+        text: "`forward(req, options, overrides?)` from `@quickservicets/core` forwards the current request from any endpoint, hook or feature handler through the whole proxy pipeline (streaming, forwarding and identity headers with the signature, SSRF trust, timeouts, the hooks with `route: null` for inline calls, and the `forwarder`) and resolves the upstream `Response` for every status, so the caller can inspect it, read it or return it unchanged. `options` is a route name, whose `auth`, `roles` and `scopes` are checked first, or an inline object with exactly one of `service` (an `http.services` entry) and `target` (an origin of `proxy.allowedTargets`, any other answers 502 and logs `proxy.target.refused`), plus `path`, `stripPrefix` or `rewrite` (only one), `timeout`, `idleTimeout`, `preserveHost`, `forward` and `headers` (never hop-by-hop or identity headers); `overrides` takes the same keys except `service` and `target`. A timeout, a connection failure, an open circuit or a full bulkhead rejects with the `HttpError` (504, 502 or 503) a proxy route would answer. `proxy: {}` without routes is enough, `QS_PROXY_ALLOWED_TARGETS` takes the allowed targets comma-separated, each call writes an `http.call` entry (service `proxy/forward` for an inline target) and the request log adds `proxy: <route>` or `proxy: \"forward\"`. `proxyRequest(req, routeName, overrides)` is an alias of `forward(req, routeName, overrides)`.",
       },
     ],
   },
   options,
   requires: [{ name: "http", hint: "proxy routes call their upstreams through the HTTP client" }],
-  validate: (resolved, config) => routeProblems(resolved.routes as Record<string, RouteOptions>, config),
+  validate: (resolved, config) => routeProblems(resolved.routes as Record<string, RouteOptions>, config, resolved.allowedTargets as string[]),
   // Route authentication reads req.user, which the auth native sets in the handler stage; route options go to security.
   after: ["auth", "security"],
   setup(ctx) {
@@ -236,7 +302,11 @@ const proxyFeature = defineFeature({
     }
     const http = ctx.feature("http");
     const hooks = ctx.options as unknown as { beforeProxy: FeatureHook<ProxyStep, undefined>[]; afterProxy: FeatureHook<ProxyDone, undefined>[]; onProxyError: FeatureHook<ProxyFailure, undefined>[] };
+    const identitySecret = (ctx.options.identity as { secret?: string }).secret;
+    const identity = identitySecret ? { secret: identitySecret, header: ctx.options.identity.header.toLowerCase() } : undefined;
     const context: ForwardContext = {
+      identityHeader: ctx.options.identity.header.toLowerCase(),
+      ...(identity ? { identity } : {}),
       production: ctx.config.production,
       logger: ctx.logger,
       beforeProxy: hooks.beforeProxy,
@@ -244,13 +314,19 @@ const proxyFeature = defineFeature({
       onProxyError: hooks.onProxyError,
       ...(ctx.options.forwarder ? { forwarder: ctx.options.forwarder as ProxyForwarder } : {}),
     };
-    const running: RunningProxy = { routes: new Map(), context };
+    // forward() calls an inline target through the proxy/forward service, which SSRF protection trusts for every
+    // origin of allowedTargets.
+    const targets = new Map<string, string>();
+    for (const target of ctx.options.allowedTargets as string[]) {
+      const origin = new URL(target).origin;
+      if (targets.size === 0) http.addService("forward", { url: origin });
+      targets.set(origin, "proxy/forward");
+    }
+    const running: RunningProxy = { routes: new Map(), context, targets };
     current = running;
     ctx.app.onStop(() => {
       if (current === running) current = undefined;
     });
-    const identitySecret = (ctx.options.identity as { secret?: string }).secret;
-    const identity = identitySecret ? { secret: identitySecret, header: ctx.options.identity.header.toLowerCase() } : undefined;
     for (const [name, options] of routes) {
       // A target becomes a service of its own, so SSRF protection trusts its host like any configured service; so does
       // each allowed target of a target function.
@@ -279,7 +355,8 @@ const proxyFeature = defineFeature({
         ...(options.cors ? { cors: true } : {}),
         ...authorizerOf(options),
       };
-      running.routes.set(name, route);
+      const prefix = prefixOf(options.path);
+      running.routes.set(name, { route, rest: (req) => restOf(req.path, prefix) });
       const handler = (_repos: unknown, req: ServiceRequest) => forwardRequest(req, route, context);
       const routeAuth = options.auth === "public" ? { auth: false } : {};
       // Per-route security goes through the security native, like the tags of an endpoint would.

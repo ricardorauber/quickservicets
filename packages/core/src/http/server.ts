@@ -173,6 +173,17 @@ export function deferRequestLog(response: Response, finished: Promise<Record<str
   deferredLogs.set(response, finished);
 }
 
+/** Fields added to the request log entry of a request, whatever response its handler returns. */
+const requestNotes = new WeakMap<Request, Record<string, unknown>>();
+/** Whether any request was noted, so services that never note one look nothing up. */
+let notesUsed = false;
+
+/** Adds `fields` to the request log entry of `request`, like `proxy` for a request a handler forwarded. */
+export function noteRequestLog(request: Request, fields: Record<string, unknown>): void {
+  notesUsed = true;
+  requestNotes.set(request, { ...requestNotes.get(request), ...fields });
+}
+
 /** The Bun server that accepted each request, for upgrading it to a WebSocket. */
 const servers = new WeakMap<Request, BunServer>();
 
@@ -553,6 +564,7 @@ export function createServer({ routes, repos, config: serverConfig, jobs = noReq
         hooks: state.req ? executedHooks(state.req) : [],
         ...(requestLogTenant && state.req?.tenant ? { tenant: (state.req.tenant as { id?: string }).id } : {}),
         ...(clientCertificates ? clientField(request) : {}),
+        ...(notesUsed ? requestNotes.get(request) : undefined),
         ...extra,
       });
     if (deferred) void deferred.then(write, () => write({}));

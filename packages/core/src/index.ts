@@ -44,7 +44,7 @@ export type {
   ServiceRequest,
   ServiceResponse,
 } from "./hooks.ts";
-export { bunServerOf, createServer, deferRequestLog, endUpgradedRequest, peerAddress, requestSpanOf, toResponse, upgradeRequest } from "./http/server.ts";
+export { bunServerOf, createServer, deferRequestLog, endUpgradedRequest, noteRequestLog, peerAddress, requestSpanOf, toResponse, upgradeRequest } from "./http/server.ts";
 export { assertRoomName, defineSocket, isSocketDefinition, ROOM_NAME, setSocketHub, setSocketRunner, socketEndpoint, sockets, withMessageValidator } from "./http/socket.ts";
 export type { AnySocketHandlers, DisconnectFilter, MessageValidator, PublishOptions, Sockets, Socket, SocketContext, SocketDefinition, SocketHandlers, SocketRunner, SocketTypes, TypedSocketHandlers } from "./http/socket.ts";
 export { compileMessageValidator } from "./http/socket-messages.ts";
@@ -330,8 +330,8 @@ export type { CertificateAuthOptions, LoginCheck, LoginGuard, LoginGuardOptions,
 export type { AuthApi, AuthCredentials, AuthenticatedUser, AuthMethod, AuthProvider, AuthResult, AuthResultUser, RequestAuth, RevokeTarget } from "./features/auth/index.ts";
 export { LatencySketch, metricsFeature, queryMetrics, setMetricsClock } from "./features/metrics/index.ts";
 export type { EncodedSketch, MetricsApi, MetricsFigures, MetricsQuery, MetricsResult, MetricsSeries, MetricsStore, MetricWindow, StoredSeries, StoredWindow, WindowClosed } from "./features/metrics/index.ts";
-export { IDENTITY_HEADER, proxyFeature, proxyIdentity, proxyRequest, signIdentity } from "./features/proxy/index.ts";
-export type { ProxyDone, ProxyFailure, ProxyForwarder, ProxyIdentityOptions, ProxyOverrides, ProxyStep } from "./features/proxy/index.ts";
+export { forward, IDENTITY_HEADER, proxyFeature, proxyIdentity, proxyRequest, signIdentity } from "./features/proxy/index.ts";
+export type { ForwardOptions, ProxyDone, ProxyFailure, ProxyForwarder, ProxyIdentityOptions, ProxyOverrides, ProxyStep } from "./features/proxy/index.ts";
 export { addOutboxPatterns, events, eventsFeature, listen, memoryEventBus, readOutbox, tailOutbox } from "./features/events/index.ts";
 export type { ConsumerOptions, DeliveryContext, DeliveryStatus, OutboxRecord } from "./features/events/index.ts";
 export type { EventBus, EventListener, Events, EventsApi, ListenerContext, ListenerFile, ListenerPhase, ListenOptions, MemoryEventBus } from "./features/events/index.ts";

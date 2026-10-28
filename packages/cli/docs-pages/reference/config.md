@@ -842,6 +842,7 @@ Every option, tag, command and hook of `proxy` is on [its reference page](/refer
 | `proxy.afterProxy` | `hook` | — | not overridable | Runs once the upstream answered, with the request, the route, the status, the headers and the duration. |
 | `proxy.onProxyError` | `hook` | — | not overridable | Runs when an upstream call fails, with the request, the route and the error. |
 | `proxy.forwarder` | `ProxyForwarder` | — | not overridable | Replaces how the gateway calls upstreams; authentication, identity headers, security options and hooks still apply. |
+| `proxy.allowedTargets` | `url[]` | `[]` | `QS_PROXY_ALLOWED_TARGETS` | The upstream base URLs forward() may call with an inline target; any other origin answers 502. |
 | `proxy.identity.secret` | `string` | — | `QS_PROXY_IDENTITY_SECRET` | Signs every proxied request's forwarded identity with HMAC-SHA256, for proxyIdentity() in the upstream. |
 | `proxy.identity.header` | `string` | `"x-quickservicets-identity"` | `QS_PROXY_IDENTITY_HEADER` | The header carrying the signed identity. |
 | `proxy.identity.maxAge` | `duration` | `"60s"` | `QS_PROXY_IDENTITY_MAX_AGE` | How old a signed identity may be when the upstream checks it. |

@@ -71,6 +71,31 @@ Routes are configuration, not files, so they cannot carry JSDoc tags; per-route 
 
 Security headers are added to proxied responses only where the upstream did not set them. Any feature gives such options to its own routes with `ctx.feature("security").routeOptions(pattern, options)`.
 
+## Forwarding from code with forward()
+
+A route is not the only way in: `forward(req, options, overrides?)` from `@quickservicets/core` forwards the current request from any endpoint, hook or feature handler through the same pipeline (streaming both ways, hop-by-hop and forwarding headers, the forwarded and signed identity, SSRF trust, timeouts, the hooks and the `forwarder`) and resolves the upstream `Response`, for every status. `proxy: {}` without routes is enough.
+
+```ts
+// endpoints/products/get.ts
+import { forward, type Repositories, type ServiceRequest } from "@quickservicets/core";
+
+export default async (_repos: Repositories, req: ServiceRequest) => {
+  const [items, stock] = await Promise.all([
+    forward(req, { service: "catalog", path: "/items" }),
+    forward(req, { target: "http://stock.internal:8080", path: "/levels" }),
+  ]);
+  if (!items.ok) return items; // the upstream's answer, unchanged
+  return { items: await items.json(), stock: await stock.json() };
+};
+```
+
+- `options` is a route name, like `forward(req, "orders")`: the route's settings apply, its `auth`, `roles` and `scopes` are checked before any upstream call, and `overrides` changes them for the call. An unknown name throws `Unknown proxy route <name>`.
+- Or `options` is an inline object with exactly one of `service` (an `http.services` entry, with its headers, authentication and resilience) and `target`, plus `path` (replaces the request path; the query string is kept unless `path` has its own), `stripPrefix: "/dashboard"` or `rewrite: "/v2/[...rest]"` (only one of the three), `timeout`, `idleTimeout`, `preserveHost`, `forward` and `headers`. `headers` never sets hop-by-hop or identity headers.
+- An inline `target` must be one of `proxy.allowedTargets` (`QS_PROXY_ALLOWED_TARGETS`, comma-separated), which SSRF protection trusts without an `http.allow` entry; any other origin answers 502 and logs `proxy.target.refused`, so code never becomes a way to reach arbitrary hosts.
+- Hooks receive `route: null` for inline calls. A timeout, a connection failure, a refused target, an open circuit or a full bulkhead rejects with the `HttpError` (504, 502 or 503) a route would answer; uncaught, it answers the request the same way.
+- The body streams to the upstream, so call `forward` before reading it: after `await req.json()` it throws `forward(): the request body was already read`.
+- `proxyRequest(req, routeName, overrides)`, the earlier name, is an alias of `forward(req, routeName, overrides)`.
+
 ## Timeouts and error answers
 
 `timeout` (30 seconds) bounds the time until the upstream's response headers and `idleTimeout` (60 seconds) the pauses between body chunks. A slow upstream answers 504 `GATEWAY_TIMEOUT` `Upstream request timed out`; a refused connection or an SSRF block 502 `BAD_GATEWAY` `Upstream request failed`; an open circuit or a full bulkhead 503. Outside production the answers carry the failing URL and error code.
@@ -81,7 +106,7 @@ A route with `service` uses that service's modifiers: retries (only for requests
 
 ## Observability
 
-Each forwarded call writes an `http.call` log entry with the route's service (`proxy/catalog`), and the request log entry adds `proxy: <route>` once the response body ended. With a tracer, the server span covers the request and a client span each upstream attempt, carrying `traceparent` upstream; with a meter, the request and client durations are recorded; usage metrics count proxied routes like any other.
+Each forwarded call writes an `http.call` log entry with the route's service (`proxy/catalog`), the inline service of a `forward()` call, or `proxy/forward` for an inline target, and the request log entry adds `proxy: <route>` (or `proxy: "forward"` for an inline call) once the response body ended. With a tracer, the server span covers the request and a client span each upstream attempt, carrying `traceparent` upstream; with a meter, the request and client durations are recorded; usage metrics count proxied routes like any other.
 
 ## Customization
 
@@ -92,7 +117,7 @@ Every level of customization, as `examples/minimal/proxy` shows:
 - Level 2: the proxy has no tags; per-route settings are route options.
 - Level 3: a target function `({ req, user, tenant }) => url` chooses the upstream per request, among `allowedTargets`; any other origin answers 502 and logs `proxy.target.refused`, so per-tenant routing never becomes a way to reach arbitrary hosts.
 - Level 4: `beforeProxy` changes the upstream request (same origin) or refuses it, `afterProxy` observes each answer and `onProxyError` each failure.
-- Level 5: a project endpoint wins over a route on its path, and `proxyRequest(req, "orders", overrides)` forwards with the route's settings, so the endpoint can add checks or change the response.
+- Level 5: a project endpoint wins over a route on its path, and `forward(req, "orders", overrides)` forwards with the route's settings, so the endpoint can add checks or change the response; `forward(req, { service, path })` calls an upstream without any route.
 - Level 6: a `forwarder` replaces how upstreams are called, while authentication, identity headers, security options and hooks still apply.
 - Level 7: `quickservicets eject proxy` copies the native into `features/proxy/`.
 

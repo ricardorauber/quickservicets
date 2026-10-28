@@ -338,6 +338,8 @@ export interface StreamCallSpec {
   signal?: AbortSignal;
   /** The request the call is made for, which the service's header and authentication functions receive. */
   req?: ServiceRequest;
+  /** The host SSRF protection trusts instead of the service's, for a call to another allowed origin of the service. */
+  trustedHost?: string;
 }
 
 /**
@@ -352,7 +354,7 @@ export async function streamCall(spec: StreamCallSpec): Promise<Response> {
   const headers = new Headers(spec.headers);
   await applyService(headers, service, spec.req ? { req: spec.req } : {}, false);
   const request: HttpRequest = { method: spec.method, url: spec.url, headers, body: spec.body, timeout: spec.timeout, signal: spec.signal, attempt: 1, service: service.name };
-  const sendOne = (changed: HttpRequest) => streamTransport(changed, settings, service.host, spec.idleTimeout);
+  const sendOne = (changed: HttpRequest) => streamTransport(changed, settings, spec.trustedHost ?? service.host, spec.idleTimeout);
   const attemptOf = (changed: HttpRequest) => (tracingEnabled() ? tracedAttempt(changed, settings, sendOne) : sendOne(changed));
   const send = (attempt: HttpRequest) => withHooks(attempt, settings, (changed) => (metricsEnabled() ? measuredAttempt(changed, () => attemptOf(changed)) : attemptOf(changed)));
   const chain = serviceModifiers(service, settings);

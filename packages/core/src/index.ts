@@ -44,7 +44,7 @@ export type {
   ServiceRequest,
   ServiceResponse,
 } from "./hooks.ts";
-export { bunServerOf, createServer, deferRequestLog, peerAddress, toResponse, upgradeRequest } from "./http/server.ts";
+export { bunServerOf, createServer, deferRequestLog, endUpgradedRequest, peerAddress, requestSpanOf, toResponse, upgradeRequest } from "./http/server.ts";
 export { assertRoomName, defineSocket, isSocketDefinition, ROOM_NAME, setSocketHub, setSocketRunner, socketEndpoint, sockets, withMessageValidator } from "./http/socket.ts";
 export type { AnySocketHandlers, DisconnectFilter, MessageValidator, PublishOptions, Sockets, Socket, SocketContext, SocketDefinition, SocketHandlers, SocketRunner, SocketTypes, TypedSocketHandlers } from "./http/socket.ts";
 export { compileMessageValidator } from "./http/socket-messages.ts";

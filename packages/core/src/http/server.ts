@@ -11,7 +11,7 @@ import { readBodyText } from "./body.ts";
 import type { RepositoryResolver } from "../repository-resolver.ts";
 import type { TenantRuns } from "../tenant-runs.ts";
 import type { SocketRunner } from "./socket.ts";
-import type { TracerSetting } from "../tracing.ts";
+import { parseTraceparent, spanAttributes, startSpan, tracingEnabled, withSpan, type Span, type TracerSetting } from "../tracing.ts";
 
 export type HandlerResult<Result> = Result | Response | undefined;
 
@@ -177,6 +177,28 @@ export function bunServerOf(request: Request): BunServer | undefined {
 /** The requests upgraded to a WebSocket: the server answers them with nothing, and writes no request log entry for them. */
 const upgraded = new WeakSet<Request>();
 
+/** What ends an upgraded request once its socket closes: the server span and what else waits for the request's end. */
+const upgradeEnds = new WeakMap<Request, (closeCode: number) => void>();
+
+/** The server span of each traced request, while tracing is enabled. */
+const requestSpans = new WeakMap<Request, Span>();
+
+/** The server span of a request, while a tracer is set; undefined otherwise. */
+export function requestSpanOf(request: Request): Span | undefined {
+  return requestSpans.get(request);
+}
+
+/**
+ * Ends a request upgraded to a WebSocket when its socket closes, with the close code: its server span ends with a
+ * `websocket.closed` event. The socket server calls it; a request without anything waiting for its end is ignored.
+ */
+export function endUpgradedRequest(request: Request, closeCode: number): void {
+  const end = upgradeEnds.get(request);
+  if (!end) return;
+  upgradeEnds.delete(request);
+  end(closeCode);
+}
+
 /**
  * Upgrades a request to a WebSocket through the Bun server that accepted it, with `data` for the socket's handlers;
  * false for a request no server accepted (like one built in a test) or that Bun cannot upgrade.
@@ -271,6 +293,66 @@ function withRequestProperties(req: ServiceRequest, properties: ReadonlyMap<stri
   return req;
 }
 
+/** Starts the server span of a request, continuing the trace of a valid `traceparent` header. */
+function serverSpan(request: Request, requestId: string): Span {
+  const url = new URL(request.url);
+  const parent = parseTraceparent(request.headers.get("traceparent"), request.headers.get("tracestate")) ?? null;
+  const scheme = url.protocol.replace(/:$/, "");
+  const span = startSpan(request.method, {
+    kind: "server",
+    parent,
+    attributes: spanAttributes({
+      "http.request.method": request.method,
+      "url.path": url.pathname,
+      "url.scheme": scheme,
+      "server.address": url.hostname,
+      "server.port": url.port === "" ? (scheme === "https" ? 443 : 80) : Number(url.port),
+      "user_agent.original": request.headers.get("user-agent") ?? undefined,
+      "quickservicets.request_id": requestId,
+    }),
+  });
+  requestSpans.set(request, span);
+  return span;
+}
+
+/** The id of a request's user or tenant, as a text. */
+const idOf = (value: unknown): string | undefined => {
+  const id = (value as { id?: unknown } | undefined)?.id;
+  return id === undefined || id === null ? undefined : String(id);
+};
+
+/**
+ * Ends a request's server span: named after the matched route, with the status, the route, and the client address,
+ * user and tenant the request ended with; 5xx sets the status `error`, 4xx leaves it unset.
+ */
+function endServerSpan(span: Span, request: Request, state: { route: string | null; req?: ServiceRequest }, status: number, before?: (span: Span) => void): void {
+  const req = state.req;
+  // `req.ip` is read only when the request computed it.
+  const ip = req ? Object.getOwnPropertyDescriptor(req, "ip") : undefined;
+  span.setAttributes(
+    spanAttributes({
+      "http.route": state.route ?? undefined,
+      "http.response.status_code": status,
+      "client.address": ip && "value" in ip ? String(ip.value) : undefined,
+      "enduser.id": idOf(req?.user),
+      "quickservicets.tenant": idOf(req?.tenant),
+    }),
+  );
+  if (status >= 500) span.setStatus("error");
+  before?.(span);
+  span.end();
+}
+
+/** An error as spans record it: its name and stack kept, its message and stack masked. */
+function maskedError(error: unknown, redact: ((text: string) => string) | undefined): Error {
+  const failure = error instanceof Error ? error : new Error(String(error));
+  if (!redact) return failure;
+  const masked = new Error(redact(failure.message));
+  masked.name = failure.name;
+  masked.stack = failure.stack === undefined ? undefined : redact(failure.stack);
+  return masked;
+}
+
 export function createServer({ routes, repos, config: serverConfig, jobs = noRequestJobs, middleware, requestProperties, clientIp, maxRequestBodySize, idleTimeout, mask, entityTags, repositories, requestLogTenant, websocket }: ServerOptions): Server {
   // Development error responses show the stack with known secret values masked.
   const config = mask ? { ...serverConfig, redact: (text: string) => mask.text(text) } : serverConfig;
@@ -294,7 +376,8 @@ export function createServer({ routes, repos, config: serverConfig, jobs = noReq
 
   const logger = config.logger ?? jsonLogger;
 
-  const errorResponse = async (error: unknown, request: Request, requestId: string, state: { req?: ServiceRequest }): Promise<Response> => {
+  const errorResponse = async (error: unknown, request: Request, requestId: string, state: { req?: ServiceRequest; span?: Span }): Promise<Response> => {
+    if (state.span && !(error instanceof HttpError && error.status < 500)) state.span.recordException(maskedError(error, mask ? (text) => mask.text(text) : undefined));
     if (!(error instanceof HttpError)) {
       const failure = error instanceof Error ? error : new Error(String(error));
       safeLog(logger, "error", {
@@ -320,7 +403,7 @@ export function createServer({ routes, repos, config: serverConfig, jobs = noReq
     return toErrorResponse(error, config);
   };
 
-  const handle = async (request: Request, requestId: string, state: { route: string | null; req?: ServiceRequest; quiet?: boolean }, parsed?: URL) => {
+  const handle = async (request: Request, requestId: string, state: { route: string | null; req?: ServiceRequest; quiet?: boolean; span?: Span }, parsed?: URL) => {
     try {
       const url = parsed ?? new URL(request.url);
       const match = router.match(request.method, url.pathname);
@@ -331,6 +414,7 @@ export function createServer({ routes, repos, config: serverConfig, jobs = noReq
         return response;
       }
       state.route = match.route.value.path;
+      if (state.span) state.span.updateName(`${request.method} ${state.route}`);
       if (match.route.value.log === false) state.quiet = true;
       const req = createRequest(request, url, match.params, requestId, jobs, match.route.value.path, clientIp);
       state.req = properties ? withRequestProperties(req, properties) : req;
@@ -344,7 +428,7 @@ export function createServer({ routes, repos, config: serverConfig, jobs = noReq
     }
   };
 
-  type State = { route: string | null; req?: ServiceRequest; quiet?: boolean };
+  type State = { route: string | null; req?: ServiceRequest; quiet?: boolean; span?: Span };
   const pipeline =
     requestStage.length === 0
       ? handle
@@ -360,11 +444,26 @@ export function createServer({ routes, repos, config: serverConfig, jobs = noReq
     const startedAt = performance.now();
     const requestId = requestIdOf(request);
     const state: State = { route: null };
-    const answered = await pipeline(request, requestId, state);
+    // With a tracer, the whole pipeline runs in the request's server span.
+    const span = tracingEnabled() ? serverSpan(request, requestId) : undefined;
+    if (span) state.span = span;
+    const answered = span ? await withSpan(span, () => pipeline(request, requestId, state)) : await pipeline(request, requestId, state);
     // An upgraded request is answered by Bun with 101; its socket writes the log entry when it closes.
-    if (upgraded.has(request)) return undefined as unknown as Response;
+    if (upgraded.has(request)) {
+      if (span) upgradeEnds.set(request, (closeCode) => endServerSpan(span, request, state, 101, (open) => open.addEvent("websocket.closed", { "websocket.close.code": closeCode })));
+      return undefined as unknown as Response;
+    }
     const deferred = deferredLogs.get(answered);
     const response = withHeader(answered, "x-request-id", requestId);
+    if (span) {
+      // A streaming response's span ends when its stream closes.
+      if (deferred) {
+        void deferred.then(
+          (extra) => endServerSpan(span, request, state, response.status, (open) => open.addEvent("sse.message", { "quickservicets.sse.messages": Number(extra.messages ?? 0) })),
+          () => endServerSpan(span, request, state, response.status),
+        );
+      } else endServerSpan(span, request, state, response.status);
+    }
     if (state.quiet && response.status < 500) return response;
     const write = (extra: Record<string, unknown>) =>
       safeLog(logger, response.status >= 500 ? "error" : "info", {

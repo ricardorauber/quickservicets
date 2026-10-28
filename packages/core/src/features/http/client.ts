@@ -1,4 +1,4 @@
-import { currentTenant, DEFAULT_MASKED_KEYS, jsonLogger, lastResolvedFeatures, OptionError, parseDuration, resolveOption, resolveOptions, runAfterHooks, runBeforeHooks, type FeatureHook, type Logger, type OptionFunction, type ServiceRequest } from "../public.ts";
+import { currentTenant, DEFAULT_MASKED_KEYS, formatTraceparent, spanAttributes, startSpan, tracingEnabled, withSpan, jsonLogger, lastResolvedFeatures, OptionError, parseDuration, resolveOption, resolveOptions, runAfterHooks, runBeforeHooks, type FeatureHook, type Logger, type OptionFunction, type ServiceRequest } from "../public.ts";
 import { HttpClientError } from "./errors.ts";
 import { httpOptions, serviceProblems, type HttpOptions, type ServiceOptions } from "./options.ts";
 import { sharedState } from "./state.ts";
@@ -241,8 +241,55 @@ export async function execute(spec: CallSpec, binding: ClientBinding): Promise<H
   // A call through a service trusts the service's own host; any other host is checked as usual.
   const trustedHost = service?.host;
   const chain = [...(service ? serviceModifiers(service, settings) : []), ...spec.modifiers];
-  const send = (attempt: HttpRequest) => withHooks(attempt, settings, (changed) => transport(changed, settings, trustedHost));
+  const sendOne = (changed: HttpRequest) => transport(changed, settings, trustedHost);
+  // With a tracer, each attempt runs in a client span whose context the call carries as `traceparent`.
+  const send = (attempt: HttpRequest) => withHooks(attempt, settings, (changed) => (tracingEnabled() ? tracedAttempt(changed, settings, sendOne) : sendOne(changed)));
   return chain.length === 0 ? send(request) : runChain(chain, request, send, () => maskedUrl(request.url, settings));
+}
+
+/**
+ * Sends one attempt in a `client` span named after the method, following the OpenTelemetry HTTP conventions, and adds
+ * `traceparent` (and `tracestate`) with the span's context unless the call sets them; network errors, timeouts and
+ * statuses of 400 and above set the status `error`.
+ */
+async function tracedAttempt(request: HttpRequest, settings: HttpSettings, send: (request: HttpRequest) => Promise<HttpResponse>): Promise<HttpResponse> {
+  const url = new URL(request.url);
+  const scheme = url.protocol.replace(/:$/, "");
+  const span = startSpan(request.method, {
+    kind: "client",
+    attributes: spanAttributes({
+      "http.request.method": request.method,
+      "server.address": url.hostname,
+      "server.port": url.port === "" ? (scheme === "https" ? 443 : 80) : Number(url.port),
+      "url.full": maskedUrl(request.url, settings),
+      "http.request.resend_count": request.attempt > 1 ? request.attempt - 1 : undefined,
+      "quickservicets.http.service": request.service,
+    }),
+  });
+  let sent = request;
+  if (!request.headers.has("traceparent")) {
+    const context = span.context();
+    const headers = new Headers(request.headers);
+    headers.set("traceparent", formatTraceparent(context));
+    if (context.traceState !== undefined && !headers.has("tracestate")) headers.set("tracestate", context.traceState);
+    sent = { ...request, headers };
+  }
+  try {
+    const response = await withSpan(span, () => send(sent));
+    span.setAttribute("http.response.status_code", response.status);
+    if (response.status >= 400) span.setStatus("error");
+    return response;
+  } catch (error) {
+    if (error instanceof HttpClientError) {
+      span.setAttribute("error.type", error.code);
+      if (error.status) span.setAttribute("http.response.status_code", error.status);
+    }
+    span.recordException(error);
+    span.setStatus("error");
+    throw error;
+  } finally {
+    span.end();
+  }
 }
 
 /**

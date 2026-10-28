@@ -18,6 +18,11 @@ import {
   tenantRuns,
   upgradeRequest,
   runAfterHooks,
+  endUpgradedRequest,
+  requestSpanOf,
+  startSpan,
+  tracingEnabled,
+  withSpan,
   type DisconnectFilter,
   type FeatureHook,
   type Logger,
@@ -137,6 +142,8 @@ export class OpenSocket implements Socket {
   windowStart = 0;
   windowCount = 0;
   closeCode: number | undefined;
+  /** The context of the upgrade request's server span, which message spans link to, while a tracer is set. */
+  upgradeSpan: { traceId: string; spanId: string; traceFlags: number } | undefined;
   /** The rooms the socket joined, by name. */
   readonly joined = new Set<string>();
 
@@ -266,6 +273,23 @@ export function decodeFrame(data: string | Uint8Array, definition: SocketDefinit
 /** The text of an error, for logs. */
 const errorOf = (error: unknown) => ({ message: (error as Error)?.message ?? String(error), ...(error instanceof Error ? { stack: error.stack } : {}) });
 
+/** Runs a message handler in an internal span of its own trace, linked to the span of the socket's upgrade request. */
+async function tracedMessage<T>(socket: OpenSocket, handle: () => Promise<T>): Promise<T> {
+  const span = startSpan(`WS ${socket.route} message`, { kind: "internal", parent: null, ...(socket.upgradeSpan ? { links: [{ context: socket.upgradeSpan }] } : {}) });
+  try {
+    return await withSpan(span, handle);
+  } catch (error) {
+    // An HttpError is answered to the client as a message; anything else fails the message.
+    if (!(error instanceof HttpError)) {
+      span.recordException(error);
+      span.setStatus("error");
+    }
+    throw error;
+  } finally {
+    span.end();
+  }
+}
+
 export function socketServer(settings: SocketSettings): SocketServer {
   const open = new Set<OpenSocket>();
   const hooks: SocketHooks = { ...NO_HOOKS, ...settings.hooks };
@@ -346,6 +370,7 @@ export function socketServer(settings: SocketSettings): SocketServer {
     for (const fn of hooks.beforeConnect) await fn({ req, user: req.user, tenant: req.tenant, route: req.route }, undefined);
     const ctx: SocketContext = { params: req.params, query: req.query, user: req.user, tenant: req.tenant, repos, log: settings.logger, req };
     const socket = new OpenSocket(definition, ctx, req.route, req.id, rooms, req.auth?.sessionId, limits);
+    if (tracingEnabled()) socket.upgradeSpan = requestSpanOf(req.raw)?.context();
     bunServer ??= bunServerOf(req.raw);
     // Browsers that offer subprotocols (some send a token as one) need the server to choose one: the first offered.
     const protocol = req.headers.get("sec-websocket-protocol")?.split(",")[0]?.trim();
@@ -423,7 +448,8 @@ export function socketServer(settings: SocketSettings): SocketServer {
       const ready = decoded as { handler: Handler; value: unknown; id?: string | number };
       const id = ready.id;
       try {
-        const result = await call(socket, (ctx) => ready.handler(socket, ready.value as never, ctx));
+        const handle = () => call(socket, (ctx) => ready.handler(socket, ready.value as never, ctx));
+        const result = tracingEnabled() ? await tracedMessage(socket, handle) : await handle();
         if (id !== undefined && result !== undefined) socket.send({ id, result });
       } catch (error) {
         if (error instanceof HttpError) {
@@ -449,6 +475,7 @@ export function socketServer(settings: SocketSettings): SocketServer {
       const socket = ws.data.socket;
       open.delete(socket);
       const closeCode = socket.closeCode ?? code;
+      endUpgradedRequest(socket.ctx.req.raw, closeCode);
       safeLog(settings.logger, "info", {
         [REQUEST_LOG]: true,
         timestamp: new Date().toISOString(),

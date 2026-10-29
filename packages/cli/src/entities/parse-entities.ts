@@ -3,6 +3,8 @@ import { join, relative, resolve, sep } from "node:path";
 import ts from "typescript";
 import {
   builtInFileEntity,
+  featureFileEntities,
+  type FileBase,
   crossTenancyReferences,
   markTenancy,
   withoutTenancyMarks,
@@ -213,12 +215,48 @@ function assertNoFeatureClashes(models: EntityModel[]): void {
 /** The line the build prints when a project entity file replaces a feature's entity. */
 export const entityOverrideLine = (projectFile: string, name: string, key: string) => `Override: ${projectFile} replaces ${name} from ${key}`;
 
-/** Adds the built-in `File` and `Media` entities unless `/entities` defines them. */
+/** Adds the built-in `File` and `Media` entities unless `/entities` defines them; references are checked against these. */
 export function withBuiltInEntities(models: EntityModel[]): EntityModel[] {
-  const builtIns = (["file", "media"] as const)
-    .map((base) => builtInFileEntity(base))
-    .filter((builtIn) => !models.some((model) => model.key === builtIn.key));
+  return withFileEntities(models, ["file", "media"]);
+}
+
+/** Adds the given built-in file entities, each unless `/entities` defines it. */
+function withFileEntities(models: EntityModel[], bases: readonly FileBase[]): EntityModel[] {
+  const builtIns = bases.map((base) => builtInFileEntity(base)).filter((builtIn) => !models.some((model) => model.key === builtIn.key));
   return [...models, ...builtIns];
+}
+
+/** What else uses the built-in file entities besides references: a configured `storage`. */
+export interface FileEntityUsage {
+  /** The config sets `storage`, which builds both built-in file entities. */
+  storage?: boolean;
+}
+
+/**
+ * The built-in file entities the model uses: the ones a field references (an entity extending `File` or `Media` is a
+ * file entity of its own and brings in neither), both when `storage` is set, and the ones an enabled feature lists in
+ * `fileEntities`. A project's own `entities/File.ts` or `entities/Media.ts` is already in the model.
+ */
+export function usedFileEntities(models: readonly EntityModel[], features: readonly ResolvedFeature[], usage: FileEntityUsage = {}): FileBase[] {
+  if (usage.storage) return ["file", "media"];
+  const used = new Set<FileBase>();
+  for (const model of models) {
+    for (const field of model.fields) {
+      if (field.type !== "ref" && field.type !== "refArray") continue;
+      if (field.target === "File") used.add("file");
+      if (field.target === "Media") used.add("media");
+    }
+  }
+  for (const feature of features) {
+    let bases: readonly FileBase[];
+    try {
+      bases = featureFileEntities(feature);
+    } catch (error) {
+      throw new EntityParseError(error instanceof Error ? error.message : String(error));
+    }
+    for (const base of bases) used.add(base);
+  }
+  return (["file", "media"] as const).filter((base) => used.has(base));
 }
 
 /** Adds the built-in `JobRun` entity, failing when a project entity takes its name, repository or table. */
@@ -239,8 +277,8 @@ export function withJobRunEntity(models: EntityModel[]): EntityModel[] {
  * Every entity of the project: the ones in `/entities`, the ones the enabled features contribute, their link
  * entities, the built-in file entities, and the built-in `JobRun` entity when the project has jobs.
  */
-export function parseProjectEntities(projectRoot: string, features: readonly ResolvedFeature[] = []): EntityModel[] {
-  return parseProjectModels(projectRoot, features).models;
+export function parseProjectEntities(projectRoot: string, features: readonly ResolvedFeature[] = [], usage: FileEntityUsage = {}): EntityModel[] {
+  return parseProjectModels(projectRoot, features, usage).models;
 }
 
 /**
@@ -256,10 +294,10 @@ function withTenancyMarks(models: EntityModel[], features: readonly ResolvedFeat
 }
 
 /** `parseProjectEntities` with the override lines of project entities replacing feature entities. */
-export function parseProjectModels(projectRoot: string, features: readonly ResolvedFeature[] = []): ProjectModels {
+export function parseProjectModels(projectRoot: string, features: readonly ResolvedFeature[] = [], usage: FileEntityUsage = {}): ProjectModels {
   const parsed = parseSources(projectRoot, features);
   const contributed = withContributedEntities(parsed.models, features);
-  const built = withBuiltInEntities(contributed.models);
+  const built = withFileEntities(contributed.models, usedFileEntities(contributed.models, features, usage));
   const all = hasJobFiles(projectRoot, features) ? withJobRunEntity(built) : built;
   return {
     models: withTenancyMarks(all, features),

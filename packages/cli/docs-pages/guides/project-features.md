@@ -153,6 +153,8 @@ export type Greeting = { name: string; text: string };
 
 `entities` may also be a list of `entityModel(...)` objects, or a function of the project's models and the feature's options that returns models, for entities derived from the project's.
 
+A feature that stores files through the built-in `File` or `Media` entity without referencing them from an entity declares `fileEntities: ["media"]` (`"file"`, `"media"` or both), or a function of its options returning that list, like `fileEntities: (options) => (options.store ? ["media"] : [])`. While the feature is enabled, the build keeps those entities in the model even when no entity references them and `storage` is not set.
+
 ### Endpoints, hooks and jobs
 
 `endpoints`, `hooks` and `jobs` are folders scanned with the project's rules. A feature's job is named `<key>/<path>`, here `greeting/count`.

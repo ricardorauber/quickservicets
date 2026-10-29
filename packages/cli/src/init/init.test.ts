@@ -47,7 +47,7 @@ test("the tsconfig uses the Bun types and includes every convention folder, and 
   mkdirSync(join(root, "node_modules/@quickservicets"), { recursive: true });
   symlinkSync(join(import.meta.dir, "../../../core"), join(root, "node_modules/@quickservicets/core"), "dir");
   writeFileSync(join(root, "entities/Post.ts"), "export type Post = { title: string };\n");
-  expect((await build(root)).entities).toBe(3);
+  expect((await build(root)).entities).toBe(1);
 });
 
 test("the .gitignore keeps secrets, dependencies and generated files out of git", async () => {
@@ -136,5 +136,5 @@ test("the config says security is on by default and shows how to enable natives,
   await initProject(root, { db: "memory" });
   mkdirSync(join(root, "node_modules/@quickservicets"), { recursive: true });
   symlinkSync(join(import.meta.dir, "../../../core"), join(root, "node_modules/@quickservicets/core"), "dir");
-  expect((await build(root)).entities).toBe(2);
+  expect((await build(root)).entities).toBe(0);
 });

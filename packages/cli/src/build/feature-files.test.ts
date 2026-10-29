@@ -180,6 +180,6 @@ describe("runtime filtering", () => {
     const { lines } = await capture(["build"], root);
     expect(lines).toContain("Features added 1 endpoints, 1 hooks and 1 jobs.");
     expect(JSON.parse(read(root, ".generated/openapi.json")).paths["/notes/hello"].get.summary).toBe("Says hello from notes");
-    expect((await capture(["build"], project({}))).lines).toEqual(["Built 3 entities, 0 custom endpoints and 0 hooks."]);
+    expect((await capture(["build"], project({}))).lines).toEqual(["Built 1 entity, 0 custom endpoints and 0 hooks."]);
   });
 });

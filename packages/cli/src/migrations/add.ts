@@ -1,4 +1,4 @@
-import { buildDrizzleSchema, loadConfig, SQLITE_DEFAULT_SCHEMA_TOKEN, type EntityModel, type SqlDialect } from "@quickservicets/core";
+import { buildDrizzleSchema, loadConfig, SQLITE_DEFAULT_SCHEMA_TOKEN, storageConfigured, type EntityModel, type SqlDialect } from "@quickservicets/core";
 import { getTableConfig as pgTableConfig } from "drizzle-orm/pg-core";
 import { getTableConfig as sqliteTableConfig } from "drizzle-orm/sqlite-core";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -227,7 +227,7 @@ async function migrationProject(projectRoot: string): Promise<{ dialect: SqlDial
   if (config.database.kind === "memory") throw new BuildError("Migrations are not used with the memory adapter");
   const dialect = config.database.kind === "mongodb" ? "mongodb" : sqlDialectOf(config.database.kind);
   if (!dialect) throw new BuildError(`Migrations are not supported for the ${config.database.kind ?? "configured"} adapter`);
-  return { dialect, models: parseEntities(projectRoot, config.features) };
+  return { dialect, models: parseEntities(projectRoot, config.features, { storage: storageConfigured(config) }) };
 }
 
 async function planFor(projectRoot: string): Promise<AnyPlan> {

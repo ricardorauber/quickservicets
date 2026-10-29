@@ -22,6 +22,7 @@ import {
   type OpenApiDoc,
   extendOpenApi,
   NO_AUTH_SCHEME_WARNING,
+  storageConfigured,
 } from "@quickservicets/core";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -37,6 +38,7 @@ import { runBuildSteps, type BuildStepResult } from "./build-steps.ts";
 import { activeFeatureTags, assertNoHookConflicts, useFeatureTags } from "../entities/feature-tags.ts";
 import { validateHookReferences } from "../hooks/validate-hook-references.ts";
 import { hasPendingChanges, sqlDialectOf } from "../migrations/add.ts";
+import { readLatestSnapshot } from "../migrations/snapshot.ts";
 import { envVarsLines, generateTypesFile, queuePayloadLines, serviceNameLines, type PublishedQueueEntry, type QueueTypeEntry } from "./generate-types.ts";
 import { overrideWarnings, publishProblems, publishTargets, type PublishTarget } from "./queue-publish.ts";
 import { extractQueryItems } from "../endpoints/query-items.ts";
@@ -379,6 +381,21 @@ export function joinTableWarnings(models: EntityModel[], kind: string | undefine
   );
 }
 
+/** The warning for a built-in file entity the last migration created that the model no longer has. */
+export const droppedFileEntityWarning = (entity: string, table: string): string =>
+  `${entity} is no longer built because no entity, storage or feature uses it; the next migration add will propose dropping ${table}; set storage in quickservicets.config.ts to keep it`;
+
+/**
+ * One warning per built-in file entity (`File`, `Media`) whose table or collection the latest migration snapshot
+ * holds while the model no longer has it; the build drops nothing, a reviewed `migration add` proposes it.
+ */
+export function droppedFileEntityWarnings(previous: readonly EntityModel[], models: readonly EntityModel[]): string[] {
+  return ["File", "Media"].flatMap((key) => {
+    const before = previous.find((model) => model.key === key && model.file);
+    return before && !models.some((model) => model.key === key) ? [droppedFileEntityWarning(key, before.schema ? `${before.schema}.${before.tableName}` : before.tableName)] : [];
+  });
+}
+
 export const HNSW_ONLY_ON_POSTGRES = "@vector index=hnsw is used only on PostgreSQL";
 
 /** One warning when a vector field asks for an HNSW index on a database that does not build one. */
@@ -409,7 +426,7 @@ export async function build(projectRoot: string, env: Record<string, string | un
 async function buildProject(projectRoot: string, config: ResolvedConfig, options: BuildOptions): Promise<BuildSummary> {
   const featureKeys = registeredProjectFeatures().map((feature) => feature.key);
   const variables = declaredVariables(config.env, config.features.map((feature) => ({ key: feature.key, env: feature.definition.env })));
-  const parsed = parseProjectModels(projectRoot, config.features);
+  const parsed = parseProjectModels(projectRoot, config.features, { storage: storageConfigured(config) });
   const overrides = [...replacedNatives().map(overrideLine), ...parsed.overrides];
   const models = parsed.models;
   const scanned = await scanProjectFiles(projectRoot, config.features);
@@ -511,6 +528,7 @@ async function buildProject(projectRoot: string, config: ResolvedConfig, options
   warnings.push(...endpointDocs.warnings);
   // With auth on, a provider documents how to authenticate; without one, generated clients cannot.
   if (config.features.some((feature) => feature.key === "auth") && Object.keys(openApi.components?.securitySchemes ?? {}).length === 0) warnings.push(NO_AUTH_SCHEME_WARNING);
+  warnings.push(...droppedFileEntityWarnings(readLatestSnapshot(projectRoot)?.models ?? [], models));
   const dialect = sqlDialectOf(config.database.kind);
   if (dialect && (await hasPendingChanges(projectRoot, models, dialect))) warnings.push(PENDING_MIGRATION_WARNING);
   return { entities: models.length, endpoints: endpoints.length, hooks: hooks.size, features: featureKeys.length, overrides, fromFeatures: scanned.fromFeatures, watch: featureWatchPaths(config.features), buildInputs: Object.fromEntries(config.features.filter((feature) => feature.definition.build).map((feature) => [feature.key, featureWatchPaths([feature])])), buildSteps, warnings };

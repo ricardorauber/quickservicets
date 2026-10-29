@@ -1,0 +1,745 @@
+{
+  "dialect": "sqlite",
+  "models": [
+    {
+      "key": "Post",
+      "entityName": "Post",
+      "schema": null,
+      "name": "posts",
+      "repoKey": "posts",
+      "tableName": "posts",
+      "fields": [
+        {
+          "name": "title",
+          "type": "string",
+          "optional": false,
+          "minLength": 1,
+          "storage": "column"
+        }
+      ],
+      "hooks": [],
+      "overrideHooks": "inherit",
+      "internal": false,
+      "exposure": {
+        "list": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "title"
+          ],
+          "exclude": []
+        },
+        "read": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "title"
+          ],
+          "exclude": []
+        }
+      },
+      "tenancy": "tenant"
+    },
+    {
+      "key": "MetricWindow",
+      "entityName": "MetricWindow",
+      "schema": null,
+      "name": "metric-windows",
+      "repoKey": "metricWindows",
+      "tableName": "metric_windows",
+      "fields": [
+        {
+          "name": "instance",
+          "type": "string",
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "resolution",
+          "type": "enum",
+          "values": [
+            "minute",
+            "hour"
+          ],
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "windowStart",
+          "type": "date",
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "seriesKey",
+          "type": "string",
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "route",
+          "type": "string",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "tenant",
+          "type": "string",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "user",
+          "type": "string",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "requests",
+          "type": "number",
+          "optional": false,
+          "min": 0,
+          "storage": "column"
+        },
+        {
+          "name": "errors",
+          "type": "number",
+          "optional": false,
+          "min": 0,
+          "storage": "column"
+        },
+        {
+          "name": "clientErrors",
+          "type": "number",
+          "optional": false,
+          "min": 0,
+          "storage": "column"
+        },
+        {
+          "name": "sketch",
+          "type": "json",
+          "optional": false,
+          "storage": "json"
+        }
+      ],
+      "hooks": [],
+      "overrideHooks": "inherit",
+      "internal": true,
+      "exposure": {
+        "list": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "instance",
+            "resolution",
+            "windowStart",
+            "seriesKey",
+            "route",
+            "tenant",
+            "user",
+            "requests",
+            "errors",
+            "clientErrors",
+            "sketch"
+          ],
+          "exclude": []
+        },
+        "read": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "instance",
+            "resolution",
+            "windowStart",
+            "seriesKey",
+            "route",
+            "tenant",
+            "user",
+            "requests",
+            "errors",
+            "clientErrors",
+            "sketch"
+          ],
+          "exclude": []
+        }
+      },
+      "indexes": [
+        {
+          "fields": [
+            "instance",
+            "resolution",
+            "windowStart",
+            "seriesKey"
+          ],
+          "unique": true
+        },
+        {
+          "fields": [
+            "resolution",
+            "windowStart"
+          ]
+        }
+      ],
+      "system": true,
+      "tenancy": "shared",
+      "feature": "metrics"
+    },
+    {
+      "key": "JobRun",
+      "entityName": "JobRun",
+      "schema": null,
+      "name": "job-runs",
+      "repoKey": "jobRuns",
+      "tableName": "job_runs",
+      "fields": [
+        {
+          "name": "job",
+          "type": "string",
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "trigger",
+          "type": "enum",
+          "values": [
+            "schedule",
+            "manual",
+            "code"
+          ],
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "scheduledAt",
+          "type": "date",
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "attempt",
+          "type": "number",
+          "optional": false,
+          "min": 1,
+          "storage": "column"
+        },
+        {
+          "name": "status",
+          "type": "enum",
+          "values": [
+            "running",
+            "success",
+            "failed",
+            "timedOut",
+            "skipped",
+            "abandoned",
+            "interrupted"
+          ],
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "startedAt",
+          "type": "date",
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "finishedAt",
+          "type": "date",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "durationMs",
+          "type": "number",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "heartbeatAt",
+          "type": "date",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "result",
+          "type": "json",
+          "optional": true,
+          "storage": "json"
+        },
+        {
+          "name": "error",
+          "type": "object",
+          "optional": true,
+          "fields": [
+            {
+              "name": "message",
+              "type": "string",
+              "optional": false
+            },
+            {
+              "name": "stack",
+              "type": "string",
+              "optional": true
+            }
+          ],
+          "storage": "json"
+        },
+        {
+          "name": "logs",
+          "type": "array",
+          "optional": false,
+          "items": {
+            "type": "object",
+            "fields": [
+              {
+                "name": "level",
+                "type": "enum",
+                "values": [
+                  "info",
+                  "warn",
+                  "error"
+                ],
+                "optional": false
+              },
+              {
+                "name": "message",
+                "type": "string",
+                "optional": false
+              },
+              {
+                "name": "at",
+                "type": "string",
+                "optional": false
+              },
+              {
+                "name": "fields",
+                "type": "json",
+                "optional": true
+              }
+            ]
+          },
+          "storage": "json"
+        }
+      ],
+      "hooks": [],
+      "overrideHooks": "inherit",
+      "internal": true,
+      "exposure": {
+        "list": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "job",
+            "trigger",
+            "scheduledAt",
+            "attempt",
+            "status",
+            "startedAt",
+            "finishedAt",
+            "durationMs",
+            "heartbeatAt",
+            "result",
+            "error",
+            "logs"
+          ],
+          "exclude": []
+        },
+        "read": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "job",
+            "trigger",
+            "scheduledAt",
+            "attempt",
+            "status",
+            "startedAt",
+            "finishedAt",
+            "durationMs",
+            "heartbeatAt",
+            "result",
+            "error",
+            "logs"
+          ],
+          "exclude": []
+        }
+      },
+      "indexes": [
+        {
+          "fields": [
+            "job",
+            "scheduledAt",
+            "attempt"
+          ],
+          "unique": true
+        },
+        {
+          "fields": [
+            "job",
+            "startedAt"
+          ]
+        }
+      ],
+      "system": true,
+      "tenancy": "shared"
+    }
+  ],
+  "drizzle": {
+    "version": "6",
+    "dialect": "sqlite",
+    "tables": {
+      "{{default_schema}}posts": {
+        "name": "{{default_schema}}posts",
+        "columns": {
+          "id": {
+            "name": "id",
+            "type": "text",
+            "primaryKey": true,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "created_at": {
+            "name": "created_at",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "updated_at": {
+            "name": "updated_at",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "title": {
+            "name": "title",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          }
+        },
+        "indexes": {
+          "{{default_schema}}posts_created_at_idx": {
+            "name": "{{default_schema}}posts_created_at_idx",
+            "columns": [
+              "created_at"
+            ],
+            "isUnique": false
+          }
+        },
+        "foreignKeys": {},
+        "compositePrimaryKeys": {},
+        "uniqueConstraints": {},
+        "checkConstraints": {}
+      },
+      "{{default_schema}}metric_windows": {
+        "name": "{{default_schema}}metric_windows",
+        "columns": {
+          "id": {
+            "name": "id",
+            "type": "text",
+            "primaryKey": true,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "created_at": {
+            "name": "created_at",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "updated_at": {
+            "name": "updated_at",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "instance": {
+            "name": "instance",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "resolution": {
+            "name": "resolution",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "window_start": {
+            "name": "window_start",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "series_key": {
+            "name": "series_key",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "route": {
+            "name": "route",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false,
+            "autoincrement": false
+          },
+          "tenant": {
+            "name": "tenant",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false,
+            "autoincrement": false
+          },
+          "user": {
+            "name": "user",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false,
+            "autoincrement": false
+          },
+          "requests": {
+            "name": "requests",
+            "type": "real",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "errors": {
+            "name": "errors",
+            "type": "real",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "client_errors": {
+            "name": "client_errors",
+            "type": "real",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "sketch": {
+            "name": "sketch",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          }
+        },
+        "indexes": {
+          "{{default_schema}}metric_windows_created_at_idx": {
+            "name": "{{default_schema}}metric_windows_created_at_idx",
+            "columns": [
+              "created_at"
+            ],
+            "isUnique": false
+          },
+          "{{default_schema}}metric_windows_instance_resolution_window_start_series_key_uq": {
+            "name": "{{default_schema}}metric_windows_instance_resolution_window_start_series_key_uq",
+            "columns": [
+              "instance",
+              "resolution",
+              "window_start",
+              "series_key"
+            ],
+            "isUnique": true
+          },
+          "{{default_schema}}metric_windows_resolution_window_start_idx": {
+            "name": "{{default_schema}}metric_windows_resolution_window_start_idx",
+            "columns": [
+              "resolution",
+              "window_start"
+            ],
+            "isUnique": false
+          }
+        },
+        "foreignKeys": {},
+        "compositePrimaryKeys": {},
+        "uniqueConstraints": {},
+        "checkConstraints": {
+          "{{default_schema}}metric_windows_resolution_check": {
+            "name": "{{default_schema}}metric_windows_resolution_check",
+            "value": "\"{{default_schema}}metric_windows\".\"resolution\" in ('minute', 'hour')"
+          }
+        }
+      },
+      "{{default_schema}}job_runs": {
+        "name": "{{default_schema}}job_runs",
+        "columns": {
+          "id": {
+            "name": "id",
+            "type": "text",
+            "primaryKey": true,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "created_at": {
+            "name": "created_at",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "updated_at": {
+            "name": "updated_at",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "job": {
+            "name": "job",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "trigger": {
+            "name": "trigger",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "scheduled_at": {
+            "name": "scheduled_at",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "attempt": {
+            "name": "attempt",
+            "type": "real",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "status": {
+            "name": "status",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "started_at": {
+            "name": "started_at",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "finished_at": {
+            "name": "finished_at",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": false,
+            "autoincrement": false
+          },
+          "duration_ms": {
+            "name": "duration_ms",
+            "type": "real",
+            "primaryKey": false,
+            "notNull": false,
+            "autoincrement": false
+          },
+          "heartbeat_at": {
+            "name": "heartbeat_at",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": false,
+            "autoincrement": false
+          },
+          "result": {
+            "name": "result",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false,
+            "autoincrement": false
+          },
+          "error": {
+            "name": "error",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false,
+            "autoincrement": false
+          },
+          "logs": {
+            "name": "logs",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          }
+        },
+        "indexes": {
+          "{{default_schema}}job_runs_created_at_idx": {
+            "name": "{{default_schema}}job_runs_created_at_idx",
+            "columns": [
+              "created_at"
+            ],
+            "isUnique": false
+          },
+          "{{default_schema}}job_runs_job_scheduled_at_attempt_uq": {
+            "name": "{{default_schema}}job_runs_job_scheduled_at_attempt_uq",
+            "columns": [
+              "job",
+              "scheduled_at",
+              "attempt"
+            ],
+            "isUnique": true
+          },
+          "{{default_schema}}job_runs_job_started_at_idx": {
+            "name": "{{default_schema}}job_runs_job_started_at_idx",
+            "columns": [
+              "job",
+              "started_at"
+            ],
+            "isUnique": false
+          }
+        },
+        "foreignKeys": {},
+        "compositePrimaryKeys": {},
+        "uniqueConstraints": {},
+        "checkConstraints": {
+          "{{default_schema}}job_runs_trigger_check": {
+            "name": "{{default_schema}}job_runs_trigger_check",
+            "value": "\"{{default_schema}}job_runs\".\"trigger\" in ('schedule', 'manual', 'code')"
+          },
+          "{{default_schema}}job_runs_status_check": {
+            "name": "{{default_schema}}job_runs_status_check",
+            "value": "\"{{default_schema}}job_runs\".\"status\" in ('running', 'success', 'failed', 'timedOut', 'skipped', 'abandoned', 'interrupted')"
+          }
+        }
+      }
+    },
+    "views": {},
+    "enums": {},
+    "_meta": {
+      "tables": {},
+      "columns": {}
+    },
+    "internal": {
+      "indexes": {}
+    },
+    "id": "02263bd6-2015-43f6-8fe9-c3c9145d0fde",
+    "prevId": "00000000-0000-0000-0000-000000000000"
+  }
+}

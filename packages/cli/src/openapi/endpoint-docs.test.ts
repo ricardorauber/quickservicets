@@ -84,6 +84,8 @@ describe("generics", () => {
 
   test("primitives, nested objects, arrays, enums, dates and aliases", () => {
     const { doc, warnings } = documentFor({
+      // An entity references Media, so the built-in entity, and its schema, exist.
+      "entities/Organization.ts": 'import type { Media } from "@quickservicets/core";\nexport type Organization = { name: string; slug: string; logo?: Media }',
       "endpoints/reports/post.ts": endpoint(
         `type Range = { from: Date; to?: Date | null };
 interface Report { title: string; count: number; done: boolean; tags: string[]; ranges: Array<Range>; status: "draft" | "final"; owner: User; members: User[]; logo?: Media }

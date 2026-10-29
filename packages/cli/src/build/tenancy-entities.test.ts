@@ -30,7 +30,9 @@ const failure = async (files: Record<string, string>) => {
 
 describe("tenant and shared entities", () => {
   test("the build marks each model: tenant data, explicit schemas, tagged entities, system entities and derived models", async () => {
-    const { models } = await builtModels({ ...FILES, "quickservicets.config.ts": config(TENANCY) });
+    // Post references Media, so the built-in file entity is in the model and marked too.
+    const withMedia = { ...FILES, "entities/Post.ts": 'import type { Media } from "@quickservicets/core";\n/** @history */\nexport type Post = { title: string; cover?: Media };\n' };
+    const { models } = await builtModels({ ...withMedia, "quickservicets.config.ts": config(TENANCY) });
     const tenancy = Object.fromEntries(models.map((model) => [model.key, model.tenancy]));
     expect(tenancy).toMatchObject({ Post: "tenant", "auth/User": "shared", Plan: "shared", JobRun: "shared", PostHistory: "tenant", Media: "tenant" });
     const withDatabase = await builtModels({ ...FILES, "quickservicets.config.ts": config("tenancy: {}, events: {}, history: {}") });

@@ -5,6 +5,7 @@ import { featureVariables, optionLeaves } from "./environment.ts";
 import { maskSecrets } from "./secrets.ts";
 import { jsonLogger, safeLog, type Logger } from "./logger.ts";
 import type { EntityModel } from "./model.ts";
+import type { FileBase } from "./files.ts";
 import { tagsOf, type OptionsTarget } from "./feature-targets.ts";
 import type { FeatureSetupContext } from "./lifecycle.ts";
 import type { Middleware } from "./middleware.ts";
@@ -84,6 +85,11 @@ export interface FeatureInput<S extends AnyOptionSchema> {
    * options returning models.
    */
   entities?: FeatureEntities<FeatureOptions<S>>;
+  /**
+   * The built-in file entities the feature uses while enabled, so they are built even when no entity references them:
+   * `"file"` for `File`, `"media"` for `Media`, or a function of the feature's options returning that list.
+   */
+  fileEntities?: FeatureFileEntities<FeatureOptions<S>>;
   /** A folder of endpoint files relative to the feature's folder (`"./endpoints"`), routed like the project's `endpoints/`. */
   endpoints?: string;
   /** A folder of hook files relative to the feature's folder (`"./hooks"`), named like the project's `hooks/`. */
@@ -213,6 +219,9 @@ export interface FeatureEntitiesContext<O = Record<string, unknown>> {
 }
 
 /** The `entities` field of a feature definition. */
+/** The built-in file entities a feature uses: a list of `"file"` and `"media"`, or a function of its options returning one. */
+export type FeatureFileEntities<O = Record<string, unknown>> = readonly FileBase[] | Bivariant<(options: O) => readonly FileBase[]>;
+
 export type FeatureEntities<O = Record<string, unknown>> = string | readonly EntityModel[] | Bivariant<(context: FeatureEntitiesContext<O>) => EntityModel[]>;
 
 /** A function type whose parameter is checked bivariantly, so a definition typed with its options stays assignable to `FeatureDefinition`. */
@@ -243,6 +252,8 @@ export interface FeatureDefinition<S extends AnyOptionSchema = AnyOptionSchema> 
   readonly validate?: Bivariant<(options: FeatureOptions<S>, config: Readonly<Record<string, unknown>>) => readonly string[]>;
   /** The entities the feature contributes. */
   readonly entities?: FeatureEntities<FeatureOptions<S>>;
+  /** The built-in file entities the feature uses while enabled. */
+  readonly fileEntities?: FeatureFileEntities<FeatureOptions<S>>;
   /** The feature's folder of endpoint files, relative to its folder. */
   readonly endpoints?: string;
   /** The feature's folder of hook files, relative to its folder. */
@@ -361,6 +372,7 @@ export function defineFeature<S extends AnyOptionSchema = ObjectOptionSchema<{}>
     ...(input.env ? { env: Object.freeze({ ...input.env }) } : {}),
     ...(input.validate !== undefined ? { validate: functionField(input.validate, "validate", invalid) } : {}),
     ...(input.entities !== undefined ? { entities: entitiesField(input.entities, invalid) } : {}),
+    ...(input.fileEntities !== undefined ? { fileEntities: fileEntitiesField(input.fileEntities, invalid) } : {}),
     ...folderFields(input, invalid),
     ...(input.tags !== undefined ? { tags: tagsField(key, input.tags, schema, invalid) } : {}),
     ...(input.folders !== undefined ? { folders: foldersField(input.folders, invalid) } : {}),
@@ -569,6 +581,32 @@ function optionsForTarget(
     on = on === true || tag.on;
   }
   return { ...merged, on };
+}
+
+const FILE_BASES: readonly FileBase[] = ["file", "media"];
+
+/** Fails naming the field when a list holds something other than `"file"` and `"media"`. */
+export function fileEntitiesProblem(value: unknown): string | undefined {
+  if (!Array.isArray(value)) return 'fileEntities must be a list of "file" and "media" or a function returning one';
+  const wrong = value.find((entry) => !FILE_BASES.includes(entry as FileBase));
+  return wrong === undefined ? undefined : `fileEntities has an invalid entry ${JSON.stringify(wrong)}; expected "file" or "media"`;
+}
+
+function fileEntitiesField<O>(value: FeatureFileEntities<O>, invalid: (reason: string) => Error): FeatureFileEntities<O> {
+  if (typeof value === "function") return value;
+  const problem = fileEntitiesProblem(value);
+  if (problem) throw invalid(problem);
+  return Object.freeze([...(value as readonly FileBase[])]);
+}
+
+/** The built-in file entities an enabled feature uses with its resolved options; fails naming the feature on a bad list. */
+export function featureFileEntities(feature: Pick<ResolvedFeature, "key" | "definition" | "options">): readonly FileBase[] {
+  const declared = feature.definition.fileEntities;
+  if (declared === undefined) return [];
+  const value = typeof declared === "function" ? declared(feature.options as never) : declared;
+  const problem = fileEntitiesProblem(value);
+  if (problem) throw new Error(`Invalid feature ${feature.key}: ${problem}`);
+  return value;
 }
 
 function entitiesField<O>(entities: FeatureEntities<O>, invalid: (reason: string) => Error): FeatureEntities<O> {

@@ -595,9 +595,9 @@ describe.each(databases)("on %s", (_name, open) => {
       expect(result.body.error.message).toMatch(/^Cannot delete: referenced by (users|teams|organizations)$/);
     });
 
-    test("generic files accept any type", async () => {
+    test("File is not built, since no entity references it and no storage is set", async () => {
       const created = await post("/files", form([["file", png(4, "notes.pdf", "application/pdf")]]));
-      expect([created.status, created.body.mimeType]).toEqual([201, "application/pdf"]);
+      expect(created.status).toBe(404);
     });
   });
 

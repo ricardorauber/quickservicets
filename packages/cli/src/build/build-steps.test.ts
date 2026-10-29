@@ -73,8 +73,8 @@ export default defineFeature({ docs: { summary: "Test native." }, key: "${key}",
     });
     await build(root, { QS_FIRST_LABEL: "from env" });
     expect(order).toEqual([
-      { key: "from env", outDir: true, root, models: ["Post", "File", "Media"], production: false },
-      { key: "second", outDir: true, root, models: ["Post", "File", "Media"], production: false },
+      { key: "from env", outDir: true, root, models: ["Post"], production: false },
+      { key: "second", outDir: true, root, models: ["Post"], production: false },
     ]);
     expect(existsSync(join(root, ".generated/first"))).toBe(true);
   });

@@ -11,7 +11,7 @@ export type { AdapterKind, Aggregate, AggregateValues, ConnectOptions, ReadColum
 export { memoryAdapter } from "./adapters/memory.ts";
 export { LEGACY_CONFIG_FILE, LEGACY_CONFIG_MESSAGE, LEGACY_MIGRATIONS_TABLE, MIGRATIONS_TABLE, MIGRATIONS_TABLE_RENAMED, renameLegacyMigrationTables } from "./legacy-names.ts";
 export type { RenamedTable } from "./legacy-names.ts";
-export { CONFIG_FILE, ConfigError, DEFAULT_PORT, DEFAULT_POPULATE_DEPTH, defineConfig, importConfigFile, JOB_DEFAULTS, LIFECYCLE_DEFAULTS, loadConfig, MEMORY_IN_PRODUCTION, resolveConfig, WORKERS_NEED_DATABASE_SERVER } from "./config.ts";
+export { CONFIG_FILE, ConfigError, DEFAULT_PORT, DEFAULT_POPULATE_DEPTH, defineConfig, importConfigFile, JOB_DEFAULTS, LIFECYCLE_DEFAULTS, loadConfig, MEMORY_IN_PRODUCTION, resolveConfig, storageConfigured, WORKERS_NEED_DATABASE_SERVER } from "./config.ts";
 export { availableCpus, isPrimary, poolSizePerWorker, runPrimary, runsScheduledWork, runWorkers, SERVER_WORKERS_ENV, WORKER_INDEX_ENV, WORKERS_ENV, workerIndex } from "./workers.ts";
 export type { PrimaryOptions, WorkerProcess } from "./workers.ts";
 export type { ResolvedConfig, ServiceConfig } from "./config.ts";
@@ -237,6 +237,7 @@ export {
   assertFeatureFolders,
   FEATURES_DIR,
   featureDir,
+  featureFileEntities,
   RESERVED_FOLDERS,
   isFeatureDefinition,
   NATIVE_FEATURES_DIR,
@@ -256,7 +257,7 @@ export {
 } from "./features.ts";
 export { prepareFeatureTargets, runtimeTargets, taggedRoutes, tagsOf } from "./feature-targets.ts";
 export type { OptionsTarget, RuntimeTarget, TaggedRoute } from "./feature-targets.ts";
-export type { FeatureApi, FeatureApis, FeatureConfig, FeatureDefinition, FeatureDocs, FeatureEntities, FeatureBuild, FeatureEntitiesContext, FeatureFolder, FeatureInput, FeatureOpenApi, FeatureSetup, FeatureTag, FeatureTagTarget, TargetOptions, FeatureOptions, FeatureRequirement, NativeFeatures, ProjectFeatureModule, ResolvedFeature } from "./features.ts";
+export type { FeatureApi, FeatureApis, FeatureConfig, FeatureDefinition, FeatureDocs, FeatureEntities, FeatureBuild, FeatureEntitiesContext, FeatureFileEntities, FeatureFolder, FeatureInput, FeatureOpenApi, FeatureSetup, FeatureTag, FeatureTagTarget, TargetOptions, FeatureOptions, FeatureRequirement, NativeFeatures, ProjectFeatureModule, ResolvedFeature } from "./features.ts";
 export { applyEnvironment, CONFIG_OVERRIDES, configVariable, envNameFor, featureVariables, logConfigWarnings, NOT_OVERRIDABLE, optionLeaves, overrideVariables, unknownVariableWarnings } from "./environment.ts";
 export { maskSecrets, SECRET_MASK } from "./secrets.ts";
 export type { ConfigOverride, EnvAlias, EnvironmentResult, OptionLeaf } from "./environment.ts";

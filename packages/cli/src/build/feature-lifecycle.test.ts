@@ -144,7 +144,7 @@ describe("setup context", () => {
     ).replace('import { defineFeature } from "@quickservicets/core";', 'import { defineFeature, integer, object } from "@quickservicets/core";');
     const started = await start({ "features/probe/index.ts": probe, "entities/Post.ts": "export type Post = { title: string };\n", "notes/first.ts": "export default 1;\n" }, "probe: {}");
     const entry = started.entries.find((item) => item.message === "start probe")!;
-    expect(entry.seen).toMatchObject({ options: { level: 2, enabled: true }, models: ["Post", "File", "Media"], folders: ["first"], worker: { index: 0, count: 1, runsScheduledWork: true } });
+    expect(entry.seen).toMatchObject({ options: { level: 2, enabled: true }, models: ["Post"], folders: ["first"], worker: { index: 0, count: 1, runsScheduledWork: true } });
     expect([entry.post, entry.server]).toEqual(["From onStart", "function"]);
     expect(((await (await fetch(`${started.url}/posts`)).json()) as { data: { title: string }[] }).data.map((post) => post.title)).toEqual(["From onStart"]);
   });

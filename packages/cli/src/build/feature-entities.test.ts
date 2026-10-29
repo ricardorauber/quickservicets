@@ -118,7 +118,7 @@ describe("folders", () => {
 
   test("the folder is not read while the feature is disabled", async () => {
     const root = project({ "features/notes/index.ts": FEATURE, "features/notes/entities/Note.ts": "export type Note = { text: string };\n" });
-    expect((await build(root)).entities).toBe(3);
+    expect((await build(root)).entities).toBe(1);
     expect(read(root, ".generated/types.ts")).not.toContain("Note");
   });
 });

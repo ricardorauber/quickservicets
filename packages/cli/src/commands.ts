@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import { boolean, defineCommand, integer, MIGRATIONS_TABLE_RENAMED, object, string, type CommandContext, type CommandDefinition, type JsonFields } from "@quickservicets/core";
+import { buildSummaryLine } from "./build/summary-line.ts";
 
 /** The commands of the `quickservicets` CLI, for help texts and the reference documentation. */
 export interface CommandDoc {
@@ -87,11 +88,7 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
         warnings: summary.warnings,
       });
       for (const line of summary.overrides ?? []) output.log(line);
-      output.log(
-        (summary.features ?? 0) > 0
-          ? `Built ${summary.entities} entities, ${summary.endpoints} custom endpoints, ${summary.hooks} hooks and ${summary.features} project features.`
-          : `Built ${summary.entities} entities, ${summary.endpoints} custom endpoints and ${summary.hooks} hooks.`,
-      );
+      output.log(buildSummaryLine(summary));
       const fromFeatures = summary.fromFeatures;
       if (fromFeatures && fromFeatures.endpoints + fromFeatures.hooks + fromFeatures.jobs > 0) {
         output.log(`Features added ${fromFeatures.endpoints} endpoints, ${fromFeatures.hooks} hooks and ${fromFeatures.jobs} jobs.`);

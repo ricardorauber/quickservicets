@@ -258,8 +258,20 @@ function resolveWorkers(
 
 export const DEFAULT_STORAGE_DIR = "uploads";
 
+/** The storage maps `resolveStorage` made up because the config set no `storage`. */
+const defaultStorages = new WeakSet<object>();
+
+/** Whether the config sets `storage`, which builds the built-in `File` and `Media` entities. */
+export function storageConfigured(config: Pick<ResolvedConfig, "storage">): boolean {
+  return !defaultStorages.has(config.storage);
+}
+
 function resolveStorage(config: ServiceConfig, projectRoot: string): ResolvedConfig["storage"] {
-  if (config.storage === undefined) return { default: localStorage({ dir: join(projectRoot, DEFAULT_STORAGE_DIR) }) };
+  if (config.storage === undefined) {
+    const storage = { default: localStorage({ dir: join(projectRoot, DEFAULT_STORAGE_DIR) }) };
+    defaultStorages.add(storage);
+    return storage;
+  }
   if (!config.storage.default) throw new ConfigError("Invalid storage.default: the storage map must contain a default storage");
   return config.storage as ResolvedConfig["storage"];
 }

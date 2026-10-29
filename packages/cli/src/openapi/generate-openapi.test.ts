@@ -118,7 +118,7 @@ describe("schemas", () => {
   });
 
   test("read-only fields are not writable", () => {
-    const doc = documentFor({});
+    const doc = documentFor({ "entities/Post.ts": 'import type { Media } from "@quickservicets/core";\nexport type Post = { cover?: Media };\n' });
     expect(schemaOf(doc, "Media").properties).toHaveProperty("storage");
     expect(schemaOf(doc, "MediaCreate").properties).not.toHaveProperty("storage");
     expect(schemaOf(doc, "MediaUpdate").properties).not.toHaveProperty("url");

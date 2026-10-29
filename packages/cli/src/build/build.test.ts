@@ -101,7 +101,7 @@ test("summary counts", async () => {
   const logs: string[] = [];
   const code = await run(["build"], { log: (line) => logs.push(line), error: () => {} }, project());
   expect(code).toBe(0);
-  expect(logs).toEqual(["Built 4 entities, 1 custom endpoints and 1 hooks."]);
+  expect(logs).toEqual(["Built 2 entities, 1 custom endpoints and 1 hooks."]);
 });
 
 test("end-to-end build and request through the generated app", async () => {

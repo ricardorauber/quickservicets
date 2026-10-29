@@ -91,7 +91,7 @@ export default defineFeature({ docs: { summary: "Test native." }, key: "audit", 
     const logs: string[] = [];
     const code = await run(["build"], { log: (line) => logs.push(line), error: (line) => logs.push(line) }, root);
     expect(code).toBe(0);
-    expect(logs).toEqual(["Override: features/audit replaces the audit native", "Built 3 entities, 0 custom endpoints, 0 hooks and 1 project features."]);
+    expect(logs).toEqual(["Override: features/audit replaces the audit native", "Built 1 entity, 0 custom endpoints, 0 hooks and 1 project features."]);
   });
 
   test("without a project feature the native is used", () => {
@@ -155,7 +155,7 @@ export const wrong: ServiceConfig = { database: memoryAdapter(), greeting: { tex
     const root = project({});
     const logs: string[] = [];
     expect(await run(["build"], { log: (line) => logs.push(line), error: (line) => logs.push(line) }, root)).toBe(0);
-    expect(logs).toEqual(["Built 3 entities, 0 custom endpoints and 0 hooks."]);
+    expect(logs).toEqual(["Built 1 entity, 0 custom endpoints and 0 hooks."]);
     expect(readFileSync(join(root, ".generated/features.ts"), "utf8")).toContain("export const features: ProjectFeatureModule[] = [];");
     expect(readFileSync(join(root, ".generated/types.ts"), "utf8")).not.toContain("NativeFeatures");
   });

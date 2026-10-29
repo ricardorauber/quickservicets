@@ -1,0 +1,1399 @@
+{
+  "dialect": "sqlite",
+  "models": [
+    {
+      "key": "Digest",
+      "entityName": "Digest",
+      "schema": null,
+      "name": "digests",
+      "repoKey": "digests",
+      "tableName": "digests",
+      "fields": [
+        {
+          "name": "projects",
+          "type": "number",
+          "optional": false,
+          "storage": "column"
+        }
+      ],
+      "hooks": [],
+      "overrideHooks": "inherit",
+      "internal": false,
+      "exposure": {
+        "list": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "projects"
+          ],
+          "exclude": []
+        },
+        "read": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "projects"
+          ],
+          "exclude": []
+        }
+      },
+      "tenancy": "tenant"
+    },
+    {
+      "key": "Notification",
+      "entityName": "Notification",
+      "schema": null,
+      "name": "notifications",
+      "repoKey": "notifications",
+      "tableName": "notifications",
+      "fields": [
+        {
+          "name": "message",
+          "type": "string",
+          "optional": false,
+          "storage": "column"
+        }
+      ],
+      "hooks": [],
+      "overrideHooks": "inherit",
+      "internal": false,
+      "exposure": {
+        "list": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "message"
+          ],
+          "exclude": []
+        },
+        "read": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "message"
+          ],
+          "exclude": []
+        }
+      },
+      "tenancy": "tenant"
+    },
+    {
+      "key": "Plan",
+      "entityName": "Plan",
+      "schema": null,
+      "name": "plans",
+      "repoKey": "plans",
+      "tableName": "plans",
+      "fields": [
+        {
+          "name": "name",
+          "type": "string",
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "price",
+          "type": "number",
+          "optional": false,
+          "storage": "column"
+        }
+      ],
+      "hooks": [],
+      "overrideHooks": "inherit",
+      "internal": false,
+      "tags": {
+        "tenancy": {
+          "on": true,
+          "options": {
+            "scope": "shared"
+          }
+        }
+      },
+      "exposure": {
+        "list": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "name",
+            "price"
+          ],
+          "exclude": []
+        },
+        "read": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "name",
+            "price"
+          ],
+          "exclude": []
+        }
+      },
+      "tenancy": "shared"
+    },
+    {
+      "key": "Project",
+      "entityName": "Project",
+      "schema": null,
+      "name": "projects",
+      "repoKey": "projects",
+      "tableName": "projects",
+      "fields": [
+        {
+          "name": "name",
+          "type": "string",
+          "optional": false,
+          "minLength": 1,
+          "storage": "column"
+        }
+      ],
+      "hooks": [],
+      "overrideHooks": "inherit",
+      "internal": false,
+      "exposure": {
+        "list": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "name"
+          ],
+          "exclude": []
+        },
+        "read": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "name"
+          ],
+          "exclude": []
+        }
+      },
+      "tenancy": "tenant"
+    },
+    {
+      "key": "QueueMessage",
+      "entityName": "QueueMessage",
+      "schema": null,
+      "name": "queue-messages",
+      "repoKey": "queueMessages",
+      "tableName": "queue_messages",
+      "fields": [
+        {
+          "name": "queue",
+          "type": "string",
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "payload",
+          "type": "json",
+          "optional": false,
+          "storage": "json"
+        },
+        {
+          "name": "status",
+          "type": "enum",
+          "values": [
+            "waiting",
+            "active",
+            "completed",
+            "dead"
+          ],
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "priority",
+          "type": "number",
+          "optional": false,
+          "default": 0,
+          "storage": "column"
+        },
+        {
+          "name": "runAt",
+          "type": "date",
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "attempt",
+          "type": "number",
+          "optional": false,
+          "min": 0,
+          "storage": "column"
+        },
+        {
+          "name": "maxAttempts",
+          "type": "number",
+          "optional": false,
+          "min": 1,
+          "storage": "column"
+        },
+        {
+          "name": "dedupeKey",
+          "type": "string",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "dedupeSlot",
+          "type": "string",
+          "optional": true,
+          "unique": true,
+          "storage": "column"
+        },
+        {
+          "name": "lockedUntil",
+          "type": "date",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "worker",
+          "type": "string",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "lastError",
+          "type": "object",
+          "optional": true,
+          "fields": [
+            {
+              "name": "message",
+              "type": "string",
+              "optional": false
+            },
+            {
+              "name": "stack",
+              "type": "string",
+              "optional": true
+            }
+          ],
+          "storage": "json"
+        },
+        {
+          "name": "result",
+          "type": "json",
+          "optional": true,
+          "storage": "json"
+        },
+        {
+          "name": "enqueuedAt",
+          "type": "date",
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "startedAt",
+          "type": "date",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "finishedAt",
+          "type": "date",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "requestId",
+          "type": "string",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "tenant",
+          "type": "string",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "actor",
+          "type": "object",
+          "optional": true,
+          "fields": [
+            {
+              "name": "user",
+              "type": "string",
+              "optional": true
+            },
+            {
+              "name": "tenant",
+              "type": "string",
+              "optional": true
+            },
+            {
+              "name": "scope",
+              "type": "string",
+              "optional": true
+            }
+          ],
+          "storage": "json"
+        },
+        {
+          "name": "trace",
+          "type": "string",
+          "optional": true,
+          "storage": "column"
+        }
+      ],
+      "hooks": [],
+      "overrideHooks": "inherit",
+      "internal": true,
+      "exposure": {
+        "list": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "queue",
+            "payload",
+            "status",
+            "priority",
+            "runAt",
+            "attempt",
+            "maxAttempts",
+            "dedupeKey",
+            "dedupeSlot",
+            "lockedUntil",
+            "worker",
+            "lastError",
+            "result",
+            "enqueuedAt",
+            "startedAt",
+            "finishedAt",
+            "requestId",
+            "tenant",
+            "actor",
+            "trace"
+          ],
+          "exclude": []
+        },
+        "read": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "queue",
+            "payload",
+            "status",
+            "priority",
+            "runAt",
+            "attempt",
+            "maxAttempts",
+            "dedupeKey",
+            "dedupeSlot",
+            "lockedUntil",
+            "worker",
+            "lastError",
+            "result",
+            "enqueuedAt",
+            "startedAt",
+            "finishedAt",
+            "requestId",
+            "tenant",
+            "actor",
+            "trace"
+          ],
+          "exclude": []
+        }
+      },
+      "indexes": [
+        {
+          "fields": [
+            "queue",
+            "status",
+            "priority",
+            "runAt"
+          ]
+        }
+      ],
+      "system": true,
+      "feature": "queues",
+      "tenancy": "shared"
+    },
+    {
+      "key": "Tenant",
+      "entityName": "Tenant",
+      "schema": null,
+      "name": "tenants",
+      "repoKey": "tenants",
+      "tableName": "tenants",
+      "fields": [
+        {
+          "type": "string",
+          "unique": true,
+          "optional": false,
+          "storage": "column",
+          "name": "key"
+        },
+        {
+          "type": "string",
+          "optional": true,
+          "storage": "column",
+          "name": "plan"
+        },
+        {
+          "type": "enum",
+          "values": [
+            "schema",
+            "database"
+          ],
+          "optional": true,
+          "storage": "column",
+          "name": "strategy"
+        },
+        {
+          "type": "string",
+          "optional": true,
+          "storage": "column",
+          "name": "schema"
+        },
+        {
+          "type": "string",
+          "optional": true,
+          "storage": "column",
+          "hidden": true,
+          "tags": {
+            "sensitive": {
+              "on": true,
+              "options": {}
+            }
+          },
+          "name": "connection"
+        },
+        {
+          "type": "enum",
+          "values": [
+            "active",
+            "suspended"
+          ],
+          "default": "active",
+          "optional": false,
+          "storage": "column",
+          "name": "status"
+        },
+        {
+          "type": "json",
+          "optional": true,
+          "storage": "json",
+          "name": "attributes"
+        }
+      ],
+      "hooks": [],
+      "overrideHooks": "inherit",
+      "internal": true,
+      "exposure": {
+        "list": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "key",
+            "plan",
+            "strategy",
+            "schema",
+            "connection",
+            "status",
+            "attributes"
+          ],
+          "exclude": [
+            "connection"
+          ]
+        },
+        "read": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "key",
+            "plan",
+            "strategy",
+            "schema",
+            "connection",
+            "status",
+            "attributes"
+          ],
+          "exclude": [
+            "connection"
+          ]
+        }
+      },
+      "feature": "tenancy",
+      "tenancy": "shared"
+    },
+    {
+      "key": "JobRun",
+      "entityName": "JobRun",
+      "schema": null,
+      "name": "job-runs",
+      "repoKey": "jobRuns",
+      "tableName": "job_runs",
+      "fields": [
+        {
+          "name": "job",
+          "type": "string",
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "trigger",
+          "type": "enum",
+          "values": [
+            "schedule",
+            "manual",
+            "code"
+          ],
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "scheduledAt",
+          "type": "date",
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "attempt",
+          "type": "number",
+          "optional": false,
+          "min": 1,
+          "storage": "column"
+        },
+        {
+          "name": "status",
+          "type": "enum",
+          "values": [
+            "running",
+            "success",
+            "failed",
+            "timedOut",
+            "skipped",
+            "abandoned",
+            "interrupted"
+          ],
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "startedAt",
+          "type": "date",
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "finishedAt",
+          "type": "date",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "durationMs",
+          "type": "number",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "heartbeatAt",
+          "type": "date",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "result",
+          "type": "json",
+          "optional": true,
+          "storage": "json"
+        },
+        {
+          "name": "error",
+          "type": "object",
+          "optional": true,
+          "fields": [
+            {
+              "name": "message",
+              "type": "string",
+              "optional": false
+            },
+            {
+              "name": "stack",
+              "type": "string",
+              "optional": true
+            }
+          ],
+          "storage": "json"
+        },
+        {
+          "name": "logs",
+          "type": "array",
+          "optional": false,
+          "items": {
+            "type": "object",
+            "fields": [
+              {
+                "name": "level",
+                "type": "enum",
+                "values": [
+                  "info",
+                  "warn",
+                  "error"
+                ],
+                "optional": false
+              },
+              {
+                "name": "message",
+                "type": "string",
+                "optional": false
+              },
+              {
+                "name": "at",
+                "type": "string",
+                "optional": false
+              },
+              {
+                "name": "fields",
+                "type": "json",
+                "optional": true
+              }
+            ]
+          },
+          "storage": "json"
+        }
+      ],
+      "hooks": [],
+      "overrideHooks": "inherit",
+      "internal": true,
+      "exposure": {
+        "list": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "job",
+            "trigger",
+            "scheduledAt",
+            "attempt",
+            "status",
+            "startedAt",
+            "finishedAt",
+            "durationMs",
+            "heartbeatAt",
+            "result",
+            "error",
+            "logs"
+          ],
+          "exclude": []
+        },
+        "read": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "job",
+            "trigger",
+            "scheduledAt",
+            "attempt",
+            "status",
+            "startedAt",
+            "finishedAt",
+            "durationMs",
+            "heartbeatAt",
+            "result",
+            "error",
+            "logs"
+          ],
+          "exclude": []
+        }
+      },
+      "indexes": [
+        {
+          "fields": [
+            "job",
+            "scheduledAt",
+            "attempt"
+          ],
+          "unique": true
+        },
+        {
+          "fields": [
+            "job",
+            "startedAt"
+          ]
+        }
+      ],
+      "system": true,
+      "tenancy": "shared"
+    }
+  ],
+  "drizzle": {
+    "version": "6",
+    "dialect": "sqlite",
+    "tables": {
+      "{{default_schema}}digests": {
+        "name": "{{default_schema}}digests",
+        "columns": {
+          "id": {
+            "name": "id",
+            "type": "text",
+            "primaryKey": true,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "created_at": {
+            "name": "created_at",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "updated_at": {
+            "name": "updated_at",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "projects": {
+            "name": "projects",
+            "type": "real",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          }
+        },
+        "indexes": {
+          "{{default_schema}}digests_created_at_idx": {
+            "name": "{{default_schema}}digests_created_at_idx",
+            "columns": [
+              "created_at"
+            ],
+            "isUnique": false
+          }
+        },
+        "foreignKeys": {},
+        "compositePrimaryKeys": {},
+        "uniqueConstraints": {},
+        "checkConstraints": {}
+      },
+      "{{default_schema}}notifications": {
+        "name": "{{default_schema}}notifications",
+        "columns": {
+          "id": {
+            "name": "id",
+            "type": "text",
+            "primaryKey": true,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "created_at": {
+            "name": "created_at",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "updated_at": {
+            "name": "updated_at",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "message": {
+            "name": "message",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          }
+        },
+        "indexes": {
+          "{{default_schema}}notifications_created_at_idx": {
+            "name": "{{default_schema}}notifications_created_at_idx",
+            "columns": [
+              "created_at"
+            ],
+            "isUnique": false
+          }
+        },
+        "foreignKeys": {},
+        "compositePrimaryKeys": {},
+        "uniqueConstraints": {},
+        "checkConstraints": {}
+      },
+      "{{default_schema}}plans": {
+        "name": "{{default_schema}}plans",
+        "columns": {
+          "id": {
+            "name": "id",
+            "type": "text",
+            "primaryKey": true,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "created_at": {
+            "name": "created_at",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "updated_at": {
+            "name": "updated_at",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "name": {
+            "name": "name",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "price": {
+            "name": "price",
+            "type": "real",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          }
+        },
+        "indexes": {
+          "{{default_schema}}plans_created_at_idx": {
+            "name": "{{default_schema}}plans_created_at_idx",
+            "columns": [
+              "created_at"
+            ],
+            "isUnique": false
+          }
+        },
+        "foreignKeys": {},
+        "compositePrimaryKeys": {},
+        "uniqueConstraints": {},
+        "checkConstraints": {}
+      },
+      "{{default_schema}}projects": {
+        "name": "{{default_schema}}projects",
+        "columns": {
+          "id": {
+            "name": "id",
+            "type": "text",
+            "primaryKey": true,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "created_at": {
+            "name": "created_at",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "updated_at": {
+            "name": "updated_at",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "name": {
+            "name": "name",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          }
+        },
+        "indexes": {
+          "{{default_schema}}projects_created_at_idx": {
+            "name": "{{default_schema}}projects_created_at_idx",
+            "columns": [
+              "created_at"
+            ],
+            "isUnique": false
+          }
+        },
+        "foreignKeys": {},
+        "compositePrimaryKeys": {},
+        "uniqueConstraints": {},
+        "checkConstraints": {}
+      },
+      "{{default_schema}}queue_messages": {
+        "name": "{{default_schema}}queue_messages",
+        "columns": {
+          "id": {
+            "name": "id",
+            "type": "text",
+            "primaryKey": true,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "created_at": {
+            "name": "created_at",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "updated_at": {
+            "name": "updated_at",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "queue": {
+            "name": "queue",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "payload": {
+            "name": "payload",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "status": {
+            "name": "status",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "priority": {
+            "name": "priority",
+            "type": "real",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "run_at": {
+            "name": "run_at",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "attempt": {
+            "name": "attempt",
+            "type": "real",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "max_attempts": {
+            "name": "max_attempts",
+            "type": "real",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "dedupe_key": {
+            "name": "dedupe_key",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false,
+            "autoincrement": false
+          },
+          "dedupe_slot": {
+            "name": "dedupe_slot",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false,
+            "autoincrement": false
+          },
+          "locked_until": {
+            "name": "locked_until",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": false,
+            "autoincrement": false
+          },
+          "worker": {
+            "name": "worker",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false,
+            "autoincrement": false
+          },
+          "last_error": {
+            "name": "last_error",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false,
+            "autoincrement": false
+          },
+          "result": {
+            "name": "result",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false,
+            "autoincrement": false
+          },
+          "enqueued_at": {
+            "name": "enqueued_at",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "started_at": {
+            "name": "started_at",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": false,
+            "autoincrement": false
+          },
+          "finished_at": {
+            "name": "finished_at",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": false,
+            "autoincrement": false
+          },
+          "request_id": {
+            "name": "request_id",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false,
+            "autoincrement": false
+          },
+          "tenant": {
+            "name": "tenant",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false,
+            "autoincrement": false
+          },
+          "actor": {
+            "name": "actor",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false,
+            "autoincrement": false
+          },
+          "trace": {
+            "name": "trace",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false,
+            "autoincrement": false
+          }
+        },
+        "indexes": {
+          "{{default_schema}}queue_messages_created_at_idx": {
+            "name": "{{default_schema}}queue_messages_created_at_idx",
+            "columns": [
+              "created_at"
+            ],
+            "isUnique": false
+          },
+          "{{default_schema}}queue_messages_dedupe_slot_uq": {
+            "name": "{{default_schema}}queue_messages_dedupe_slot_uq",
+            "columns": [
+              "dedupe_slot"
+            ],
+            "isUnique": true
+          },
+          "{{default_schema}}queue_messages_queue_status_priority_run_at_idx": {
+            "name": "{{default_schema}}queue_messages_queue_status_priority_run_at_idx",
+            "columns": [
+              "queue",
+              "status",
+              "priority",
+              "run_at"
+            ],
+            "isUnique": false
+          }
+        },
+        "foreignKeys": {},
+        "compositePrimaryKeys": {},
+        "uniqueConstraints": {},
+        "checkConstraints": {
+          "{{default_schema}}queue_messages_status_check": {
+            "name": "{{default_schema}}queue_messages_status_check",
+            "value": "\"{{default_schema}}queue_messages\".\"status\" in ('waiting', 'active', 'completed', 'dead')"
+          }
+        }
+      },
+      "{{default_schema}}tenants": {
+        "name": "{{default_schema}}tenants",
+        "columns": {
+          "id": {
+            "name": "id",
+            "type": "text",
+            "primaryKey": true,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "created_at": {
+            "name": "created_at",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "updated_at": {
+            "name": "updated_at",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "key": {
+            "name": "key",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "plan": {
+            "name": "plan",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false,
+            "autoincrement": false
+          },
+          "strategy": {
+            "name": "strategy",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false,
+            "autoincrement": false
+          },
+          "schema": {
+            "name": "schema",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false,
+            "autoincrement": false
+          },
+          "connection": {
+            "name": "connection",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false,
+            "autoincrement": false
+          },
+          "status": {
+            "name": "status",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "attributes": {
+            "name": "attributes",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false,
+            "autoincrement": false
+          }
+        },
+        "indexes": {
+          "{{default_schema}}tenants_created_at_idx": {
+            "name": "{{default_schema}}tenants_created_at_idx",
+            "columns": [
+              "created_at"
+            ],
+            "isUnique": false
+          },
+          "{{default_schema}}tenants_key_uq": {
+            "name": "{{default_schema}}tenants_key_uq",
+            "columns": [
+              "key"
+            ],
+            "isUnique": true
+          }
+        },
+        "foreignKeys": {},
+        "compositePrimaryKeys": {},
+        "uniqueConstraints": {},
+        "checkConstraints": {
+          "{{default_schema}}tenants_strategy_check": {
+            "name": "{{default_schema}}tenants_strategy_check",
+            "value": "\"{{default_schema}}tenants\".\"strategy\" in ('schema', 'database')"
+          },
+          "{{default_schema}}tenants_status_check": {
+            "name": "{{default_schema}}tenants_status_check",
+            "value": "\"{{default_schema}}tenants\".\"status\" in ('active', 'suspended')"
+          }
+        }
+      },
+      "{{default_schema}}job_runs": {
+        "name": "{{default_schema}}job_runs",
+        "columns": {
+          "id": {
+            "name": "id",
+            "type": "text",
+            "primaryKey": true,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "created_at": {
+            "name": "created_at",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "updated_at": {
+            "name": "updated_at",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "job": {
+            "name": "job",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "trigger": {
+            "name": "trigger",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "scheduled_at": {
+            "name": "scheduled_at",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "attempt": {
+            "name": "attempt",
+            "type": "real",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "status": {
+            "name": "status",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "started_at": {
+            "name": "started_at",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          },
+          "finished_at": {
+            "name": "finished_at",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": false,
+            "autoincrement": false
+          },
+          "duration_ms": {
+            "name": "duration_ms",
+            "type": "real",
+            "primaryKey": false,
+            "notNull": false,
+            "autoincrement": false
+          },
+          "heartbeat_at": {
+            "name": "heartbeat_at",
+            "type": "integer",
+            "primaryKey": false,
+            "notNull": false,
+            "autoincrement": false
+          },
+          "result": {
+            "name": "result",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false,
+            "autoincrement": false
+          },
+          "error": {
+            "name": "error",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false,
+            "autoincrement": false
+          },
+          "logs": {
+            "name": "logs",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true,
+            "autoincrement": false
+          }
+        },
+        "indexes": {
+          "{{default_schema}}job_runs_created_at_idx": {
+            "name": "{{default_schema}}job_runs_created_at_idx",
+            "columns": [
+              "created_at"
+            ],
+            "isUnique": false
+          },
+          "{{default_schema}}job_runs_job_scheduled_at_attempt_uq": {
+            "name": "{{default_schema}}job_runs_job_scheduled_at_attempt_uq",
+            "columns": [
+              "job",
+              "scheduled_at",
+              "attempt"
+            ],
+            "isUnique": true
+          },
+          "{{default_schema}}job_runs_job_started_at_idx": {
+            "name": "{{default_schema}}job_runs_job_started_at_idx",
+            "columns": [
+              "job",
+              "started_at"
+            ],
+            "isUnique": false
+          }
+        },
+        "foreignKeys": {},
+        "compositePrimaryKeys": {},
+        "uniqueConstraints": {},
+        "checkConstraints": {
+          "{{default_schema}}job_runs_trigger_check": {
+            "name": "{{default_schema}}job_runs_trigger_check",
+            "value": "\"{{default_schema}}job_runs\".\"trigger\" in ('schedule', 'manual', 'code')"
+          },
+          "{{default_schema}}job_runs_status_check": {
+            "name": "{{default_schema}}job_runs_status_check",
+            "value": "\"{{default_schema}}job_runs\".\"status\" in ('running', 'success', 'failed', 'timedOut', 'skipped', 'abandoned', 'interrupted')"
+          }
+        }
+      }
+    },
+    "views": {},
+    "enums": {},
+    "_meta": {
+      "tables": {},
+      "columns": {}
+    },
+    "internal": {
+      "indexes": {}
+    },
+    "id": "2aa69049-a052-4b10-9bad-390c41d9404b",
+    "prevId": "00000000-0000-0000-0000-000000000000"
+  }
+}

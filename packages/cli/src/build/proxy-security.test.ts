@@ -106,7 +106,8 @@ describe("CORS at the gateway", () => {
 
 describe("streamed body limits", () => {
   test("maxBodySize answers 413 and aborts the upstream; a larger one lets a body above the global limit through", async () => {
-    const small = await start(route(`, maxBodySize: "1MB"`));
+    // The global limit is above the route's, so the socket lets the body reach the route's own limit.
+    const small = await start(`security: { limits: { body: "4MB" } }, ${route(`, maxBodySize: "1MB"`)}`);
     const { url } = await small.listen();
     const refused = await fetch(`${url}/billing/upload`, { method: "POST", body: streamed(2), duplex: "half" } as RequestInit);
     expect(refused.status).toBe(413);

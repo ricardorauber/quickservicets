@@ -10,8 +10,8 @@ import type { EntityModel } from "@quickservicets/core";
 const byName = (models: EntityModel[], name: string) => models.find((model) => model.entityName === name)!;
 
 describe("built-in entities", () => {
-  test("File and Media exist without user files", () => {
-    const models = parseProjectEntities(createProject({}));
+  test("File and Media exist when storage is set", () => {
+    const models = parseProjectEntities(createProject({}), [], { storage: true });
     expect(byName(models, "File")).toMatchObject({ name: "files", file: { base: "file" } });
     expect(byName(models, "Media")).toMatchObject({ name: "media", file: { base: "media" } });
     expect(byName(models, "File").fields.map((field) => field.name)).toEqual(["filename", "mimeType", "size", "storage", "storageKey", "url"]);

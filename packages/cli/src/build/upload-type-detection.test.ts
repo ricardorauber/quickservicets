@@ -19,7 +19,7 @@ export type Organization = {
 };
 
 async function setup() {
-  const models = parseProjectEntities(createProject(entities));
+  const models = parseProjectEntities(createProject(entities), [], { storage: true });
   const dir = mkdtempSync(join(tmpdir(), "quickservicets-upload-types-"));
   const database = memoryAdapter();
   const config = resolveConfig({ database, storage: { default: localStorage({ dir }) }, logger: { info() {}, warn() {}, error() {} } }, {});

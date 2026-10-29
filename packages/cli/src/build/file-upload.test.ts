@@ -20,7 +20,7 @@ function walk(dir: string): string[] {
 }
 
 async function setup(adapterOverride?: (base: DatabaseAdapter) => DatabaseAdapter, filesConfig?: { maxSize?: number | string }) {
-  const models = parseProjectEntities(createProject(files));
+  const models = parseProjectEntities(createProject(files), [], { storage: true });
   const dir = mkdtempSync(join(tmpdir(), "quickservicets-uploads-"));
   const base = memoryAdapter();
   const database = adapterOverride ? adapterOverride(base) : base;

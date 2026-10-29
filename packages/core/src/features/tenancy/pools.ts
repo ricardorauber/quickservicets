@@ -1,4 +1,5 @@
-import { HttpError, safeLog, SECRET_MASK, type DatabaseAdapter, type EntityModel, type Logger } from "../public.ts";
+import { HttpError, maskConnections, safeLog, type DatabaseAdapter, type EntityModel, type Logger } from "../public.ts";
+export { maskConnections };
 import { directoryClock, type TenantInfo } from "./directory.ts";
 
 /** How long new openings of a tenant wait after its last failure. */
@@ -89,15 +90,6 @@ export class MissingConnectionError extends Error {
 
 const sameConnection = (a: unknown, b: unknown) => a === b || JSON.stringify(a) === JSON.stringify(b);
 
-/** Replaces every text of `secrets` and the password of any URL in `message` with the secret mask. */
-export function maskConnections(message: string, secrets: readonly unknown[]): string {
-  let masked = message;
-  for (const secret of secrets) {
-    const texts = typeof secret === "string" ? [secret] : secret && typeof secret === "object" ? Object.values(secret).filter((value): value is string => typeof value === "string") : [];
-    for (const text of texts) if (text.length >= 4) masked = masked.split(text).join(SECRET_MASK);
-  }
-  return masked.replace(/([a-z][a-z0-9+.-]*:\/\/[^:/@\s]*):[^@/\s]*@/gi, `$1:${SECRET_MASK}@`);
-}
 
 /** Rejects with an error after `ms`, or resolves with `work`. */
 async function within<T>(work: Promise<T>, ms: number): Promise<T> {

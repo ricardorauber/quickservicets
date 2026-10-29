@@ -11,6 +11,7 @@ import { flushLogs, jsonLogger, safeLog } from "./logger.ts";
 import { MIGRATIONS_TABLE_RENAMED, renameLegacyMigrationTables } from "./legacy-names.ts";
 import { reportStartupFailure } from "./error-reports.ts";
 import type { EntityModel } from "./model.ts";
+import { errorDatabase } from "./named-databases.ts";
 import type { ResolvedFeature } from "./features.ts";
 import { loadServerTls, logServerCertificate } from "./tls.ts";
 import { reloadTls, setTlsRestart } from "./tls-reload.ts";
@@ -170,9 +171,12 @@ export async function startService(options: StartServiceOptions): Promise<Runnin
 
 async function disconnect(config: ResolvedConfig): Promise<void> {
   try {
-    await config.database.disconnect();
+    // With named databases, every database disconnects within the stop time limit.
+    if (Object.keys(config.databases ?? {}).length === 0) await config.database.disconnect();
+    else await withTimeout(() => config.database.disconnect(), parseDuration(config.lifecycle.stopTimeout) ?? 10_000, "disconnecting the databases");
   } catch (error) {
-    safeLog(config.logger ?? jsonLogger, "error", { timestamp: new Date().toISOString(), message: "database.disconnect", error: { message: (error as Error)?.message ?? String(error) } });
+    const database = errorDatabase(error);
+    safeLog(config.logger ?? jsonLogger, "error", { timestamp: new Date().toISOString(), message: "database.disconnect", ...(database ? { database } : {}), error: { message: (error as Error)?.message ?? String(error) } });
   }
 }
 

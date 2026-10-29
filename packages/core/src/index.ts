@@ -1,5 +1,7 @@
 export { CODES_BY_STATUS, HttpError, codeForStatus, toErrorResponse } from "./errors.ts";
 export type { ErrorResponseOptions, FieldErrorDetail, HttpErrorOptions } from "./errors.ts";
+export { DATABASE_NAME, DEFAULT_DATABASE, databaseAdapters, databaseOf, databaseRouter, databaseUrlVariable, errorDatabase, isDatabaseRouter, resolveDatabases } from "./named-databases.ts";
+export type { DatabaseRouter, DatabaseRouterOptions, DatabaseTenancy, NamedDatabaseConfig, NamedDatabaseEntry, ResolvedDatabase } from "./named-databases.ts";
 export { alwaysHiddenPaths, CRUD_OPERATIONS, entityRoutePath, hiddenPathsFor, SYSTEM_FIELDS, vectorFields } from "./model.ts";
 export type { ArrayOnDeleteAction, EnumDeclarationInfo, ParsedTag, ParsedTags, FileAccessMode, RelationKind, RelationSide, VectorMetric, VectorSettings, CrudOperation, EntityModel, Exposure, ReadOperation, HookReference, ModelIndex, OverrideHooksMode, FieldConstraints, FieldModel, FieldStorage, FieldType, NestedFieldModel, OnDeleteAction, PrimitiveFieldType, StringFormat, TypeDescriptor } from "./model.ts";
 export { ReferenceArrayChange, validateBody } from "./validation.ts";
@@ -259,7 +261,7 @@ export { prepareFeatureTargets, runtimeTargets, taggedRoutes, tagsOf } from "./f
 export type { OptionsTarget, RuntimeTarget, TaggedRoute } from "./feature-targets.ts";
 export type { FeatureApi, FeatureApis, FeatureConfig, FeatureDefinition, FeatureDocs, FeatureEntities, FeatureBuild, FeatureEntitiesContext, FeatureFileEntities, FeatureFolder, FeatureInput, FeatureOpenApi, FeatureSetup, FeatureTag, FeatureTagTarget, TargetOptions, FeatureOptions, FeatureRequirement, NativeFeatures, ProjectFeatureModule, ResolvedFeature } from "./features.ts";
 export { applyEnvironment, CONFIG_OVERRIDES, configVariable, envNameFor, featureVariables, logConfigWarnings, NOT_OVERRIDABLE, optionLeaves, overrideVariables, unknownVariableWarnings } from "./environment.ts";
-export { maskSecrets, SECRET_MASK } from "./secrets.ts";
+export { maskConnections, maskSecrets, SECRET_MASK } from "./secrets.ts";
 export type { ConfigOverride, EnvAlias, EnvironmentResult, OptionLeaf } from "./environment.ts";
 export { runAfterHooks, runBeforeHooks } from "./feature-hooks.ts";
 export { afterCommit, assertWritable, currentTransaction, inTransaction, onRollback, runInTransaction, transaction } from "./transactions.ts";
@@ -408,7 +410,7 @@ export type { StreamCallSpec, HttpTransport, HttpMock, MockCall, MockHandler, Mo
 export { bucketOf, evaluateRule, flagsFeature } from "./features/flags/index.ts";
 export { appliedTenantMigrations, migrateTenant, migrateTenantDatabase, migrationFiles, MONGO_MIGRATIONS_COLLECTION, provisionTenant, strategyOf, tenancyOptionsOf, tenantOperations } from "./features/tenancy/index.ts";
 export type { TenancyOptions, TenantOperations, TenantProvisionResult } from "./features/tenancy/index.ts";
-export { crossTenancyReferences, maskConnections, markTenancy, SHARED_ENTITY_KEYS, tenantPools, withoutTenancyMarks } from "./features/tenancy/index.ts";
+export { crossTenancyReferences, markTenancy, SHARED_ENTITY_KEYS, tenantPools, withoutTenancyMarks } from "./features/tenancy/index.ts";
 export type { PoolCloseReason, PoolLease, PoolSettings, PoolStats, TenantPool, TenantPools } from "./features/tenancy/index.ts";
 export { cachedDirectory, compilePathPattern, configDirectory, databaseDirectory, directoryClock, matchPathPrefix, serviceDirectory, subdomainOf, TENANT_FIELDS, TENANT_ID, TENANT_SOURCES, tenancyFeature, tenantEntity, tenantInfoOf } from "./features/tenancy/index.ts";
 export type { CachedDirectory, DirectoryCacheOptions, TenancyApi, TenantDirectory, TenantInfo, TenantSource } from "./features/tenancy/index.ts";

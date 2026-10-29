@@ -1,4 +1,5 @@
 import { ConfigError } from "./config-error.ts";
+import { databaseConnectionSecrets } from "./named-databases.ts";
 import { maskSecrets } from "./secrets.ts";
 import { expectationOf, optionTypeOf, parseOptionString, type AnyOptionSchema, type OptionSettings } from "./options.ts";
 
@@ -118,7 +119,9 @@ export function setEnvValues(values: Record<string, unknown>, secrets: readonly 
 
 /** The values of the declared secret variables of the configuration just resolved. */
 export function secretVariableValues(): string[] {
-  return secretNames.map((name) => store[name]).filter((value): value is string => typeof value === "string");
+  const declared = secretNames.map((name) => store[name]).filter((value): value is string => typeof value === "string");
+  const connections = databaseConnectionSecrets();
+  return connections.length === 0 ? declared : [...declared, ...connections];
 }
 
 const readOnly = () => {

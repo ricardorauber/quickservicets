@@ -96,6 +96,8 @@ function tagsPage(): string {
 /** The environment variable column of a config key: its `QS_*` name and alias, `not overridable`, or empty for objects. */
 function variableOf(key: ConfigKey): string {
   const root = key.path.split(".")[0]!;
+  // Each named database's connection has a variable of its own; the adapters themselves are code.
+  if (key.path === "databases") return code("QS_DATABASES_<NAME>_URL");
   if (NOT_OVERRIDABLE.includes(root) || NOT_OVERRIDABLE.includes(key.path)) return "not overridable";
   const variable = configVariable(key.path);
   if (!variable) return "—";

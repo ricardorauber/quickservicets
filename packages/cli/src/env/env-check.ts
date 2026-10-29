@@ -8,6 +8,7 @@ import {
   loadProjectFeatures,
   overrideVariables,
   parseOptionString,
+  resolveDatabases,
   resolveFeatures,
   SECRET_MASK,
   unknownVariableWarnings,
@@ -116,6 +117,14 @@ export async function envCheck(projectRoot: string, processEnv: Record<string, s
   let applied = config;
   try {
     applied = applyEnvironment(config, environment, definitions).config;
+  } catch (error) {
+    if (!(error instanceof ConfigError)) throw error;
+    errors.push(...error.message.split("\n"));
+    ok = false;
+  }
+  // Each named database's connection variable applies to its adapter.
+  try {
+    resolveDatabases(applied.databases, environment);
   } catch (error) {
     if (!(error instanceof ConfigError)) throw error;
     errors.push(...error.message.split("\n"));

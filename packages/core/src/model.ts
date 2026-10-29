@@ -190,6 +190,11 @@ export interface EntityModel {
    * `shared` for entities every tenant shares. A contributor may declare `shared` for its own entities.
    */
   tenancy?: "tenant" | "shared";
+  /**
+   * The database the entity lives in: a name of the `databases` config key, or `default`. The build sets it on every
+   * entity while the config has named databases; absent, the entity lives in the default database.
+   */
+  database?: string;
   /** The key of the entity a derived model (like a history table) follows, for the rules that apply to both. */
   derivedFrom?: string;
 }

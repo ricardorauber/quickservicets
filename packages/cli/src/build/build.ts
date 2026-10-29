@@ -426,7 +426,7 @@ export async function build(projectRoot: string, env: Record<string, string | un
 async function buildProject(projectRoot: string, config: ResolvedConfig, options: BuildOptions): Promise<BuildSummary> {
   const featureKeys = registeredProjectFeatures().map((feature) => feature.key);
   const variables = declaredVariables(config.env, config.features.map((feature) => ({ key: feature.key, env: feature.definition.env })));
-  const parsed = parseProjectModels(projectRoot, config.features, { storage: storageConfigured(config) });
+  const parsed = parseProjectModels(projectRoot, config.features, { storage: storageConfigured(config), databases: Object.keys(config.databases) });
   const overrides = [...replacedNatives().map(overrideLine), ...parsed.overrides];
   const models = parsed.models;
   const scanned = await scanProjectFiles(projectRoot, config.features);

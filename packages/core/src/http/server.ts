@@ -1,4 +1,5 @@
 import { HttpError, toErrorResponse } from "../errors.ts";
+import { errorDatabase } from "../named-databases.ts";
 import type { Repositories, RequestExtensions, ServiceRequest, ServiceResponse } from "../hooks.ts";
 import { noRequestJobs, type RequestJobs } from "../jobs/triggers.ts";
 import { jsonLogger, REQUEST_LOG, safeLog, type LogMasker, type Logger } from "../logger.ts";
@@ -456,9 +457,11 @@ export function createServer({ routes, repos, config: serverConfig, jobs = noReq
     if (state.span && !(error instanceof HttpError && error.status < 500)) state.span.recordException(maskedError(error, mask ? (text) => mask.text(text) : undefined));
     if (!(error instanceof HttpError)) {
       const failure = error instanceof Error ? error : new Error(String(error));
+      const database = errorDatabase(failure);
       safeLog(logger, "error", {
         timestamp: new Date().toISOString(),
         requestId,
+        ...(database ? { database } : {}),
         error: { name: failure.name, message: failure.message, stack: failure.stack },
       });
     }

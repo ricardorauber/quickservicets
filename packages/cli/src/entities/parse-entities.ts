@@ -14,6 +14,7 @@ import {
   jobRunEntity,
   FILE_BASE_FIELDS,
   hiddenPathsFor,
+  DEFAULT_DATABASE,
   parseFieldPaths,
   populatePathErrors,
   SYSTEM_FIELDS,
@@ -68,8 +69,8 @@ export interface ProjectModels {
 }
 
 /** The entities of `/entities` and of the given features' entity folders, and their link entities. */
-export function parseEntities(projectRoot: string, features: readonly ResolvedFeature[] = []): EntityModel[] {
-  return parseSources(projectRoot, features).models;
+export function parseEntities(projectRoot: string, features: readonly ResolvedFeature[] = [], databases: readonly string[] = []): EntityModel[] {
+  return parseSources(projectRoot, features, databases).models;
 }
 
 /** The built-in tag a feature tag's name would shadow, described for an error. */
@@ -77,16 +78,16 @@ export function builtInTagOwner(name: string): string | undefined {
   return isBuiltInEntityTag(name) || isFieldTag(name) || isBuiltInEndpointTag(name) ? `the built-in tag @${name}` : undefined;
 }
 
-function parseSources(projectRoot: string, features: readonly ResolvedFeature[]): ProjectModels {
+function parseSources(projectRoot: string, features: readonly ResolvedFeature[], databases: readonly string[]): ProjectModels {
   const restore = useFeatureTags(features, builtInTagOwner);
   try {
-    return parseSourcesWithTags(projectRoot, features);
+    return parseSourcesWithTags(projectRoot, features, databases);
   } finally {
     restore();
   }
 }
 
-function parseSourcesWithTags(projectRoot: string, features: readonly ResolvedFeature[]): ProjectModels {
+function parseSourcesWithTags(projectRoot: string, features: readonly ResolvedFeature[], databases: readonly string[]): ProjectModels {
   const entitiesDir = join(projectRoot, "entities");
   const projectFiles = listEntitySources(projectRoot, entitiesDir);
   const { sources: featureFiles, overrides } = featureEntitySources(projectRoot, features, projectFiles);
@@ -114,12 +115,12 @@ function parseSourcesWithTags(projectRoot: string, features: readonly ResolvedFe
   const sourcesByFile = new Map(sources.map((source) => [source.file, source]));
 
   const models = sources.map((source) => {
-    const model = parseEntity(program, { checker, source, sourcesByFile, projectRoot });
+    const model = placeEntity(parseEntity(program, { checker, source, sourcesByFile, projectRoot }), source, databases);
     return source.feature ? { ...model, feature: source.feature } : model;
   });
   assertNoFeatureClashes(models);
   assertUniqueCollectionNames(models, sources);
-  const links = pairRelations(models);
+  const links = placeLinks(pairRelations(models), models);
   assertUniqueTableNames(models, links, sources);
   models.forEach((model, index) => {
     for (const field of model.fields) {
@@ -155,6 +156,35 @@ function parseSourcesWithTags(projectRoot: string, features: readonly ResolvedFe
     }
   });
   return { models: [...models, ...links], overrides };
+}
+
+/**
+ * Places an entity in its database: the one its `@database` names, else the named database its folder is named like,
+ * else the default one. With named databases every entity records its database; without them none does.
+ */
+function placeEntity(model: EntityModel, source: EntitySource, databases: readonly string[]): EntityModel {
+  const tagged = model.database;
+  const { database: _tag, ...rest } = model;
+  if (tagged !== undefined && tagged !== DEFAULT_DATABASE && !databases.includes(tagged)) {
+    throw new EntityParseError(`${source.relativeFile}: unknown database ${tagged} (configured: ${[DEFAULT_DATABASE, ...databases].join(", ")})`);
+  }
+  if (databases.length === 0) return rest;
+  const byFolder = !source.feature && source.folder !== undefined && databases.includes(source.folder) ? source.folder : undefined;
+  return { ...rest, database: tagged ?? byFolder ?? DEFAULT_DATABASE };
+}
+
+/** The link entities of N-N relations live in the database of their left entity. */
+function placeLinks(links: EntityModel[], models: readonly EntityModel[]): EntityModel[] {
+  return links.map((link) => {
+    const left = models.find((model) => model.key === link.link?.left.entity);
+    return left?.database !== undefined ? { ...link, database: left.database } : link;
+  });
+}
+
+/** With named databases, the entities the build adds (built-in and contributed ones) live in the default database. */
+function withDefaultDatabase(models: EntityModel[], databases: readonly string[]): EntityModel[] {
+  if (databases.length === 0) return models;
+  return models.map((model) => (model.database === undefined ? { ...model, database: DEFAULT_DATABASE } : model));
 }
 
 /** How the build names a file of a feature folder: project-relative, or through the core package for a native. */
@@ -232,6 +262,12 @@ export interface FileEntityUsage {
   storage?: boolean;
 }
 
+/** What the project's models depend on in the config: the file entity usage and the named databases. */
+export interface ProjectModelOptions extends FileEntityUsage {
+  /** The names of the config's `databases`, which `@database` and entity folders place entities in. */
+  databases?: readonly string[];
+}
+
 /**
  * The built-in file entities the model uses: the ones a field references (an entity extending `File` or `Media` is a
  * file entity of its own and brings in neither), both when `storage` is set, and the ones an enabled feature lists in
@@ -277,7 +313,7 @@ export function withJobRunEntity(models: EntityModel[]): EntityModel[] {
  * Every entity of the project: the ones in `/entities`, the ones the enabled features contribute, their link
  * entities, the built-in file entities, and the built-in `JobRun` entity when the project has jobs.
  */
-export function parseProjectEntities(projectRoot: string, features: readonly ResolvedFeature[] = [], usage: FileEntityUsage = {}): EntityModel[] {
+export function parseProjectEntities(projectRoot: string, features: readonly ResolvedFeature[] = [], usage: ProjectModelOptions = {}): EntityModel[] {
   return parseProjectModels(projectRoot, features, usage).models;
 }
 
@@ -294,13 +330,14 @@ function withTenancyMarks(models: EntityModel[], features: readonly ResolvedFeat
 }
 
 /** `parseProjectEntities` with the override lines of project entities replacing feature entities. */
-export function parseProjectModels(projectRoot: string, features: readonly ResolvedFeature[] = [], usage: FileEntityUsage = {}): ProjectModels {
-  const parsed = parseSources(projectRoot, features);
+export function parseProjectModels(projectRoot: string, features: readonly ResolvedFeature[] = [], usage: ProjectModelOptions = {}): ProjectModels {
+  const databases = usage.databases ?? [];
+  const parsed = parseSources(projectRoot, features, databases);
   const contributed = withContributedEntities(parsed.models, features);
   const built = withFileEntities(contributed.models, usedFileEntities(contributed.models, features, usage));
   const all = hasJobFiles(projectRoot, features) ? withJobRunEntity(built) : built;
   return {
-    models: withTenancyMarks(all, features),
+    models: withTenancyMarks(withDefaultDatabase(all, databases), features),
     overrides: [...parsed.overrides, ...contributed.overrides],
   };
 }
@@ -358,6 +395,10 @@ function parseEntity(program: ts.Program, context: ParseContext): EntityModel {
       ? "media"
       : resolveCollectionName(declaration, source);
   const schema = resolveSchema(declaration, source);
+  const databaseTag = findTag(declaration, "database");
+  if (databaseTag && !/^[a-z][a-z0-9-]*$/.test(databaseTag.text)) {
+    throw new EntityParseError(`${source.relativeFile}: invalid @database: expects a database name like orders`);
+  }
   const tagTarget: EntityTagTarget = { hooks: [], overrideHooks: "inherit", internal: false };
   applyEntityTags(tagTarget, readTags(declaration), { relativeFile: source.relativeFile });
   const { fieldSelections = [], ...tags } = tagTarget;
@@ -383,6 +424,7 @@ function parseEntity(program: ts.Program, context: ParseContext): EntityModel {
     ...(shape.base ? { file: { base: shape.base } } : {}),
     ...tags,
     exposure: { list: { include: [], exclude: [] }, read: { include: [], exclude: [] } },
+    ...(databaseTag ? { database: databaseTag.text } : {}),
   };
   if ((model.schemaKey ?? model.repoKey) === "transaction") {
     throw new EntityParseError(`${source.relativeFile}: the repository key transaction is reserved; rename the entity or set @collection`);

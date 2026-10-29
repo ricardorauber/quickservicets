@@ -30,6 +30,8 @@ export interface ErrorReport {
   requestId?: string;
   /** The database scope the failing code ran in (`tenant:<id>` for tenants), when not the root one. */
   scope?: string;
+  /** The database the error came from, when a named database's adapter threw it (`default` for the default one). */
+  database?: string;
   tags: Record<string, string>;
   environment: "production" | "development";
   release?: string;

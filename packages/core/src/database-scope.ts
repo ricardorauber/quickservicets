@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { DatabaseAdapter } from "./adapter.ts";
 import type { EntityModel } from "./model.ts";
+import { isDatabaseRouter } from "./named-databases.ts";
 import { currentOperation, operationContextEnabled, withOperation } from "./operation-context.ts";
 import { repositoriesFor, type RepositoryRegistry } from "./repository.ts";
 import { activeSetup } from "./setup-phase.ts";
@@ -20,6 +21,11 @@ export interface DatabaseScope {
   adapter: DatabaseAdapter;
   repos: RepositoryRegistry;
   tenant?: ScopeTenant;
+  /**
+   * Every database's adapter by name (`default` and each named database) when the service has named databases; the
+   * scope's `adapter` routes each entity to one of them.
+   */
+  databases?: Readonly<Record<string, DatabaseAdapter>>;
   /**
    * Where the core writes its own rows (queue messages, outbox events and deliveries) for this scope, when not through
    * `adapter`: a tenant with a database of its own stages them there inside its transactions and writes them to the
@@ -42,7 +48,7 @@ const keys = new WeakMap<DatabaseAdapter, string>();
  * the features' setups asked for, so each service starts from its own state.
  */
 export function configureDatabaseScopes(adapter: DatabaseAdapter, repos: RepositoryRegistry, enabled: boolean): void {
-  root = { key: "root", adapter, repos };
+  root = { key: "root", adapter, repos, ...(isDatabaseRouter(adapter) ? { databases: adapter.databases } : {}) };
   keys.set(adapter, "root");
   scopes = enabled ? (scopes ?? new AsyncLocalStorage<DatabaseScope>()) : undefined;
 }

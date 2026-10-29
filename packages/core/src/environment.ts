@@ -1,4 +1,5 @@
 import { ConfigError } from "./config-error.ts";
+import { databaseUrlVariable } from "./named-databases.ts";
 import type { FeatureDefinition } from "./features.ts";
 import { boolean, duration, integer, list, oneOf, parseOptionString, secret, size, string, url, type AnyOptionSchema } from "./options.ts";
 import { jsonLogger, safeLog, type Logger } from "./logger.ts";
@@ -79,7 +80,7 @@ export const CONFIG_OVERRIDES: readonly ConfigOverride[] = [
 ];
 
 /** Keys that hold behavior (adapters, loggers, code), which no environment variable can express. */
-export const NOT_OVERRIDABLE: readonly string[] = ["database", "logger", "storage", "plugins", "middleware", "env", "docs.openapi"];
+export const NOT_OVERRIDABLE: readonly string[] = ["database", "databases", "logger", "storage", "plugins", "middleware", "env", "docs.openapi"];
 
 /** Variables the framework sets or reads itself, which are not config overrides but are not unknown either. */
 const INTERNAL_VARIABLES = [WORKER_INDEX_ENV];
@@ -314,5 +315,7 @@ export function overrideVariables(definitions: readonly FeatureDefinition[], con
   for (const definition of definitions) {
     for (const [name, leaf] of featureVariables(definition.key, definition.schema, config[definition.key])) variables.set(name, { path: leaf.path, secret: leaf.schema.kind === "secret" });
   }
+  // Each named database's connection.
+  for (const name of Object.keys(isObject(config.databases) ? config.databases : {})) variables.set(databaseUrlVariable(name), { path: `databases.${name}.url`, secret: true });
   return variables;
 }

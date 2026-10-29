@@ -1,6 +1,7 @@
 import {
   currentOperation,
   currentTenant,
+  errorDatabase,
   anyOf,
   defineFeature,
   HttpError,
@@ -235,6 +236,7 @@ const errorsFeature = defineFeature({
         ...(extra.queue ? { queue: extra.queue } : {}),
         ...(extra.requestId ? { requestId: extra.requestId } : {}),
         ...(scope ? { scope } : {}),
+        ...(errorDatabase(error) ? { database: errorDatabase(error)! } : {}),
         tags: { ...staticTags, ...(extra.tags ?? {}) },
         environment: production ? "production" : "development",
         ...(ctx.options.release !== undefined ? { release: ctx.options.release } : {}),

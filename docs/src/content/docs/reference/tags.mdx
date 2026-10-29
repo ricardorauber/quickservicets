@@ -33,6 +33,17 @@ Database schema of the entity (default: its folder inside `entities/`, or the de
 export type Account = { email: string }
 ```
 
+### `@database`
+
+Named database of the entity, a key of `databases` or `default` (default: the named database its folder inside `entities/` is named like, or the default database).
+
+**Applies to:** Entities
+
+```ts
+/** @database catalog */
+export type Product = { name: string }
+```
+
 ### `@overrideHooks`
 
 `inherit` (default) or `replace`: whether custom endpoints that override a generated route keep the entity's hooks.

@@ -3,6 +3,7 @@ import type { ServerTlsConfig } from "./tls.ts";
 import { join } from "node:path";
 import type { DatabaseAdapter } from "./adapter.ts";
 import { memoryAdapter } from "./adapters/memory.ts";
+import { databaseRouter, resolveDatabases, type NamedDatabaseEntry, type ResolvedDatabase } from "./named-databases.ts";
 import type { Logger } from "./logger.ts";
 import { DEFAULT_MAX_FILE_SIZE, parseSize } from "./files/limits.ts";
 import { parseDuration } from "./jobs/job.ts";
@@ -30,6 +31,8 @@ export const MEMORY_IN_PRODUCTION = "quickservicets is using the in-memory datab
 export interface ServiceConfig extends NativeFeatures {
   /** The database adapter: `memoryAdapter()`, `sqliteAdapter(...)`, `postgresAdapter(...)` or `mongodbAdapter(...)`; without it the service runs on `memoryAdapter()`, which loses its data on every restart (default: the in-memory database). */
   database?: DatabaseAdapter;
+  /** Named databases besides `database` (the `default` one), each an adapter or `{ adapter, tenancy? }`; an entity in `entities/<name>/` or tagged `@database <name>` lives in that database, and `QS_DATABASES_<NAME>_URL` sets each one's connection (default: none). */
+  databases?: Record<string, NamedDatabaseEntry>;
   /** HTTP server settings. */
   server?: {
     /** Port to listen on (default 3000); `PORT` overrides it. */
@@ -153,9 +156,14 @@ export interface ServiceConfig extends NativeFeatures {
 export const DEFAULT_POPULATE_DEPTH = 2;
 
 export interface ResolvedConfig
-  extends Omit<ServiceConfig, "database" | "server" | "production" | "schema" | "populate" | "storage" | "files" | "docs" | "jobs" | "lifecycle"> {
-  /** The database adapter, `memoryAdapter()` when the config names none. */
+  extends Omit<ServiceConfig, "database" | "databases" | "server" | "production" | "schema" | "populate" | "storage" | "files" | "docs" | "jobs" | "lifecycle"> {
+  /**
+   * The database adapter, `memoryAdapter()` when the config names none; with named databases, an adapter that routes
+   * each entity to the adapter of its database (`databases` holds each one).
+   */
   database: DatabaseAdapter;
+  /** The named databases, with `QS_DATABASES_<NAME>_URL` applied; empty without `databases`. */
+  databases: Record<string, ResolvedDatabase>;
   /** Time limits of the features' lifecycle callbacks, as durations. */
   lifecycle: { startTimeout: string; stopTimeout: string };
   docs: { enabled: boolean; openapi?: NonNullable<ServiceConfig["docs"]>["openapi"] };
@@ -385,9 +393,13 @@ export function resolveConfig(
   assertFeatureFolders(features);
   const variables = declaredVariables(config.env, features.map((feature) => ({ key: feature.key, env: feature.definition.env })));
   const envValues = readVariables(variables, env);
+  const databases = resolveDatabases(config.databases, env);
   const resolved: ResolvedConfig = {
     ...config,
-    database: withDatabase.database,
+    database: Object.keys(databases).length === 0
+      ? withDatabase.database
+      : databaseRouter(withDatabase.database, Object.fromEntries(Object.values(databases).map((entry) => [entry.name, entry.adapter])), { logger: config.logger }),
+    databases,
     // The config keys of features print their secrets masked, like the features' resolved options.
     ...maskedFeatureKeys(config as unknown as Record<string, unknown>, features),
     features,

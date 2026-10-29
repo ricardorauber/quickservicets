@@ -101,7 +101,7 @@ export async function startTestApp(options: TestAppOptions = {}): Promise<TestAp
     crudRoutes,
   });
   await lifecycle.setup();
-  if (options.connect !== false) await database.connect(models);
+  if (options.connect !== false) await config.database.connect(models);
   const app = createApp({
     models,
     crudRoutes,

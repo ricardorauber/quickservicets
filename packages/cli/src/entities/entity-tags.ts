@@ -88,6 +88,8 @@ export function applyEntityTags(entity: EntityTagTarget, tags: DocTag[], context
 registerEntityTag("collection");
 // The schema is resolved together with the entity file location.
 registerEntityTag("schema");
+// The database is resolved together with the entity file location and the configured databases.
+registerEntityTag("database");
 registerEntityTag("overrideHooks", (entity, tag, context) => {
   if (tag.text !== "inherit" && tag.text !== "replace") {
     throw entityTagError(context, tag, `expects inherit or replace, got "${tag.text}"`);
@@ -173,6 +175,11 @@ describeEntityTag("schema", {
   description: "Database schema of the entity (default: its folder inside `entities/`, or the default schema).",
   appliesTo: "Entities",
   example: "/** @schema auth */\nexport type Account = { email: string }",
+});
+describeEntityTag("database", {
+  description: "Named database of the entity, a key of `databases` or `default` (default: the named database its folder inside `entities/` is named like, or the default database).",
+  appliesTo: "Entities",
+  example: "/** @database catalog */\nexport type Product = { name: string }",
 });
 describeEntityTag("overrideHooks", {
   description: "`inherit` (default) or `replace`: whether custom endpoints that override a generated route keep the entity's hooks.",

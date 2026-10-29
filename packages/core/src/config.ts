@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import type { ServerTlsConfig } from "./tls.ts";
 import { join } from "node:path";
 import type { DatabaseAdapter } from "./adapter.ts";
+import { memoryAdapter } from "./adapters/memory.ts";
 import type { Logger } from "./logger.ts";
 import { DEFAULT_MAX_FILE_SIZE, parseSize } from "./files/limits.ts";
 import { parseDuration } from "./jobs/job.ts";
@@ -22,11 +23,13 @@ import { activeFeatureDefinitions, assertFeatureFolders, loadProjectFeatures, ma
 
 export const CONFIG_FILE = "quickservicets.config.ts";
 export const DEFAULT_PORT = 3000;
+/** The warning a production service on the in-memory database logs at startup. */
+export const MEMORY_IN_PRODUCTION = "quickservicets is using the in-memory database in production; every restart loses all data. Set database in quickservicets.config.ts.";
 
 /** The project configuration written in `quickservicets.config.ts`. Native features add their keys through `NativeFeatures`. */
 export interface ServiceConfig extends NativeFeatures {
-  /** The database adapter: `memoryAdapter()`, `sqliteAdapter(...)`, `postgresAdapter(...)` or `mongodbAdapter(...)`. */
-  database: DatabaseAdapter;
+  /** The database adapter: `memoryAdapter()`, `sqliteAdapter(...)`, `postgresAdapter(...)` or `mongodbAdapter(...)`; without it the service runs on `memoryAdapter()`, which loses its data on every restart (default: the in-memory database). */
+  database?: DatabaseAdapter;
   /** HTTP server settings. */
   server?: {
     /** Port to listen on (default 3000); `PORT` overrides it. */
@@ -150,7 +153,9 @@ export interface ServiceConfig extends NativeFeatures {
 export const DEFAULT_POPULATE_DEPTH = 2;
 
 export interface ResolvedConfig
-  extends Omit<ServiceConfig, "server" | "production" | "schema" | "populate" | "storage" | "files" | "docs" | "jobs" | "lifecycle"> {
+  extends Omit<ServiceConfig, "database" | "server" | "production" | "schema" | "populate" | "storage" | "files" | "docs" | "jobs" | "lifecycle"> {
+  /** The database adapter, `memoryAdapter()` when the config names none. */
+  database: DatabaseAdapter;
   /** Time limits of the features' lifecycle callbacks, as durations. */
   lifecycle: { startTimeout: string; stopTimeout: string };
   docs: { enabled: boolean; openapi?: NonNullable<ServiceConfig["docs"]>["openapi"] };
@@ -224,13 +229,13 @@ function resolvePort(config: ServiceConfig): number {
 export const WORKERS_NEED_DATABASE_SERVER = "server.workers > 1 requires a database server (PostgreSQL or MongoDB)";
 
 /** Production services on Linux with a database server use every CPU unless told otherwise; everything else runs one process. */
-function defaultWorkers(config: ServiceConfig, production: boolean, platform: string): number | "auto" {
+function defaultWorkers(config: ServiceConfig & { database: DatabaseAdapter }, production: boolean, platform: string): number | "auto" {
   const kind = config.database.kind;
   return production && platform === "linux" && (kind === "postgres" || kind === "mongodb") ? "auto" : 1;
 }
 
 function resolveWorkers(
-  config: ServiceConfig,
+  config: ServiceConfig & { database: DatabaseAdapter },
   env: Record<string, string | undefined>,
   cpus: () => number,
   production: boolean,
@@ -354,13 +359,14 @@ export function resolveConfig(
   cpus: () => number = availableCpus,
   platform: string = process.platform,
 ): ResolvedConfig {
-  if (!config || typeof config !== "object" || !config.database) {
-    throw new ConfigError("Invalid config: database is required");
-  }
+  if (!isConfigObject(config)) throw new ConfigError("Invalid config: expected an object");
+  // A config that names no database runs on the in-memory one.
+  if (!config.database) config = { ...config, database: memoryAdapter() };
   if (Object.hasOwn(config.repositories ?? {}, "findAllMax")) throw new ConfigError(FIND_ALL_MAX_RENAMED);
   // Variables win over aliases, which win over the config's values; the environment is read only here.
   const environment = applyEnvironment(config as unknown as Record<string, unknown>, env, activeFeatureDefinitions());
-  config = environment.config as unknown as ServiceConfig;
+  const withDatabase = environment.config as unknown as ServiceConfig & { database: DatabaseAdapter };
+  config = withDatabase;
   const production = config.production ?? false;
   configureCookies(production);
   const { features, disabledFeatures, enabledBy } = resolveFeatures(config as unknown as Record<string, unknown>);
@@ -369,13 +375,14 @@ export function resolveConfig(
   const envValues = readVariables(variables, env);
   const resolved: ResolvedConfig = {
     ...config,
+    database: withDatabase.database,
     // The config keys of features print their secrets masked, like the features' resolved options.
     ...maskedFeatureKeys(config as unknown as Record<string, unknown>, features),
     features,
     disabledFeatures,
     enabledBy,
     warnings: environment.warnings,
-    server: { ...config.server, port: resolvePort(config), workers: resolveWorkers(config, env, cpus, production, platform) },
+    server: { ...config.server, port: resolvePort(config), workers: resolveWorkers(withDatabase, env, cpus, production, platform) },
     production,
     docs: { enabled: config.docs?.enabled ?? !production, ...(config.docs?.openapi ? { openapi: config.docs.openapi } : {}) },
     schema: resolveSchema(config, env),
@@ -397,12 +404,29 @@ function publishEnv(values: Record<string, unknown>, variables: readonly Declare
   setEnvValues(values, variables.filter((variable) => variable.schema.kind === "secret").map((variable) => variable.name));
 }
 
+const isConfigObject = (value: unknown): value is ServiceConfig => typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * Loads `quickservicets.config.ts` from the project root and resolves it; a project without the file resolves `{}`,
+ * so it runs on the in-memory database with every default. A file that fails to import or whose default export is not
+ * an object fails with a `ConfigError` naming the file.
+ */
 export async function loadConfig(projectRoot: string, env: Record<string, string | undefined> = process.env): Promise<ResolvedConfig> {
-  const file = join(projectRoot, CONFIG_FILE);
-  if (!existsSync(file)) {
-    throw new ConfigError(`Config file not found: ${file}`);
-  }
   await loadProjectFeatures(projectRoot);
-  const module = (await import(file)) as { default?: ServiceConfig };
-  return resolveConfig(module.default as ServiceConfig, env, projectRoot);
+  return resolveConfig(await importConfigFile(projectRoot), env, projectRoot);
+}
+
+/** The default export of the project's config file, `{}` when the file does not exist. */
+export async function importConfigFile(projectRoot: string): Promise<ServiceConfig> {
+  const file = join(projectRoot, CONFIG_FILE);
+  if (!existsSync(file)) return {};
+  let module: { default?: unknown };
+  try {
+    module = (await import(file)) as { default?: unknown };
+  } catch (error) {
+    if (error instanceof ConfigError) throw error;
+    throw new ConfigError(`Invalid ${file}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!isConfigObject(module.default)) throw new ConfigError(`Invalid ${file}: the default export must be an object like defineConfig({}), got ${JSON.stringify(module.default) ?? String(module.default)}`);
+  return module.default;
 }

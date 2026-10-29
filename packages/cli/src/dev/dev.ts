@@ -1,4 +1,4 @@
-import { statSync, watch as fsWatch } from "node:fs";
+import { statSync, watch as fsWatch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
 import { loadConfig } from "@quickservicets/core";
 import { build, PENDING_MIGRATION_WARNING, type BuildOptions, type BuildSummary } from "../build/build.ts";
@@ -61,6 +61,50 @@ export interface DevSession {
   idle(): Promise<void>;
 }
 
+/**
+ * Watches the paths of a project: folders recursively and files directly, plus the project folder itself, so a
+ * watched top-level file or folder that is created, replaced or deleted (like `quickservicets.config.ts`) is noticed too.
+ */
+export function watchProject(projectRoot: string, paths: string[], onChange: (changed?: string) => void): Watcher {
+  const watchers = new Map<string, FSWatcher>();
+  const folders = new Set<string>();
+  const watchPath = (path: string) => {
+    watchers.get(path)?.close();
+    watchers.delete(path);
+    folders.delete(path);
+    try {
+      const folder = statSync(join(projectRoot, path)).isDirectory();
+      if (folder) folders.add(path);
+      watchers.set(path, fsWatch(join(projectRoot, path), { recursive: true }, (_event, file) => onChange(folder && file ? `${path}/${String(file).split(sep).join("/")}` : path)));
+    } catch {
+      // A path that does not exist is picked up by the project folder's watcher once it is created.
+    }
+  };
+  for (const path of paths) watchPath(path);
+  const topLevel = new Set(paths.filter((path) => !path.includes("/")));
+  let root: FSWatcher | undefined;
+  try {
+    root = fsWatch(projectRoot, (_event, file) => {
+      const name = file === null ? undefined : String(file);
+      if (name === undefined || !topLevel.has(name)) return;
+      // A watched folder reports its own changes; created or replaced files get a fresh watcher, since an editor's
+      // atomic save replaces the watched file.
+      if (folders.has(name) && existsSync(join(projectRoot, name))) return;
+      watchPath(name);
+      onChange(name);
+    });
+  } catch {
+    root = undefined;
+  }
+  return {
+    close: () => {
+      root?.close();
+      for (const watcher of watchers.values()) watcher.close();
+      watchers.clear();
+    },
+  };
+}
+
 const defaultDependencies: DevDependencies = {
   build,
   async autoMigrationsEnabled(projectRoot) {
@@ -82,17 +126,7 @@ const defaultDependencies: DevDependencies = {
       },
     };
   },
-  watch(projectRoot, paths, onChange) {
-    const watchers = paths.flatMap((path) => {
-      try {
-        const folder = statSync(join(projectRoot, path)).isDirectory();
-        return [fsWatch(join(projectRoot, path), { recursive: true }, (_event, file) => onChange(folder && file ? `${path}/${String(file).split(sep).join("/")}` : path))];
-      } catch {
-        return [];
-      }
-    });
-    return { close: () => watchers.forEach((watcher) => watcher.close()) };
-  },
+  watch: watchProject,
   scheduler: realScheduler,
   log: (line) => console.log(line),
   error: (line) => console.error(line),

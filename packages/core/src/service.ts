@@ -1,5 +1,5 @@
 import { createApp, type App, type AppEndpoint, type CrudRouteEntry, type FeatureFolderRegistry } from "./app.ts";
-import { resolveConfig, type ResolvedConfig, type ServiceConfig } from "./config.ts";
+import { MEMORY_IN_PRODUCTION, resolveConfig, type ResolvedConfig, type ServiceConfig } from "./config.ts";
 import { logConfigWarnings } from "./environment.ts";
 import { logEnabledFeatures, registerProjectFeatures, type ProjectFeatureModule } from "./features.ts";
 import type { HookDefinition } from "./hooks.ts";
@@ -65,6 +65,7 @@ export async function startService(options: StartServiceOptions): Promise<Runnin
   registerProjectFeatures(options.features ?? []);
   const config = resolveConfig(options.projectConfig, env);
   logConfigWarnings(config);
+  if (config.production && config.database.kind === "memory") safeLog(config.logger ?? jsonLogger, "warn", { timestamp: new Date().toISOString(), message: MEMORY_IN_PRODUCTION });
   if (isPrimary(config, env)) {
     // With several workers this process only supervises them; each worker runs the script again.
     await runWorkers(config, options.script ?? Bun.main);

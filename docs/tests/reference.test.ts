@@ -40,7 +40,7 @@ describe("config variables", () => {
     const page = pages["reference/config.mdx"]!;
     expect(page).toContain("| `server.port` | `number` | 3000 | `QS_SERVER_PORT` (or `PORT`) |");
     expect(page).toContain("| `jobs.limits.logLines` | `number` | 500 | `QS_JOBS_LIMITS_LOG_LINES` |");
-    expect(page).toContain("| `database` | `DatabaseAdapter` | — | not overridable |");
+    expect(page).toContain("| `database` | `DatabaseAdapter` | the in-memory database | not overridable |");
   });
 
   test("registered natives list their options with their variables", () => {

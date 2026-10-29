@@ -5,6 +5,7 @@ import {
   createApp,
   createFeatureLifecycle,
   defineFeature,
+  importConfigFile,
   LifecycleError,
   memoryAdapter,
   notifyShutdownSignal,
@@ -14,7 +15,6 @@ import {
   type AuthProvider,
   type LifecyclePhase,
   type Repositories,
-  type ServiceConfig,
 } from "@quickservicets/core";
 import { build } from "../build/build.ts";
 
@@ -146,7 +146,7 @@ export async function startTestService({ files, env = {}, auth }: TestServiceOpt
       throw new Error(`Build failed:\n${error instanceof Error ? error.message : String(error)}`);
     }
     const generated = join(root, ".generated");
-    const projectConfig = (await import(join(root, "quickservicets.config.ts"))).default as ServiceConfig;
+    const projectConfig = await importConfigFile(root);
     const { models } = await import(join(generated, "models.ts"));
     const { crudRoutes, endpoints, hooks } = await import(join(generated, "routes.ts"));
     const { jobs } = await import(join(generated, "jobs.ts"));

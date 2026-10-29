@@ -71,7 +71,8 @@ export function longestMatch<T extends { words: readonly string[] }>(commands: r
  * project. Fails when a feature's command takes the name of a built-in command or of another feature's command.
  */
 export async function loadFeatureCommands(cwd: string): Promise<FeatureCommands | undefined> {
-  if (!existsSync(join(cwd, CONFIG_FILE))) return undefined;
+  // Without a config file, only the project's own features could add commands.
+  if (!existsSync(join(cwd, CONFIG_FILE)) && !existsSync(join(cwd, "features"))) return undefined;
   const config = await loadConfig(cwd);
   const commands: FeatureCommand[] = [];
   const owners = new Map<string, string>([...BUILT_IN_COMMANDS.map((command) => command.name), ...RESERVED_COMMANDS].map((name) => [name, "the built-in command"]));
@@ -189,7 +190,7 @@ export const EXIT_CODE_MEANINGS: readonly [number, string, string][] = [
   [EXIT_CODES.success, "", "Success."],
   [EXIT_CODES.failure, "FAILED", "The operation failed (a build error, a failed job, a missing variable)."],
   [EXIT_CODES.usage, "USAGE_ERROR", "Usage error: an unknown command or flag, a missing argument, or a question with no safe answer when not interactive (`NOT_INTERACTIVE`)."],
-  [EXIT_CODES.config, "CONFIG_ERROR", "Configuration error: no `quickservicets.config.ts`, an invalid config or environment variable, or the config file under its previous name."],
+  [EXIT_CODES.config, "CONFIG_ERROR", "Configuration error: an invalid `quickservicets.config.ts` or environment variable, or the config file under its previous name."],
   [EXIT_CODES.databaseUnreachable, "DATABASE_UNREACHABLE", "The database could not be reached."],
 ];
 

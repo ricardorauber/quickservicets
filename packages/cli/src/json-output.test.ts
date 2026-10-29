@@ -171,11 +171,12 @@ describe("exit codes", () => {
     expect((await cli(["frobnicate"], root)).code).toBe(2);
     expect(await cli(["frobnicate", "--json"], root)).toEqual({ code: 2, out: ['{"ok":false,"error":{"code":"USAGE_ERROR","message":"Unknown command: frobnicate"}}'], err: [] });
 
-    const empty = createProject({});
-    expect((await cli(["build"], empty)).code).toBe(3);
-    const config = await cli(["build", "--json"], empty);
+    const invalid = createProject({ "quickservicets.config.ts": "export default 42;\n" });
+    expect((await cli(["build"], invalid)).code).toBe(3);
+    const config = await cli(["build", "--json"], invalid);
     expect(config.code).toBe(3);
-    expect(JSON.parse(config.out[0]!)).toEqual({ ok: false, error: { code: "CONFIG_ERROR", message: `Config file not found: ${join(empty, "quickservicets.config.ts")}` } });
+    expect(JSON.parse(config.out[0]!)).toMatchObject({ ok: false, error: { code: "CONFIG_ERROR" } });
+    expect(JSON.parse(config.out[0]!).error.message).toContain(join(invalid, "quickservicets.config.ts"));
 
     const unreachable = createLinkedProject({
       "entities/Task.ts": "export type Task = { title: string };\n",

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { memoryAdapter } from "./adapters/memory.ts";
@@ -49,18 +49,70 @@ describe("environment fallbacks", () => {
   });
 });
 
-test("a missing file names the expected path", async () => {
-  const root = mkdtempSync(join(tmpdir(), "quickservicets-config-"));
-  await expect(loadConfig(root)).rejects.toThrow("quickservicets.config.ts");
+describe("without a config file", () => {
+  test("loadConfig resolves {} on the memory database, applying QS_* variables, like a config of {}", async () => {
+    // The natives register when the core's entry loads, as in every project.
+    await import("./index.ts");
+    const root = mkdtempSync(join(tmpdir(), "quickservicets-config-"));
+    const config = await loadConfig(root, {});
+    expect(config.database.kind).toBe("memory");
+    expect(config.server.port).toBe(3000);
+    expect((await loadConfig(root, { QS_SERVER_PORT: "4000" })).server.port).toBe(4000);
+    const empty = await loadConfig(projectWithConfig("defineConfig({})"), {});
+    expect(empty.database.kind).toBe("memory");
+    expect(empty.features.map((feature) => feature.key)).toEqual(config.features.map((feature) => feature.key));
+  });
+  test("a project feature of features/ still loads", async () => {
+    const root = mkdtempSync(join(tmpdir(), "quickservicets-config-"));
+    mkdirSync(join(root, "features", "audit"), { recursive: true });
+    writeFileSync(
+      join(root, "features", "audit", "index.ts"),
+      `import { defineFeature } from ${JSON.stringify(coreEntry)};\nexport default defineFeature({ key: "audit", enabledByDefault: true });\n`,
+    );
+    expect((await loadConfig(root, {})).features.some((feature) => feature.key === "audit")).toBe(true);
+  });
+});
+
+describe("the default database", () => {
+  test("a config without database resolves a fresh memory adapter, and defineConfig({}) type-checks", () => {
+    const config = defineConfig({});
+    const first = resolveConfig(config, {});
+    const second = resolveConfig(config, {});
+    expect(first.database.kind).toBe("memory");
+    expect(first.database).not.toBe(second.database);
+    expect(config).toEqual({});
+    // The resolved database is always set, so callers never handle undefined.
+    const kind: string | undefined = first.database.kind;
+    expect(kind).toBe("memory");
+  });
+  test("an explicit database is kept", () => {
+    const database = sqliteAdapter({ path: ":memory:" });
+    expect(resolveConfig({ database }, {}).database).toBe(database);
+  });
+});
+
+describe("invalid config files", () => {
+  test.each(["42", "null", '"text"', "[]"])("a default export of %s fails with a ConfigError naming the file", async (body) => {
+    const root = projectWithConfig(body);
+    const error = await loadConfig(root, {}).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ConfigError);
+    expect((error as Error).message).toContain(join(root, "quickservicets.config.ts"));
+  });
+  test("a file that fails to import fails with a ConfigError naming the file", async () => {
+    const root = mkdtempSync(join(tmpdir(), "quickservicets-config-"));
+    writeFileSync(join(root, "quickservicets.config.ts"), 'throw new Error("boom");\nexport default {};\n');
+    const error = await loadConfig(root, {}).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ConfigError);
+    expect((error as Error).message).toContain(join(root, "quickservicets.config.ts"));
+    expect((error as Error).message).toContain("boom");
+  });
+  test("resolveConfig rejects a value that is not an object", () => {
+    expect(() => resolveConfig(42 as unknown as ServiceConfig, {})).toThrow(ConfigError);
+  });
 });
 
 test.each([0, 70000, 3.5])("port %p is rejected naming server.port", (port) => {
   expect(() => resolveConfig({ database: memoryAdapter(), server: { port } }, {})).toThrow("server.port");
-});
-
-test("a missing database is rejected", () => {
-  expect(() => resolveConfig({} as ServiceConfig, {})).toThrow(ConfigError);
-  expect(() => resolveConfig({} as ServiceConfig, {})).toThrow("database");
 });
 
 test("loadConfig imports the default export and applies defaults", async () => {

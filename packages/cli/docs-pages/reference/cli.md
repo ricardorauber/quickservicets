@@ -16,7 +16,7 @@ Run the commands with `bun run quickservicets <command>` inside a project. `quic
 | 0 | — | Success. |
 | 1 | `FAILED` | The operation failed (a build error, a failed job, a missing variable). |
 | 2 | `USAGE_ERROR` | Usage error: an unknown command or flag, a missing argument, or a question with no safe answer when not interactive (`NOT_INTERACTIVE`). |
-| 3 | `CONFIG_ERROR` | Configuration error: no `quickservicets.config.ts`, an invalid config or environment variable, or the config file under its previous name. |
+| 3 | `CONFIG_ERROR` | Configuration error: an invalid `quickservicets.config.ts` or environment variable, or the config file under its previous name. |
 | 4 | `DATABASE_UNREACHABLE` | The database could not be reached. |
 
 ## `init`

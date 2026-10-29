@@ -32,7 +32,9 @@ export function projectInfo(root: string): ProjectInfo {
   } catch {
     manifest = {};
   }
-  const adapter = /\b(postgres|mongodb|sqlite|memory)Adapter\s*\(/.exec(read("quickservicets.config.ts"))?.[1];
+  // Comments are left out, so a commented example adapter does not count; a config without `database` runs on memory.
+  const config = read("quickservicets.config.ts").replace(/\/\*[\s\S]*?\*\/|(^|[^:])\/\/[^\n]*/gm, "$1");
+  const adapter = /\bdatabase\s*:/.test(config) ? /\b(postgres|mongodb|sqlite|memory)Adapter\s*\(/.exec(config)?.[1] : "memory";
   return { name: manifest.name ?? basename(root), ...(adapter ? { database: adapter } : {}), scripts: manifest.scripts ?? {} };
 }
 

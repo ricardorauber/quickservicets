@@ -1,4 +1,5 @@
 import {
+  CONFIG_FILE,
   DOCS_PATH,
   OPENAPI_PATH,
   fileAccessErrors,
@@ -337,9 +338,11 @@ export function generateJobsFile(jobs: JobEntry[]): string {
   ].join("\n");
 }
 
-const SERVER_FILE = `${HEADER}
-import { startService } from "@quickservicets/core";
-import projectConfig from "../quickservicets.config.ts";
+/** The generated entry; a project without `quickservicets.config.ts` starts with the config `{}`. */
+export function generateServerFile(hasConfigFile: boolean): string {
+  return `${HEADER}
+import { startService${hasConfigFile ? "" : ", type ServiceConfig"} } from "@quickservicets/core";
+${hasConfigFile ? 'import projectConfig from "../quickservicets.config.ts";' : "const projectConfig: ServiceConfig = {};"}
 import { featureFolders, features } from "./features.ts";
 import { models } from "./models.ts";
 import { crudRoutes, endpoints, hooks } from "./routes.ts";
@@ -348,6 +351,7 @@ import openApi from "./openapi.json";
 
 await startService({ projectConfig, models, crudRoutes, endpoints, hooks, jobs, openApi, features, featureFolders, generatedDir: import.meta.dir });
 `;
+}
 
 /** The queues of the `queues` feature's folder, with how `.generated/types.ts` imports each file. */
 function queueTypes(files: readonly FolderFile[]): QueueTypeEntry[] {
@@ -489,7 +493,7 @@ async function buildProject(projectRoot: string, config: ResolvedConfig, options
     "features.ts": generateFeaturesFile(HEADER, featureKeys, folderFiles.map((entry) => ({ ...entry, specifier: importPath(entry.file) }))),
     "routes.ts": generateRoutesFile(models, resolved, hooks),
     "jobs.ts": generateJobsFile(jobs),
-    "server.ts": SERVER_FILE,
+    "server.ts": generateServerFile(existsSync(join(projectRoot, CONFIG_FILE))),
     "openapi.json": `${JSON.stringify(openApi, null, 2)}\n`,
   };
 

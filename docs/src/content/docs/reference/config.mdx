@@ -11,7 +11,7 @@ Every key that holds a value can also be set by an environment variable named af
 
 | Key | Type | Default | Environment variable | Description |
 | --- | --- | --- | --- | --- |
-| `database` | `DatabaseAdapter` | — | not overridable | The database adapter: `memoryAdapter()`, `sqliteAdapter(...)`, `postgresAdapter(...)` or `mongodbAdapter(...)`. |
+| `database` | `DatabaseAdapter` | the in-memory database | not overridable | The database adapter: `memoryAdapter()`, `sqliteAdapter(...)`, `postgresAdapter(...)` or `mongodbAdapter(...)`; without it the service runs on `memoryAdapter()`, which loses its data on every restart (default: the in-memory database). |
 | `server` | `object` | — | — | HTTP server settings. |
 | `server.port` | `number` | 3000 | `QS_SERVER_PORT` (or `PORT`) | Port to listen on (default 3000); `PORT` overrides it. |
 | `server.publicUrl` | `string` | relative URLs | `QS_SERVER_PUBLIC_URL` | Absolute base URL of the API, used in file URLs (default: relative URLs). |

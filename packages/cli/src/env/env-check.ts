@@ -1,10 +1,10 @@
 import {
   activeFeatureDefinitions,
   applyEnvironment,
-  CONFIG_FILE,
   ConfigError,
   declaredVariables,
   expectationOf,
+  importConfigFile,
   loadProjectFeatures,
   overrideVariables,
   parseOptionString,
@@ -13,7 +13,6 @@ import {
   unknownVariableWarnings,
   type AnyOptionSchema,
   type DeclaredVariable,
-  type ServiceConfig,
 } from "@quickservicets/core";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -110,10 +109,8 @@ export async function envCheck(projectRoot: string, processEnv: Record<string, s
   const overridesSet: { variable: string; key: string; value: string }[] = [];
   const warnings: string[] = [];
   let ok = true;
-  const configFile = join(projectRoot, CONFIG_FILE);
-  if (!existsSync(configFile)) return { code: 1, lines, errors: [`Config file not found: ${configFile}`] };
   await loadProjectFeatures(projectRoot);
-  const config = ((await import(configFile)) as { default: ServiceConfig }).default as unknown as Record<string, unknown>;
+  const config = (await importConfigFile(projectRoot)) as unknown as Record<string, unknown>;
   const definitions = activeFeatureDefinitions();
 
   let applied = config;

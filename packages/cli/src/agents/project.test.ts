@@ -61,6 +61,14 @@ describe("project AGENTS.md", () => {
     expect(projectInfo(root)).toEqual({ name: "shop", database: "postgres", scripts: { dev: "quickservicets dev" } });
     expect(projectAgentFiles({ name: "shop", scripts: {} })["AGENTS.md"]).toContain("on the database set in `quickservicets.config.ts`");
   });
+
+  test("a project without a config file or without database runs on memory, even with a commented adapter", () => {
+    expect(projectInfo(createProject({ "package.json": '{"name":"tiny"}' })).database).toBe("memory");
+    const commented = "// database: sqliteAdapter({ path: env.DATABASE_PATH }),\nexport default defineConfig({});\n";
+    expect(projectInfo(createProject({ "quickservicets.config.ts": commented })).database).toBe("memory");
+    const url = 'export default defineConfig({ database: postgresAdapter({ url: "postgres://localhost/app" }) });';
+    expect(projectInfo(createProject({ "quickservicets.config.ts": url })).database).toBe("postgres");
+  });
 });
 
 describe("CLAUDE.md and the skill", () => {

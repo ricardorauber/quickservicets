@@ -43,16 +43,12 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
       "Creates a project, with `AGENTS.md`, `CLAUDE.md` and the Claude Code skill in `.claude/skills/quickservicets/` for coding agents; inside the QuickService.ts monorepo it also links the workspace packages and installs them.",
     args: [{ name: "directory" }],
     flags: object({
-      db: string().optional().describe("The database: postgres, mongodb, sqlite or memory (asked when left out; memory when not interactive)."),
+      db: string().optional().describe("The database: postgres, mongodb, sqlite or memory (memory when left out)."),
       agents: boolean().default(true).describe("Writes the agent files; `--no-agents` leaves them out."),
     }),
-    async run({ args, flags, cwd, output, prompt }) {
-      const { initProject, DEFAULT_DATABASE } = await import("./init/init.ts");
-      const steps = await initProject(args.directory ? resolve(cwd, args.directory) : cwd, {
-        db: flags.db,
-        agents: flags.agents,
-        prompt: (question, choices) => prompt(question, choices, { flag: "--db", default: DEFAULT_DATABASE }),
-      });
+    async run({ args, flags, cwd, output }) {
+      const { initProject } = await import("./init/init.ts");
+      const steps = await initProject(args.directory ? resolve(cwd, args.directory) : cwd, { db: flags.db, agents: flags.agents });
       for (const line of steps) output.log(line);
       return 0;
     },

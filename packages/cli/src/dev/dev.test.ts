@@ -78,13 +78,14 @@ describe("dev session", () => {
   test("builds, starts the server and restarts once per burst of changes", async () => {
     const { deps, events, change, advance } = fakeDependencies();
     const session = await startDev("/project", deps);
-    expect(events).toEqual(["build", "start 1", "watch"]);
+    const built = "log Built 1 entity, 0 custom endpoints and 0 hooks.";
+    expect(events).toEqual(["build", built, "start 1", "watch"]);
     change();
     change();
     change();
     advance(DEBOUNCE_MS);
     await session.idle();
-    expect(events).toEqual(["build", "start 1", "watch", "build", "stop 1", "start 2"]);
+    expect(events).toEqual(["build", built, "start 1", "watch", "build", built, "stop 1", "start 2"]);
   });
 
   test("a failed rebuild prints the error and keeps the previous server", async () => {
@@ -100,7 +101,7 @@ describe("dev session", () => {
     change();
     advance(DEBOUNCE_MS);
     await session.idle();
-    expect(events).toEqual(["start 1", "watch", "error entities/User.ts: syntax error"]);
+    expect(events).toEqual(["log Built 1 entity, 0 custom endpoints and 0 hooks.", "start 1", "watch", "error entities/User.ts: syntax error"]);
     fail = false;
     change();
     advance(DEBOUNCE_MS);

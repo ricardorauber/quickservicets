@@ -124,12 +124,14 @@ describe("prompts when not interactive", () => {
     return { code, out, err };
   };
 
-  test("init without --db takes the memory database when stdin is not a terminal", async () => {
-    const parent = createProject({});
-    const result = await cli(["init", "demo"], parent, { interactive: false });
-    expect(result.code).toBe(0);
-    expect(result.err).toEqual(["Not interactive: using memory for --db"]);
-    expect(readFileSync(join(parent, "demo/quickservicets.config.ts"), "utf8")).toContain("memoryAdapter()");
+  test("init without --db takes the memory database without a question, interactive or not", async () => {
+    for (const interactive of [false, true]) {
+      const parent = createProject({});
+      const result = await cli(["init", "demo"], parent, { interactive, ask: async () => "sqlite" });
+      expect(result.code).toBe(0);
+      expect(result.err).toEqual([]);
+      expect(readFileSync(join(parent, "demo/quickservicets.config.ts"), "utf8")).toContain("in-memory database");
+    }
   });
 
   test("an interactive terminal is asked, and --yes takes the safe answer instead", async () => {

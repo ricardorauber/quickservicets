@@ -8,10 +8,8 @@ import { TOOLCHAIN } from "./toolchain.ts";
 export const DATABASES = ["postgres", "mongodb", "sqlite", "memory"] as const;
 export type DatabaseChoice = (typeof DATABASES)[number];
 
-/** The database `init` takes without asking when the CLI is not interactive: it needs nothing installed or running. */
+/** The database `init` takes without `--db`: it needs nothing installed or running. */
 export const DEFAULT_DATABASE: DatabaseChoice = "memory";
-
-export type Prompt = (question: string, choices: readonly string[]) => Promise<string>;
 
 /** Installs the dependencies of a workspace, resolving to whether it succeeded. */
 export type Install = (workspaceRoot: string) => Promise<boolean>;
@@ -20,7 +18,6 @@ export interface InitOptions {
   db?: string;
   /** Writes `AGENTS.md`, `CLAUDE.md` and the Claude Code skill for coding agents (default true). */
   agents?: boolean;
-  prompt?: Prompt;
   install?: Install;
 }
 
@@ -103,10 +100,13 @@ export default defineConfig({
   // history: {}, // needs events
 });
 `,
-  memory: `import { defineConfig, memoryAdapter } from "@quickservicets/core";
+  memory: `import { defineConfig } from "@quickservicets/core";
 
+// The service runs on the in-memory database, which loses its data on every restart; it needs no migrations.
+// To keep the data, add one line with a real database, importing its adapter from "@quickservicets/core":
+//   database: sqliteAdapter({ path: process.env.DATABASE_PATH ?? "data.db" }),
+// or create the project again with init --db sqlite, --db postgres or --db mongodb.
 export default defineConfig({
-  database: memoryAdapter(),
   // security is on by default with safe defaults (headers, CORS, limits, rate limits); turn it off with security: false.
   // Other native features are one key each, like:
   // events: {},
@@ -176,20 +176,6 @@ function packageJson(name: string, dependency: string): string {
   )}\n`;
 }
 
-/** Asks on stdin, accepting a choice by number or by name. */
-export const terminalPrompt: Prompt = async (question, choices) => {
-  console.log(question);
-  choices.forEach((choice, index) => console.log(`  ${index + 1}) ${choice}`));
-  for await (const line of console) {
-    const answer = line.trim();
-    const byNumber = choices[Number(answer) - 1];
-    if (byNumber) return byNumber;
-    if (choices.includes(answer)) return answer;
-    console.log(`Choose 1-${choices.length} or a name.`);
-  }
-  throw new BuildError("No database chosen");
-};
-
 /** Keeps secrets, dependencies and everything the framework generates out of git. */
 const GITIGNORE = [".env", "node_modules/", ".generated/", "uploads/", "data.db"].join("\n") + "\n";
 
@@ -200,6 +186,18 @@ export const NEXT_STEPS = [
   "  3. Start the dev server: bun run dev",
 ];
 
+/** What `init` says about the in-memory database after the steps. */
+export const MEMORY_NOTES = [
+  "The project runs on the in-memory database: no migrations are needed, and its data is lost on every restart.",
+  "To use a real database, set database in quickservicets.config.ts, or run init with --db sqlite, postgres or mongodb.",
+];
+
+/** The next steps `init` prints for a project on `db`, without the install step when the workspace was installed. */
+export function nextSteps(db: DatabaseChoice, installed = false): string[] {
+  const steps = installed ? ["Next steps:", ...NEXT_STEPS.slice(2).map((step, index) => step.replace(/^ {2}\d+\./, `  ${index + 1}.`))] : NEXT_STEPS;
+  return [...steps, ...(db === "memory" ? MEMORY_NOTES : [])];
+}
+
 /** `quickservicets init [dir] [--db <database>]` */
 export async function initProject(directory: string, options: InitOptions = {}): Promise<string[]> {
   const root = resolve(directory);
@@ -207,7 +205,7 @@ export async function initProject(directory: string, options: InitOptions = {}):
   if (options.db !== undefined && !(DATABASES as readonly string[]).includes(options.db)) {
     throw new BuildError(`Unknown database "${options.db}" (use ${DATABASES.join(", ")})`);
   }
-  const db = (options.db ?? (await (options.prompt ?? terminalPrompt)("Which database?", DATABASES))) as DatabaseChoice;
+  const db = (options.db ?? DEFAULT_DATABASE) as DatabaseChoice;
   const workspace = quickservicetsWorkspace(root);
 
   const files: Record<string, string> = {
@@ -225,8 +223,8 @@ export async function initProject(directory: string, options: InitOptions = {}):
     writeFileSync(join(root, path), content);
   }
   if (options.agents !== false) writeProjectAgentFiles(root);
-  if (!workspace) return NEXT_STEPS;
+  if (!workspace) return nextSteps(db);
   const installed = await (options.install ?? bunInstall)(workspace);
-  if (!installed) return [`Could not install dependencies; run "bun install" in ${workspace}`, ...NEXT_STEPS];
-  return ["Next steps:", ...NEXT_STEPS.slice(2).map((step, index) => step.replace(/^ {2}\d+\./, `  ${index + 1}.`))];
+  if (!installed) return [`Could not install dependencies; run "bun install" in ${workspace}`, ...nextSteps(db)];
+  return nextSteps(db, true);
 }

@@ -7,6 +7,7 @@ import { parseEnvFile, projectEnvironment } from "../env/env-check.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { sep } from "node:path";
 import { buildStepLines } from "../build/build-steps.ts";
+import { buildSummaryLine } from "../build/summary-line.ts";
 import { debounce, realScheduler, type Scheduler } from "./debounce.ts";
 
 export const DEBOUNCE_MS = 200;
@@ -141,6 +142,7 @@ async function buildOnce(projectRoot: string, deps: DevDependencies, env: Env, o
     return undefined;
   }
   for (const line of summary.overrides ?? []) deps.log(line);
+  deps.log(buildSummaryLine(summary));
   for (const line of buildStepLines(summary.buildSteps ?? [])) deps.log(line);
   for (const warning of summary.warnings) {
     if (warning !== PENDING_MIGRATION_WARNING) deps.error(`Warning: ${warning}`);

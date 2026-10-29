@@ -5,7 +5,7 @@ import ts from "typescript";
 import { build, GENERATED_INCLUDE_WARNING } from "../build/build.ts";
 import { createLinkedProject, createProject, MEMORY_CONFIG } from "../testing/project.ts";
 import { version } from "../version.ts";
-import { initProject, NEXT_STEPS, quickservicetsWorkspace } from "./init.ts";
+import { initProject, nextSteps, quickservicetsWorkspace } from "./init.ts";
 
 const pkg = (name: string) => JSON.stringify({ name, version: "0.1.0" });
 const monorepo = (extra: Record<string, string> = {}) =>
@@ -68,7 +68,7 @@ describe("dependencies and install", () => {
     const steps = await initProject(root, { db: "memory", install: async () => (installed = true) });
     expect(dependencies(root)).toEqual({ "@quickservicets/core": `^${version}`, "@quickservicets/cli": `^${version}` });
     expect(installed).toBe(false);
-    expect(steps).toEqual(NEXT_STEPS);
+    expect(steps).toEqual(nextSteps("memory"));
   });
 
   test("a failed install is reported and the project stays", async () => {

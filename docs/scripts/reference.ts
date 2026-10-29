@@ -212,7 +212,7 @@ export function cliPage(): string {
     "## Scripts and agents",
     "",
     "- **`--json`**: the commands that show a JSON document below accept `--json`. They then print exactly one JSON document to stdout, `{ \"ok\": true, ... }` with the fields shown, or `{ \"ok\": false, \"error\": { \"code\", \"message\" } }` on failure, and send every log line to stderr, without colors.",
-    "- **Non-interactive mode**: when stdin is not a terminal, `--yes` is given or `CI=true` is set, no command asks a question. A question with a safe answer takes it (`init` uses the `memory` database without `--db`); one without exits 2 with `<command> needs <flag> when not interactive`.",
+    "- **Non-interactive mode**: when stdin is not a terminal, `--yes` is given or `CI=true` is set, no command asks a question. A question with a safe answer takes it; one without exits 2 with `<command> needs <flag> when not interactive`.",
     "",
     "### Exit codes",
     "",

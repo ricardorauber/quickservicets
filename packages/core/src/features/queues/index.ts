@@ -1,4 +1,5 @@
 import {
+  currentTransactionDatabase,
   currentDatabaseScope,
   currentOperation,
   resolveRunRepositories,
@@ -289,7 +290,9 @@ const queuesFeature = defineFeature({
         const settings = settingsOf(name);
         const scope = currentOperation()?.scope;
         const requestActor = source.actor ?? actorOfRequest(source.req);
-        const actor = scope ? { ...requestActor, scope } : requestActor;
+        // A message added in a transaction of a named database carries that database.
+        const database = currentTransactionDatabase();
+        const actor = scope || database ? { ...requestActor, ...(scope ? { scope } : {}), ...(database ? { database } : {}) } : requestActor;
         const message: QueueBrokerMessage = {
           queue: name,
           payload: stored,

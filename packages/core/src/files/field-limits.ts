@@ -1,4 +1,5 @@
 import type { DatabaseAdapter } from "../adapter.ts";
+import { acrossDatabases } from "../named-databases.ts";
 import { HttpError, type FieldErrorDetail } from "../errors.ts";
 import type { EntityModel, FieldModel } from "../model.ts";
 import { mimeMatches } from "./limits.ts";
@@ -25,7 +26,7 @@ export async function assertReferencedFilesAllowed(
     const limits = field.fileLimits;
     const target = fileTargetOf(field, models);
     if (!limits || !target || typeof id !== "string") continue;
-    const file = await adapter.findById(target, id);
+    const file = await acrossDatabases(model, target, () => adapter.findById(target, id));
     if (!file) continue;
     if (limits.maxSize !== undefined && Number(file.size) > limits.maxSize) {
       details.push({ field: field.name, message: "File too large" });

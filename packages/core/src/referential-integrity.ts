@@ -1,9 +1,9 @@
 import { findAll, type DatabaseAdapter, type ReferencePull, type StoredRecord } from "./adapter.ts";
-import { runInTransaction } from "./transactions.ts";
+import { afterCommit, runInTransaction } from "./transactions.ts";
 import { observersOf, reportChange, type WriteCause } from "./write-observers.ts";
 import { HttpError, type FieldErrorDetail } from "./errors.ts";
 import type { EntityModel, FieldModel } from "./model.ts";
-import { databaseOf } from "./named-databases.ts";
+import { acrossDatabases, databaseOf, outsideTransaction } from "./named-databases.ts";
 import { itemCount } from "./validation.ts";
 
 type RefField = Extract<FieldModel, { type: "ref" }>;
@@ -29,10 +29,13 @@ export function referencesTo(target: EntityModel, models: EntityModel[]): Refere
     );
 }
 
-/** Every record whose `reference` field points to `id`. */
-function findReferencing(adapter: DatabaseAdapter, reference: Reference, id: string): Promise<StoredRecord[]> {
+/**
+ * Every record whose `reference` field points to `id`, a record of `target`; a referencing entity of another database
+ * is read outside the open transaction, as the application's check it is.
+ */
+function findReferencing(adapter: DatabaseAdapter, reference: Reference, id: string, target: EntityModel): Promise<StoredRecord[]> {
   const op = reference.field.type === "refArray" ? ("contains" as const) : ("eq" as const);
-  return findAll(adapter, reference.model, [{ field: reference.field.name, op, value: id }], [{ field: "id", direction: "asc" }]);
+  return acrossDatabases(target, reference.model, () => findAll(adapter, reference.model, [{ field: reference.field.name, op, value: id }], [{ field: "id", direction: "asc" }]));
 }
 
 /** Fails with 400 when a reference field points to a record that does not exist. */
@@ -51,13 +54,13 @@ export async function assertReferencesExist(
     const found = target
       ? new Set(
           (
-            await adapter.findMany(target, {
+            await acrossDatabases(model, target, () => adapter.findMany(target, {
               where: [{ field: "id", op: "in", value: ids }],
               sort: [{ field: "id", direction: "asc" }],
               limit: ids.length,
               offset: 0,
               withTotal: false,
-            })
+            }))
           ).data.map((record) => record.id),
         )
       : new Set<string>();
@@ -69,7 +72,7 @@ export async function assertReferencesExist(
     const id = values[field.name];
     if (typeof id !== "string") continue;
     const target = models.find((candidate) => candidate.key === field.target);
-    if (!target || !(await adapter.findById(target, id))) {
+    if (!target || !(await acrossDatabases(model, target, () => adapter.findById(target, id)))) {
       details.push({ field: field.name, message: "Referenced record not found" });
     }
   }
@@ -208,13 +211,13 @@ export async function planDelete(
     deletions.push({ model: current, id: currentId, pulls: [], ...(stored ? { record: stored } : {}) });
     for (const reference of referencesTo(current, models)) {
       if (reference.field.onDelete !== "cascade") continue;
-      for (const referencing of await findReferencing(adapter, reference, currentId)) {
+      for (const referencing of await findReferencing(adapter, reference, currentId, current)) {
         await collect(reference.model, referencing.id, referencing);
       }
     }
     // N-N links: the rule of the field pointing to the deleted record decides; links always go away.
     for (const { link, side, otherSide, owner, pointing } of linksOf(current, models)) {
-      const rows = await findReferencing(adapter, { model: link, field: link.fields.find((field) => field.name === side) as RefField }, currentId);
+      const rows = await findReferencing(adapter, { model: link, field: link.fields.find((field) => field.name === side) as RefField }, currentId, current);
       for (const row of rows) {
         deletions.push({ model: link, id: row.id, pulls: [] });
         const ownerId = row[otherSide] as string;
@@ -244,7 +247,7 @@ export async function planDelete(
         // The owners' lists are only needed to check a minimum before anything changes.
         if (reference.field.minLength === undefined) continue;
       }
-      for (const found of await findReferencing(adapter, reference, deletion.id)) {
+      for (const found of await findReferencing(adapter, reference, deletion.id, deletion.model)) {
         const key = recordKey(reference.model, found.id);
         if (scheduled.has(key)) continue;
         if (reference.field.onDelete === "restrict") {
@@ -296,14 +299,22 @@ export async function executeDeletePlan(
   adapter: DatabaseAdapter,
   nextTimestamp: (previous?: Date) => Date,
 ): Promise<void> {
+  // Records of another database than the deleted one (pulled reference arrays) change after the delete committed.
+  const home = plan.deletions[0] ? databaseOf(plan.deletions[0].model) : undefined;
+  const local = plan.updates.filter((update) => databaseOf(update.model) === home);
+  const remote = plan.updates.filter((update) => databaseOf(update.model) !== home);
+  const update = async ({ model, record, changes, cause, touched }: PlannedUpdate) => {
+    const after = await adapter.updateById(model, record.id, { ...changes, updatedAt: nextTimestamp(record.updatedAt) });
+    const observed = observersOf(model);
+    if (!observed || !after) return;
+    const names = Object.keys(changes);
+    await reportChange(observed, { entity: model, operation: "updated", id: record.id, before: record, after, changed: names.length > 0 ? names : [touched ?? "updatedAt"], cause });
+  };
   const run = async () => {
-    for (const { model, record, changes, cause, touched } of plan.updates) {
-      const after = await adapter.updateById(model, record.id, { ...changes, updatedAt: nextTimestamp(record.updatedAt) });
-      const observed = observersOf(model);
-      if (!observed || !after) continue;
-      const names = Object.keys(changes);
-      await reportChange(observed, { entity: model, operation: "updated", id: record.id, before: record, after, changed: names.length > 0 ? names : [touched ?? "updatedAt"], cause });
-    }
+    if (remote.length > 0) void afterCommit(() => outsideTransaction(async () => {
+      for (const planned of remote) await update(planned);
+    }));
+    for (const planned of local) await update(planned);
     // Dependents were collected after the records they reference, so deleting in reverse keeps foreign keys valid.
     const main = plan.deletions[0];
     for (const deletion of [...plan.deletions].reverse()) {
@@ -316,5 +327,5 @@ export async function executeDeletePlan(
     }
   };
   // A single write is atomic on its own.
-  await (plan.updates.length + plan.deletions.length === 1 ? run() : runInTransaction(adapter, run));
+  await (local.length + plan.deletions.length === 1 && remote.length === 0 ? run() : runInTransaction(adapter, run));
 }

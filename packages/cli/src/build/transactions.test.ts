@@ -69,6 +69,6 @@ describe("the reserved repository key", () => {
   test("the generated Repositories type repos.transaction", async () => {
     const root = createLinkedProject({ "quickservicets.config.ts": MEMORY_CONFIG, "entities/Payment.ts": "export type Payment = { amount: number };\n" });
     await build(root);
-    expect(await Bun.file(`${root}/.generated/types.ts`).text()).toContain("  transaction<T>(fn: () => Promise<T>): Promise<T>;");
+    expect(await Bun.file(`${root}/.generated/types.ts`).text()).toContain("  transaction<T>(fn: () => Promise<T>, options?: { database?: string }): Promise<T>;");
   });
 });

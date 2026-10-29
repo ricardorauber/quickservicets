@@ -44,6 +44,8 @@ export interface QueueActor {
   tenant?: string;
   /** The database scope the message was added in (`tenant:<id>` for tenants), when not the root one. */
   scope?: string;
+  /** The named database whose transaction added the message, when it was added inside one. */
+  database?: string;
 }
 
 /** A message a broker hands to `handle`. */

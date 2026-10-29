@@ -1,6 +1,7 @@
 export { CODES_BY_STATUS, HttpError, codeForStatus, toErrorResponse } from "./errors.ts";
 export type { ErrorResponseOptions, FieldErrorDetail, HttpErrorOptions } from "./errors.ts";
-export { crossDatabaseReferences, crossDatabaseWarning, DATABASE_NAME, DEFAULT_DATABASE, databaseAdapters, databaseOf, databaseRouter, databaseUrlVariable, errorDatabase, isDatabaseRouter, resolveDatabases } from "./named-databases.ts";
+export { configureDatabaseRelay, databaseRelaySweeper, databaseStagedModel, moveStagedRow, relayAllDatabases, relayDatabase, RELAY_SWEEP_MS, STAGED_TABLES, stagedSystemTarget } from "./database-staging.ts";
+export { acrossDatabases, connectedModels, CrossDatabaseTransactionError, currentTransactionDatabase, outsideTransaction, transactionDatabase, crossDatabaseReferences, crossDatabaseWarning, DATABASE_NAME, DEFAULT_DATABASE, databaseAdapters, databaseOf, databaseRouter, databaseUrlVariable, errorDatabase, isDatabaseRouter, resolveDatabases } from "./named-databases.ts";
 export type { CrossDatabaseReference, DatabaseRouter, DatabaseRouterOptions, DatabaseTenancy, NamedDatabaseConfig, NamedDatabaseEntry, ResolvedDatabase } from "./named-databases.ts";
 export { alwaysHiddenPaths, CRUD_OPERATIONS, entityRoutePath, hiddenPathsFor, SYSTEM_FIELDS, vectorFields } from "./model.ts";
 export type { ArrayOnDeleteAction, EnumDeclarationInfo, ParsedTag, ParsedTags, FileAccessMode, RelationKind, RelationSide, VectorMetric, VectorSettings, CrudOperation, EntityModel, Exposure, ReadOperation, HookReference, ModelIndex, OverrideHooksMode, FieldConstraints, FieldModel, FieldStorage, FieldType, NestedFieldModel, OnDeleteAction, PrimitiveFieldType, StringFormat, TypeDescriptor } from "./model.ts";
@@ -264,7 +265,8 @@ export { applyEnvironment, CONFIG_OVERRIDES, configVariable, envNameFor, feature
 export { maskConnections, maskSecrets, SECRET_MASK } from "./secrets.ts";
 export type { ConfigOverride, EnvAlias, EnvironmentResult, OptionLeaf } from "./environment.ts";
 export { runAfterHooks, runBeforeHooks } from "./feature-hooks.ts";
-export { afterCommit, assertWritable, currentTransaction, inTransaction, onRollback, runInTransaction, transaction } from "./transactions.ts";
+export { afterCommit, assertWritable, currentTransaction, inTransaction, onRollback, runInTransaction, transaction, transactionTarget } from "./transactions.ts";
+export type { TransactionOptions } from "./transactions.ts";
 export { changedFields, observeWrites } from "./write-observers.ts";
 export type { WriteCause, WriteChange, WriteObserver } from "./write-observers.ts";
 export { currentOperation, disableOperationContext, enableOperationContext, operationContextEnabled, operationMiddleware, withOperation } from "./operation-context.ts";

@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { DatabaseAdapter } from "./adapter.ts";
 import type { EntityModel } from "./model.ts";
 import { isDatabaseRouter } from "./named-databases.ts";
+import { stagedSystemTarget } from "./database-staging.ts";
 import { currentOperation, operationContextEnabled, withOperation } from "./operation-context.ts";
 import { repositoriesFor, type RepositoryRegistry } from "./repository.ts";
 import { activeSetup } from "./setup-phase.ts";
@@ -108,6 +109,9 @@ export function scopedAdapter(adapter: DatabaseAdapter): DatabaseAdapter {
  * native captured) outside scopes, the scope's own target when it has one, the scope's adapter otherwise.
  */
 export function systemTarget(adapter: DatabaseAdapter, model: EntityModel): { adapter: DatabaseAdapter; model: EntityModel } {
+  // Inside a transaction of a named database, rows of a table in another database are staged there.
+  const staged = stagedSystemTarget(adapter, model);
+  if (staged) return staged;
   if (!scopes) return { adapter, model };
   const scope = scopes.getStore();
   if (!scope) return { adapter, model };

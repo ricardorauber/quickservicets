@@ -9,6 +9,8 @@ export interface EventActor {
   queue?: string;
   /** The database scope the event was created in (`tenant:<id>` for tenants), when not the root one. */
   scope?: string;
+  /** The named database whose transaction created the event, when it was created inside one. */
+  database?: string;
 }
 
 /** The operations of write events. */

@@ -180,7 +180,7 @@ describe("database names in errors", () => {
     const orders = memoryAdapter();
     let router: DatabaseAdapter | undefined;
     const app = await startTestApp({
-      models,
+      models: [customer, order],
       config: { databases: { orders }, errors: { reporter: { report: (report: ErrorReport) => void reports.push(report) } } },
       endpoints: [
         {

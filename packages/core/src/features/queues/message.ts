@@ -32,7 +32,7 @@ export type QueueMessage = {
   /** The tenant the message was added for. */
   tenant?: string | null;
   /** The ids of the user and tenant of the request that added it. */
-  actor?: { user?: string | null; tenant?: string | null; scope?: string | null } | null;
+  actor?: { user?: string | null; tenant?: string | null; scope?: string | null; database?: string | null } | null;
   /** The W3C `traceparent` of the span that added it, while a tracer is set; its run's span links to it. */
   trace?: string | null;
 };

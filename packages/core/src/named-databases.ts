@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { ConnectOptions, DatabaseAdapter, FindManyOptions, FindManyResult, RelatedScope, StoredRecord } from "./adapter.ts";
 import { ConfigError } from "./config-error.ts";
+import { HttpError } from "./errors.ts";
 import { maskConnections } from "./secrets.ts";
 import { jsonLogger, safeLog, type Logger } from "./logger.ts";
 import type { EntityModel, FieldModel } from "./model.ts";
@@ -129,6 +130,8 @@ export interface DatabaseRouter extends DatabaseAdapter {
   readonly databases: Readonly<Record<string, DatabaseAdapter>>;
   /** The adapter of the database an entity lives in. */
   adapterOf(model: Pick<EntityModel, "database">): DatabaseAdapter;
+  /** A view of the router whose transactions belong to the database `name` from their start. */
+  on(name: string): DatabaseRouter;
 }
 
 const routers = new WeakSet<object>();
@@ -160,6 +163,23 @@ function tagged(error: unknown, name: string): unknown {
   return error;
 }
 
+/** A call on an entity of another database inside a transaction; a transaction covers one database. */
+export class CrossDatabaseTransactionError extends HttpError {
+  /** The database of the open transaction. */
+  readonly transactionDatabase: string;
+  /** The database the refused call or transaction belongs to. */
+  readonly database: string;
+
+  constructor(subject: string, database: string, transactionDatabase: string) {
+    super(500, `Cannot use ${subject} (database ${database}) inside a transaction of database ${transactionDatabase}; a transaction covers one database. Use a saga or the outbox for changes across databases`, {
+      code: "CROSS_DATABASE_TRANSACTION",
+    });
+    this.name = "CrossDatabaseTransactionError";
+    this.database = database;
+    this.transactionDatabase = transactionDatabase;
+  }
+}
+
 /** One `transaction` of a router family, bound to the database of the first entity it touches. */
 interface RoutedTransaction {
   family: object;
@@ -175,6 +195,55 @@ interface RoutedTransaction {
 }
 
 const transactions = new AsyncLocalStorage<RoutedTransaction>();
+
+/** The open transaction of a router family, when the caller runs inside one. */
+function openTransaction(family: object | undefined): RoutedTransaction | undefined {
+  const state = transactions.getStore();
+  return state && family !== undefined && state.family === family && !state.closed ? state : undefined;
+}
+
+/**
+ * Runs `fn` outside the open transaction of named databases: its calls on any database run on their own, never
+ * joining or being refused by it. The framework's checks across databases (references, `restrict`) run this way.
+ */
+export function outsideTransaction<T>(fn: () => T): T {
+  return transactions.getStore() ? transactions.run(undefined as never, fn) : fn();
+}
+
+/**
+ * Runs `fn`, a read or write of `other` that `model`'s code needs, outside the open transaction when the two entities
+ * live in different databases (the application's checks across databases), and as it is otherwise.
+ */
+export function acrossDatabases<T>(model: Pick<EntityModel, "database">, other: Pick<EntityModel, "database">, fn: () => T): T {
+  return databaseOf(model) === databaseOf(other) ? fn() : outsideTransaction(fn);
+}
+
+/** The database the open transaction of `adapter` (a router or one of its views) belongs to, once it touched one. */
+export function transactionDatabase(adapter: DatabaseAdapter): string | undefined {
+  return openTransaction(familyOf.get(adapter))?.database;
+}
+
+/** The database the caller's open transaction belongs to, of any router, once it touched one. */
+export function currentTransactionDatabase(): string | undefined {
+  const state = transactions.getStore();
+  return state && !state.closed ? state.database : undefined;
+}
+
+/**
+ * Called when a transaction asked for `adapter` joins one already open: a view bound to a database binds the open
+ * transaction to it, or throws `CrossDatabaseTransactionError` when it belongs to another database.
+ */
+export function joinTransactionDatabase(adapter: DatabaseAdapter): void {
+  const name = boundDatabases.get(adapter);
+  if (name === undefined) return;
+  const state = openTransaction(familyOf.get(adapter));
+  if (!state) return;
+  if (state.database === undefined) bind(state, name, (adapter as DatabaseRouter).databases[name]!);
+  else if (state.database !== name) throw new CrossDatabaseTransactionError("a transaction", name, state.database);
+}
+
+/** The database each bound view of a router names. */
+const boundDatabases = new WeakMap<object, string>();
 
 /** Starts the transaction of `adapter` for `state`, kept open until `state.finish`; calls run inside it through `state.run`. */
 function bind(state: RoutedTransaction, name: string, adapter: DatabaseAdapter): void {
@@ -227,15 +296,19 @@ function createRouter(databases: Record<string, DatabaseAdapter>, family: object
     return adapter;
   };
 
-  /** Runs a call on an entity's database: inside the open transaction when it belongs to that database. */
-  const call = async <T>(model: Pick<EntityModel, "database">, fn: (adapter: DatabaseAdapter) => Promise<T>): Promise<T> => {
+  /**
+   * Runs a call on an entity's database: inside the open transaction when it belongs to that database, refused with
+   * `CrossDatabaseTransactionError` when the open transaction belongs to another one.
+   */
+  const call = async <T>(model: Pick<EntityModel, "database" | "entityName">, fn: (adapter: DatabaseAdapter) => Promise<T>): Promise<T> => {
     const name = databaseOf(model);
     const adapter = adapterOf(model);
     try {
-      const state = transactions.getStore();
-      if (state && state.family === family && !state.closed) {
+      const state = openTransaction(family);
+      if (state) {
         if (state.database === undefined) bind(state, name, adapter);
-        if (state.database === name) return await state.run!(() => fn(adapter));
+        if (state.database !== name) throw new CrossDatabaseTransactionError(model.entityName ?? "an entity", name, state.database!);
+        return await state.run!(() => fn(adapter));
       }
       return await fn(adapter);
     } catch (error) {
@@ -256,7 +329,9 @@ function createRouter(databases: Record<string, DatabaseAdapter>, family: object
     ...(defaultAdapter.namespace !== undefined ? { namespace: defaultAdapter.namespace } : {}),
     databases,
     adapterOf,
+    on: (name: string) => viewOn(name),
     async connect(models: EntityModel[], connectOptions?: ConnectOptions) {
+      modelsOf.set(family, models);
       const connected: DatabaseAdapter[] = [];
       for (const name of names) {
         const adapter = databases[name]!;
@@ -292,8 +367,7 @@ function createRouter(databases: Record<string, DatabaseAdapter>, family: object
     count: (entity, where) => call(entity, (adapter) => adapter.count(entity, where)),
     aggregate: (entity, where, aggregates) => call(entity, (adapter) => adapter.aggregate(entity, where, aggregates)),
     async transaction<T>(fn: () => Promise<T>): Promise<T> {
-      const current = transactions.getStore();
-      if (current && current.family === family && !current.closed) return fn();
+      if (openTransaction(family)) return fn();
       const state: RoutedTransaction = { family };
       let result: T;
       try {
@@ -373,6 +447,36 @@ function createRouter(databases: Record<string, DatabaseAdapter>, family: object
         break;
     }
   }
+  /** A view whose transactions belong to `name` from the start, like `transaction(fn, { database })`. */
+  const bound = new Map<string, DatabaseRouter>();
+  function viewOn(name: string): DatabaseRouter {
+    const adapter = databases[name];
+    if (!adapter) throw new Error(`Unknown database ${name} (configured: ${names.join(", ")})`);
+    let view = bound.get(name);
+    if (!view) {
+      view = Object.create(router) as DatabaseRouter;
+      view.transaction = async <T>(fn: () => Promise<T>): Promise<T> => {
+        const open = openTransaction(family);
+        if (open) {
+          joinTransactionDatabase(view!);
+          return fn();
+        }
+        const state: RoutedTransaction = { family, database: name, run: (work) => work() };
+        try {
+          return await adapter.transaction(() => transactions.run(state, fn));
+        } catch (error) {
+          throw tagged(error, name);
+        } finally {
+          state.closed = true;
+        }
+      };
+      boundDatabases.set(view, name);
+      routers.add(view);
+      familyOf.set(view, family);
+      bound.set(name, view);
+    }
+    return view;
+  }
   if (defaultAdapter.listen) router.listen = defaultAdapter.listen.bind(defaultAdapter);
   if (defaultAdapter.notify) router.notify = defaultAdapter.notify.bind(defaultAdapter);
   if (defaultAdapter.withSchema) {
@@ -393,6 +497,15 @@ function createRouter(databases: Record<string, DatabaseAdapter>, family: object
   routers.add(router);
   familyOf.set(router, family);
   return router;
+}
+
+/** The models each router family connected with. */
+const modelsOf = new WeakMap<object, readonly EntityModel[]>();
+
+/** The models a router (or one of its views) connected its databases with; empty before it connected. */
+export function connectedModels(adapter: DatabaseAdapter): readonly EntityModel[] {
+  const family = familyOf.get(adapter);
+  return (family && modelsOf.get(family)) ?? [];
 }
 
 /** The transaction family of each router: a router and its schema views share one. */

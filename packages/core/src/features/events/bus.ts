@@ -1,4 +1,5 @@
 import {
+  currentTransactionDatabase,
   tenantRuns,
   runForTenant,
   currentDatabaseScope,
@@ -280,6 +281,8 @@ function operationFields(): { actor: EventActor; requestId?: string } {
   if (operation?.job) actor.job = operation.job.name;
   if (operation?.queue) actor.queue = operation.queue.name;
   if (operation?.scope) actor.scope = operation.scope;
+  const database = currentTransactionDatabase();
+  if (database) actor.database = database;
   return { actor, ...(operation?.requestId ? { requestId: operation.requestId } : {}) };
 }
 

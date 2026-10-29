@@ -31,6 +31,7 @@ import { guardTenantRepositories } from "./tenant-repositories.ts";
 import { configureTenantRuns } from "./tenant-runs.ts";
 import { configureTracing, tracedLogger } from "./tracing.ts";
 import { configureMetrics } from "./metering.ts";
+import { configureDatabaseRelay, databaseRelaySweeper } from "./database-staging.ts";
 
 /** A generated CRUD route with its resolved hook list. */
 export interface CrudRouteEntry {
@@ -213,6 +214,7 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
     logger,
   };
   configureTransactions(config.database, logger);
+  configureDatabaseRelay(logger);
   configureRepositories(models, {
     populateMaxDepth: config.populate?.maxDepth,
     fileAccess,
@@ -313,6 +315,8 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
     logger,
     clock,
   });
+  // Rows staged in named databases that an interrupted relay left are moved by the scheduled work.
+  const relaySweeper = databaseRelaySweeper(config.database);
   const abandonedRuns = createAbandonedRunMonitor(jobRunner, { enabled: config.jobs.enabled && jobRunModel !== undefined && jobs.size > 0, logger, clock });
   const scheduler: JobScheduler = {
     ...jobScheduler,
@@ -320,15 +324,18 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
       jobScheduler.start();
       runCleanup.start();
       abandonedRuns.start();
+      relaySweeper.start();
     },
     stop() {
       jobScheduler.stop();
       runCleanup.stop();
       abandonedRuns.stop();
+      relaySweeper.stop();
     },
     async idle() {
       await jobScheduler.idle();
       await runCleanup.idle();
+      await relaySweeper.idle();
     },
   };
   const shutdown = async () => {

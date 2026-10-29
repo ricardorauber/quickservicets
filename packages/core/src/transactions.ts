@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { DatabaseAdapter } from "./adapter.ts";
 import { databaseScopesEnabled, scopedAdapter, scopeKeyOf, sharesConnection } from "./database-scope.ts";
 import { jsonLogger, safeLog, type Logger } from "./logger.ts";
+import { DEFAULT_DATABASE, isDatabaseRouter, joinTransactionDatabase } from "./named-databases.ts";
 import { startSpan, tracingEnabled, withSpan } from "./tracing.ts";
 
 /** One open transaction: the adapter it runs on and the callbacks queued for its end. */
@@ -53,7 +54,11 @@ async function runCallbacks(callbacks: readonly (() => unknown)[], message: stri
  */
 export async function runInTransaction<T>(adapter: DatabaseAdapter, fn: () => Promise<T>): Promise<T> {
   const current = scopes.getStore();
-  if (current && (current.adapter === adapter || sharesConnection(current.adapter, adapter))) return fn();
+  if (current && (current.adapter === adapter || sharesConnection(current.adapter, adapter))) {
+    // A transaction asked for one named database joins only a transaction of that database.
+    joinTransactionDatabase(adapter);
+    return fn();
+  }
   if (current && databaseScopesEnabled()) throw crossScopeWrite(adapter, current.adapter);
   const scope: TransactionScope = { adapter, afterCommit: [], onRollback: [] };
   let result: T;
@@ -72,10 +77,32 @@ export async function runInTransaction<T>(adapter: DatabaseAdapter, fn: () => Pr
  * takes part, a throw rolls everything back and rejects with the error, and a call inside another transaction joins it.
  * Resolves with `fn`'s result once the `afterCommit` callbacks ran.
  */
-export function transaction<T>(fn: () => Promise<T>): Promise<T> {
+export function transaction<T>(fn: () => Promise<T>, options: TransactionOptions = {}): Promise<T> {
   const adapter = settings.adapter && scopedAdapter(settings.adapter);
   if (!adapter) return Promise.reject(new Error("transaction() needs a running service: no database is configured yet"));
-  return publicTransaction(adapter, fn);
+  try {
+    return publicTransaction(transactionTarget(adapter, options), fn);
+  } catch (error) {
+    return Promise.reject(error);
+  }
+}
+
+/** Options of `transaction` and `repos.transaction`. */
+export interface TransactionOptions {
+  /**
+   * The database the transaction belongs to: `default` or a name of `databases` (default: the database of the first
+   * entity it touches, or the default database when it touches none).
+   */
+  database?: string;
+}
+
+/** The adapter a transaction runs on: with `database`, the view of the router bound to that database. */
+export function transactionTarget(adapter: DatabaseAdapter, options: TransactionOptions = {}): DatabaseAdapter {
+  const name = options.database;
+  if (name === undefined) return adapter;
+  if (isDatabaseRouter(adapter)) return adapter.on(name);
+  if (name !== DEFAULT_DATABASE) throw new Error(`Unknown database ${name} (configured: ${DEFAULT_DATABASE})`);
+  return adapter;
 }
 
 /** A transaction started by project or feature code, which warns once when the database cannot roll back. */

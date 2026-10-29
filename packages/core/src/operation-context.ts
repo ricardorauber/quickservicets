@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { ServiceRequest } from "./hooks.ts";
+import { currentTransactionDatabase } from "./named-databases.ts";
 import type { HandlerMiddleware } from "./middleware.ts";
 
 /** What the current code runs for: a request, a job run or a queue message. */
@@ -10,6 +11,8 @@ export interface OperationInfo {
   queue?: { name: string; messageId: string };
   /** The key of the database scope the code runs in, set by `withDatabaseScope` (`tenant:<id>` for tenants). */
   scope?: string;
+  /** The database of the transaction the code runs in, once that transaction touched a database (with `databases`). */
+  database?: string;
 }
 
 const operations = new AsyncLocalStorage<OperationInfo>();
@@ -40,7 +43,10 @@ export function withOperation<T>(info: OperationInfo, fn: () => T): T {
 
 /** The operation the caller runs for, or undefined outside one or while the context is off. */
 export function currentOperation(): OperationInfo | undefined {
-  return enabled ? operations.getStore() : undefined;
+  if (!enabled) return undefined;
+  const operation = operations.getStore();
+  const database = operation ? currentTransactionDatabase() : undefined;
+  return database === undefined ? operation : { ...operation, database };
 }
 
 /** Runs a job run's code inside its operation when the context is on, or directly otherwise. */

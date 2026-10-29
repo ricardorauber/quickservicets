@@ -1,4 +1,5 @@
-import { assertWritable, publicTransaction, runInTransaction } from "./transactions.ts";
+import { databaseOf, isDatabaseRouter } from "./named-databases.ts";
+import { assertWritable, publicTransaction, runInTransaction, transactionTarget, type TransactionOptions } from "./transactions.ts";
 import { tracingEnabled } from "./tracing.ts";
 import { metricsEnabled } from "./metering.ts";
 import { tracedAdapter } from "./traced-adapter.ts";
@@ -299,11 +300,14 @@ export function createRepository(
   models: EntityModel[] = [model],
   repositoryOptions: RepositoryOptions = {},
 ): Repository {
+  // With named databases, the entity's transactions belong to its own database from their start.
+  const home = isDatabaseRouter(adapter) ? adapter.on(databaseOf(model)) : undefined;
   // With a tracer or a meter, every record read, write and aggregate of this repository is traced or measured.
   if (tracingEnabled() || metricsEnabled()) adapter = tracedAdapter(adapter);
+  const transactional = home ?? adapter;
   const maxDepth = repositoryOptions.populateMaxDepth ?? 2;
   const { hasDerived, syncsRelations, ownedFiles, cleansReplaced, hiddenPaths, cleansOnDelete, writesDirectly } = planOf(model, models, repositoryOptions);
-  const atomically = <T>(fn: () => Promise<T>) => (syncsRelations ? runInTransaction(adapter, fn) : fn());
+  const atomically = <T>(fn: () => Promise<T>) => (syncsRelations || home ? runInTransaction(transactional, fn) : fn());
   const cleanup = repositoryOptions.fileCleanup;
   /** Runs a change, then deletes the objects it queued; nothing is deleted when the change fails. */
   const settle = async <T>(fn: (queue: StoredObject[]) => Promise<T>): Promise<T> => {
@@ -426,7 +430,7 @@ export function createRepository(
         return written(updated, options);
       }
     }
-    const inTransaction = cleansReplaced || observed?.inTransaction || conditional ? <T>(fn: () => Promise<T>) => runInTransaction(adapter, fn) : atomically;
+    const inTransaction = cleansReplaced || observed?.inTransaction || conditional ? <T>(fn: () => Promise<T>) => runInTransaction(transactional, fn) : atomically;
     return inTransaction(async () => {
       const before = observed?.needsBefore || conditional ? await lockedRecord(id) : undefined;
       if (conditional) checkIfMatch(before!, options!);
@@ -466,7 +470,7 @@ export function createRepository(
       const at = nextTimestamp();
       const record: StoredRecord = { ...value, ...managed, id, createdAt: at, updatedAt: at };
       const observed = observersOf(model);
-      return (observed?.inTransaction ? <T>(fn: () => Promise<T>) => runInTransaction(adapter, fn) : atomically)(async () => {
+      return (observed?.inTransaction ? <T>(fn: () => Promise<T>) => runInTransaction(transactional, fn) : atomically)(async () => {
         const touched: (() => Promise<void>)[] = [];
         const touch = touchInto(observed ? touched : undefined);
         await releaseOneToOne(model, undefined, value, adapter, touch);
@@ -500,7 +504,7 @@ export function createRepository(
       return write(id, value, options, queue);
     }
     // Add/remove operations read the stored list and write the result atomically.
-    return runInTransaction(adapter, async () => {
+    return runInTransaction(transactional, async () => {
       await adapter.lockForUpdate?.(model, id);
       const current = await existing(id);
       const details: { field: string; message: string }[] = [];
@@ -722,7 +726,7 @@ export function createRepository(
       if (options?.ifMatch !== undefined) {
         // The check, a conditional write holding the record, and the delete plan run in one transaction.
         await settle((queue) =>
-          runInTransaction(adapter, async () => {
+          runInTransaction(transactional, async () => {
             const before = await lockedRecord(id);
             checkIfMatch(before, options);
             const held = await adapter.updateById(model, id, { updatedAt: before.updatedAt }, [{ field: "updatedAt", op: "eq", value: before.updatedAt }]);
@@ -736,7 +740,7 @@ export function createRepository(
       if (observed) {
         // Observed deletes read the record inside the transaction, so `before` is what the delete removed.
         await settle((queue) =>
-          runInTransaction(adapter, async () => {
+          runInTransaction(transactional, async () => {
             const before = await lockedRecord(id);
             await deleteRecord(id, await derived(before), queue);
             await reportChange(observed, { entity: model, operation: "deleted", id, before, after: null, cause: "write" });
@@ -749,7 +753,7 @@ export function createRepository(
         await executeDeletePlan(await planDelete(model, id, models, adapter, record), adapter, nextTimestamp);
         return;
       }
-      await settle((queue) => runInTransaction(adapter, () => deleteRecord(id, record, queue)));
+      await settle((queue) => runInTransaction(transactional, () => deleteRecord(id, record, queue)));
     },
   };
 
@@ -777,7 +781,16 @@ export function createRepositories(
     }
   }
   // `repos.transaction(fn)`, kept out of the registry's keys so code listing the repositories never sees it.
-  Object.defineProperty(registry, "transaction", { value: <T>(fn: () => Promise<T>) => publicTransaction(adapter, fn), enumerable: false });
+  Object.defineProperty(registry, "transaction", {
+    value: <T>(fn: () => Promise<T>, options?: TransactionOptions) => {
+      try {
+        return publicTransaction(transactionTarget(adapter, options), fn);
+      } catch (error) {
+        return Promise.reject(error);
+      }
+    },
+    enumerable: false,
+  });
   return registry;
 }
 

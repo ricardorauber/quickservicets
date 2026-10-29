@@ -1,12 +1,9 @@
-import { afterCommit, currentTransaction, safeLog, schemaIdentifier, type DatabaseAdapter, type EntityModel, type FieldModel, type Logger, type StoredRecord } from "../public.ts";
+import { afterCommit, currentTransaction, moveStagedRow, safeLog, STAGED_TABLES, schemaIdentifier, type DatabaseAdapter, type EntityModel, type FieldModel, type Logger, type StoredRecord } from "../public.ts";
 import { directoryClock } from "./directory.ts";
 
 /** The staging table of each core model whose rows a tenant database stages inside its transactions. */
-export const STAGED_TABLES: Readonly<Record<string, string>> = {
-  OutboxEvent: "qs_staged_outbox_events",
-  OutboxDelivery: "qs_staged_outbox_deliveries",
-  QueueMessage: "qs_staged_queue_messages",
-};
+export { STAGED_TABLES };
+
 
 /** What the `tenancy/relay` job runs: the relay of every database tenant, set by the running native. */
 export const relayState: { all?: () => Promise<void> } = {};
@@ -94,7 +91,7 @@ export function tenantRelay(options: RelayOptions) {
         for (;;) {
           const { data } = await adapter.findMany(stagedTable, { where: minAgeMs > 0 ? [condition("createdAt", "lte", before)] : [], sort: [{ field: "id", direction: "asc" }], limit: 500, offset: 0, withTotal: false });
           for (const row of data) {
-            await moveRow(root, model, row);
+            await moveStagedRow(root, model, row, directoryClock.now);
             await adapter.deleteById(stagedTable, row.id);
             counts[key] = (counts[key] ?? 0) + 1;
           }
@@ -123,16 +120,3 @@ export function tenantRelay(options: RelayOptions) {
 }
 
 export type TenantRelay = ReturnType<typeof tenantRelay>;
-
-/** Copies one staged row to its shared table unless it is there already, applying the queue's dedupe keys. */
-async function moveRow(root: DatabaseAdapter, model: EntityModel, row: StoredRecord): Promise<void> {
-  if (await root.findById(model, row.id)) return;
-  if (model.key === "QueueMessage" && typeof row.dedupeSlot === "string") {
-    const holder = await root.findOne(model, [condition("dedupeSlot", "eq", row.dedupeSlot)]);
-    // A live or completed holder keeps deduplicating its key (a completed one until its slot is released).
-    if (holder && (holder.status === "waiting" || holder.status === "active" || holder.status === "completed")) return;
-    // A dead holder frees its slot, so the staged message takes the key.
-    if (holder) await root.updateById(model, holder.id, { dedupeSlot: null, updatedAt: new Date(directoryClock.now()) });
-  }
-  await root.insert(model, row);
-}

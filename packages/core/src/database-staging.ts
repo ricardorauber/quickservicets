@@ -84,7 +84,7 @@ export function configureDatabaseRelay(logger: Logger): void {
  * the shared table once the transaction commits. Undefined when the row goes to its own table.
  */
 export function stagedSystemTarget(adapter: DatabaseAdapter, model: EntityModel): { adapter: DatabaseAdapter; model: EntityModel } | undefined {
-  if (!isDatabaseRouter(adapter) || !model.system || !(model.key in STAGED_TABLES)) return undefined;
+  if (!isDatabaseRouter(adapter) || !model.system || model.perDatabase || !(model.key in STAGED_TABLES)) return undefined;
   const database = transactionDatabase(adapter);
   if (database === undefined || database === databaseOf(model)) return undefined;
   const transaction = currentTransaction();

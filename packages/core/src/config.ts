@@ -3,7 +3,7 @@ import type { ServerTlsConfig } from "./tls.ts";
 import { join } from "node:path";
 import type { DatabaseAdapter } from "./adapter.ts";
 import { memoryAdapter } from "./adapters/memory.ts";
-import { databaseRouter, resolveDatabases, type NamedDatabaseEntry, type ResolvedDatabase } from "./named-databases.ts";
+import { databaseRouter, featureDatabaseProblem, resolveDatabases, type NamedDatabaseEntry, type ResolvedDatabase } from "./named-databases.ts";
 import type { Logger } from "./logger.ts";
 import { DEFAULT_MAX_FILE_SIZE, parseSize } from "./files/limits.ts";
 import { parseDuration } from "./jobs/job.ts";
@@ -394,6 +394,9 @@ export function resolveConfig(
   const variables = declaredVariables(config.env, features.map((feature) => ({ key: feature.key, env: feature.definition.env })));
   const envValues = readVariables(variables, env);
   const databases = resolveDatabases(config.databases, env);
+  // A feature's `database` must name a configured database.
+  const featureProblems = features.flatMap((feature) => featureDatabaseProblem(feature.key, feature.options.database, Object.keys(databases)) ?? []);
+  if (featureProblems.length > 0) throw new ConfigError(featureProblems.join("\n"));
   const resolved: ResolvedConfig = {
     ...config,
     database: Object.keys(databases).length === 0

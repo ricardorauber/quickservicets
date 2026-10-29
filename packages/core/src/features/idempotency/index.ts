@@ -104,7 +104,7 @@ async function storable(response: Response, maxBytes: number): Promise<StoredRes
  */
 const idempotencyFeature = defineFeature({
   key: "idempotency",
-  docs: { summary: "Idempotency keys: a request repeated with the same Idempotency-Key gets the first response again without running twice." },
+  docs: { summary: "Idempotency keys: a request repeated with the same Idempotency-Key gets the first response again without running twice.", entities: [{ name: "IdempotencyKey", placement: "feature", description: "The stored keys and responses of the database store." }] },
   options,
   // A project store keeps the keys elsewhere, so the build adds no entity for them.
   entities: ({ options }) => (options.store ? [] : [idempotencyKeyEntity()]),

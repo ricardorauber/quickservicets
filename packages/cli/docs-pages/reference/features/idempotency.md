@@ -29,6 +29,15 @@ It is not enabled by default: turn it on with `idempotency: {}` or `QS_IDEMPOTEN
 | `idempotency.onConflict` | `hook` | — | not overridable | no | Runs when a key is refused, with the request and the kind: reused for another request, inUse for one in progress. |
 | `idempotency.store` | `IdempotencyStore` | — | not overridable | no | Replaces where keys are kept; without the IdempotencyKey entity in the build. |
 | `idempotency.enabled` | `boolean` | `true` | `QS_IDEMPOTENCY_ENABLED` | no | Turns the feature off when false. |
+| `idempotency.database` | `string` | — | `QS_IDEMPOTENCY_DATABASE` | no | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
+
+## Entities
+
+With named databases ([`databases`](/reference/config/)), each entity of the feature lives in one place; `idempotency.database` (`QS_IDEMPOTENCY_DATABASE`) moves the entities that live in the feature's database.
+
+| Entity | Database | Description |
+| --- | --- | --- |
+| `IdempotencyKey` | the feature's `database` (default: the default database) | The stored keys and responses of the database store. |
 
 ## Tags
 

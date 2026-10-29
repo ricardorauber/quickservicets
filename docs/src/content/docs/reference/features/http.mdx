@@ -74,6 +74,7 @@ It is enabled by default; turn it off with `http: false` or `QS_HTTP_ENABLED=fal
 | `http.services.<name>.tls.serverName` | `record of string` | — | `QS_HTTP_SERVICES_<NAME>_TLS_SERVER_NAME` | no | The TLS server name checked against the service's certificate, instead of the URL's host. |
 | `http.services.<name>.tls.rejectUnauthorized` | `record of boolean` | `true` | `QS_HTTP_SERVICES_<NAME>_TLS_REJECT_UNAUTHORIZED` | no | Refuses a service certificate that does not verify; false is refused in production. |
 | `http.enabled` | `boolean` | `true` | `QS_HTTP_ENABLED` | no | Turns the feature off when false. |
+| `http.database` | `string` | — | `QS_HTTP_DATABASE` | no | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
 
 ## Hooks
 

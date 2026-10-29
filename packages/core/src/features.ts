@@ -14,7 +14,7 @@ import type { FeatureOpenApiContext, OpenApiDoc } from "./openapi.ts";
 import { isCommandDefinition, type CommandDefinition } from "./commands.ts";
 import type { FeatureBuildContext } from "./build-steps.ts";
 import { HOOK_NAME } from "./feature-hooks.ts";
-import { boolean, object, resolveOptions, type AnyOptionSchema, type ObjectOptionSchema, type Options, type OptionsInput } from "./options.ts";
+import { boolean, object, resolveOptions, string, type AnyOptionSchema, type ObjectOptionSchema, type Options, type OptionsInput } from "./options.ts";
 
 /**
  * The config keys of the native features, each typed with its options. Every native module augments it:
@@ -50,11 +50,19 @@ export interface FeatureDocs {
   url?: string;
   /** More sections of the feature's reference page, each a title and Markdown text, after the generated ones. */
   sections?: readonly { title: string; text: string }[];
+  /**
+   * The entities the feature contributes, for its reference page: each one's name and where it lives with named
+   * databases (`source`: the database of the entity it belongs to; `perDatabase`: every database with entities;
+   * `feature`: the feature's `database`).
+   */
+  entities?: readonly { name: string; placement: "source" | "perDatabase" | "feature"; description?: string }[];
 }
 
 type AnyShape = Record<string, AnyOptionSchema>;
-type EnabledShape = { enabled: ReturnType<typeof enabledOption> };
+type EnabledShape = { enabled: ReturnType<typeof enabledOption>; database: ReturnType<typeof databaseOption> };
 const enabledOption = () => boolean().default(true).describe("Turns the feature off when false.");
+const databaseOption = () =>
+  string().optional().describe("The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database).");
 
 /** What `defineFeature` accepts. */
 export interface FeatureInput<S extends AnyOptionSchema> {
@@ -233,8 +241,8 @@ export interface FeatureRequirement {
   hint?: string;
 }
 
-/** The resolved options of a feature: its own plus the implicit `enabled`. */
-export type FeatureOptions<S> = Options<S> & { enabled: boolean };
+/** The resolved options of a feature: its own plus the implicit `enabled` and `database`. */
+export type FeatureOptions<S> = Options<S> & { enabled: boolean; database?: string };
 
 /** A feature definition, as `defineFeature` returns it. */
 export interface FeatureDefinition<S extends AnyOptionSchema = AnyOptionSchema> {
@@ -294,7 +302,7 @@ export interface FeatureDefinition<S extends AnyOptionSchema = AnyOptionSchema> 
 }
 
 /** The value of a feature's config key: `true`, `false`, or its options. */
-export type FeatureConfig<D> = D extends FeatureDefinition<infer S> ? boolean | (OptionsInput<S> & { enabled?: boolean }) : never;
+export type FeatureConfig<D> = D extends FeatureDefinition<infer S> ? boolean | (OptionsInput<S> & { enabled?: boolean; database?: string }) : never;
 
 /** One enabled feature, as `config.features` lists it. */
 export interface ResolvedFeature {
@@ -342,7 +350,8 @@ export function defineFeature<S extends AnyOptionSchema = ObjectOptionSchema<{}>
   const options: AnyOptionSchema = input.options ?? object({});
   if (options.kind !== "object" || !options.settings.shape) throw invalid("options must be an object({...}) schema");
   if (Object.hasOwn(options.settings.shape, "enabled")) throw invalid("enabled is an implicit option and cannot be declared");
-  const schema = object({ ...(options.settings.shape as AnyShape), enabled: enabledOption() } as AnyShape & EnabledShape);
+  if (Object.hasOwn(options.settings.shape, "database")) throw invalid("database is an implicit option and cannot be declared");
+  const schema = object({ ...(options.settings.shape as AnyShape), enabled: enabledOption(), database: databaseOption() } as AnyShape & EnabledShape);
   // Each option is set by one environment variable, so two options may not share a name.
   featureVariables(key, schema);
   for (const name of hookOptionNames(schema)) {

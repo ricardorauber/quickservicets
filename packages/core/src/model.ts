@@ -195,6 +195,11 @@ export interface EntityModel {
    * entity while the config has named databases; absent, the entity lives in the default database.
    */
   database?: string;
+  /**
+   * Set on a feature entity whose table exists in every database that holds entities (like outbox events): each
+   * transaction writes it in its own database, and reads outside transactions read every database.
+   */
+  perDatabase?: true;
   /** The key of the entity a derived model (like a history table) follows, for the rules that apply to both. */
   derivedFrom?: string;
 }

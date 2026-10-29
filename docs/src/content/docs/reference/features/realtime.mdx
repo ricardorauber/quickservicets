@@ -50,6 +50,7 @@ It is not enabled by default: turn it on with `realtime: {}` or `QS_REALTIME_ENA
 | `realtime.websockets.beforePublish` | `hook` | — | not overridable | no | Runs before each publish to a room, with the socket that publishes, if any; it returns changed data, or null to drop the publish. |
 | `realtime.websockets.onClose` | `hook` | — | not overridable | no | Runs after a socket closed, with the close code, the reason and how long it was open; a failure is logged. |
 | `realtime.enabled` | `boolean` | `true` | `QS_REALTIME_ENABLED` | no | Turns the feature off when false. |
+| `realtime.database` | `string` | — | `QS_REALTIME_DATABASE` | no | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
 
 ## Tags
 

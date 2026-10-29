@@ -26,6 +26,15 @@ It is not enabled by default: turn it on with `history: {}` or `QS_HISTORY_ENABL
 | `history.afterVersion` | `hook` | — | not overridable | no | Runs after the write committed, with the entity, the stored version and the event; failures are logged. |
 | `history.store` | `HistoryStore` | — | not overridable | no | Replaces the history tables: it writes, lists, reads and prunes versions, and the build adds no history entities. |
 | `history.enabled` | `boolean` | `true` | `QS_HISTORY_ENABLED` | no | Turns the feature off when false. |
+| `history.database` | `string` | — | `QS_HISTORY_DATABASE` | no | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
+
+## Entities
+
+With named databases ([`databases`](/reference/config/)), each entity of the feature lives in one place; `history.database` (`QS_HISTORY_DATABASE`) moves the entities that live in the feature's database.
+
+| Entity | Database | Description |
+| --- | --- | --- |
+| `<Entity>History` | the database of the entity it belongs to | One history table per tracked entity, written in the transaction of the change. |
 
 ## Tags
 

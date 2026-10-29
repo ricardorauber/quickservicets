@@ -498,7 +498,7 @@ function withRateLimitMetric(hooks: RefusalListener | undefined): RefusalListene
  */
 const securityFeature = defineFeature({
   key: "security",
-  docs: { summary: "Safe defaults for every service: security headers, CORS, request limits, timeouts, load shedding, rate limits, IP lists and log masking, each a switchable item." },
+  docs: { summary: "Safe defaults for every service: security headers, CORS, request limits, timeouts, load shedding, rate limits, IP lists and log masking, each a switchable item.", entities: [{ name: "RateLimitCounter", placement: "feature", description: "The shared rate limit counters of the database store." }, { name: "IpBlock", placement: "feature", description: "The temporary IP blocks of the database store." }] },
   enabledByDefault: true,
   options,
   // The shared counters are part of the model only while the database store is on.

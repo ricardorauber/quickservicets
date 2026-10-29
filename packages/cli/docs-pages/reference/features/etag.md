@@ -23,6 +23,7 @@ It is not enabled by default: turn it on with `etag: {}` or `QS_ETAG_ENABLED=tru
 | `etag.onNotModified` | `hook` | — | not overridable | no | Runs for each 304 answer, with the request, the entity and the id. |
 | `etag.tagger` | `EntityTagger` | — | not overridable | no | Replaces etagOf for the native's routes: its tag method gets the stored record and the entity and returns a strong tag. |
 | `etag.enabled` | `boolean` | `true` | `QS_ETAG_ENABLED` | no | Turns the feature off when false. |
+| `etag.database` | `string` | — | `QS_ETAG_DATABASE` | no | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
 
 ## Tags
 

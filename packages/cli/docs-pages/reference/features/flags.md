@@ -29,6 +29,15 @@ It is not enabled by default: turn it on with `flags: {}` or `QS_FLAGS_ENABLED=t
 | `flags.onEvaluate` | `hook` | — | not overridable | no | Runs after each new evaluation with the name, the value, the reason, the user, the tenant and the request; it observes and cannot change the value. |
 | `flags.provider` | `FlagProvider` | — | not overridable | no | Replaces the evaluation of both sources: isOn(name, ctx) answers synchronously, all(ctx) lists every flag, and optional start() and stop() run with the server. |
 | `flags.enabled` | `boolean` | `true` | `QS_FLAGS_ENABLED` | no | Turns the feature off when false. |
+| `flags.database` | `string` | — | `QS_FLAGS_DATABASE` | no | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
+
+## Entities
+
+With named databases ([`databases`](/reference/config/)), each entity of the feature lives in one place; `flags.database` (`QS_FLAGS_DATABASE`) moves the entities that live in the feature's database.
+
+| Entity | Database | Description |
+| --- | --- | --- |
+| `FeatureFlag` | the feature's `database` (default: the default database) | The flags of the database source. |
 
 ## Tags
 

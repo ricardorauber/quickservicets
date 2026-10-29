@@ -55,6 +55,7 @@ It is not enabled by default: turn it on with `proxy: {}` or `QS_PROXY_ENABLED=t
 | `proxy.routes.<name>.maxBodySize` | `record of size` | — | `QS_PROXY_ROUTES_<NAME>_MAX_BODY_SIZE` | no | The largest request body the route streams to the upstream; larger ones answer 413. |
 | `proxy.routes.<name>.websocket` | `record of boolean` | `false` | `QS_PROXY_ROUTES_<NAME>_WEBSOCKET` | no | Proxies WebSocket upgrades on the route's path to the upstream (ws:// or wss://), with the route's checks and the limits of realtime.websockets; needs realtime: {}. |
 | `proxy.enabled` | `boolean` | `true` | `QS_PROXY_ENABLED` | no | Turns the feature off when false. |
+| `proxy.database` | `string` | — | `QS_PROXY_DATABASE` | no | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
 
 ## Hooks
 

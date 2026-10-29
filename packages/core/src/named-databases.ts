@@ -38,6 +38,29 @@ export function databaseOf(model: Pick<EntityModel, "database">): string {
   return model.database ?? DEFAULT_DATABASE;
 }
 
+/** The problem of a feature whose `database` option names no configured database, or undefined. */
+export function featureDatabaseProblem(key: string, database: unknown, names: readonly string[]): string | undefined {
+  if (database === undefined || database === DEFAULT_DATABASE || names.includes(database as string)) return undefined;
+  return `Invalid ${key}.database: unknown database ${String(database)} (configured: ${[DEFAULT_DATABASE, ...names].join(", ")})`;
+}
+
+/**
+ * Places the entities features contribute, while the service has named databases (its models record databases): an
+ * entity derived from another (`derivedFrom`) lives in that entity's database, a per-database one has the default
+ * database as home, and every other one lives in its feature's `database` option (default: the default database).
+ */
+export function placeFeatureEntities(models: readonly EntityModel[], features: readonly { key: string; options: Record<string, unknown> }[]): EntityModel[] {
+  if (!models.some((model) => model.database !== undefined)) return [...models];
+  const byKey = new Map(models.map((model) => [model.key, model]));
+  const optionOf = new Map(features.map((feature) => [feature.key, feature.options.database as string | undefined]));
+  return models.map((model) => {
+    if (!model.feature) return model;
+    const source = model.derivedFrom ? byKey.get(model.derivedFrom) : undefined;
+    const database = source ? databaseOf(source) : model.perDatabase ? DEFAULT_DATABASE : (optionOf.get(model.feature) ?? DEFAULT_DATABASE);
+    return model.database === database ? model : { ...model, database };
+  });
+}
+
 /** A reference or reference array whose target lives in another database than its entity. */
 export interface CrossDatabaseReference {
   model: EntityModel;
@@ -300,11 +323,12 @@ function createRouter(databases: Record<string, DatabaseAdapter>, family: object
    * Runs a call on an entity's database: inside the open transaction when it belongs to that database, refused with
    * `CrossDatabaseTransactionError` when the open transaction belongs to another one.
    */
-  const call = async <T>(model: Pick<EntityModel, "database" | "entityName">, fn: (adapter: DatabaseAdapter) => Promise<T>): Promise<T> => {
-    const name = databaseOf(model);
-    const adapter = adapterOf(model);
+  const call = async <T>(model: Pick<EntityModel, "database" | "entityName" | "perDatabase">, fn: (adapter: DatabaseAdapter) => Promise<T>): Promise<T> => {
+    const state = openTransaction(family);
+    // A per-database table is written in the database of the open transaction.
+    const name = model.perDatabase && state?.database !== undefined ? state.database : databaseOf(model);
+    const adapter = databases[name] ?? adapterOf(model);
     try {
-      const state = openTransaction(family);
       if (state) {
         if (state.database === undefined) bind(state, name, adapter);
         if (state.database !== name) throw new CrossDatabaseTransactionError(model.entityName ?? "an entity", name, state.database!);
@@ -314,6 +338,40 @@ function createRouter(databases: Record<string, DatabaseAdapter>, family: object
     } catch (error) {
       throw tagged(error, name);
     }
+  };
+
+  /** The databases that hold project entities (the default one always), which have the per-database tables. */
+  let holders: string[] = [DEFAULT_DATABASE];
+  /** Whether a call on `model` reads or writes every database: a per-database table outside a transaction. */
+  const everywhere = (model: Pick<EntityModel, "perDatabase">) => model.perDatabase === true && !openTransaction(family) && holders.length > 1;
+  /** The first result of `fn` on the databases holding a per-database table that `found` accepts. */
+  const first = async <T>(model: EntityModel, fn: (adapter: DatabaseAdapter) => Promise<T>, found: (result: T) => boolean): Promise<T> => {
+    let result!: T;
+    for (const name of holders) {
+      result = await call({ ...model, perDatabase: undefined, database: name }, fn);
+      if (found(result)) return result;
+    }
+    return result;
+  };
+  /** A page of a per-database table read from every database, merged in the requested order. */
+  const findEverywhere = async (model: EntityModel, query: FindManyOptions): Promise<FindManyResult> => {
+    const pages = await Promise.all(
+      holders.map((name) => call({ ...model, perDatabase: undefined, database: name }, (adapter) => adapter.findMany(model, { ...query, offset: 0, limit: query.offset + query.limit }))),
+    );
+    const order = query.sort.some((item) => item.field === "id") ? query.sort : [...query.sort, { field: "id", direction: "asc" as const }];
+    const compare = (a: StoredRecord, b: StoredRecord) => {
+      for (const { field, direction } of order) {
+        const left = a[field] instanceof Date ? (a[field] as Date).getTime() : (a[field] as number | string);
+        const right = b[field] instanceof Date ? (b[field] as Date).getTime() : (b[field] as number | string);
+        if (left === right) continue;
+        if (left === null || left === undefined) return 1;
+        if (right === null || right === undefined) return -1;
+        return (left < right ? -1 : 1) * (direction === "desc" ? -1 : 1);
+      }
+      return 0;
+    };
+    const data = pages.flatMap((page) => page.data).sort(compare).slice(query.offset, query.offset + query.limit);
+    return { data, total: query.withTotal === false ? data.length : pages.reduce((sum, page) => sum + page.total, 0) };
   };
 
   /** Related records of an owner in another database: the owner's array is read, then the target filtered by id. */
@@ -332,10 +390,11 @@ function createRouter(databases: Record<string, DatabaseAdapter>, family: object
     on: (name: string) => viewOn(name),
     async connect(models: EntityModel[], connectOptions?: ConnectOptions) {
       modelsOf.set(family, models);
+      holders = names.filter((name) => name === DEFAULT_DATABASE || models.some((model) => !model.feature && !model.system && !model.link && databaseOf(model) === name));
       const connected: DatabaseAdapter[] = [];
       for (const name of names) {
         const adapter = databases[name]!;
-        const own = models.filter((model) => databaseOf(model) === name);
+        const own = models.filter((model) => databaseOf(model) === name || (model.perDatabase === true && holders.includes(name)));
         try {
           await adapter.connect(own, connectOptions);
           // Adapters that connect lazily are reached once, so a database that is down fails the start.
@@ -358,13 +417,22 @@ function createRouter(databases: Record<string, DatabaseAdapter>, family: object
       const failed = results.findIndex((result) => result.status === "rejected");
       if (failed >= 0) throw tagged((results[failed] as PromiseRejectedResult).reason, names[failed]!);
     },
-    findById: (entity, id, read) => call(entity, (adapter) => adapter.findById(entity, id, read)),
-    findOne: (entity, where) => call(entity, (adapter) => adapter.findOne(entity, where)),
-    findMany: (entity, query) => call(entity, (adapter) => adapter.findMany(entity, query)),
+    findById: (entity, id, read) =>
+      everywhere(entity) ? first(entity, (adapter) => adapter.findById(entity, id, read), Boolean) : call(entity, (adapter) => adapter.findById(entity, id, read)),
+    findOne: (entity, where) => (everywhere(entity) ? first(entity, (adapter) => adapter.findOne(entity, where), Boolean) : call(entity, (adapter) => adapter.findOne(entity, where))),
+    findMany: (entity, query) => (everywhere(entity) ? findEverywhere(entity, query) : call(entity, (adapter) => adapter.findMany(entity, query))),
     insert: (entity, record) => call(entity, (adapter) => adapter.insert(entity, record)),
-    updateById: (entity, id, changes, where) => call(entity, (adapter) => adapter.updateById(entity, id, changes, where)),
-    deleteById: (entity, id) => call(entity, (adapter) => adapter.deleteById(entity, id)),
-    count: (entity, where) => call(entity, (adapter) => adapter.count(entity, where)),
+    updateById: (entity, id, changes, where) =>
+      everywhere(entity)
+        ? first(entity, (adapter) => adapter.updateById(entity, id, changes, where), Boolean)
+        : call(entity, (adapter) => adapter.updateById(entity, id, changes, where)),
+    deleteById: (entity, id) => (everywhere(entity) ? first(entity, (adapter) => adapter.deleteById(entity, id), Boolean) : call(entity, (adapter) => adapter.deleteById(entity, id))),
+    count: async (entity, where) => {
+      if (!everywhere(entity)) return call(entity, (adapter) => adapter.count(entity, where));
+      let total = 0;
+      for (const name of holders) total += await call({ ...entity, perDatabase: undefined, database: name }, (adapter) => adapter.count(entity, where));
+      return total;
+    },
     aggregate: (entity, where, aggregates) => call(entity, (adapter) => adapter.aggregate(entity, where, aggregates)),
     async transaction<T>(fn: () => Promise<T>): Promise<T> {
       if (openTransaction(family)) return fn();

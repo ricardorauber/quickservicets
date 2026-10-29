@@ -29,6 +29,7 @@ It is not enabled by default: turn it on with `auth: {}` or `QS_AUTH_ENABLED=tru
 | `auth.onAuthFailed` | `hook` | — | not overridable | no | Runs after credentials are refused with 401, with the provider, the reason and the request; a failure is logged. |
 | `auth.beforeAuthorize` | `hook` | — | not overridable | no | Runs before the @auth and @roles checks of a route with the user, the route, its operation, roles and scopes and the request: true allows, false answers 403 Not allowed, undefined keeps the tag rules. |
 | `auth.enabled` | `boolean` | `true` | `QS_AUTH_ENABLED` | no | Turns the feature off when false. |
+| `auth.database` | `string` | — | `QS_AUTH_DATABASE` | no | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
 
 ## Tags
 

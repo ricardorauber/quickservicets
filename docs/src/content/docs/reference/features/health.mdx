@@ -36,6 +36,7 @@ It is not enabled by default: turn it on with `health: {}` or `QS_HEALTH_ENABLED
 | `health.onStatusChange` | `hook` | — | not overridable | no | Runs when the overall readiness of this worker changes, with the old and new status and the checks; with events enabled the change is also the event health.status.changed. |
 | `health.prober` | `HealthProber` | — | not overridable | no | Replaces how the checks are run and combined: its run method gets the registered checks and returns the ready response. |
 | `health.enabled` | `boolean` | `true` | `QS_HEALTH_ENABLED` | no | Turns the feature off when false. |
+| `health.database` | `string` | — | `QS_HEALTH_DATABASE` | no | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
 
 ## Hooks
 

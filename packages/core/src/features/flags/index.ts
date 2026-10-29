@@ -202,7 +202,7 @@ export function configRules(rules: Readonly<Record<string, unknown>>): FlagRules
  */
 const flagsFeature = defineFeature({
   key: "flags",
-  docs: { summary: "Feature flags turned on per user, per tenant or for a percentage of users, read synchronously in any endpoint or hook." },
+  docs: { summary: "Feature flags turned on per user, per tenant or for a percentage of users, read synchronously in any endpoint or hook.", entities: [{ name: "FeatureFlag", placement: "feature", description: "The flags of the database source." }] },
   options,
   // The table of the database source; nothing with the config source.
   entities: ({ models, options }) => {

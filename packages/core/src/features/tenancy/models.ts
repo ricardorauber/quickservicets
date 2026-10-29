@@ -31,12 +31,16 @@ export function markTenancy(models: readonly EntityModel[]): EntityModel[] {
   return models.map((model) => ({ ...model, tenancy: decide(model) }));
 }
 
-/** The models without the marks of `markTenancy` and `derivedFrom`, as a build without tenancy writes them. */
+/**
+ * The models without the marks of `markTenancy` and `derivedFrom`, as a build without tenancy writes them; with named
+ * databases (models that record theirs), `derivedFrom` stays, so a derived table follows its entity's database.
+ */
 export function withoutTenancyMarks(models: readonly EntityModel[]): EntityModel[] {
   return models.map((model) => {
-    if (model.tenancy === undefined && model.derivedFrom === undefined) return model;
-    const { tenancy: _tenancy, derivedFrom: _derivedFrom, ...rest } = model;
-    return rest as EntityModel;
+    const keepsSource = model.database !== undefined;
+    if (model.tenancy === undefined && (model.derivedFrom === undefined || keepsSource)) return model;
+    const { tenancy: _tenancy, derivedFrom, ...rest } = model;
+    return (keepsSource && derivedFrom !== undefined ? { ...rest, derivedFrom } : rest) as EntityModel;
   });
 }
 

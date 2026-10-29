@@ -149,7 +149,7 @@ async function tracedEnqueue(broker: QueueBroker, message: QueueBrokerMessage) {
  */
 const queuesFeature = defineFeature({
   key: "queues",
-  docs: { summary: "Background queues stored in the project's database, with consumers declared as files in queues/." },
+  docs: { summary: "Background queues stored in the project's database, with consumers declared as files in queues/.", entities: [{ name: "QueueMessage", placement: "feature", description: "The messages of every queue; added inside a transaction of another database, they are staged there and relayed after the commit." }] },
   options,
   // Publishing write events needs the events native when an entity uses @publish; it runs first when enabled.
   after: ["events"],

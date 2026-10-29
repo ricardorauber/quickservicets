@@ -11,7 +11,9 @@ import {
   notifyShutdownSignal,
   registerProjectFeatures,
   resolveConfig,
+  placeFeatureEntities,
   type App,
+  type EntityModel,
   type AuthProvider,
   type LifecyclePhase,
   type Repositories,
@@ -147,7 +149,7 @@ export async function startTestService({ files, env = {}, auth }: TestServiceOpt
     }
     const generated = join(root, ".generated");
     const projectConfig = await importConfigFile(root);
-    const { models } = await import(join(generated, "models.ts"));
+    const generatedModels = (await import(join(generated, "models.ts"))).models as EntityModel[];
     const { crudRoutes, endpoints, hooks } = await import(join(generated, "routes.ts"));
     const { jobs } = await import(join(generated, "jobs.ts"));
     const { features, featureFolders } = await import(join(generated, "features.ts"));
@@ -155,6 +157,7 @@ export async function startTestService({ files, env = {}, auth }: TestServiceOpt
     const providers = auth === undefined ? [] : Array.isArray(auth) ? auth : [auth as AuthProvider];
     registerProjectFeatures(providers.length > 0 ? [...features, { folder: TEST_AUTH_FEATURE, definition: testAuthFeature(providers) }] : features);
     const config = resolveConfig({ ...projectConfig, database: memoryAdapter() }, { ...env }, root);
+    const models = placeFeatureEntities(generatedModels, config.features);
     installTimerTracking(tracker);
     const lifecycle = createFeatureLifecycle({
       features: config.features,

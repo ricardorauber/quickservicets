@@ -43,11 +43,11 @@ const failure = (run: () => unknown): Error => {
 };
 
 describe("definitions", () => {
-  test("a definition carries its key, docs and options schema with the implicit enabled option", () => {
+  test("a definition carries its key, docs and options schema with the implicit enabled and database options", () => {
     expect(audit.key).toBe("audit");
     expect(audit.docs).toEqual({ summary: "Records who changed what." });
     expect(audit.enabledByDefault).toBe(false);
-    expect(Object.keys(audit.schema.settings.shape!)).toEqual(["level", "target", "enabled"]);
+    expect(Object.keys(audit.schema.settings.shape!)).toEqual(["level", "target", "enabled", "database"]);
     expect(defineFeature({ docs: { summary: "Test native." }, key: "plain" }).schema.settings.shape).toHaveProperty("enabled");
   });
 

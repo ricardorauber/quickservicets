@@ -31,6 +31,7 @@ It is not enabled by default: turn it on with `errors: {}` or `QS_ERRORS_ENABLED
 | `errors.beforeReport` | `hook` | — | not overridable | no | Runs on each report after masking and before the reporters; it returns a changed report, or null to drop it, and a throw is logged and drops nothing. |
 | `errors.jobs` | `"final" \| "every"` | `"final"` | `QS_ERRORS_JOBS` | no | Which failed job runs and queue attempts are reported: final reports a run only when no retry follows, every reports each failed attempt. |
 | `errors.enabled` | `boolean` | `true` | `QS_ERRORS_ENABLED` | no | Turns the feature off when false. |
+| `errors.database` | `string` | — | `QS_ERRORS_DATABASE` | no | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
 
 ## Tags
 

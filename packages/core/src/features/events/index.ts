@@ -64,7 +64,7 @@ const options = object({
  */
 const eventsFeature = defineFeature({
   key: "events",
-  docs: { summary: "Write events for every entity, delivered to listeners inside the write's transaction or after its commit." },
+  docs: { summary: "Write events for every entity, delivered to listeners inside the write's transaction or after its commit.", entities: [{ name: "OutboxEvent", placement: "perDatabase", description: "The outbox (`outbox: true`): one table in every database with entities, written in each write's transaction." }, { name: "OutboxDelivery", placement: "feature", description: "One delivery row per stored event and consumer." }] },
   options,
   // The outbox and delivery rows are system entities, part of the model only while the outbox is on.
   entities: ({ options }) => (options.outbox.enabled ? [outboxEventEntity(), outboxDeliveryEntity()] : []),

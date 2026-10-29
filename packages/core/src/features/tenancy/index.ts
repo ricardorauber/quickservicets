@@ -304,6 +304,7 @@ const tenancyFeature = defineFeature({
   key: "tenancy",
   docs: {
     summary: "Multi-tenancy: every request is resolved to a tenant from a header, a subdomain, a path prefix, the credentials or a function.",
+    entities: [{ name: "Tenant", placement: "feature", description: "The tenants of the database source." }],
     sections: [
       {
         title: "Error codes",

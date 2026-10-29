@@ -82,7 +82,7 @@ function stepOf(result: unknown, step: HistoryVersionStep): HistoryVersionStep {
  */
 const historyFeature = defineFeature({
   key: "history",
-  docs: { summary: "Every version of the records of chosen entities, kept in a history table written in the same transaction as the change." },
+  docs: { summary: "Every version of the records of chosen entities, kept in a history table written in the same transaction as the change.", entities: [{ name: "<Entity>History", placement: "source", description: "One history table per tracked entity, written in the transaction of the change." }] },
   requires: ["events"],
   options,
   // One read-only system entity per covered entity; nothing when the native is off or a store replaces the tables.

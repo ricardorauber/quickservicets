@@ -35,6 +35,15 @@ It is not enabled by default: turn it on with `metrics: {}` or `QS_METRICS_ENABL
 | `metrics.access.allow` | `cidr[]` | `["loopback","private"]` | `QS_METRICS_ACCESS_ALLOW` | no | The addresses that may read the metrics; an empty list allows any address that has the token. |
 | `metrics.access.token` | `string` | — | `QS_METRICS_ACCESS_TOKEN` | no | Requires this bearer token in the Authorization header of the metrics route. |
 | `metrics.enabled` | `boolean` | `true` | `QS_METRICS_ENABLED` | no | Turns the feature off when false. |
+| `metrics.database` | `string` | — | `QS_METRICS_DATABASE` | no | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
+
+## Entities
+
+With named databases ([`databases`](/reference/config/)), each entity of the feature lives in one place; `metrics.database` (`QS_METRICS_DATABASE`) moves the entities that live in the feature's database.
+
+| Entity | Database | Description |
+| --- | --- | --- |
+| `MetricWindow` | the feature's `database` (default: the default database) | The time windows of the database store. |
 
 ## Tags
 

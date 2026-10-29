@@ -16,6 +16,7 @@ import {
   hiddenPathsFor,
   crossDatabaseReferences,
   DEFAULT_DATABASE,
+  placeFeatureEntities,
   parseFieldPaths,
   populatePathErrors,
   SYSTEM_FIELDS,
@@ -359,7 +360,7 @@ export function parseProjectModels(projectRoot: string, features: readonly Resol
   const built = withFileEntities(contributed.models, usedFileEntities(contributed.models, features, usage));
   const all = hasJobFiles(projectRoot, features) ? withJobRunEntity(built) : built;
   return {
-    models: withTenancyMarks(assertCrossDatabaseRules(withDefaultDatabase(all, databases)), features),
+    models: withTenancyMarks(assertCrossDatabaseRules(placeFeatureEntities(withDefaultDatabase(all, databases), features)), features),
     overrides: [...parsed.overrides, ...contributed.overrides],
   };
 }

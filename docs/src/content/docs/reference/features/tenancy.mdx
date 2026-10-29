@@ -60,6 +60,15 @@ It is not enabled by default: turn it on with `tenancy: {}` or `QS_TENANCY_ENABL
 | `tenancy.cache.staleTtl` | `duration` | `"1h"` | `QS_TENANCY_CACHE_STALE_TTL` | no | How long a cached tenant is still used while the directory fails. |
 | `tenancy.cache.maxEntries` | `integer` | `10000` | `QS_TENANCY_CACHE_MAX_ENTRIES` | no | Most tenants each worker keeps; the least recently used go first. |
 | `tenancy.enabled` | `boolean` | `true` | `QS_TENANCY_ENABLED` | no | Turns the feature off when false. |
+| `tenancy.database` | `string` | — | `QS_TENANCY_DATABASE` | no | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
+
+## Entities
+
+With named databases ([`databases`](/reference/config/)), each entity of the feature lives in one place; `tenancy.database` (`QS_TENANCY_DATABASE`) moves the entities that live in the feature's database.
+
+| Entity | Database | Description |
+| --- | --- | --- |
+| `Tenant` | the feature's `database` (default: the default database) | The tenants of the database source. |
 
 ## Tags
 

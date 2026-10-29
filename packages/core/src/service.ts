@@ -11,7 +11,7 @@ import { flushLogs, jsonLogger, safeLog } from "./logger.ts";
 import { MIGRATIONS_TABLE_RENAMED, renameLegacyMigrationTables } from "./legacy-names.ts";
 import { reportStartupFailure } from "./error-reports.ts";
 import type { EntityModel } from "./model.ts";
-import { errorDatabase } from "./named-databases.ts";
+import { errorDatabase, placeFeatureEntities } from "./named-databases.ts";
 import type { ResolvedFeature } from "./features.ts";
 import { loadServerTls, logServerCertificate } from "./tls.ts";
 import { reloadTls, setTlsRestart } from "./tls-reload.ts";
@@ -65,6 +65,8 @@ export async function startService(options: StartServiceOptions): Promise<Runnin
   const target = options.process ?? process;
   registerProjectFeatures(options.features ?? []);
   const config = resolveConfig(options.projectConfig, env);
+  // Feature entities live where the features' `database` options of this environment place them.
+  options = { ...options, models: placeFeatureEntities(options.models, config.features) };
   logConfigWarnings(config);
   if (config.production && config.database.kind === "memory") safeLog(config.logger ?? jsonLogger, "warn", { timestamp: new Date().toISOString(), message: MEMORY_IN_PRODUCTION });
   if (isPrimary(config, env)) {

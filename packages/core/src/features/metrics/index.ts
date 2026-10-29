@@ -167,6 +167,7 @@ const metricsFeature = defineFeature({
   key: "metrics",
   docs: {
     summary: "API usage metrics: requests, errors and p50, p95 and p99 latency per route, tenant and optionally user, in time windows inside the service.",
+    entities: [{ name: "MetricWindow", placement: "feature", description: "The time windows of the database store." }],
     sections: [
       {
         title: "The metrics route",

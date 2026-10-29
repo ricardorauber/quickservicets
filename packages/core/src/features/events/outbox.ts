@@ -40,6 +40,8 @@ export function outboxEventEntity(): EntityModel {
     exposure: { list: { include, exclude: [] }, read: { include, exclude: [] } },
     indexes: [{ fields: ["at"] }, { fields: ["type", "at"] }],
     system: true,
+    // With named databases, each database holding entities has its own outbox, written in its transactions.
+    perDatabase: true,
   };
 }
 

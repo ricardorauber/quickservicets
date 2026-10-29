@@ -161,6 +161,7 @@ Every option, tag, command and hook of `security` is on [its reference page](/re
 | `security.masking.enabled` | `boolean` | `true` | `QS_SECURITY_MASKING_ENABLED` | Keeps secret values and fields tagged @sensitive out of log entries, job run records and development error responses. Turns it off when false. |
 | `security.masking.keys` | `string[]` | `["password","passwd","secret","token","apikey","authorization","cookie","setcookie","privatekey","clientsecret","signature","creditcard","cardnumber","cvv"]` | `QS_SECURITY_MASKING_KEYS` | A logged property whose name contains one of these (ignoring case, - and _) shows [secret] instead of its value. |
 | `security.enabled` | `boolean` | `true` | `QS_SECURITY_ENABLED` | Turns the feature off when false. |
+| `security.database` | `string` | — | `QS_SECURITY_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
 
 #### `@limits`
 
@@ -321,6 +322,7 @@ Every option, tag, command and hook of `events` is on [its reference page](/refe
 | `events.afterEmit` | `hook` | — | not overridable | Runs after an event was stored and handed to after-commit dispatch. |
 | `events.bus` | `EventBus` | — | not overridable | Replaces the in-process after-commit dispatch; in-transaction listeners and the outbox stay. |
 | `events.enabled` | `boolean` | `true` | `QS_EVENTS_ENABLED` | Turns the feature off when false. |
+| `events.database` | `string` | — | `QS_EVENTS_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
 
 #### `@events`
 
@@ -371,6 +373,7 @@ Every option, tag, command and hook of `queues` is on [its reference page](/refe
 | `queues.publish.events` | `("created" \| "updated" \| "deleted")[]` | `["created","updated","deleted"]` | `QS_QUEUES_PUBLISH_EVENTS` | The write operations a tagged entity publishes: created, updated and deleted. |
 | `queues.publish.fields` | `string[]` | — | `QS_QUEUES_PUBLISH_FIELDS` | The only fields, with id, kept in a published event's before and after; all but hidden and sensitive fields without it. |
 | `queues.enabled` | `boolean` | `true` | `QS_QUEUES_ENABLED` | Turns the feature off when false. |
+| `queues.database` | `string` | — | `QS_QUEUES_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
 
 #### `@publish`
 
@@ -408,6 +411,7 @@ Every option, tag, command and hook of `health` is on [its reference page](/refe
 | `health.onStatusChange` | `hook` | — | not overridable | Runs when the overall readiness of this worker changes, with the old and new status and the checks; with events enabled the change is also the event health.status.changed. |
 | `health.prober` | `HealthProber` | — | not overridable | Replaces how the checks are run and combined: its run method gets the registered checks and returns the ready response. |
 | `health.enabled` | `boolean` | `true` | `QS_HEALTH_ENABLED` | Turns the feature off when false. |
+| `health.database` | `string` | — | `QS_HEALTH_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
 
 ### `idempotency`
 
@@ -428,6 +432,7 @@ Every option, tag, command and hook of `idempotency` is on [its reference page](
 | `idempotency.onConflict` | `hook` | — | not overridable | Runs when a key is refused, with the request and the kind: reused for another request, inUse for one in progress. |
 | `idempotency.store` | `IdempotencyStore` | — | not overridable | Replaces where keys are kept; without the IdempotencyKey entity in the build. |
 | `idempotency.enabled` | `boolean` | `true` | `QS_IDEMPOTENCY_ENABLED` | Turns the feature off when false. |
+| `idempotency.database` | `string` | — | `QS_IDEMPOTENCY_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
 
 #### `@idempotent`
 
@@ -457,6 +462,7 @@ Every option, tag, command and hook of `etag` is on [its reference page](/refere
 | `etag.onNotModified` | `hook` | — | not overridable | Runs for each 304 answer, with the request, the entity and the id. |
 | `etag.tagger` | `EntityTagger` | — | not overridable | Replaces etagOf for the native's routes: its tag method gets the stored record and the entity and returns a strong tag. |
 | `etag.enabled` | `boolean` | `true` | `QS_ETAG_ENABLED` | Turns the feature off when false. |
+| `etag.database` | `string` | — | `QS_ETAG_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
 
 #### `@etag`
 
@@ -487,6 +493,7 @@ Every option, tag, command and hook of `history` is on [its reference page](/ref
 | `history.afterVersion` | `hook` | — | not overridable | Runs after the write committed, with the entity, the stored version and the event; failures are logged. |
 | `history.store` | `HistoryStore` | — | not overridable | Replaces the history tables: it writes, lists, reads and prunes versions, and the build adds no history entities. |
 | `history.enabled` | `boolean` | `true` | `QS_HISTORY_ENABLED` | Turns the feature off when false. |
+| `history.database` | `string` | — | `QS_HISTORY_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
 
 #### `@history`
 
@@ -542,6 +549,7 @@ Every option, tag, command and hook of `realtime` is on [its reference page](/re
 | `realtime.websockets.beforePublish` | `hook` | — | not overridable | Runs before each publish to a room, with the socket that publishes, if any; it returns changed data, or null to drop the publish. |
 | `realtime.websockets.onClose` | `hook` | — | not overridable | Runs after a socket closed, with the close code, the reason and how long it was open; a failure is logged. |
 | `realtime.enabled` | `boolean` | `true` | `QS_REALTIME_ENABLED` | Turns the feature off when false. |
+| `realtime.database` | `string` | — | `QS_REALTIME_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
 
 #### `@socket`
 
@@ -589,6 +597,7 @@ Every option, tag, command and hook of `errors` is on [its reference page](/refe
 | `errors.beforeReport` | `hook` | — | not overridable | Runs on each report after masking and before the reporters; it returns a changed report, or null to drop it, and a throw is logged and drops nothing. |
 | `errors.jobs` | `"final" \| "every"` | `"final"` | `QS_ERRORS_JOBS` | Which failed job runs and queue attempts are reported: final reports a run only when no retry follows, every reports each failed attempt. |
 | `errors.enabled` | `boolean` | `true` | `QS_ERRORS_ENABLED` | Turns the feature off when false. |
+| `errors.database` | `string` | — | `QS_ERRORS_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
 
 #### `@report`
 
@@ -624,6 +633,7 @@ Every option, tag, command and hook of `flags` is on [its reference page](/refer
 | `flags.onEvaluate` | `hook` | — | not overridable | Runs after each new evaluation with the name, the value, the reason, the user, the tenant and the request; it observes and cannot change the value. |
 | `flags.provider` | `FlagProvider` | — | not overridable | Replaces the evaluation of both sources: isOn(name, ctx) answers synchronously, all(ctx) lists every flag, and optional start() and stop() run with the server. |
 | `flags.enabled` | `boolean` | `true` | `QS_FLAGS_ENABLED` | Turns the feature off when false. |
+| `flags.database` | `string` | — | `QS_FLAGS_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
 
 #### `@flag`
 
@@ -699,6 +709,7 @@ Every option, tag, command and hook of `http` is on [its reference page](/refere
 | `http.services.<name>.tls.serverName` | `record of string` | — | `QS_HTTP_SERVICES_<NAME>_TLS_SERVER_NAME` | The TLS server name checked against the service's certificate, instead of the URL's host. |
 | `http.services.<name>.tls.rejectUnauthorized` | `record of boolean` | `true` | `QS_HTTP_SERVICES_<NAME>_TLS_REJECT_UNAUTHORIZED` | Refuses a service certificate that does not verify; false is refused in production. |
 | `http.enabled` | `boolean` | `true` | `QS_HTTP_ENABLED` | Turns the feature off when false. |
+| `http.database` | `string` | — | `QS_HTTP_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
 
 ### `tenancy`
 
@@ -745,6 +756,7 @@ Every option, tag, command and hook of `tenancy` is on [its reference page](/ref
 | `tenancy.cache.staleTtl` | `duration` | `"1h"` | `QS_TENANCY_CACHE_STALE_TTL` | How long a cached tenant is still used while the directory fails. |
 | `tenancy.cache.maxEntries` | `integer` | `10000` | `QS_TENANCY_CACHE_MAX_ENTRIES` | Most tenants each worker keeps; the least recently used go first. |
 | `tenancy.enabled` | `boolean` | `true` | `QS_TENANCY_ENABLED` | Turns the feature off when false. |
+| `tenancy.database` | `string` | — | `QS_TENANCY_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
 
 #### `@tenancy`
 
@@ -778,6 +790,7 @@ Every option, tag, command and hook of `auth` is on [its reference page](/refere
 | `auth.onAuthFailed` | `hook` | — | not overridable | Runs after credentials are refused with 401, with the provider, the reason and the request; a failure is logged. |
 | `auth.beforeAuthorize` | `hook` | — | not overridable | Runs before the @auth and @roles checks of a route with the user, the route, its operation, roles and scopes and the request: true allows, false answers 403 Not allowed, undefined keeps the tag rules. |
 | `auth.enabled` | `boolean` | `true` | `QS_AUTH_ENABLED` | Turns the feature off when false. |
+| `auth.database` | `string` | — | `QS_AUTH_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
 
 #### `@auth`
 
@@ -832,6 +845,7 @@ Every option, tag, command and hook of `metrics` is on [its reference page](/ref
 | `metrics.access.allow` | `cidr[]` | `["loopback","private"]` | `QS_METRICS_ACCESS_ALLOW` | The addresses that may read the metrics; an empty list allows any address that has the token. |
 | `metrics.access.token` | `string` | — | `QS_METRICS_ACCESS_TOKEN` | Requires this bearer token in the Authorization header of the metrics route. |
 | `metrics.enabled` | `boolean` | `true` | `QS_METRICS_ENABLED` | Turns the feature off when false. |
+| `metrics.database` | `string` | — | `QS_METRICS_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
 
 #### `@metrics`
 
@@ -889,3 +903,4 @@ Every option, tag, command and hook of `proxy` is on [its reference page](/refer
 | `proxy.routes.<name>.maxBodySize` | `record of size` | — | `QS_PROXY_ROUTES_<NAME>_MAX_BODY_SIZE` | The largest request body the route streams to the upstream; larger ones answer 413. |
 | `proxy.routes.<name>.websocket` | `record of boolean` | `false` | `QS_PROXY_ROUTES_<NAME>_WEBSOCKET` | Proxies WebSocket upgrades on the route's path to the upstream (ws:// or wss://), with the route's checks and the limits of realtime.websockets; needs realtime: {}. |
 | `proxy.enabled` | `boolean` | `true` | `QS_PROXY_ENABLED` | Turns the feature off when false. |
+| `proxy.database` | `string` | — | `QS_PROXY_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |

@@ -49,6 +49,15 @@ It is not enabled by default: turn it on with `queues: {}` or `QS_QUEUES_ENABLED
 | `queues.publish.events` | `("created" \| "updated" \| "deleted")[]` | `["created","updated","deleted"]` | `QS_QUEUES_PUBLISH_EVENTS` | no | The write operations a tagged entity publishes: created, updated and deleted. |
 | `queues.publish.fields` | `string[]` | — | `QS_QUEUES_PUBLISH_FIELDS` | no | The only fields, with id, kept in a published event's before and after; all but hidden and sensitive fields without it. |
 | `queues.enabled` | `boolean` | `true` | `QS_QUEUES_ENABLED` | no | Turns the feature off when false. |
+| `queues.database` | `string` | — | `QS_QUEUES_DATABASE` | no | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
+
+## Entities
+
+With named databases ([`databases`](/reference/config/)), each entity of the feature lives in one place; `queues.database` (`QS_QUEUES_DATABASE`) moves the entities that live in the feature's database.
+
+| Entity | Database | Description |
+| --- | --- | --- |
+| `QueueMessage` | the feature's `database` (default: the default database) | The messages of every queue; added inside a transaction of another database, they are staged there and relayed after the commit. |
 
 ## Tags
 

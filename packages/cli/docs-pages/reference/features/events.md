@@ -32,6 +32,16 @@ It is not enabled by default: turn it on with `events: {}` or `QS_EVENTS_ENABLED
 | `events.afterEmit` | `hook` | — | not overridable | no | Runs after an event was stored and handed to after-commit dispatch. |
 | `events.bus` | `EventBus` | — | not overridable | no | Replaces the in-process after-commit dispatch; in-transaction listeners and the outbox stay. |
 | `events.enabled` | `boolean` | `true` | `QS_EVENTS_ENABLED` | no | Turns the feature off when false. |
+| `events.database` | `string` | — | `QS_EVENTS_DATABASE` | no | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
+
+## Entities
+
+With named databases ([`databases`](/reference/config/)), each entity of the feature lives in one place; `events.database` (`QS_EVENTS_DATABASE`) moves the entities that live in the feature's database.
+
+| Entity | Database | Description |
+| --- | --- | --- |
+| `OutboxEvent` | every database that holds entities | The outbox (`outbox: true`): one table in every database with entities, written in each write's transaction. |
+| `OutboxDelivery` | the feature's `database` (default: the default database) | One delivery row per stored event and consumer. |
 
 ## Tags
 

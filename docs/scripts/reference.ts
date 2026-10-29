@@ -463,6 +463,13 @@ export function featureJobs(native: FeatureDefinition): { name: string; schedule
 }
 
 /** The reference page of one native: how to turn it on and off, its options, tags, commands, jobs, hooks and API. */
+/** Where a feature entity lives with named databases, as its reference page says it. */
+const ENTITY_PLACEMENTS: Record<"source" | "perDatabase" | "feature", string> = {
+  source: "the database of the entity it belongs to",
+  perDatabase: "every database that holds entities",
+  feature: "the feature's `database` (default: the default database)",
+};
+
 export function featurePage(native: FeatureDefinition): string {
   const options = documentedOptions(native);
   const key = native.key;
@@ -503,6 +510,18 @@ export function featurePage(native: FeatureDefinition): string {
         `| ${code(option.path)} | ${code(option.type)} | ${option.default === undefined ? "—" : code(JSON.stringify(option.default))} | ${option.overridable === false ? "not overridable" : code(envNameFor(option.path))} | ${option.perRequest ? "yes" : "no"} | ${option.description ?? ""} |`,
     ),
     "",
+    ...(native.docs?.entities && native.docs.entities.length > 0
+      ? [
+          "## Entities",
+          "",
+          `With named databases ([${code("databases")}](/reference/config/)), each entity of the feature lives in one place; ${code(`${key}.database`)} (${code(envNameFor(`${key}.database`))}) moves the entities that live in the feature's database.`,
+          "",
+          "| Entity | Database | Description |",
+          "| --- | --- | --- |",
+          ...native.docs.entities.map((entity) => `| ${code(entity.name)} | ${ENTITY_PLACEMENTS[entity.placement]} | ${entity.description ?? ""} |`),
+          "",
+        ]
+      : []),
     ...(tags.length > 0
       ? [
           "## Tags",

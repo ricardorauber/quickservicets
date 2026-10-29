@@ -5,7 +5,7 @@ sidebar:
   order: 43
 ---
 
-A project has one configuration file, `quickservicets.config.ts`, at its root. The CLI reads it for `build`, `dev` and the migration commands, and the server reads it when it starts. Most settings have defaults, so a config often holds just the database.
+A project has one configuration file, `quickservicets.config.ts`, at its root. The CLI reads it for `build`, `dev` and the migration commands, and the server reads it when it starts. Every setting has a default, so a config often holds just the database, and the file itself is optional.
 
 ## `quickservicets.config.ts`
 
@@ -22,13 +22,25 @@ export default defineConfig({
 });
 ```
 
-`database` is the only required key. Invalid values stop the CLI and the server with a message naming the key, for example `Invalid server.port: expected an integer between 1 and 65535, got 70000`. Every key, with its type and default, is in the [Configuration reference](/reference/config/).
+Every key is optional, `database` included. Invalid values stop the CLI and the server with a message naming the key, for example `Invalid server.port: expected an integer between 1 and 65535, got 70000`. Every key, with its type and default, is in the [Configuration reference](/reference/config/).
+
+A file that fails to import, or whose default export is not an object, stops the CLI and the server with a configuration error naming the file.
+
+## Without a config file
+
+A project needs no `quickservicets.config.ts`: without it, the CLI and the server resolve the configuration `{}`, exactly like `export default defineConfig({})`. The project's features in `features/` still load, and `QS_*` variables still set keys, so `QS_SERVER_PORT=4000` moves the port of a project that has only an `entities/` folder. `quickservicets dev` notices the file when you create, change or delete it, and rebuilds and restarts.
+
+Without `database`, the service runs on `memoryAdapter()`, the in-memory database: records disappear on every restart and there are no migrations (`migration add` answers `Migrations are not used with the memory adapter`). A service in production (`production: true` or `NODE_ENV=production`) on it still starts, and logs this warning once at startup:
+
+```text
+quickservicets is using the in-memory database in production; every restart loses all data. Set database in quickservicets.config.ts.
+```
 
 The config is TypeScript, so it can read environment variables, branch on them, or import helpers. The server resolves it when it starts, not at build time, so one build runs in every environment.
 
 ## Database adapters
 
-`database` takes one of four adapters, all exported by `@quickservicets/core`:
+`database` takes one of four adapters, all exported by `@quickservicets/core`; without it, the service uses `memoryAdapter()`:
 
 ```ts check
 import { memoryAdapter, mongodbAdapter, postgresAdapter, sqliteAdapter } from "@quickservicets/core";
@@ -46,7 +58,7 @@ export const postgres = postgresAdapter({ url: process.env.DATABASE_URL! });
 export const mongodb = mongodbAdapter({ url: process.env.DATABASE_URL!, database: process.env.DATABASE_NAME! });
 ```
 
-`quickservicets init --db <database>` writes the matching config and a `.env` with the variables it reads.
+`quickservicets init --db <database>` writes the matching config and a `.env` with the variables it reads; without `--db`, `init` writes a config that names no database, on memory.
 
 `postgresAdapter` opens up to 10 connections; `max` changes that. The total holds across all the server's workers (see below).
 

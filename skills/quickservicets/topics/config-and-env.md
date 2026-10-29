@@ -4,7 +4,7 @@ How to configure a project in `quickservicets.config.ts`, `.env` and `QS_*` vari
 
 ## The config file
 
-`quickservicets.config.ts` default-exports `defineConfig({ ... })`. Only `database` is required:
+`quickservicets.config.ts` default-exports `defineConfig({ ... })`. The file is optional, and so is every key: a project without it, or with `defineConfig({})`, builds and runs with every default. `database` defaults to `memoryAdapter()`, the in-memory database, which loses its data on every restart; a service in production on it starts and logs one warning, that `quickservicets` is using the in-memory database in production and every restart loses all data (`Set database in quickservicets.config.ts.`). Set `database` to keep the data:
 
 ```ts
 // quickservicets.config.ts

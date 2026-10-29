@@ -2,7 +2,7 @@
 
 > Create a QuickService.ts project with the init command.
 
-The `init` command creates an empty project, ready for your first entity. This page creates one called `my-api` that uses the in-memory database, so you need nothing else installed.
+The `init` command creates an empty project, ready for your first entity, without asking anything. This page creates one called `my-api` on the in-memory database, the default, so you need nothing else installed.
 
 ## What you need
 
@@ -13,7 +13,7 @@ The `init` command creates an empty project, ready for your first entity. This p
 In any folder:
 
 ```bash
-bunx quickservicets init my-api --db memory
+bunx quickservicets init my-api
 cd my-api
 bun install
 ```
@@ -25,6 +25,8 @@ Next steps:
   1. Install dependencies: bun install
   2. Create an entity, e.g. entities/User.ts: export type User = { email: string }
   3. Start the dev server: bun run dev
+The project runs on the in-memory database: no migrations are needed, and its data is lost on every restart.
+To use a real database, set database in quickservicets.config.ts, or run init with --db sqlite, postgres or mongodb.
 ```
 
 The new `package.json` depends on `@quickservicets/core` and `@quickservicets/cli` at the version of the CLI that created it, like `"^0.2.0"`, and `bun install` installs them from npm. It also adds `@types/bun` and `typescript` as dev dependencies and a `typecheck` script, so `bun run typecheck` checks the project with `tsc --noEmit` right after the install.
@@ -48,15 +50,24 @@ my-api/
 └── tsconfig.json
 ```
 
-The three folders start with a `.gitkeep` file. The config uses the database you chose:
+The three folders start with a `.gitkeep` file. On the in-memory database the config names no database, and its comments show how to choose one:
 
 ```ts title="quickservicets.config.ts"
-import { defineConfig, memoryAdapter } from "@quickservicets/core";
+import { defineConfig } from "@quickservicets/core";
 
+// The service runs on the in-memory database, which loses its data on every restart; it needs no migrations.
+// To keep the data, add one line with a real database, importing its adapter from "@quickservicets/core":
+//   database: sqliteAdapter({ path: process.env.DATABASE_PATH ?? "data.db" }),
+// or create the project again with init --db sqlite, --db postgres or --db mongodb.
 export default defineConfig({
-  database: memoryAdapter(),
+  // security is on by default with safe defaults (headers, CORS, limits, rate limits); turn it off with security: false.
+  // Other native features are one key each, like:
+  // events: {},
+  // history: {}, // needs events
 });
 ```
+
+The file is optional: a project without it builds and runs exactly the same, on the in-memory database (see [Configuration](/guides/configuration/)). `init` keeps it so you, your editor and coding agents have a place to change the defaults.
 
 [Project structure](/getting-started/project-structure/) explains each file in detail.
 
@@ -75,21 +86,21 @@ It rewrites only the part above the marker of each file, keeps your lines below 
 To create a project without these files, pass `--no-agents`:
 
 ```bash
-bunx quickservicets init my-api --db memory --no-agents
+bunx quickservicets init my-api --no-agents
 ```
 
 ## Choose a database
 
-`--db` takes one of four values. Without it, `init` asks you to pick one; when it cannot ask (stdin is not a terminal, `--yes` is given or `CI=true` is set), it uses `memory` and says so.
+`--db` takes one of four values. Without it, `init` uses `memory` and never asks, on a terminal or not.
 
 | `--db` | Adapter | Settings written to `.env` |
 | --- | --- | --- |
-| `memory` | `memoryAdapter()` | none |
+| `memory` (the default) | none in the config: `memoryAdapter()` is the default | none |
 | `sqlite` | `sqliteAdapter(...)` | `DATABASE_PATH=data.db` |
 | `postgres` | `postgresAdapter(...)` | `DATABASE_URL` |
 | `mongodb` | `mongodbAdapter(...)` | `DATABASE_URL` and `DATABASE_NAME` |
 
-The memory database is the quickest way to start: there is nothing to run and no migrations to apply. Its data is lost when the server stops, so switch to another database once your model settles. Bun reads `.env` on its own when the server starts.
+The memory database is the quickest way to start: there is nothing to run and no migrations to apply. Its data is lost when the server stops, so switch to another database once your model settles: add `database` to `quickservicets.config.ts` with one line, like `database: sqliteAdapter({ path: process.env.DATABASE_PATH ?? "data.db" })`, then create and apply a migration. A production service on memory starts and logs a warning that every restart loses all data. Bun reads `.env` on its own when the server starts.
 
 > **Caution:**
 >
@@ -119,7 +130,7 @@ bun install
 Then create the project under `examples/`, from the repository root, where `bunx quickservicets` runs the repository's own CLI:
 
 ```bash
-bunx quickservicets init examples/my-api --db memory
+bunx quickservicets init examples/my-api
 ```
 
 Inside the repository, `init` notices the workspace. It writes `"workspace:*"` for `@quickservicets/core` and `@quickservicets/cli` in the new `package.json` (the dev dependencies, scripts and `tsconfig.json` are the same as outside) and runs `bun install` at the repository root, so the workspace packages are linked right away and there is no install step in its next steps.

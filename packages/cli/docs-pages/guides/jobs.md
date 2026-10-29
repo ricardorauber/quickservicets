@@ -90,11 +90,11 @@ bun run quickservicets build
 ```
 
 ```text
-Built 6 entities, 0 custom endpoints and 0 hooks.
+Built 4 entities, 0 custom endpoints and 0 hooks.
 Warning: Model has changes without a migration. Run "quickservicets migration add <Name>"
 ```
 
-(The six entities are `Session`, `Invoice` and `ExchangeRate` from this page's project, `JobRun`, and the built-in `File` and `Media`.)
+(The four entities are `Session`, `Invoice` and `ExchangeRate` from this page's project, and `JobRun`.)
 
 ```bash
 bun run quickservicets migration add AddJobRuns

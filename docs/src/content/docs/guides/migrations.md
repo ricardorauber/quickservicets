@@ -7,7 +7,7 @@ sidebar:
 
 Your entities describe what the database should look like; migrations are the steps that take a database there. Each migration is a TypeScript file with an `up` function that applies a change and a `down` function that undoes it. The CLI writes them for you from model changes, and you can edit them or write your own.
 
-Migrations work with SQLite, PostgreSQL and MongoDB. The in-memory adapter keeps no schema, so `migrate` has nothing to do there and `migration add` fails with `Migrations are not used with the memory adapter`.
+Migrations work with SQLite, PostgreSQL and MongoDB. The in-memory adapter, the default when the config names no `database`, keeps no schema, so `migrate` has nothing to do there and `migration add` fails with `Migrations are not used with the memory adapter`.
 
 Run the commands inside the project with `bun run quickservicets <command>`. The examples on this page use a SQLite project with this entity:
 
@@ -47,11 +47,11 @@ bun run quickservicets build
 ```
 
 ```text
-Built 3 entities, 0 custom endpoints and 0 hooks.
+Built 1 entity, 0 custom endpoints and 0 hooks.
 Warning: Model has changes without a migration. Run "quickservicets migration add <Name>"
 ```
 
-(The three entities are `User` and the built-in `File` and `Media`.) Add a migration for it:
+Add a migration for it:
 
 ```bash
 bun run quickservicets migration add AddAge

@@ -23,7 +23,7 @@ The framework ships as three npm packages: `@quickservicets/core` (the runtime),
 
 ## How a project works
 
-1. `bunx quickservicets init <name> --db <database>` creates the project in any folder.
+1. `bunx quickservicets init <name>` creates the project in any folder, on the in-memory database; `--db <database>` (`sqlite`, `postgres` or `mongodb`) chooses another.
 2. You add entity types to `entities/`, endpoint files to `endpoints/`, hooks to `hooks/` and jobs to `jobs/`.
 3. `bun run build` (or `bun run dev`, which also serves and rebuilds on save) writes `.generated/`: models, routes, types, the OpenAPI document and the server entry.
 4. For SQLite, PostgreSQL and MongoDB, `quickservicets migration add <Name>` writes a migration from the model changes and `quickservicets migrate` applies it.

@@ -140,7 +140,7 @@ What each part does:
 - **`.generated/models.ts` and `.generated/routes.ts`** are what `quickservicets build` writes: the entity models, the generated CRUD routes with their hooks, your custom endpoints and the hook definitions. Importing them gives the test exactly the app that `bun run dev` serves.
 - **`memoryAdapter()`** keeps records in the test process, so there is nothing to migrate and every run starts empty. `connect(models)` prepares it, as the server does at startup.
 - **`resolveConfig(config, {})`** fills in every default. The second argument is the environment; passing `{}` keeps variables from your shell, like `DATABASE_SCHEMA`, `PORT` or `NODE_ENV`, out of the tests.
-- **`localStorage` in a temporary folder** keeps uploads out of the project's `uploads/` folder. Without it, the default storage writes there.
+- **`localStorage` in a temporary folder** keeps uploads out of the project's `uploads/` folder once the project has file entities. Without it, the default storage writes there.
 - **The silent `logger`** drops the JSON line that each request logs by default.
 - **`call`** builds a `Request` and passes it to `server.fetch`, the same function `Bun.serve` calls. The host in the URL is never used.
 - **`create`** seeds records through the API and fails loudly when that does not work, so a broken setup never looks like a broken assertion. **`unique`** keeps `@unique` values apart, since the records of every test share one database.
@@ -174,7 +174,7 @@ bun run test
 
 ```
 $ quickservicets build && bun test
-Built 3 entities, 0 custom endpoints and 0 hooks.
+Built 1 entity, 0 custom endpoints and 0 hooks.
 bun test v1.4.2
 
  6 pass
@@ -183,7 +183,7 @@ bun test v1.4.2
 Ran 6 tests across 2 files.
 ```
 
-The three entities are `Book` and the built-in `File` and `Media`; the six tests are the five above plus the one in [A fresh database for every test](#a-fresh-database-for-every-test). If you already built, `bun test` alone runs the tests against the last build, and `bun test -t duplicate` runs only the tests whose name matches.
+The one entity is `Book`: the built-in `File` and `Media` are built only when an entity references them or the config sets `storage`. The six tests are the five above plus the one in [A fresh database for every test](#a-fresh-database-for-every-test). If you already built, `bun test` alone runs the tests against the last build, and `bun test -t duplicate` runs only the tests whose name matches.
 
 ## What the responses look like
 

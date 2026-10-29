@@ -9,12 +9,23 @@ Files are records like any other. A file entity stores the file's metadata in th
 
 ## Built-in `File` and `Media`
 
-Every project has two file entities, even when `entities/` does not define them:
+The framework ships two file entities, built only when the project uses uploads:
 
 | Entity | Route | Accepts |
 | --- | --- | --- |
 | `File` | `/files` | any MIME type (subject to `files.accept`) |
 | `Media` | `/media` | only `image/*`, `video/*` and `audio/*` |
+
+`File` (and, separately, `Media`) is in the model when at least one of these holds:
+
+- an entity of the project or of an enabled feature has a field referencing it, single (`logo?: Media`) or array (`attachments: File[]`);
+- the project defines `entities/File.ts` (or `entities/Media.ts`), which [extends](#extending-file-and-media) the built-in one;
+- the config sets `storage`, which builds both;
+- an enabled feature lists `"file"` (or `"media"`) in its `fileEntities` (see [Project features](/guides/project-features/)).
+
+Otherwise the entity does not exist: no `/files` or `/media` routes, no `repos.files` or `repos.media`, no table or collection, no OpenAPI path or schema, and no `uploads/` folder. A new project builds `0 entities`. An entity that extends `File` or `Media`, like `Avatar = Media & { alt?: string }`, is a file entity of its own and brings in neither built-in one.
+
+A project whose last migration created the `files` or `media` table, and that no longer uses the entity, keeps the table: the build drops nothing and warns once per entity, like `Media is no longer built because no entity, storage or feature uses it; the next migration add will propose dropping media; set storage in quickservicets.config.ts to keep it`. Review the drop that the next `migration add` writes and apply it with `migrate`, or set `storage` to keep the entity and its table.
 
 Both have the system fields (`id`, `createdAt`, `updatedAt`) plus:
 
@@ -346,7 +357,7 @@ Each file must pass the field's and the target's `@maxSize` and `@accept`, with 
 
 ## Storages
 
-Without a `storage` key in the config, files go to a local folder, `uploads/`, in the project; that is the setup of every example above. To choose, give `storage` a map of named storages; it must contain `default`:
+Without a `storage` key in the config, files go to a local folder, `uploads/`, in the project, created when the first file is stored; that is the setup of every example above. To choose, give `storage` a map of named storages; it must contain `default`. Setting `storage` also builds both `File` and `Media`, even when no entity references them:
 
 ```ts check title="quickservicets.config.ts"
 import { defineConfig, localStorage, sqliteAdapter } from "@quickservicets/core";

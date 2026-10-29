@@ -54,6 +54,8 @@ Every command exits with 0 on success, 1 when the operation fails, 2 for a usage
 
 ## More messages
 
+- The startup warning that `quickservicets` is using the in-memory database in production (`...; every restart loses all data. Set database in quickservicets.config.ts.`): the project names no `database` (or has no `quickservicets.config.ts`), so it runs on memory. Set `database` to `sqliteAdapter`, `postgresAdapter` or `mongodbAdapter`, then rebuild, `migration add` and `migrate`.
+- `Warning: File is no longer built because no entity, storage or feature uses it; ...` (or `Media`): the last migration created the table, and nothing uses the entity any more. Review the drop the next `migration add` proposes, or set `storage` in `quickservicets.config.ts` to keep it.
 - `server.workers > 1 requires a database server (PostgreSQL or MongoDB)`: set `server.workers` to 1 (or `QS_WORKERS=1`) with SQLite or the memory database.
 - `Unknown command: <name>` with `Did you mean <name>?`: run `bun run quickservicets help` to list the commands.
 - A 400 `VALIDATION_ERROR` lists each field in `error.details`; a 409 `CONFLICT` is a `@unique` value that exists.

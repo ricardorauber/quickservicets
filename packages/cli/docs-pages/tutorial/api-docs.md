@@ -48,9 +48,6 @@ curl -s localhost:3000/openapi.json | jq '{openapi, info, paths: (.paths | keys)
     "version": "0.0.0"
   },
   "paths": [
-    "/files",
-    "/files/{id}",
-    "/files/{id}/file",
     "/media",
     "/media/{id}",
     "/media/{id}/file",

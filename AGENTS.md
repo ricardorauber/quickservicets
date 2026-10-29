@@ -4,7 +4,7 @@
 
 QuickService.ts builds REST services on Bun from TypeScript types: entities in `entities/` become routes, validation, migrations and OpenAPI docs.
 
-Workflow: `bunx quickservicets init <name> --db <database>` creates a project, you add entity types to `entities/`, `bun run build` (or `bun run dev`) generates `.generated/`, `bun run quickservicets migration add <Name>` and `bun run quickservicets migrate` create and apply the migrations, and the service answers on port 3000.
+Workflow: `bunx quickservicets init <name>` creates a project (on the in-memory database; `--db <database>` chooses another), you add entity types to `entities/`, `bun run build` (or `bun run dev`) generates `.generated/`, `bun run quickservicets migration add <Name>` and `bun run quickservicets migrate` create and apply the migrations, and the service answers on port 3000.
 
 The agent guide topics are in `packages/cli/agent-docs/`: `overview`, `quickstart`, `entities`, `endpoints-and-hooks`, `config-and-env`, `features`, `testing`, `deploy`, `troubleshooting`. The docs site serves them with every page as Markdown from [/llms.txt](/llms.txt).
 
@@ -33,7 +33,7 @@ The framework ships as three npm packages: `@quickservicets/core` (the runtime),
 
 ### How a project works
 
-1. `bunx quickservicets init <name> --db <database>` creates the project in any folder.
+1. `bunx quickservicets init <name>` creates the project in any folder, on the in-memory database; `--db <database>` (`sqlite`, `postgres` or `mongodb`) chooses another.
 2. You add entity types to `entities/`, endpoint files to `endpoints/`, hooks to `hooks/` and jobs to `jobs/`.
 3. `bun run build` (or `bun run dev`, which also serves and rebuilds on save) writes `.generated/`: models, routes, types, the OpenAPI document and the server entry.
 4. For SQLite, PostgreSQL and MongoDB, `quickservicets migration add <Name>` writes a migration from the model changes and `quickservicets migrate` applies it.
@@ -55,7 +55,7 @@ Full docs: [Introduction](docs/src/content/docs/getting-started/index.md)
 
 ### Quickstart
 
-The exact commands to go from an empty folder to a running QuickService.ts service with one entity on SQLite.
+The exact commands to go from an empty folder to a running QuickService.ts service with one entity, on the in-memory database or on SQLite, PostgreSQL or MongoDB.
 
 You need Bun 1.4.2 or later (`bun --version`). Run every step in order; each command is meant to be copied as it is.
 
@@ -64,12 +64,12 @@ You need Bun 1.4.2 or later (`bun --version`). Run every step in order; each com
 In any folder outside another QuickService.ts project:
 
 ```bash
-bunx quickservicets init my-api --db sqlite
+bunx quickservicets init my-api
 cd my-api
 bun install
 ```
 
-`--db` takes `memory`, `sqlite`, `postgres` or `mongodb`. Always pass it: without it, `init` asks. SQLite needs nothing else installed and keeps its data in `data.db`; `memory` needs no migrations but loses its data on every restart. For `postgres` and `mongodb`, put the real connection settings in `.env` before step 4.
+`init` asks nothing: without `--db` the project runs on the in-memory database, which needs no migrations and loses its data on every restart. To choose another database, pass `--db sqlite`, `--db postgres` or `--db mongodb` (`bunx quickservicets init my-api --db sqlite`). SQLite needs nothing else installed and keeps its data in `data.db`; for `postgres` and `mongodb`, put the real connection settings in `.env` before step 4. A memory project can switch later with one line in `quickservicets.config.ts`, like `database: sqliteAdapter({ path: process.env.DATABASE_PATH ?? "data.db" })`.
 
 #### 2. Add an entity
 
@@ -94,11 +94,11 @@ Never declare `id`, `createdAt` or `updatedAt`; every entity gets them.
 bun run build
 ```
 
-It prints `Built 3 entities, 0 custom endpoints and 0 hooks.` (the count includes the built-in `File` and `Media` entities) and writes `.generated/`.
+It prints `Built 1 entity, 0 custom endpoints and 0 hooks.` and writes `.generated/`.
 
-#### 4. Create and apply the migration
+#### 4. Create and apply the migration (SQLite, PostgreSQL and MongoDB only)
 
-SQLite, PostgreSQL and MongoDB need a migration for every model change (skip this step with `--db memory`):
+On the in-memory database, skip this step. SQLite, PostgreSQL and MongoDB need a migration for every model change:
 
 ```bash
 bun run quickservicets migration add CreateTasks
@@ -134,8 +134,8 @@ The API docs are at `http://localhost:3000/docs`.
 
 1. Edit or add files in `entities/`.
 2. `bun run build` (`bun run dev` rebuilds by itself).
-3. `bun run quickservicets migration add <Name>` with a name for the change, like `AddPriorityToTasks`.
-4. `bun run quickservicets migrate`.
+3. On SQLite, PostgreSQL or MongoDB, `bun run quickservicets migration add <Name>` with a name for the change, like `AddPriorityToTasks`.
+4. On SQLite, PostgreSQL or MongoDB, `bun run quickservicets migrate`.
 
 Run `bun run typecheck` after `bun run build` to type-check the project.
 
@@ -146,7 +146,7 @@ Run `bun run typecheck` after `bun run build` to type-check the project.
 - Check the exit code: 0 success, 1 the operation failed, 2 usage error or a missing answer, 3 configuration error, 4 database unreachable.
 
 ```bash
-bun run quickservicets migration list --json
+bun run quickservicets build --json
 bun run quickservicets migrate --json --yes
 ```
 
@@ -154,7 +154,6 @@ Full docs: [Getting started](docs/src/content/docs/getting-started/installation.
 
 #### Do not
 
-- Do not leave out `--db`; `init` would wait for an answer.
 - Do not run `init` in a folder that has files; it stops with `Directory is not empty`.
 - Do not skip `bun install`; the project depends on `@quickservicets/core` and `@quickservicets/cli`.
 - Do not write migration files or SQL by hand, and do not edit an applied migration.

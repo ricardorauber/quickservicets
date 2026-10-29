@@ -102,14 +102,12 @@ Features may also give the project new convention folders, like `queues/` or `gr
 
 ## `quickservicets.config.ts`
 
-The project configuration: the database, plus optional settings for the server, files, storage, populate depth, migrations and the API docs.
+The project configuration: the database, plus settings for the server, files, storage, populate depth, migrations and the API docs. Every key is optional, and so is the file: without `database` the service runs on the in-memory database. In `my-api`, `init` wrote a config that names no database, with comments on how to choose one:
 
 ```ts check title="quickservicets.config.ts"
-import { defineConfig, memoryAdapter } from "@quickservicets/core";
+import { defineConfig } from "@quickservicets/core";
 
-export default defineConfig({
-  database: memoryAdapter(),
-});
+export default defineConfig({});
 ```
 
 Every key is in the [configuration reference](/reference/config/).

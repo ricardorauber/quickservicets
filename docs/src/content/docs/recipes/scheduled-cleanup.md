@@ -190,11 +190,11 @@ bun run quickservicets build
 ```
 
 ```text
-Built 4 entities, 2 custom endpoints and 1 hooks.
+Built 2 entities, 2 custom endpoints and 1 hooks.
 Warning: Model has changes without a migration. Run "quickservicets migration add <Name>"
 ```
 
-(The four entities are `Session`, `JobRun` and the built-in `File` and `Media`.) The migration creates the `job-runs` table:
+(The two entities are `Session` and `JobRun`.) The migration creates the `job-runs` table:
 
 ```bash
 bun run quickservicets migration add AddJobRuns

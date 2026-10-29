@@ -33,7 +33,7 @@ Claude Code loads the skill by itself when a request matches its description: bu
 The skill is a `SKILL.md` of under 200 lines with:
 
 - **When to use QuickService.ts** and when to pick something else.
-- **The workflow:** `bunx quickservicets init <name> --db <database>`, entities in `entities/`, `bun run build`, `bun run quickservicets migration add <Name>` and `bun run quickservicets migrate`, then `bun run dev`.
+- **The workflow:** `bunx quickservicets init <name>` (on the in-memory database; `--db <database>` chooses another), entities in `entities/`, `bun run build`, `bun run quickservicets migration add <Name>` and `bun run quickservicets migrate`, then `bun run dev`.
 - **The rules:** never edit `.generated/`, use the CLI for migrations, run `quickservicets build` after changing entities, pass `--db` to `init`, read records with `toArray()`, and test with `startTestService`.
 - **The topics:** the nine agent guide topics, as files next to the skill, which Claude Code reads only when the task needs one.
 

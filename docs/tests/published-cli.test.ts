@@ -16,7 +16,7 @@ test("the installation page has the Working from a clone section, which may link
   const installation = readFileSync(join(content, "getting-started/installation.md"), "utf8");
   expect(installation).toContain("## Working from a clone");
   expect(installation).toContain("bunx quickservicets init examples/my-api");
-  expect(installation).toContain("bunx quickservicets init my-api --db memory");
+  expect(installation).toContain("bunx quickservicets init my-api\ncd my-api");
 });
 
 test("a page that reintroduces repository-only instructions is rejected", () => {

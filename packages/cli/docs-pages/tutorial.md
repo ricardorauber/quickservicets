@@ -46,7 +46,7 @@ Three pairs of fields describe the same relation from both sides, and QuickServi
 In any folder, create a project that keeps its data in memory. It needs no database server, which makes it quick to experiment with; you move it to PostgreSQL at the end of this part.
 
 ```bash
-bunx quickservicets init my-identity --db memory
+bunx quickservicets init my-identity
 cd my-identity
 bun install
 bun run dev

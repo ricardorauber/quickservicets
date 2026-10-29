@@ -24,7 +24,7 @@ Stop the dev server first (`Ctrl+C`). Then put the connection URL in the project
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres
 ```
 
-And switch the adapter in `quickservicets.config.ts`:
+And set the database in `quickservicets.config.ts`, which ran on the in-memory default until now:
 
 ```ts
 import { defineConfig, postgresAdapter } from "@quickservicets/core";

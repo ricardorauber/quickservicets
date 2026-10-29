@@ -8,11 +8,17 @@ import { ROOT } from "./agents.ts";
 /** A step of the quickstart: the lines of a `bash` block, or a file written from a code block that starts with `// <path>`. */
 type Step = { kind: "commands"; lines: string[] } | { kind: "file"; path: string; content: string };
 
-/** The code blocks of a topic, in order, as steps. */
+/**
+ * The code blocks of a topic, in order, as steps; the blocks under a heading marked as only for SQLite, PostgreSQL and
+ * MongoDB are left out, since the quickstart's project runs on the in-memory database.
+ */
 function stepsOf(markdown: string): Step[] {
   const steps: Step[] = [];
   const blocks = markdown.matchAll(/^```(\w*)\n([\s\S]*?)^```$/gm);
-  for (const [, language, body = ""] of blocks) {
+  for (const match of blocks) {
+    const [, language, body = ""] = match;
+    const heading = [...markdown.slice(0, match.index).matchAll(/^#{1,6} (.*)$/gm)].at(-1)?.[1] ?? "";
+    if (heading.includes("MongoDB only")) continue;
     const path = /^\/\/ (\S+\.ts)\n/.exec(body)?.[1];
     if (language === "bash") steps.push({ kind: "commands", lines: body.split("\n").filter((line) => line.trim() !== "") });
     else if (path) steps.push({ kind: "file", path, content: body });
@@ -65,15 +71,16 @@ test("following the quickstart topic literally builds a service that answers GET
   const quickstart = readTopics().find((topic) => topic.name === "quickstart")!;
   const steps = stepsOf(quickstart.markdown);
   expect(steps.map((step) => (step.kind === "file" ? step.path : step.lines[0]))).toEqual([
-    "bunx quickservicets init my-api --db sqlite",
+    "bunx quickservicets init my-api",
     "entities/Task.ts",
     "bun run build",
-    "bun run quickservicets migration add CreateTasks",
     "bun run dev",
     "curl -X POST localhost:3000/tasks -H \"content-type: application/json\" -d '{\"title\":\"Write the docs\"}'",
     'curl -g "localhost:3000/tasks?where[done][eq]=false&sort=-createdAt"',
-    "bun run quickservicets migration list --json",
+    "bun run quickservicets build --json",
   ]);
+  // The migration step is there, for the other databases.
+  expect(quickstart.markdown).toContain("bun run quickservicets migration add CreateTasks");
 
   const port = freePort();
   const env: Record<string, string | undefined> = { ...process.env, PORT: String(port) };
@@ -108,6 +115,7 @@ test("following the quickstart topic literally builds a service that answers GET
   expect(list.total).toBe(1);
   expect(list.data[0]).toMatchObject({ title: "Write the docs", done: false });
   expect(JSON.parse(outputs.get('curl -g "localhost:3000/tasks?where[done][eq]=false&sort=-createdAt"')!).data[0].title).toBe("Write the docs");
-  expect(JSON.parse(outputs.get("bun run quickservicets migration list --json")!)).toEqual({ ok: true, migrations: [{ id: expect.stringMatching(/_CreateTasks$/), status: "applied", schemas: [] }] });
+  expect(outputs.get("bun run build")).toContain("Built 1 entity, 0 custom endpoints and 0 hooks.");
+  expect(JSON.parse(outputs.get("bun run quickservicets build --json")!)).toMatchObject({ ok: true, entities: 1 });
   expect(JSON.parse(outputs.get("bun run quickservicets migrate --json --yes")!)).toMatchObject({ ok: true, applied: [] });
 }, 180_000);

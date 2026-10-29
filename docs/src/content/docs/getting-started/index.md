@@ -37,7 +37,7 @@ While you work, `quickservicets dev` does steps 3 and 4 for you, and rebuilds an
 - **Generated CRUD.** Six routes per entity, with `limit`/`offset` paging, `sort`, `where[<field>][<op>]` filters, `fields`/`exclude` selection and `populate`. See [HTTP query parameters](/reference/http/).
 - **Validation.** Types, required fields, enums, lengths, ranges and formats are checked on every write, with one consistent [error shape](/reference/errors/).
 - **Relations.** Fields that point to other entities, arrays of references, and two-sided relations kept in sync.
-- **Files.** Built-in `File` and `Media` entities, multipart uploads, local or S3-compatible storage, and direct, proxied or signed URLs.
+- **Files.** Built-in `File` and `Media` entities, built when an entity references them, multipart uploads, local or S3-compatible storage, and direct, proxied or signed URLs.
 - **Custom endpoints and hooks.** File-based routes like `endpoints/users/[id]/stats/get.ts`, and hooks you apply with a tag.
 - **Typed repositories.** `repos.users.findById(...)` and a fluent query API, typed from your entities. See [Repositories and queries](/reference/api/).
 - **Migrations.** Generated from model changes for SQLite, PostgreSQL and MongoDB.

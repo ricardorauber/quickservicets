@@ -133,3 +133,17 @@ export function globbedCurlCommands(markdown: string): string[] {
     return [`${index + 1}: ${line.trim()}`];
   });
 }
+
+/**
+ * Phrases of the time when `init` asked for a database, the config file was required and `File` and `Media` were in
+ * every model; compared without backticks and case-insensitively.
+ */
+export const STALE_PHRASES = ["init would wait", "without it, init asks", "Config file not found", "includes the built-in File and Media"] as const;
+
+/** The stale phrases a page or topic contains, as `<line>: <phrase>`. */
+export function stalePhrases(markdown: string): string[] {
+  return markdown.split("\n").flatMap((line, index) => {
+    const plain = line.replaceAll("`", "").toLowerCase();
+    return STALE_PHRASES.filter((phrase) => plain.includes(phrase.toLowerCase())).map((phrase) => `${index + 1}: ${phrase}`);
+  });
+}

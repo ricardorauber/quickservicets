@@ -5,8 +5,10 @@ The runtime of [QuickService.ts](https://github.com/ricardorauber/quickservicets
 Create a project with the CLI, which adds this package for you:
 
 ```bash
-bunx quickservicets init my-api --db sqlite
+bunx quickservicets init my-api
 ```
+
+The project runs on the in-memory database by default; `quickservicets.config.ts` is optional, and `database` in it chooses SQLite, PostgreSQL or MongoDB.
 
 Documentation and source: https://github.com/ricardorauber/quickservicets
 

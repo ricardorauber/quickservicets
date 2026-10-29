@@ -4,6 +4,8 @@
 
 The project configuration lives in `quickservicets.config.ts` and is written with `defineConfig({ ... })`. Nested keys are shown with dots.
 
+The file is optional, and so is every key: a project without it builds and runs like one with `defineConfig({})`. Without `database` the service runs on `memoryAdapter()`, the in-memory database, which loses its data on every restart; in production it starts and logs the warning `quickservicets is using the in-memory database in production; every restart loses all data. Set database in quickservicets.config.ts.`
+
 Every key that holds a value can also be set by an environment variable named after its path (`server.port` is `QS_SERVER_PORT`), which wins over the config file; the older names in parentheses still work, and a `QS_*` name wins over them. Keys that hold code are not overridable.
 
 | Key | Type | Default | Environment variable | Description |

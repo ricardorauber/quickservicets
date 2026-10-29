@@ -43,6 +43,7 @@ bun run dev
 
 ```text
 $ quickservicets dev
+Built 1 entity, 0 custom endpoints and 0 hooks.
 QuickService.ts listening on http://localhost:3000
 ```
 
@@ -56,7 +57,7 @@ bun run build
 bun run start
 ```
 
-`build` prints `Built 3 entities, 0 custom endpoints and 0 hooks.` The count includes `File` and `Media`, the two file entities every project has.
+`build` prints `Built 1 entity, 0 custom endpoints and 0 hooks.` The count is the entities really in the model: the built-in `File` and `Media` entities are built only when an entity references them or the config sets `storage` (see [Files](/guides/files/)).
 :::
 
 ## What the build generated

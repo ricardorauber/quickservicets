@@ -45,7 +45,7 @@ Pick something else when:
 Read the topic that matches the task before writing code:
 
 - `topics/overview.md`: What QuickService.ts is, when to choose it for a backend and when to pick something else.
-- `topics/quickstart.md`: The exact commands to go from an empty folder to a running QuickService.ts service with one entity on SQLite.
+- `topics/quickstart.md`: The exact commands to go from an empty folder to a running QuickService.ts service with one entity, on the in-memory database or on SQLite, PostgreSQL or MongoDB.
 - `topics/entities.md`: How to write entity files: names, field types, JSDoc tags, references and relations.
 - `topics/endpoints-and-hooks.md`: How to add custom routes in `endpoints/`, share request logic with hooks in `hooks/`, and query records with the repositories.
 - `topics/config-and-env.md`: How to configure a project in `quickservicets.config.ts`, `.env` and `QS_*` variables, and check an environment.

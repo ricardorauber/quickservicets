@@ -139,11 +139,13 @@ bun run docs:build   # builds the static site into docs/dist
 Create a project in any folder with [Bun](https://bun.sh) 1.4.2 or later:
 
 ```bash
-bunx quickservicets init my-api --db sqlite
+bunx quickservicets init my-api
 cd my-api
 bun install
 bun run dev
 ```
+
+`init` asks nothing: the project runs on the in-memory database, with no migrations and no config needed (its `quickservicets.config.ts` is optional), and `--db sqlite`, `--db postgres` or `--db mongodb` chooses a real database. A new service has 0 entities; the built-in `File` and `Media` entities appear only when an entity references them or the config sets `storage`.
 
 To build a first project step by step, follow the [Getting started](docs/src/content/docs/getting-started/index.md) section of the docs (served at http://localhost:4321/getting-started/ by `bun run docs:dev`). It covers installing, creating a project with `init`, writing a first entity and calling its API.
 

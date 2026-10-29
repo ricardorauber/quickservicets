@@ -3,6 +3,7 @@ import { runInTransaction } from "./transactions.ts";
 import { observersOf, reportChange, type WriteCause } from "./write-observers.ts";
 import { HttpError, type FieldErrorDetail } from "./errors.ts";
 import type { EntityModel, FieldModel } from "./model.ts";
+import { databaseOf } from "./named-databases.ts";
 import { itemCount } from "./validation.ts";
 
 type RefField = Extract<FieldModel, { type: "ref" }>;
@@ -166,8 +167,13 @@ export function cascadedEntities(model: EntityModel, models: EntityModel[]): Ent
  * Reference arrays an adapter can pull ids from in place: junction-stored ones with `@onDelete pull`, unless write
  * observers watch their entity, which then needs each changed record.
  */
-const pullsInPlace = (adapter: DatabaseAdapter, field: RefField | RefArrayField, owner: EntityModel) =>
-  adapter.deleteAndPull !== undefined && field.type === "refArray" && field.onDelete === "pull" && observersOf(owner) === null;
+const pullsInPlace = (adapter: DatabaseAdapter, field: RefField | RefArrayField, owner: EntityModel, models: EntityModel[]) =>
+  adapter.deleteAndPull !== undefined &&
+  field.type === "refArray" &&
+  field.onDelete === "pull" &&
+  observersOf(owner) === null &&
+  // An array in another database is pulled by the application, record by record.
+  databaseOf(owner) === databaseOf(models.find((model) => model.key === field.target) ?? owner);
 
 /**
  * Collects every record a delete affects, following `cascade` recursively, and fails with 409 before anything
@@ -233,7 +239,7 @@ export async function planDelete(
   const deletedIds = new Set(deletions.map((deletion) => recordKey(deletion.model, deletion.id)));
   for (const deletion of deletions) {
     for (const reference of referencesTo(deletion.model, models)) {
-      if (pullsInPlace(adapter, reference.field, reference.model)) {
+      if (pullsInPlace(adapter, reference.field, reference.model, models)) {
         deletion.pulls.push({ owner: reference.model, field: reference.field.name });
         // The owners' lists are only needed to check a minimum before anything changes.
         if (reference.field.minLength === undefined) continue;
@@ -272,7 +278,7 @@ export async function planDelete(
   }
   // Lists checked above are pulled by the deletes themselves, which also refresh their owners' `updatedAt`.
   const remaining = [...updates.values()].flatMap((update) => {
-    const pulled = update.model.fields.filter((field) => field.name in update.changes && isReference(field) && pullsInPlace(adapter, field, update.model));
+    const pulled = update.model.fields.filter((field) => field.name in update.changes && isReference(field) && pullsInPlace(adapter, field, update.model, models));
     if (pulled.length === 0) return [update];
     const changes = Object.fromEntries(Object.entries(update.changes).filter(([name]) => !pulled.some((field) => field.name === name)));
     return Object.keys(changes).length > 0 ? [{ ...update, changes }] : [];

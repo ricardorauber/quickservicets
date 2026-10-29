@@ -1,4 +1,5 @@
 import { sql, type SQL } from "drizzle-orm";
+import { databaseOf } from "../named-databases.ts";
 import {
   integer as pgInteger,
   primaryKey as pgPrimaryKey,
@@ -138,6 +139,11 @@ function schemaBuilder(models: EntityModel[], dialect: SqlDialect, options: Driz
     extra: (table: Record<string, unknown>) => unknown[],
   ) => AnyTable;
   const pgSchemas = new Map<string, { table: TableFactory }>();
+  /** Whether the entity `target` (a key) lives in the database of `model`; unknown targets count as the same. */
+  const sameDatabase = (model: EntityModel, target: string) => {
+    const other = models.find((candidate) => candidate.key === target);
+    return !other || databaseOf(other) === databaseOf(model);
+  };
   // A default schema given here places the default-schema tables: a PostgreSQL schema, or a SQLite prefix.
   const defaultPrefix = options.sqliteDefaultPrefix ?? (options.defaultSchema ? sqliteDefaultPrefix(options.defaultSchema) : "");
   const factoryFor = (model: EntityModel): TableFactory => {
@@ -170,7 +176,8 @@ function schemaBuilder(models: EntityModel[], dialect: SqlDialect, options: Driz
       if (field.storage === "relation" || field.storage === "derived" || field.storage === "computed") continue;
       let column = isSqlite ? sqliteColumn(field) : postgresColumn(field);
       if (!field.optional) column = column.notNull();
-      if (field.type === "ref") {
+      // A reference to an entity of another database has no foreign key: no database can enforce it.
+      if (field.type === "ref" && sameDatabase(model, field.target)) {
         const target = field.target;
         column = column.references(() => (tables[target] as Record<string, unknown>).id, {
           onDelete: ON_DELETE[field.onDelete],
@@ -220,7 +227,9 @@ function schemaBuilder(models: EntityModel[], dialect: SqlDialect, options: Driz
         name,
         {
           ownerId: text("owner_id").notNull().references(() => (tables[model.key] as Record<string, unknown>).id, { onDelete: "cascade" }),
-          targetId: text("target_id").notNull().references(() => (tables[target.key] as Record<string, unknown>).id, { onDelete: targetOnDelete }),
+          targetId: sameDatabase(model, target.key)
+            ? text("target_id").notNull().references(() => (tables[target.key] as Record<string, unknown>).id, { onDelete: targetOnDelete })
+            : text("target_id").notNull(),
           position: integerColumn("position").notNull(),
         },
         (table) => [

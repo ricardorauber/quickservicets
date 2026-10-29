@@ -14,6 +14,7 @@ import {
   jobRunEntity,
   FILE_BASE_FIELDS,
   hiddenPathsFor,
+  crossDatabaseReferences,
   DEFAULT_DATABASE,
   parseFieldPaths,
   populatePathErrors,
@@ -187,6 +188,27 @@ function withDefaultDatabase(models: EntityModel[], databases: readonly string[]
   return models.map((model) => (model.database === undefined ? { ...model, database: DEFAULT_DATABASE } : model));
 }
 
+/**
+ * Fails on what no database can do across two databases: `@onDelete cascade` or `setNull` (a change in another
+ * database), and bidirectional relations, whose sides are kept in sync in one transaction.
+ */
+function assertCrossDatabaseRules(models: EntityModel[]): EntityModel[] {
+  for (const { model, field, target } of crossDatabaseReferences(models)) {
+    const file = model.feature ? model.feature : `entities/${model.key}.ts`;
+    if (field.relation) {
+      const inverse = target.fields.find((candidate) => candidate.name === field.relation!.inverseField);
+      const tag = field.owner || (inverse && "owner" in inverse && inverse.owner) ? "@owner" : "@inverse";
+      throw new EntityParseError(`${file}: ${tag} needs both entities in one database`);
+    }
+    if (field.onDelete === "cascade" || field.onDelete === "setNull") {
+      throw new EntityParseError(
+        `${file}: @onDelete ${field.onDelete} is not available across databases (${model.entityName} in ${model.database}, ${target.entityName} in ${target.database}); use restrict, or a listener or saga to clean up`,
+      );
+    }
+  }
+  return models;
+}
+
 /** How the build names a file of a feature folder: project-relative, or through the core package for a native. */
 export function featureFileName(projectRoot: string, file: string): string {
   const inNative = relative(NATIVE_FEATURES_DIR, file);
@@ -337,7 +359,7 @@ export function parseProjectModels(projectRoot: string, features: readonly Resol
   const built = withFileEntities(contributed.models, usedFileEntities(contributed.models, features, usage));
   const all = hasJobFiles(projectRoot, features) ? withJobRunEntity(built) : built;
   return {
-    models: withTenancyMarks(withDefaultDatabase(all, databases), features),
+    models: withTenancyMarks(assertCrossDatabaseRules(withDefaultDatabase(all, databases)), features),
     overrides: [...parsed.overrides, ...contributed.overrides],
   };
 }

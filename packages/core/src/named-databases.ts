@@ -3,7 +3,7 @@ import type { ConnectOptions, DatabaseAdapter, FindManyOptions, FindManyResult, 
 import { ConfigError } from "./config-error.ts";
 import { maskConnections } from "./secrets.ts";
 import { jsonLogger, safeLog, type Logger } from "./logger.ts";
-import type { EntityModel } from "./model.ts";
+import type { EntityModel, FieldModel } from "./model.ts";
 
 /** The name of the database `database` configures, in models and messages. */
 export const DEFAULT_DATABASE = "default";
@@ -36,6 +36,34 @@ export interface ResolvedDatabase {
 export function databaseOf(model: Pick<EntityModel, "database">): string {
   return model.database ?? DEFAULT_DATABASE;
 }
+
+/** A reference or reference array whose target lives in another database than its entity. */
+export interface CrossDatabaseReference {
+  model: EntityModel;
+  field: Extract<FieldModel, { type: "ref" | "refArray" }>;
+  target: EntityModel;
+}
+
+/**
+ * Every stored reference and reference array (and every side of a bidirectional relation) whose target lives in
+ * another database: no database enforces them, so the application checks them.
+ */
+export function crossDatabaseReferences(models: readonly EntityModel[]): CrossDatabaseReference[] {
+  const byKey = new Map(models.map((model) => [model.key, model]));
+  return models.flatMap((model) =>
+    model.link
+      ? []
+      : model.fields.flatMap((field) => {
+          if (field.type !== "ref" && field.type !== "refArray") return [];
+          const target = byKey.get(field.target);
+          return target && databaseOf(target) !== databaseOf(model) ? [{ model, field, target }] : [];
+        }),
+  );
+}
+
+/** The build line of a reference across databases. */
+export const crossDatabaseWarning = ({ model, field, target }: CrossDatabaseReference): string =>
+  `${model.entityName}.${field.name} references ${target.entityName} in database ${databaseOf(target)}; there is no database-level integrity or cascade for it`;
 
 /** The variable that sets a named database's connection: `orders` is `QS_DATABASES_ORDERS_URL`. */
 export function databaseUrlVariable(name: string): string {

@@ -1,7 +1,7 @@
 export { CODES_BY_STATUS, HttpError, codeForStatus, toErrorResponse } from "./errors.ts";
 export type { ErrorResponseOptions, FieldErrorDetail, HttpErrorOptions } from "./errors.ts";
-export { DATABASE_NAME, DEFAULT_DATABASE, databaseAdapters, databaseOf, databaseRouter, databaseUrlVariable, errorDatabase, isDatabaseRouter, resolveDatabases } from "./named-databases.ts";
-export type { DatabaseRouter, DatabaseRouterOptions, DatabaseTenancy, NamedDatabaseConfig, NamedDatabaseEntry, ResolvedDatabase } from "./named-databases.ts";
+export { crossDatabaseReferences, crossDatabaseWarning, DATABASE_NAME, DEFAULT_DATABASE, databaseAdapters, databaseOf, databaseRouter, databaseUrlVariable, errorDatabase, isDatabaseRouter, resolveDatabases } from "./named-databases.ts";
+export type { CrossDatabaseReference, DatabaseRouter, DatabaseRouterOptions, DatabaseTenancy, NamedDatabaseConfig, NamedDatabaseEntry, ResolvedDatabase } from "./named-databases.ts";
 export { alwaysHiddenPaths, CRUD_OPERATIONS, entityRoutePath, hiddenPathsFor, SYSTEM_FIELDS, vectorFields } from "./model.ts";
 export type { ArrayOnDeleteAction, EnumDeclarationInfo, ParsedTag, ParsedTags, FileAccessMode, RelationKind, RelationSide, VectorMetric, VectorSettings, CrudOperation, EntityModel, Exposure, ReadOperation, HookReference, ModelIndex, OverrideHooksMode, FieldConstraints, FieldModel, FieldStorage, FieldType, NestedFieldModel, OnDeleteAction, PrimitiveFieldType, StringFormat, TypeDescriptor } from "./model.ts";
 export { ReferenceArrayChange, validateBody } from "./validation.ts";

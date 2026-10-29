@@ -23,6 +23,8 @@ import {
   extendOpenApi,
   NO_AUTH_SCHEME_WARNING,
   storageConfigured,
+  crossDatabaseReferences,
+  crossDatabaseWarning,
 } from "@quickservicets/core";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -526,6 +528,8 @@ async function buildProject(projectRoot: string, config: ResolvedConfig, options
   const tsconfigWarning = generatedIncludeWarning(projectRoot);
   if (tsconfigWarning) warnings.push(tsconfigWarning);
   warnings.push(...endpointDocs.warnings);
+  // References across databases are checked by the application only.
+  warnings.push(...crossDatabaseReferences(models).map(crossDatabaseWarning));
   // With auth on, a provider documents how to authenticate; without one, generated clients cannot.
   if (config.features.some((feature) => feature.key === "auth") && Object.keys(openApi.components?.securitySchemes ?? {}).length === 0) warnings.push(NO_AUTH_SCHEME_WARNING);
   warnings.push(...droppedFileEntityWarnings(readLatestSnapshot(projectRoot)?.models ?? [], models));

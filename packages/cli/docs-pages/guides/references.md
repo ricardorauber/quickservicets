@@ -240,6 +240,22 @@ export type Comment = {
 
 Before changing anything, a delete collects every record it affects, following `cascade` through as many levels as needed. If any of those records is still pointed to by a `restrict` reference, the whole delete fails with 409 and nothing changes. Otherwise the cascades, the `setNull` updates and the delete itself run in one transaction. This works the same on every database.
 
+## References across databases
+
+With [named databases](/reference/config/), an entity may reference an entity that lives in another database, like `Order.customer` with `Order` in `orders` and `Customer` in the default database. No database can enforce that reference, so the build prints one line for each:
+
+```text
+Order.customer references Customer in database default; there is no database-level integrity or cascade for it
+```
+
+- No foreign key is created for it, in any migration.
+- Creating, updating or replacing a record still checks that the referenced record exists, with a query on the other database, and answers 400 `Referenced record not found` like any reference.
+- `restrict` (the default) is checked by the application: before the delete, the referencing entity is queried in its database and the delete answers 409 when a record still points to the deleted one. The check is not atomic with the delete: a reference created between the check and the delete is possible.
+- `pull` (the default of reference arrays) is applied by the application after reading the arrays of the other database, record by record, and is not atomic with the delete either.
+- `@onDelete cascade` and `@onDelete setNull` fail the build across databases; use `restrict`, or a listener or saga to clean up.
+- Relations kept in sync on both sides (`@inverse`, `@owner`) need both entities in one database.
+- `populate` loads references across databases with one query per path on the other database.
+
 ## Self-references
 
 With a self-reference and `cascade`, deleting a category deletes its whole subtree:

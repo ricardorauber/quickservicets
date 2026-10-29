@@ -101,34 +101,35 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
   }),
   defineCommand({
     name: "migrate",
-    usage: "quickservicets migrate [target] [--force] [--tenant <id> | --all-tenants [--concurrency <n>] [--continue-on-error]]",
-    description: "Applies pending migrations, or migrates up or down to the target migration; with tenancy, --tenant and --all-tenants migrate tenants.",
+    usage: "quickservicets migrate [target] [--force] [--database <name>] [--tenant <id> | --all-tenants [--concurrency <n>] [--continue-on-error]]",
+    description: "Applies pending migrations of every database (default first, then by name), or migrates up or down to the target migration; --database limits it to one; with tenancy, --tenant and --all-tenants migrate tenants.",
     args: [{ name: "target", description: "The migration to migrate up or down to, or 0 to revert every migration." }],
     flags: object({
       force: boolean().default(false).describe("Reverts migrations in production."),
+      database: string().optional().describe("Migrates only this database: default or a name of databases."),
       tenant: string().optional().describe("Applies the tenant statements of pending migrations to this tenant's schema or database."),
       allTenants: boolean().default(false).describe("Migrates the service's database, then every tenant."),
       concurrency: integer().min(1).default(4).describe("Tenants migrated at once with --all-tenants."),
       continueOnError: boolean().default(false).describe("Keeps migrating the other tenants after one fails."),
     }),
-    json: { applied: ["string"], reverted: ["string"], messages: ["string"], warnings: ["string"] },
+    json: { applied: ["string"], reverted: ["string"], items: [{ database: "string", id: "string", direction: "string" }], messages: ["string"], warnings: ["string"] },
     async run({ args, flags, cwd, output, result: report }) {
       const { migrate, migrateTenants, MigrationError } = await import("./migrations/migrate.ts");
       if (flags.tenant !== undefined || flags.allTenants) {
         const tenants = await migrateTenants(cwd, { ...(flags.tenant !== undefined ? { tenant: flags.tenant } : {}), allTenants: flags.allTenants, concurrency: flags.concurrency, continueOnError: flags.continueOnError });
-        report({ applied: [], reverted: [], messages: tenants.messages, warnings: [] });
+        report({ applied: [], reverted: [], items: [], messages: tenants.messages, warnings: [] });
         for (const message of tenants.messages) output.log(message);
         return tenants.failed.length > 0 ? 1 : 0;
       }
       const printWarnings = (warnings: string[]) => {
         for (const warning of warnings) output.error(`Warning: ${warning}`);
       };
-      const result = await migrate(cwd, { target: args.target, force: flags.force }).catch((error: unknown) => {
+      const result = await migrate(cwd, { target: args.target, force: flags.force, ...(flags.database !== undefined ? { database: flags.database } : {}) }).catch((error: unknown) => {
         if (error instanceof MigrationError) printWarnings(error.warnings);
         throw error;
       });
       printWarnings(result.warnings);
-      report({ applied: result.applied, reverted: result.reverted, messages: result.messages, warnings: result.warnings });
+      report({ applied: result.applied, reverted: result.reverted, items: result.items, messages: result.messages, warnings: result.warnings });
       for (const table of result.renamed) {
         output.log(JSON.stringify({ timestamp: new Date().toISOString(), message: MIGRATIONS_TABLE_RENAMED, from: table.from, to: table.to }));
       }
@@ -141,27 +142,40 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
     usage: "quickservicets migration add <Name>",
     description: "Creates a migration from the model changes since the last one.",
     args: [{ name: "Name", required: true }],
-    json: { id: "string", file: "string" },
+    json: { id: "string", file: "string", database: "string", migrations: [{ database: "string", id: "string", file: "string" }], skipped: ["string"] },
     async run({ args, cwd, output, result }) {
       const { addMigration } = await import("./migrations/add.ts");
       const created = await addMigration(cwd, args.Name!);
-      output.log(`Created ${created.file}`);
-      result({ id: created.id, file: created.file });
+      // With named databases, one line per database that got a migration, and one per memory database skipped.
+      if (created.databases.length > 1) {
+        for (const migration of created.migrations) output.log(`${migration.database}: ${migration.file}`);
+        for (const name of created.skipped) output.log(`Skipped ${name}: memory databases keep no schema`);
+      } else output.log(`Created ${created.file}`);
+      result({
+        id: created.id,
+        file: created.file,
+        database: created.database,
+        migrations: created.migrations.map(({ database, id, file }) => ({ database, id, file })),
+        skipped: created.skipped,
+      });
       return 0;
     },
   }),
   defineCommand({
     name: "migration list",
     usage: "quickservicets migration list",
-    description: "Lists the migrations and whether each one is applied.",
-    json: { migrations: [{ id: "string", status: "string", schemas: [{ schema: "string", tenants: "number" }] }], warning: "string?" },
+    description: "Lists the migrations of every database and whether each one is applied, grouped by database.",
+    json: { migrations: [{ id: "string", status: "string", database: "string", schemas: [{ schema: "string", tenants: "number" }] }], warning: "string?" },
     async run({ cwd, output, result }) {
       const { formatSchemaCounts, listMigrationStatus } = await import("./migrations/list-remove.ts");
       const list = await listMigrationStatus(cwd);
       result({ migrations: list.entries.map((entry) => ({ ...entry, schemas: entry.schemas ?? [] })), ...(list.warning ? { warning: list.warning } : {}) });
       if (list.warning) output.error(`Warning: ${list.warning}`);
+      let group: string | undefined;
       for (const entry of list.entries) {
-        output.log(`${entry.id}  ${entry.status}${entry.schemas ? `  ${formatSchemaCounts(entry.schemas)}` : ""}`);
+        // With named databases, each database's migrations follow its name.
+        if (list.named && entry.database !== group) output.log(`${(group = entry.database)}:`);
+        output.log(`${list.named ? "  " : ""}${entry.id}  ${entry.status}${entry.schemas ? `  ${formatSchemaCounts(entry.schemas)}` : ""}`);
       }
       if (list.entries.length === 0) output.log("No migrations");
       return 0;

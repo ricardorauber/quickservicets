@@ -73,7 +73,7 @@ if (url) {
         "users_email_uq",
       ]);
       expect(await db.collection("_migrations").countDocuments()).toBe(1);
-      expect((await listMigrationStatus(root)).entries).toEqual([{ id: "20261015120000_Initial", status: "applied" }]);
+      expect((await listMigrationStatus(root)).entries).toEqual([{ id: "20261015120000_Initial", status: "applied", database: "default" }]);
       expect((await migrate(root, { target: "0" })).reverted).toEqual(["20261015120000_Initial"]);
       expect((await db.collection("users").indexes()).map((index) => index.name)).toEqual(["_id_"]);
       expect(await db.collection("_migrations").countDocuments()).toBe(0);

@@ -1,4 +1,4 @@
-import { buildDrizzleSchema, SQLITE_DEFAULT_SCHEMA_TOKEN, type EntityModel, type MongoIndexSpec, type SqlDialect } from "@quickservicets/core";
+import { buildDrizzleSchema, DEFAULT_DATABASE, SQLITE_DEFAULT_SCHEMA_TOKEN, type EntityModel, type MongoIndexSpec, type SqlDialect } from "@quickservicets/core";
 import { generateDrizzleJson, generateSQLiteDrizzleJson } from "drizzle-kit/api";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -46,8 +46,16 @@ export async function drizzleSnapshot(models: EntityModel[], dialect: SqlDialect
   return (dialect === "sqlite" ? await generateSQLiteDrizzleJson(allTables) : generateDrizzleJson(definitions)) as unknown as DrizzleSnapshot;
 }
 
-export function listMigrations(projectRoot: string): MigrationFile[] {
-  const dir = join(projectRoot, MIGRATIONS_DIR);
+/**
+ * The migrations folder of a database: `migrations/` for the default one, `migrations/<name>/` for a named one, each
+ * with its own `meta/` snapshots.
+ */
+export function migrationsFolder(projectRoot: string, database: string = DEFAULT_DATABASE): string {
+  return database === DEFAULT_DATABASE ? join(projectRoot, MIGRATIONS_DIR) : join(projectRoot, MIGRATIONS_DIR, database);
+}
+
+export function listMigrations(projectRoot: string, database: string = DEFAULT_DATABASE): MigrationFile[] {
+  const dir = migrationsFolder(projectRoot, database);
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
     .filter((entry) => /^\d{14}_[A-Z][A-Za-z0-9]*\.ts$/.test(entry))
@@ -58,21 +66,21 @@ export function listMigrations(projectRoot: string): MigrationFile[] {
     });
 }
 
-const snapshotPath = (projectRoot: string, id: string) => join(projectRoot, MIGRATIONS_DIR, "meta", `${id}.snapshot.json`);
+const snapshotPath = (projectRoot: string, id: string, database?: string) => join(migrationsFolder(projectRoot, database), "meta", `${id}.snapshot.json`);
 
-export function readLatestSnapshot(projectRoot: string): ModelSnapshot | undefined {
-  const latest = listMigrations(projectRoot).at(-1);
-  if (!latest || !existsSync(snapshotPath(projectRoot, latest.id))) return undefined;
-  return JSON.parse(readFileSync(snapshotPath(projectRoot, latest.id), "utf8")) as ModelSnapshot;
+export function readLatestSnapshot(projectRoot: string, database?: string): ModelSnapshot | undefined {
+  const latest = listMigrations(projectRoot, database).at(-1);
+  if (!latest || !existsSync(snapshotPath(projectRoot, latest.id, database))) return undefined;
+  return JSON.parse(readFileSync(snapshotPath(projectRoot, latest.id, database), "utf8")) as ModelSnapshot;
 }
 
-export function writeSnapshot(projectRoot: string, id: string, snapshot: ModelSnapshot): string {
-  mkdirSync(join(projectRoot, MIGRATIONS_DIR, "meta"), { recursive: true });
-  const path = snapshotPath(projectRoot, id);
+export function writeSnapshot(projectRoot: string, id: string, snapshot: ModelSnapshot, database?: string): string {
+  mkdirSync(join(migrationsFolder(projectRoot, database), "meta"), { recursive: true });
+  const path = snapshotPath(projectRoot, id, database);
   writeFileSync(path, `${JSON.stringify(snapshot, null, 2)}\n`);
   return path;
 }
 
-export function snapshotFile(projectRoot: string, id: string): string {
-  return snapshotPath(projectRoot, id);
+export function snapshotFile(projectRoot: string, id: string, database?: string): string {
+  return snapshotPath(projectRoot, id, database);
 }

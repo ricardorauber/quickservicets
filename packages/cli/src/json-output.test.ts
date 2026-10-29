@@ -65,7 +65,7 @@ describe("--json output", () => {
     expect(added.err.some((line) => line.startsWith("Created migrations/"))).toBe(true);
 
     const pending = documentOf("migration list", await cli(["migration", "list", "--json"], root));
-    expect(pending.migrations).toEqual([{ id: expect.stringMatching(/_Init$/), status: "pending", schemas: [] }]);
+    expect(pending.migrations).toEqual([{ id: expect.stringMatching(/_Init$/), status: "pending", database: "default", schemas: [] }]);
 
     const migrated = await cli(["migrate", "--json"], root);
     expect(documentOf("migrate", migrated).applied).toEqual([expect.stringMatching(/_Init$/)]);

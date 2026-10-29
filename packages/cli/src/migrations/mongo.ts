@@ -21,8 +21,8 @@ const key = (spec: MongoIndexSpec) =>
   `${spec.schema ?? ""}\u0000${spec.collection}\u0000${spec.name}\u0000${JSON.stringify([spec.keys, spec.options])}`;
 
 /** Index changes between the latest snapshot and the current models, as `up` and `down` statements. */
-export function planMongoMigration(projectRoot: string, models: EntityModel[]): MongoMigrationPlan {
-  const previous = readLatestSnapshot(projectRoot);
+export function planMongoMigration(projectRoot: string, models: EntityModel[], database?: string): MongoMigrationPlan {
+  const previous = readLatestSnapshot(projectRoot, database);
   const previousModels = previous?.models ?? [];
   // Join collections whose relation is unchanged but whose name changed are renamed, keeping their documents.
   const renames = previousModels

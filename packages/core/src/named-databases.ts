@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { ConnectOptions, DatabaseAdapter, FindManyOptions, FindManyResult, RelatedScope, StoredRecord } from "./adapter.ts";
 import { ConfigError } from "./config-error.ts";
 import { HttpError } from "./errors.ts";
+import { databaseModels } from "./database-staging.ts";
 import { maskConnections } from "./secrets.ts";
 import { jsonLogger, safeLog, type Logger } from "./logger.ts";
 import type { EntityModel, FieldModel } from "./model.ts";
@@ -394,7 +395,7 @@ function createRouter(databases: Record<string, DatabaseAdapter>, family: object
       const connected: DatabaseAdapter[] = [];
       for (const name of names) {
         const adapter = databases[name]!;
-        const own = models.filter((model) => databaseOf(model) === name || (model.perDatabase === true && holders.includes(name)));
+        const own = databaseModels(models, name);
         try {
           await adapter.connect(own, connectOptions);
           // Adapters that connect lazily are reached once, so a database that is down fails the start.

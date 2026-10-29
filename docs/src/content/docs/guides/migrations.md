@@ -369,6 +369,17 @@ export async function down(ctx: MongoMigrationContext): Promise<void> {
 }
 ```
 
+## Named databases
+
+With named databases (`databases` in `quickservicets.config.ts`), each database has its own migration history:
+
+- `migrations/` (with `migrations/meta/`) serves the default database, as without named databases, and `migrations/<name>/` (with its own `meta/`) each named one, holding only the tables that live in it.
+- `migration add <Name>` writes one migration, with one timestamp and name, in the folder of every database whose model changed, and prints `<database>: <file>` for each; when nothing changed it writes the empty migration of the default database only. Memory databases keep no schema and are skipped by name.
+- Each database keeps its own `__quickservicets_migrations` control table. `migrate` applies the pending migrations of every database, default first then by name, stopping at the first failure with the database named; `migrate --database orders` (or `--database default`) applies one. A target name that exists in several folders needs `--database`.
+- `migration list` groups the migrations by database, and the `--json` output of `migration add`, `migration list` and `migrate` names the database of each item.
+- The build names the databases with model changes without a migration: `Model has changes without a migration in orders. Run "quickservicets migration add <Name>"`.
+- Moving an entity to another database is a drop (marked `// WARNING: possible data loss`) in the old database's migration and a create in the new one; the build prints `Moving Note from default to orders does not copy its data`, so copy the records yourself before applying it.
+
 ## See also
 
 - [CLI](/reference/cli/): the usage line of every command.

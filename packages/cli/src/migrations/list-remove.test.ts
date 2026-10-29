@@ -31,8 +31,8 @@ describe("list", () => {
     await twoMigrations(root);
     await migrate(root, { target: "Initial" });
     expect((await listMigrationStatus(root)).entries).toEqual([
-      { id: "20261015120000_Initial", status: "applied" },
-      { id: "20261015120001_AddAge", status: "pending" },
+      { id: "20261015120000_Initial", status: "applied", database: "default" },
+      { id: "20261015120001_AddAge", status: "pending", database: "default" },
     ]);
   });
 
@@ -41,7 +41,7 @@ describe("list", () => {
     await twoMigrations(root);
     await migrate(root);
     rmSync(join(root, "migrations/20261015120001_AddAge.ts"));
-    expect((await listMigrationStatus(root)).entries).toContainEqual({ id: "20261015120001_AddAge", status: "missing" });
+    expect((await listMigrationStatus(root)).entries).toContainEqual({ id: "20261015120001_AddAge", status: "missing", database: "default" });
   });
 
   test("an unreachable database yields unknown statuses and a warning", async () => {

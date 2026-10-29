@@ -2,7 +2,10 @@ import type { Database } from "bun:sqlite";
 import type { SQL } from "bun";
 import {
   createRepositories,
+  databaseAdapters,
+  DEFAULT_DATABASE,
   jsonLogger,
+  type DatabaseAdapter,
   loadConfig,
   tenantOperations,
   type TenantInfo,
@@ -45,6 +48,8 @@ export class MigrationError extends BuildError {
 export interface MigrateOptions {
   target?: string;
   force?: boolean;
+  /** Migrates only this database (`default` or a name of `databases`). */
+  database?: string;
 }
 
 export interface MigrateResult {
@@ -54,6 +59,8 @@ export interface MigrateResult {
   warnings: string[];
   /** Migrations tables renamed from their previous name before migrating. */
   renamed: RenamedTable[];
+  /** Every step run, with its database. */
+  items: { database: string; id: string; direction: Direction }[];
 }
 
 export interface AppliedMigration {
@@ -354,14 +361,14 @@ function mongoDriver(adapter: MongodbAdapter): MigrationDriver {
   return driver;
 }
 
-function driverFor(config: ResolvedConfig): MigrationDriver {
-  const adapter = config.database as { kind?: string; client?: unknown };
+function driverFor(config: ResolvedConfig, adapter: DatabaseAdapter = config.database): MigrationDriver {
+  const raw = adapter as { kind?: string; client?: unknown };
   const tenancy = config.features.some((feature) => feature.key === "tenancy");
   const withTenancy = (driver: MigrationDriver) => (tenancy ? Object.assign(driver, { tenancy: { skipped: 0 } }) : driver);
-  if (adapter.kind === "sqlite") return withTenancy(sqliteDriver(adapter.client as Database, config.schema));
-  if (adapter.kind === "postgres") return withTenancy(postgresDriver(adapter.client as SQL, config.schema));
-  if (adapter.kind === "mongodb") return mongoDriver(config.database as MongodbAdapter);
-  throw new BuildError(`Migrations are not supported for the ${adapter.kind ?? "configured"} adapter`);
+  if (raw.kind === "sqlite") return withTenancy(sqliteDriver(raw.client as Database, config.schema));
+  if (raw.kind === "postgres") return withTenancy(postgresDriver(raw.client as SQL, config.schema));
+  if (raw.kind === "mongodb") return mongoDriver(adapter as MongodbAdapter);
+  throw new BuildError(`Migrations are not supported for the ${raw.kind ?? "configured"} adapter`);
 }
 
 function resolveTarget(target: string, files: MigrationFile[]): string {
@@ -394,16 +401,38 @@ function planSteps(files: MigrationFile[], applied: AppliedMigration[], target: 
   return [...downs, ...ups];
 }
 
-async function withDriver<T>(projectRoot: string, work: (driver: MigrationDriver, config: ResolvedConfig) => Promise<T>): Promise<T> {
+/** One database a migration runs on: its name, adapter, migration driver and migration files. */
+interface DatabaseDriver {
+  database: string;
+  adapter: DatabaseAdapter;
+  driver: MigrationDriver;
+  files: MigrationFile[];
+}
+
+/**
+ * Connects the configured databases and runs `work` with one driver per database that keeps a schema, default first
+ * then by name (only `database` when given); memory databases are left out.
+ */
+async function withDrivers<T>(projectRoot: string, work: (drivers: DatabaseDriver[], config: ResolvedConfig, named: boolean) => Promise<T>, database?: string): Promise<T> {
   const config = await loadConfig(projectRoot);
-  if (config.database.kind === "memory") throw new BuildError("Migrations are not used with the memory adapter");
-  const models = parseEntities(projectRoot, config.features, { storage: storageConfigured(config) });
+  const all = databaseAdapters(config.database);
+  if (database !== undefined && !all.some(([name]) => name === database)) {
+    throw new BuildError(`Unknown database ${database} (configured: ${all.map(([name]) => name).join(", ")})`);
+  }
+  const chosen = all.filter(([name, adapter]) => adapter.kind !== "memory" && (database === undefined || name === database));
+  if (chosen.length === 0) throw new BuildError("Migrations are not used with the memory adapter");
+  const models = parseEntities(projectRoot, config.features, { storage: storageConfigured(config), databases: Object.keys(config.databases) });
   await config.database.connect(models, { defaultSchema: config.schema });
   try {
-    return await work(driverFor(config), config);
+    const drivers = chosen.map(([name, adapter]) => ({ database: name, adapter, driver: driverFor(config, adapter), files: listMigrations(projectRoot, name) }));
+    return await work(drivers, config, all.length > 1);
   } finally {
     await config.database.disconnect();
   }
+}
+
+async function withDriver<T>(projectRoot: string, work: (driver: MigrationDriver, config: ResolvedConfig) => Promise<T>): Promise<T> {
+  return withDrivers(projectRoot, (drivers, config) => work(drivers[0]!.driver, config), DEFAULT_DATABASE);
 }
 
 /** Reads the applied migrations of the configured database without changing it. */
@@ -417,6 +446,25 @@ export interface MigrationHistory {
   schemas: Map<string, Map<string, string[]>>;
 }
 
+/** The migration history of one database. */
+export interface DatabaseMigrationHistory extends MigrationHistory {
+  database: string;
+  files: MigrationFile[];
+}
+
+/** Reads the history of every database that keeps a schema, with the histories of the given explicit schemas. */
+export function readDatabaseHistories(projectRoot: string, schemas: (database: string) => string[]): Promise<DatabaseMigrationHistory[]> {
+  return withDrivers(projectRoot, async (drivers) => {
+    const histories: DatabaseMigrationHistory[] = [];
+    for (const { database, driver, files } of drivers) {
+      const records = new Map<string, Map<string, string[]>>();
+      for (const schema of schemas(database)) records.set(schema, await driver.readSchemaHistory(schema));
+      histories.push({ database, files, applied: await driver.readHistory(), schemas: records });
+    }
+    return histories;
+  });
+}
+
 /** Reads the default schema's history and the histories of the given explicit schemas without changing them. */
 export function readMigrationHistory(projectRoot: string, schemas: string[]): Promise<MigrationHistory> {
   return withDriver(projectRoot, async (driver) => {
@@ -426,45 +474,67 @@ export function readMigrationHistory(projectRoot: string, schemas: string[]): Pr
   });
 }
 
-/** `quickservicets migrate [target] [--force]` */
+/** `quickservicets migrate [target] [--force] [--database <name>]` */
 export async function migrate(projectRoot: string, options: MigrateOptions = {}): Promise<MigrateResult> {
   const config = await loadConfig(projectRoot);
-  if (config.database.kind === "memory") {
-    return { applied: [], reverted: [], warnings: [], renamed: [], messages: ["Nothing to migrate: the memory adapter keeps no schema"] };
+  if (databaseAdapters(config.database).every(([, adapter]) => adapter.kind === "memory")) {
+    return { applied: [], reverted: [], warnings: [], renamed: [], items: [], messages: ["Nothing to migrate: the memory adapter keeps no schema"] };
   }
-  return withDriver(projectRoot, async (driver, resolved) => {
-    const renamed = await renameLegacyMigrationTables(resolved.database as { kind?: string; client?: unknown });
-    await driver.ensureHistory();
-    const files = listMigrations(projectRoot);
-    const applied = await driver.readHistory();
-    const missing = applied.filter((migration) => !files.some((file) => file.id === migration.id));
-    if (missing.length > 0) {
-      throw new BuildError(`Applied migrations are missing on disk: ${missing.map((migration) => migration.id).join(", ")}`);
-    }
-    const steps = planSteps(files, applied, options.target);
-    const downs = steps.filter((step) => step.direction === "down");
-    if (resolved.production && downs.length > 0 && !options.force) {
-      throw new BuildError(
-        `Reverting migrations in production requires --force (would revert: ${downs.map((step) => step.migration.id).join(", ")})`,
-      );
-    }
-
-    const repos = createRepositories(parseEntities(projectRoot, resolved.features, { storage: storageConfigured(resolved) }), resolved.database) as unknown as Repositories;
-    const result: MigrateResult = { applied: [], reverted: [], messages: [], warnings: driver.warnings, renamed };
-    for (const { migration, direction } of steps) {
-      const module = (await import(migration.file)) as MigrationModule;
-      try {
-        await driver.runStep(migration, direction, module, repos);
-      } catch (error) {
-        throw new MigrationError(`Migration ${migration.id} failed: ${error instanceof Error ? error.message : String(error)}`, driver.warnings);
+  return withDrivers(
+    projectRoot,
+    async (drivers, resolved, named) => {
+      // A target names one database's migration: a name several folders have needs --database.
+      if (options.target !== undefined && options.target !== "0" && options.database === undefined && named) {
+        const holders = drivers.filter(({ files }) => files.some((file) => file.id === options.target || file.name === options.target));
+        if (holders.length > 1) throw new BuildError(`Migration target ${options.target} exists in databases ${holders.map(({ database }) => database).join(", ")}; pass --database <name>`);
+        if (holders.length === 1) drivers = holders;
       }
-      (direction === "up" ? result.applied : result.reverted).push(migration.id);
-      result.messages.push(`${direction === "up" ? "Applied" : "Reverted"} ${migration.id}`);
-    }
-    if (steps.length === 0) result.messages.push("Database is up to date (0 migrations applied)");
-    if (driver.tenancy && driver.tenancy.skipped > 0) result.messages.push(`Skipped ${driver.tenancy.skipped} tenant statements; run quickservicets migrate --all-tenants`);
-    return result;
-  });
+      const label = (database: string, text: string) => (named ? `${database}: ${text}` : text);
+      const plans: { entry: DatabaseDriver; steps: Step[] }[] = [];
+      const renamed: RenamedTable[] = [];
+      for (const entry of drivers) {
+        renamed.push(...(await renameLegacyMigrationTables(entry.adapter as { kind?: string; client?: unknown })));
+        await entry.driver.ensureHistory();
+        const applied = await entry.driver.readHistory();
+        const missing = applied.filter((migration) => !entry.files.some((file) => file.id === migration.id));
+        if (missing.length > 0) {
+          throw new BuildError(label(entry.database, `Applied migrations are missing on disk: ${missing.map((migration) => migration.id).join(", ")}`));
+        }
+        plans.push({ entry, steps: planSteps(entry.files, applied, options.target) });
+      }
+      const downs = plans.flatMap(({ steps }) => steps.filter((step) => step.direction === "down"));
+      if (resolved.production && downs.length > 0 && !options.force) {
+        throw new BuildError(
+          `Reverting migrations in production requires --force (would revert: ${downs.map((step) => step.migration.id).join(", ")})`,
+        );
+      }
+
+      const repos = createRepositories(parseEntities(projectRoot, resolved.features, { storage: storageConfigured(resolved), databases: Object.keys(resolved.databases) }), resolved.database) as unknown as Repositories;
+      const warnings = [...new Set(drivers.flatMap(({ driver }) => driver.warnings))];
+      const result: MigrateResult = { applied: [], reverted: [], messages: [], warnings, renamed, items: [] };
+      for (const { entry, steps } of plans) {
+        for (const { migration, direction } of steps) {
+          const module = (await import(migration.file)) as MigrationModule;
+          try {
+            await entry.driver.runStep(migration, direction, module, repos);
+          } catch (error) {
+            const where = named ? ` in database ${entry.database}` : "";
+            throw new MigrationError(`Migration ${migration.id} failed${where}: ${error instanceof Error ? error.message : String(error)}`, [...new Set([...warnings, ...entry.driver.warnings])]);
+          }
+          (direction === "up" ? result.applied : result.reverted).push(migration.id);
+          result.items.push({ database: entry.database, id: migration.id, direction });
+          result.messages.push(label(entry.database, `${direction === "up" ? "Applied" : "Reverted"} ${migration.id}`));
+        }
+        if (named && steps.length === 0) result.messages.push(label(entry.database, "Database is up to date (0 migrations applied)"));
+      }
+      result.warnings = [...new Set(drivers.flatMap(({ driver }) => driver.warnings))];
+      if (!named && plans.every(({ steps }) => steps.length === 0)) result.messages.push("Database is up to date (0 migrations applied)");
+      const skipped = drivers.reduce((sum, { driver }) => sum + (driver.tenancy?.skipped ?? 0), 0);
+      if (drivers.some(({ driver }) => driver.tenancy) && skipped > 0) result.messages.push(`Skipped ${skipped} tenant statements; run quickservicets migrate --all-tenants`);
+      return result;
+    },
+    options.database,
+  );
 }
 
 export interface TenantMigrateOptions {

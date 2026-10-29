@@ -1,4 +1,15 @@
-import { buildDrizzleSchema, loadConfig, SQLITE_DEFAULT_SCHEMA_TOKEN, storageConfigured, type EntityModel, type SqlDialect } from "@quickservicets/core";
+import {
+  buildDrizzleSchema,
+  databaseAdapters,
+  databaseModels,
+  DEFAULT_DATABASE,
+  loadConfig,
+  SQLITE_DEFAULT_SCHEMA_TOKEN,
+  storageConfigured,
+  type EntityModel,
+  type ResolvedConfig,
+  type SqlDialect,
+} from "@quickservicets/core";
 import { getTableConfig as pgTableConfig } from "drizzle-orm/pg-core";
 import { getTableConfig as sqliteTableConfig } from "drizzle-orm/sqlite-core";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -12,7 +23,7 @@ import { sharedStatementResolver, statementSchemaResolver } from "./statement-sc
 import {
   drizzleSnapshot,
   listMigrations,
-  MIGRATIONS_DIR,
+  migrationsFolder,
   readLatestSnapshot,
   writeSnapshot,
   type DrizzleSnapshot,
@@ -41,6 +52,18 @@ export interface CreatedMigration {
   id: string;
   file: string;
   snapshot: string;
+  /** The database the migration is for: `default`, or a name of `databases`. */
+  database?: string;
+}
+
+/** What `migration add` wrote: the first migration, every migration with its database, and the skipped memory databases. */
+export interface AddedMigrations extends CreatedMigration {
+  database: string;
+  migrations: (CreatedMigration & { database: string })[];
+  /** Named databases on the memory adapter, which keep no schema. */
+  skipped: string[];
+  /** Every database of the project, `default` first. */
+  databases: string[];
 }
 
 export function sqlDialectOf(kind: string | undefined): SqlDialect | undefined {
@@ -48,8 +71,8 @@ export function sqlDialectOf(kind: string | undefined): SqlDialect | undefined {
 }
 
 /** Diffs the current models against the latest migration snapshot. */
-export async function planMigration(projectRoot: string, models: EntityModel[], dialect: SqlDialect): Promise<MigrationPlan> {
-  const previous = readLatestSnapshot(projectRoot);
+export async function planMigration(projectRoot: string, models: EntityModel[], dialect: SqlDialect, database?: string): Promise<MigrationPlan> {
+  const previous = readLatestSnapshot(projectRoot, database);
   const previousModels = previous?.models ?? [];
   const before = previous && previous.dialect !== "mongodb" ? previous.drizzle : await drizzleSnapshot([], dialect);
   const after = await drizzleSnapshot(models, dialect);
@@ -141,16 +164,17 @@ function renameTables(snapshot: DrizzleSnapshot, renames: TableRename[], dialect
   return { ...snapshot, tables };
 }
 
-export async function hasPendingChanges(projectRoot: string, models: EntityModel[], dialect: SqlDialect): Promise<boolean> {
-  return (await planMigration(projectRoot, models, dialect)).up.length > 0;
+export async function hasPendingChanges(projectRoot: string, models: EntityModel[], dialect: SqlDialect, database?: string): Promise<boolean> {
+  return (await planMigration(projectRoot, models, dialect, database)).up.length > 0;
 }
 
 function timestamp(date: Date): string {
   return date.toISOString().replace(/[-:T]/g, "").slice(0, 14);
 }
 
-function nextId(projectRoot: string, name: string, now: Date): string {
-  const latest = listMigrations(projectRoot).at(-1)?.id.slice(0, 14);
+function nextId(projectRoot: string, name: string, now: Date, databases: readonly string[] = [DEFAULT_DATABASE]): string {
+  // One timestamp for every database, after the latest migration of any of them.
+  const latest = databases.flatMap((database) => listMigrations(projectRoot, database).map((migration) => migration.id.slice(0, 14))).sort().at(-1);
   let stamp = timestamp(now);
   if (latest && stamp <= latest) {
     // Keep ids strictly increasing even when two migrations are created within the same second.
@@ -201,49 +225,100 @@ ${body(plan.down, plan.downSchemas, plan.downShared)}
 `;
 }
 
-/** Writes a migration and its snapshot for an already computed plan. */
-export function writeMigration(projectRoot: string, name: string, plan: AnyPlan, now = new Date()): CreatedMigration {
+/** Writes a migration and its snapshot for an already computed plan, in the folder of `database`. */
+export function writeMigration(projectRoot: string, name: string, plan: AnyPlan, now = new Date(), database?: string, id?: string): CreatedMigration {
   if (!MIGRATION_NAME.test(name)) {
     throw new BuildError(`Migration names must be PascalCase and match ^[A-Z][A-Za-z0-9]*$ (got "${name}")`);
   }
-  const existing = listMigrations(projectRoot).find((migration) => migration.name === name);
+  const existing = listMigrations(projectRoot, database).find((migration) => migration.name === name);
   if (existing) throw new BuildError(`A migration named ${name} already exists: ${existing.id}`);
-  const id = nextId(projectRoot, name, now);
-  mkdirSync(join(projectRoot, MIGRATIONS_DIR), { recursive: true });
-  const file = join(projectRoot, MIGRATIONS_DIR, `${id}.ts`);
+  const migrationId = id ?? nextId(projectRoot, name, now);
+  const folder = migrationsFolder(projectRoot, database);
+  mkdirSync(folder, { recursive: true });
+  const file = join(folder, `${migrationId}.ts`);
   writeFileSync(file, migrationSource(plan));
   const snapshot = writeSnapshot(
     projectRoot,
-    id,
+    migrationId,
     plan.dialect === "mongodb"
       ? { dialect: "mongodb", models: plan.models, indexes: plan.indexes }
       : { dialect: plan.dialect, models: plan.models, drizzle: plan.drizzle },
+    database,
   );
-  return { id, file: relative(projectRoot, file), snapshot: relative(projectRoot, snapshot) };
+  return { id: migrationId, file: relative(projectRoot, file), snapshot: relative(projectRoot, snapshot) };
 }
 
-async function migrationProject(projectRoot: string): Promise<{ dialect: SqlDialect | "mongodb"; models: EntityModel[] }> {
+/** One database a migration command works on: its name, kind, dialect (none for memory) and models. */
+export interface MigrationTarget {
+  database: string;
+  kind: string | undefined;
+  dialect?: SqlDialect | "mongodb";
+  models: EntityModel[];
+}
+
+/** The dialect of an adapter kind, or undefined for memory; fails for an adapter migrations do not support. */
+function dialectOfKind(kind: string | undefined): SqlDialect | "mongodb" | undefined {
+  if (kind === "memory") return undefined;
+  const dialect = kind === "mongodb" ? "mongodb" : sqlDialectOf(kind);
+  if (!dialect) throw new BuildError(`Migrations are not supported for the ${kind ?? "configured"} adapter`);
+  return dialect;
+}
+
+/** Every database of a resolved config with the models whose tables live in it: default first, then by name. */
+export function migrationTargets(config: ResolvedConfig, models: EntityModel[]): MigrationTarget[] {
+  return databaseAdapters(config.database).map(([database, adapter]) => {
+    const dialect = dialectOfKind(adapter.kind);
+    return { database, kind: adapter.kind, ...(dialect ? { dialect } : {}), models: databaseModels(models, database) };
+  });
+}
+
+/** The project's databases with their models, failing when every one is memory. */
+async function migrationProject(projectRoot: string): Promise<MigrationTarget[]> {
   const config = await loadConfig(projectRoot);
-  if (config.database.kind === "memory") throw new BuildError("Migrations are not used with the memory adapter");
-  const dialect = config.database.kind === "mongodb" ? "mongodb" : sqlDialectOf(config.database.kind);
-  if (!dialect) throw new BuildError(`Migrations are not supported for the ${config.database.kind ?? "configured"} adapter`);
-  return { dialect, models: parseEntities(projectRoot, config.features, { storage: storageConfigured(config) }) };
+  const models = parseEntities(projectRoot, config.features, { storage: storageConfigured(config), databases: Object.keys(config.databases) });
+  const targets = migrationTargets(config, models);
+  if (targets.every((target) => !target.dialect)) throw new BuildError("Migrations are not used with the memory adapter");
+  return targets;
 }
 
-async function planFor(projectRoot: string): Promise<AnyPlan> {
-  const { dialect, models } = await migrationProject(projectRoot);
-  return dialect === "mongodb" ? planMongoMigration(projectRoot, models) : planMigration(projectRoot, models, dialect);
+async function planOf(projectRoot: string, target: MigrationTarget): Promise<AnyPlan> {
+  // The default database keeps the folder's historical calls, without a database name.
+  const database = target.database === DEFAULT_DATABASE ? undefined : target.database;
+  return target.dialect === "mongodb" ? planMongoMigration(projectRoot, target.models, database) : planMigration(projectRoot, target.models, target.dialect!, database);
+}
+
+/**
+ * Writes one migration, with one timestamp and name, for every database whose model changed (only the default
+ * database's empty migration when none changed), skipping memory databases.
+ */
+async function addFor(projectRoot: string, name: (plans: { target: MigrationTarget; plan: AnyPlan }[]) => string | undefined, now: Date): Promise<AddedMigrations | undefined> {
+  const targets = await migrationProject(projectRoot);
+  const skipped = targets.filter((target) => !target.dialect).map((target) => target.database);
+  const plans: { target: MigrationTarget; plan: AnyPlan }[] = [];
+  for (const target of targets) if (target.dialect) plans.push({ target, plan: await planOf(projectRoot, target) });
+  const changed = plans.filter(({ plan }) => plan.up.length > 0);
+  const chosen = name(changed);
+  if (chosen === undefined) return undefined;
+  const writing = changed.length > 0 ? changed : plans.filter(({ target }) => target.database === DEFAULT_DATABASE).slice(0, 1);
+  if (writing.length === 0) writing.push(plans[0]!);
+  const id = nextId(projectRoot, chosen, now, targets.map((target) => target.database));
+  const migrations = writing.map(({ target, plan }) => ({
+    ...writeMigration(projectRoot, chosen, plan, now, target.database === DEFAULT_DATABASE ? undefined : target.database, id),
+    database: target.database,
+  }));
+  return { ...migrations[0]!, migrations, skipped, databases: targets.map((target) => target.database) };
 }
 
 /** `quickservicets migration add <Name>` */
-export async function addMigration(projectRoot: string, name: string, now = new Date()): Promise<CreatedMigration> {
-  return writeMigration(projectRoot, name, await planFor(projectRoot), now);
+export async function addMigration(projectRoot: string, name: string, now = new Date()): Promise<AddedMigrations> {
+  return (await addFor(projectRoot, () => name, now))!;
 }
 
 /** Creates a migration named after the change, or returns undefined when nothing changed. Used by `dev`. */
-export async function addAutomaticMigration(projectRoot: string, now = new Date()): Promise<CreatedMigration | undefined> {
-  const plan = await planFor(projectRoot);
-  const models = plan.models;
-  if (plan.up.length === 0) return undefined;
-  return writeMigration(projectRoot, suggestMigrationName(plan.previousModels, models), plan, now);
+export async function addAutomaticMigration(projectRoot: string, now = new Date()): Promise<AddedMigrations | undefined> {
+  return addFor(
+    projectRoot,
+    (changed) => (changed.length === 0 ? undefined : suggestMigrationName(changed.flatMap(({ plan }) => plan.previousModels), changed.flatMap(({ plan }) => plan.models))),
+    now,
+  );
 }

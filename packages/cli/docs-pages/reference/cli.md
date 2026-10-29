@@ -71,10 +71,10 @@ quickservicets build
 
 ## `migrate`
 
-Applies pending migrations, or migrates up or down to the target migration; with tenancy, --tenant and --all-tenants migrate tenants.
+Applies pending migrations of every database (default first, then by name), or migrates up or down to the target migration; --database limits it to one; with tenancy, --tenant and --all-tenants migrate tenants.
 
 ```bash
-quickservicets migrate [target] [--force] [--tenant <id> | --all-tenants [--concurrency <n>] [--continue-on-error]]
+quickservicets migrate [target] [--force] [--database <name>] [--tenant <id> | --all-tenants [--concurrency <n>] [--continue-on-error]]
 ```
 
 **JSON (`--json`):**
@@ -87,6 +87,13 @@ quickservicets migrate [target] [--force] [--tenant <id> | --all-tenants [--conc
   ],
   "reverted": [
     "string"
+  ],
+  "items": [
+    {
+      "database": "string",
+      "id": "string",
+      "direction": "string"
+    }
   ],
   "messages": [
     "string"
@@ -111,13 +118,24 @@ quickservicets migration add <Name>
 {
   "ok": true,
   "id": "string",
-  "file": "string"
+  "file": "string",
+  "database": "string",
+  "migrations": [
+    {
+      "database": "string",
+      "id": "string",
+      "file": "string"
+    }
+  ],
+  "skipped": [
+    "string"
+  ]
 }
 ```
 
 ## `migration list`
 
-Lists the migrations and whether each one is applied.
+Lists the migrations of every database and whether each one is applied, grouped by database.
 
 ```bash
 quickservicets migration list
@@ -132,6 +150,7 @@ quickservicets migration list
     {
       "id": "string",
       "status": "string",
+      "database": "string",
       "schemas": [
         {
           "schema": "string",

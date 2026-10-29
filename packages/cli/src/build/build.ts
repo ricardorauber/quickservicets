@@ -25,6 +25,9 @@ import {
   storageConfigured,
   crossDatabaseReferences,
   crossDatabaseWarning,
+  databaseAdapters,
+  databaseModels,
+  DEFAULT_DATABASE,
 } from "@quickservicets/core";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -88,6 +91,37 @@ export interface BuildSummary {
 
 export const PENDING_MIGRATION_WARNING =
   'Model has changes without a migration. Run "quickservicets migration add <Name>"';
+
+/** The build line naming the databases whose model changed without a migration. */
+export const pendingMigrationsWarning = (databases: readonly string[]) =>
+  `Model has changes without a migration in ${databases.join(", ")}. Run "quickservicets migration add <Name>"`;
+
+/** The build line of an entity that moved to another database since the last migrations. */
+export const movedEntityWarning = (entity: string, from: string, to: string) => `Moving ${entity} from ${from} to ${to} does not copy its data`;
+
+/**
+ * With named databases: the databases with model changes without a migration (SQL ones, as without named databases),
+ * and one line per entity that moved between databases since their last migrations.
+ */
+async function databaseMigrationWarnings(projectRoot: string, config: ResolvedConfig, models: EntityModel[]): Promise<string[]> {
+  const targets = databaseAdapters(config.database).map(([database, adapter]) => ({ database, kind: adapter.kind, models: databaseModels(models, database) }));
+  const folder = (database: string) => (database === DEFAULT_DATABASE ? undefined : database);
+  const pending: string[] = [];
+  for (const target of targets) {
+    const dialect = sqlDialectOf(target.kind);
+    if (dialect && (await hasPendingChanges(projectRoot, target.models, dialect, folder(target.database)))) pending.push(target.database);
+  }
+  const warnings = pending.length > 0 ? [pendingMigrationsWarning(pending)] : [];
+  const before = new Map(targets.map((target) => [target.database, new Set((readLatestSnapshot(projectRoot, folder(target.database))?.models ?? []).map((model) => model.key))]));
+  for (const to of targets) {
+    for (const model of to.models) {
+      if (before.get(to.database)!.has(model.key)) continue;
+      const from = targets.find((other) => other !== to && before.get(other.database)!.has(model.key) && !other.models.some((candidate) => candidate.key === model.key));
+      if (from) warnings.push(movedEntityWarning(model.entityName, from.database, to.database));
+    }
+  }
+  return warnings;
+}
 
 interface ResolvedEndpoint {
   route: EndpointRoute;
@@ -533,7 +567,11 @@ async function buildProject(projectRoot: string, config: ResolvedConfig, options
   // With auth on, a provider documents how to authenticate; without one, generated clients cannot.
   if (config.features.some((feature) => feature.key === "auth") && Object.keys(openApi.components?.securitySchemes ?? {}).length === 0) warnings.push(NO_AUTH_SCHEME_WARNING);
   warnings.push(...droppedFileEntityWarnings(readLatestSnapshot(projectRoot)?.models ?? [], models));
-  const dialect = sqlDialectOf(config.database.kind);
-  if (dialect && (await hasPendingChanges(projectRoot, models, dialect))) warnings.push(PENDING_MIGRATION_WARNING);
+  if (Object.keys(config.databases).length === 0) {
+    const dialect = sqlDialectOf(config.database.kind);
+    if (dialect && (await hasPendingChanges(projectRoot, models, dialect))) warnings.push(PENDING_MIGRATION_WARNING);
+  } else {
+    warnings.push(...(await databaseMigrationWarnings(projectRoot, config, models)));
+  }
   return { entities: models.length, endpoints: endpoints.length, hooks: hooks.size, features: featureKeys.length, overrides, fromFeatures: scanned.fromFeatures, watch: featureWatchPaths(config.features), buildInputs: Object.fromEntries(config.features.filter((feature) => feature.definition.build).map((feature) => [feature.key, featureWatchPaths([feature])])), buildSteps, warnings };
 }

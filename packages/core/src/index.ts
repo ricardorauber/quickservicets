@@ -1,6 +1,6 @@
 export { CODES_BY_STATUS, HttpError, codeForStatus, toErrorResponse } from "./errors.ts";
 export type { ErrorResponseOptions, FieldErrorDetail, HttpErrorOptions } from "./errors.ts";
-export { configureDatabaseRelay, databaseRelaySweeper, databaseStagedModel, moveStagedRow, relayAllDatabases, relayDatabase, RELAY_SWEEP_MS, STAGED_TABLES, stagedSystemTarget } from "./database-staging.ts";
+export { configureDatabaseRelay, databaseModels, databaseRelaySweeper, databaseStagedModel, moveStagedRow, relayAllDatabases, relayDatabase, RELAY_SWEEP_MS, STAGED_TABLES, stagedSystemTarget } from "./database-staging.ts";
 export { acrossDatabases, connectedModels, featureDatabaseProblem, placeFeatureEntities, CrossDatabaseTransactionError, currentTransactionDatabase, outsideTransaction, transactionDatabase, crossDatabaseReferences, crossDatabaseWarning, DATABASE_NAME, DEFAULT_DATABASE, databaseAdapters, databaseOf, databaseRouter, databaseUrlVariable, errorDatabase, isDatabaseRouter, resolveDatabases } from "./named-databases.ts";
 export type { CrossDatabaseReference, DatabaseRouter, DatabaseRouterOptions, DatabaseTenancy, NamedDatabaseConfig, NamedDatabaseEntry, ResolvedDatabase } from "./named-databases.ts";
 export { alwaysHiddenPaths, CRUD_OPERATIONS, entityRoutePath, hiddenPathsFor, SYSTEM_FIELDS, vectorFields } from "./model.ts";

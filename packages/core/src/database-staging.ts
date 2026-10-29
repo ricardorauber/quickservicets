@@ -1,7 +1,7 @@
 import type { DatabaseAdapter, StoredRecord } from "./adapter.ts";
 import type { EntityModel, FieldModel } from "./model.ts";
 import { jsonLogger, safeLog, type Logger } from "./logger.ts";
-import { connectedModels, databaseOf, isDatabaseRouter, outsideTransaction, transactionDatabase, type DatabaseRouter } from "./named-databases.ts";
+import { connectedModels, DEFAULT_DATABASE, databaseOf, isDatabaseRouter, outsideTransaction, transactionDatabase, type DatabaseRouter } from "./named-databases.ts";
 import { afterCommit, currentTransaction } from "./transactions.ts";
 
 /** The staging table of each core model whose rows a transaction of another database stages. */
@@ -160,4 +160,22 @@ export function databaseRelaySweeper(adapter: DatabaseAdapter) {
       await running;
     },
   };
+}
+
+/** Whether `name` holds project entities (the default database always does), so it has the per-database tables. */
+function holdsEntities(models: readonly EntityModel[], name: string): boolean {
+  return name === DEFAULT_DATABASE || models.some((model) => !model.feature && !model.system && !model.link && databaseOf(model) === name);
+}
+
+/**
+ * The models whose tables live in database `name`: the entities placed there, the per-database tables when it holds
+ * entities, and the staging tables of the core rows its transactions may stage for another database. Without named
+ * databases (no model records one), every model lives in the default database.
+ */
+export function databaseModels(models: readonly EntityModel[], name: string): EntityModel[] {
+  if (!models.some((model) => model.database !== undefined)) return name === DEFAULT_DATABASE ? [...models] : [];
+  const holds = holdsEntities(models, name);
+  const own = models.filter((model) => (model.perDatabase ? holds : databaseOf(model) === name));
+  const staged = holds ? stagedCoreModels(models).filter((model) => !model.perDatabase && databaseOf(model) !== name).map((model) => databaseStagedModel(model, name)) : [];
+  return [...own, ...staged];
 }

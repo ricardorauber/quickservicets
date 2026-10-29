@@ -1,5 +1,7 @@
 import {
   currentMeter,
+  isDatabaseRouter,
+  tenancyStrategyProblems,
   metricsEnabled,
   type ObservableGauge,
   afterCommit,
@@ -379,6 +381,9 @@ const tenancyFeature = defineFeature({
     if (usesDatabases && typeof root.forConnection !== "function") {
       throw new Error(`tenancy strategy "database" needs an adapter with forConnection(); the ${root.kind ?? "configured"} adapter has none`);
     }
+    // With named databases, each per-tenant one needs what the strategies use.
+    const [namedProblem] = tenancyStrategyProblems(root, { schema: ctx.options.strategy !== "database", database: usesDatabases });
+    if (namedProblem) throw new Error(namedProblem);
     // Each tenant's request runs in its database scope: hooks, handlers, transactions, queues and events use it.
     enableDatabaseScopes();
     setRepositoryResolver(() => currentDatabaseScope().repos, { run: () => currentDatabaseScope().repos });
@@ -492,6 +497,7 @@ const tenancyFeature = defineFeature({
         scope = {
           key: `tenant:${tenant.id}`,
           adapter: pool.adapter,
+          ...(isDatabaseRouter(pool.adapter) ? { databases: pool.adapter.databases } : {}),
           repos: tenantRepositories(currentDatabaseScope().repos, pool.adapter),
           tenant: { id: tenant.id, ...(tenant.plan !== undefined ? { plan: tenant.plan } : {}) },
           // Inside the tenant's transactions, queue and outbox rows are staged in its database; outside, they go to
@@ -698,7 +704,7 @@ export type { TenantSource } from "./resolve.ts";
 export type { TenancyApi } from "./api.ts";
 export { cachedDirectory, configDirectory, databaseDirectory, directoryClock, serviceDirectory, tenantEntity, TENANT_FIELDS, tenantInfoOf } from "./directory.ts";
 export type { CachedDirectory, DirectoryCacheOptions, TenantDirectory, TenantInfo } from "./directory.ts";
-export { crossTenancyReferences, markTenancy, SHARED_ENTITY_KEYS, withoutTenancyMarks } from "./models.ts";
+export { crossTenancyReferences, databaseTenancyProblems, markTenancy, SHARED_ENTITY_KEYS, withoutTenancyMarks } from "./models.ts";
 export { maskConnections, tenantPools } from "./pools.ts";
 export { RELAY_MIN_AGE_MS, STAGED_TABLES, stagedModel, stagingModels, stagingTableStatement, tenantRelay } from "./relay.ts";
 export type { RelayOptions, TenantRelay } from "./relay.ts";

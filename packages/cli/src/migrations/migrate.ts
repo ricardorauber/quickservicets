@@ -25,7 +25,7 @@ import {
 } from "@quickservicets/core";
 import { drizzle as drizzleSqlite } from "drizzle-orm/bun-sqlite";
 import { drizzle as drizzlePostgres } from "drizzle-orm/bun-sql";
-import { parseProjectEntities as parseEntities } from "../entities/parse-entities.ts";
+import { databaseTenancyOf, parseProjectEntities as parseEntities } from "../entities/parse-entities.ts";
 import { BuildError } from "../errors.ts";
 import { listMigrations, type MigrationFile } from "./snapshot.ts";
 
@@ -421,7 +421,7 @@ async function withDrivers<T>(projectRoot: string, work: (drivers: DatabaseDrive
   }
   const chosen = all.filter(([name, adapter]) => adapter.kind !== "memory" && (database === undefined || name === database));
   if (chosen.length === 0) throw new BuildError("Migrations are not used with the memory adapter");
-  const models = parseEntities(projectRoot, config.features, { storage: storageConfigured(config), databases: Object.keys(config.databases) });
+  const models = parseEntities(projectRoot, config.features, { storage: storageConfigured(config), databases: Object.keys(config.databases), databaseTenancy: databaseTenancyOf(config) });
   await config.database.connect(models, { defaultSchema: config.schema });
   try {
     const drivers = chosen.map(([name, adapter]) => ({ database: name, adapter, driver: driverFor(config, adapter), files: listMigrations(projectRoot, name) }));
@@ -509,7 +509,7 @@ export async function migrate(projectRoot: string, options: MigrateOptions = {})
         );
       }
 
-      const repos = createRepositories(parseEntities(projectRoot, resolved.features, { storage: storageConfigured(resolved), databases: Object.keys(resolved.databases) }), resolved.database) as unknown as Repositories;
+      const repos = createRepositories(parseEntities(projectRoot, resolved.features, { storage: storageConfigured(resolved), databases: Object.keys(resolved.databases), databaseTenancy: databaseTenancyOf(resolved) }), resolved.database) as unknown as Repositories;
       const warnings = [...new Set(drivers.flatMap(({ driver }) => driver.warnings))];
       const result: MigrateResult = { applied: [], reverted: [], messages: [], warnings, renamed, items: [] };
       for (const { entry, steps } of plans) {
@@ -563,7 +563,7 @@ export async function migrateTenants(projectRoot: string, options: TenantMigrate
   if (options.allTenants) messages.push(...(await migrate(projectRoot)).messages);
   const config = await loadConfig(projectRoot);
   if (!config.features.some((feature) => feature.key === "tenancy")) throw new BuildError("migrate --tenant and --all-tenants need tenancy: {} in quickservicets.config.ts");
-  const models = parseEntities(projectRoot, config.features, { storage: storageConfigured(config) });
+  const models = parseEntities(projectRoot, config.features, { storage: storageConfigured(config), databases: Object.keys(config.databases), databaseTenancy: databaseTenancyOf(config) });
   await config.database.connect(models, { defaultSchema: config.schema });
   const failed: string[] = [];
   try {
@@ -571,7 +571,11 @@ export async function migrateTenants(projectRoot: string, options: TenantMigrate
     const migrateOne = async (tenant: TenantInfo) => {
       const applied = await operations.migrate(tenant);
       if (applied.length === 0) messages.push(`${tenant.id}: Up to date`);
-      for (const id of applied) messages.push(`${tenant.id}: Applied ${id}`);
+      // With named databases each applied migration names its database: `acme: orders: Applied <id>`.
+      for (const id of applied) {
+        const [database, own] = id.includes(": ") ? id.split(": ") : [undefined, id];
+        messages.push(database ? `${tenant.id}: ${database}: Applied ${own}` : `${tenant.id}: Applied ${id}`);
+      }
     };
     if (options.tenant !== undefined) {
       const tenant = await operations.directory.find(options.tenant);

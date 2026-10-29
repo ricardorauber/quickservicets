@@ -1,4 +1,4 @@
-import { currentDatabaseScope, HttpError, safeLog, schemaIdentifier, tenantRepositories, type DatabaseAdapter, type DatabaseScope, type EntityModel, type Logger } from "../public.ts";
+import { currentDatabaseScope, HttpError, isDatabaseRouter, safeLog, schemaIdentifier, tenantRepositories, type DatabaseAdapter, type DatabaseScope, type EntityModel, type Logger } from "../public.ts";
 import type { TenantInfo } from "./directory.ts";
 import { MONGO_MIGRATIONS_COLLECTION } from "./migrate.ts";
 
@@ -69,7 +69,14 @@ export function tenantScopes(options: TenantScopesOptions) {
       const adapter = options.root.withSchema!(name);
       // The root scope's registry holds the shared repositories every tenant uses.
       const repos = tenantRepositories(currentDatabaseScope().repos, adapter);
-      const scope: DatabaseScope = { key: `tenant:${tenant.id}`, adapter, repos, tenant: { id: tenant.id, ...(tenant.plan !== undefined ? { plan: tenant.plan } : {}) } };
+      const scope: DatabaseScope = {
+        key: `tenant:${tenant.id}`,
+        adapter,
+        repos,
+        tenant: { id: tenant.id, ...(tenant.plan !== undefined ? { plan: tenant.plan } : {}) },
+        // With named databases, the tenant's copy of each per-tenant one and the shared ones.
+        ...(isDatabaseRouter(adapter) ? { databases: adapter.databases } : {}),
+      };
       scopes.set(key, scope);
       return scope;
     },

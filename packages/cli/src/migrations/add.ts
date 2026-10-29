@@ -3,6 +3,7 @@ import {
   databaseAdapters,
   databaseModels,
   DEFAULT_DATABASE,
+  tenantDatabaseModels,
   loadConfig,
   SQLITE_DEFAULT_SCHEMA_TOKEN,
   storageConfigured,
@@ -14,7 +15,7 @@ import { getTableConfig as pgTableConfig } from "drizzle-orm/pg-core";
 import { getTableConfig as sqliteTableConfig } from "drizzle-orm/sqlite-core";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { parseProjectEntities as parseEntities } from "../entities/parse-entities.ts";
+import { databaseTenancyOf, parseProjectEntities as parseEntities } from "../entities/parse-entities.ts";
 import { BuildError } from "../errors.ts";
 import { diffSnapshots, losesData } from "./diff.ts";
 import { planMongoMigration, type MongoMigrationPlan } from "./mongo.ts";
@@ -268,14 +269,16 @@ function dialectOfKind(kind: string | undefined): SqlDialect | "mongodb" | undef
 export function migrationTargets(config: ResolvedConfig, models: EntityModel[]): MigrationTarget[] {
   return databaseAdapters(config.database).map(([database, adapter]) => {
     const dialect = dialectOfKind(adapter.kind);
-    return { database, kind: adapter.kind, ...(dialect ? { dialect } : {}), models: databaseModels(models, database) };
+    // A per-tenant named database places its entities in each tenant's schema, whatever their folder.
+    const placed = databaseModels(models, database);
+    return { database, kind: adapter.kind, ...(dialect ? { dialect } : {}), models: config.databases[database]?.tenancy === "per-tenant" ? tenantDatabaseModels(placed) : placed };
   });
 }
 
 /** The project's databases with their models, failing when every one is memory. */
 async function migrationProject(projectRoot: string): Promise<MigrationTarget[]> {
   const config = await loadConfig(projectRoot);
-  const models = parseEntities(projectRoot, config.features, { storage: storageConfigured(config), databases: Object.keys(config.databases) });
+  const models = parseEntities(projectRoot, config.features, { storage: storageConfigured(config), databases: Object.keys(config.databases), databaseTenancy: databaseTenancyOf(config) });
   const targets = migrationTargets(config, models);
   if (targets.every((target) => !target.dialect)) throw new BuildError("Migrations are not used with the memory adapter");
   return targets;

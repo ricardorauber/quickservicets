@@ -22,7 +22,15 @@ export interface NamedDatabaseConfig {
   adapter: DatabaseAdapter;
   /** `per-tenant` or `shared` while the `tenancy` native is enabled (default `per-tenant`). */
   tenancy?: DatabaseTenancy;
+  /**
+   * The connection of each database-strategy tenant's copy of this database: a text with `{tenant}`, like
+   * `orders_{tenant}.db`, or a function `({ tenant }) => connection`.
+   */
+  tenantConnection?: TenantConnection;
 }
+
+/** The connection of a tenant's copy of a named database: a template with `{tenant}`, or a function of the tenant. */
+export type TenantConnection = string | ((context: { tenant: { id: string } }) => unknown);
 
 /** One entry of the `databases` config key: an adapter, or an adapter with its settings. */
 export type NamedDatabaseEntry = DatabaseAdapter | NamedDatabaseConfig;
@@ -31,7 +39,9 @@ export type NamedDatabaseEntry = DatabaseAdapter | NamedDatabaseConfig;
 export interface ResolvedDatabase {
   name: string;
   adapter: DatabaseAdapter;
+  /** Set while the `tenancy` native is enabled: `per-tenant` (the default) or `shared`. */
   tenancy?: DatabaseTenancy;
+  tenantConnection?: TenantConnection;
 }
 
 /** The database an entity lives in: its `database`, or `default`. */
@@ -112,7 +122,11 @@ export function databaseConnectionSecrets(): readonly string[] {
  * Validates the `databases` config key and applies `QS_DATABASES_<NAME>_URL` to each entry through its adapter's
  * `forConnection`. Fails with `Invalid databases.<name>: <reason>` for a bad name or entry.
  */
-export function resolveDatabases(input: unknown, env: Record<string, string | undefined>): Record<string, ResolvedDatabase> {
+export function resolveDatabases(
+  input: unknown,
+  env: Record<string, string | undefined>,
+  options: { tenancy?: boolean; warnings?: string[] } = {},
+): Record<string, ResolvedDatabase> {
   connectionSecrets = [];
   if (input === undefined || input === null) return {};
   if (!isObject(input)) throw new ConfigError("Invalid databases: expected an object of named database adapters, like { orders: postgresAdapter({ url }) }");
@@ -123,7 +137,7 @@ export function resolveDatabases(input: unknown, env: Record<string, string | un
     if (!DATABASE_NAME.test(name)) throw new ConfigError(`Invalid databases.${name}: names must match ^[a-z][a-z0-9-]*$`);
     const settings = isAdapter(entry) ? { adapter: entry } : entry;
     if (!isObject(settings) || !isAdapter(settings.adapter)) {
-      throw new ConfigError(`Invalid databases.${name}: expected a database adapter or { adapter, tenancy? }`);
+      throw new ConfigError(`Invalid databases.${name}: expected a database adapter or { adapter, tenancy?, tenantConnection? }`);
     }
     const tenancy = settings.tenancy;
     if (tenancy !== undefined && tenancy !== "per-tenant" && tenancy !== "shared") {
@@ -142,7 +156,16 @@ export function resolveDatabases(input: unknown, env: Record<string, string | un
       }
       secrets.push(connection);
     }
-    resolved[name] = { name, adapter, ...(tenancy ? { tenancy } : {}) };
+    const tenantConnection = settings.tenantConnection;
+    if (tenantConnection !== undefined && typeof tenantConnection !== "string" && typeof tenantConnection !== "function") {
+      throw new ConfigError(`Invalid databases.${name}: tenantConnection must be a text with {tenant} or a function of the tenant`);
+    }
+    // Without the tenancy native every database is global, and a tenancy setting is ignored with a warning.
+    if (!options.tenancy && (tenancy !== undefined || tenantConnection !== undefined)) {
+      options.warnings?.push(`databases.${name}.${tenancy !== undefined ? "tenancy" : "tenantConnection"} has no effect without the tenancy native`);
+    }
+    const effective = options.tenancy ? (tenancy ?? "per-tenant") : undefined;
+    resolved[name] = { name, adapter, ...(effective ? { tenancy: effective } : {}), ...(options.tenancy && tenantConnection !== undefined ? { tenantConnection: tenantConnection as TenantConnection } : {}) };
   }
   connectionSecrets = secrets;
   return resolved;
@@ -298,6 +321,60 @@ const OPTIONAL = ["increment", "insertOrSkip", "deleteAndPull", "lockForUpdate",
 export interface DatabaseRouterOptions {
   /** Receives `database <name> holds no entity` (default: JSON lines on stdout). */
   logger?: Logger;
+  /** With the tenancy native, whether each named database is split per tenant or shared. */
+  tenancy?: Readonly<Record<string, DatabaseTenancy>>;
+  /** The `tenantConnection` of each per-tenant named database, for database-strategy tenants. */
+  tenantConnections?: Readonly<Record<string, TenantConnection>>;
+}
+
+/** The copy of each model without its explicit schema, which a per-tenant database places in the tenant's schema. */
+const withoutSchemas = new WeakMap<EntityModel, EntityModel>();
+const schemaless = (model: EntityModel): EntityModel => {
+  if (model.schema === null) return model;
+  let found = withoutSchemas.get(model);
+  if (!found) {
+    const { schemaKey: _key, ...rest } = model;
+    found = { ...rest, schema: null };
+    withoutSchemas.set(model, found);
+  }
+  return found;
+};
+
+/** The models of a per-tenant database: their explicit schemas (chosen by the folder) do not place their tables. */
+export function tenantDatabaseModels(models: readonly EntityModel[]): EntityModel[] {
+  return models.map(schemaless);
+}
+
+const tenantViews = new WeakMap<DatabaseAdapter, DatabaseAdapter>();
+
+/**
+ * A view of the adapter of a per-tenant named database in which every entity lives in the database's default place
+ * (a tenant's schema in its schema views): the module folder chose the database, not a schema of it.
+ */
+function tenantDatabaseView(adapter: DatabaseAdapter): DatabaseAdapter {
+  const known = tenantViews.get(adapter);
+  if (known) return known;
+  const strip = (value: unknown): unknown => {
+    if (typeof value !== "object" || value === null) return value;
+    if (Array.isArray(value)) return value.map(strip);
+    const candidate = value as Partial<EntityModel> & { owner?: unknown; target?: unknown };
+    if (typeof candidate.tableName === "string" && Array.isArray(candidate.fields)) return schemaless(candidate as EntityModel);
+    if ("owner" in candidate && "target" in candidate) return { ...candidate, owner: strip(candidate.owner), target: strip(candidate.target) };
+    if ("owner" in candidate && "field" in candidate) return { ...candidate, owner: strip(candidate.owner) };
+    return value;
+  };
+  const view: DatabaseAdapter = new Proxy(adapter, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target);
+      if (property === "withSchema" && typeof value === "function") return (schema: string) => tenantDatabaseView((value as (name: string) => DatabaseAdapter).call(target, schema));
+      if (property === "forConnection" && typeof value === "function") return (connection: unknown) => tenantDatabaseView((value as (input: unknown) => DatabaseAdapter).call(target, connection));
+      if (property === "sharesConnectionWith" && typeof value === "function") return (other: DatabaseAdapter) => other === view || other === target || (value as (other: DatabaseAdapter) => boolean).call(target, other);
+      if (typeof value !== "function" || property === "transaction" || property === "listen" || property === "notify") return typeof value === "function" ? value.bind(target) : value;
+      return (...args: unknown[]) => (value as (...input: unknown[]) => unknown).apply(target, args.map(strip));
+    },
+  });
+  tenantViews.set(adapter, view);
+  return view;
 }
 
 /**
@@ -306,10 +383,73 @@ export interface DatabaseRouterOptions {
  * first entity it touches. Errors of a database carry its name as `database`.
  */
 export function databaseRouter(defaultAdapter: DatabaseAdapter, named: Readonly<Record<string, DatabaseAdapter>>, options: DatabaseRouterOptions = {}): DatabaseRouter {
-  return createRouter({ [DEFAULT_DATABASE]: defaultAdapter, ...Object.fromEntries(Object.keys(named).sort().map((name) => [name, named[name]!])) }, {}, options);
+  // The tables of a per-tenant database's entities live where the tenant's view places them, whatever their folder.
+  const placed = (name: string) => (options.tenancy?.[name] === "per-tenant" ? tenantDatabaseView(named[name]!) : named[name]!);
+  return createRouter({ [DEFAULT_DATABASE]: defaultAdapter, ...Object.fromEntries(Object.keys(named).sort().map((name) => [name, placed(name)])) }, {}, options);
 }
 
-function createRouter(databases: Record<string, DatabaseAdapter>, family: object, options: DatabaseRouterOptions): DatabaseRouter {
+/** Whether a router database is split per tenant: the default one always, a named one by its `tenancy`. */
+const perTenant = (options: DatabaseRouterOptions, name: string) => name === DEFAULT_DATABASE || options.tenancy?.[name] === "per-tenant";
+
+/**
+ * The adapter a database-strategy tenant uses: `root.forConnection(connection)`, or with named databases a router
+ * whose default and per-tenant databases are the tenant's copies (each named one from its `tenantConnection`) and
+ * whose shared databases are the service's own, which the tenant's adapter never connects nor closes.
+ */
+export async function tenantAdapter(root: DatabaseAdapter, connection: unknown, tenant: { id: string }): Promise<DatabaseAdapter> {
+  if (!isDatabaseRouter(root)) return root.forConnection!(connection);
+  const options = routerOptions.get(root) ?? {};
+  const copies: Record<string, DatabaseAdapter> = {};
+  const borrowed = new Set<string>();
+  for (const [name, adapter] of Object.entries(root.databases)) {
+    if (!perTenant(options, name)) {
+      copies[name] = adapter;
+      borrowed.add(name);
+      continue;
+    }
+    if (name === DEFAULT_DATABASE) {
+      copies[name] = adapter.forConnection!(connection);
+      continue;
+    }
+    const template = options.tenantConnections?.[name];
+    if (template === undefined) throw new Error(tenantConnectionRequired(name));
+    const value = typeof template === "function" ? await template({ tenant }) : template.replaceAll("{tenant}", tenant.id);
+    if (!adapter.forConnection) throw new Error(`tenancy strategy "database" needs an adapter with forConnection(); the ${adapter.kind ?? "configured"} adapter of database ${name} has none`);
+    copies[name] = adapter.forConnection(value);
+  }
+  return createRouter(copies, {}, options, borrowed);
+}
+
+/** The startup error of a per-tenant named database without `tenantConnection` while database-strategy tenants exist. */
+export const tenantConnectionRequired = (name: string) => `databases.${name}.tenantConnection is required for database-strategy tenants`;
+
+/**
+ * The problems that stop a tenancy strategy on a router's databases: a per-tenant database without `withSchema` for
+ * the schema strategy, or without `tenantConnection` (or `forConnection`) for the database strategy.
+ */
+export function tenancyStrategyProblems(root: DatabaseAdapter, strategies: { schema: boolean; database: boolean }): string[] {
+  if (!isDatabaseRouter(root)) return [];
+  const options = routerOptions.get(root) ?? {};
+  return Object.entries(root.databases).flatMap(([name, adapter]) => {
+    if (name === DEFAULT_DATABASE || !perTenant(options, name)) return [];
+    return [
+      ...(strategies.schema && typeof adapter.withSchema !== "function" ? [`tenancy strategy "schema" needs an adapter with withSchema(); the ${adapter.kind ?? "configured"} adapter of database ${name} has none`] : []),
+      ...(strategies.database && options.tenantConnections?.[name] === undefined ? [tenantConnectionRequired(name)] : []),
+    ];
+  });
+}
+
+/** The databases split per tenant, default first: the default one and, with named databases, each per-tenant one. */
+export function tenantDatabaseNames(root: DatabaseAdapter): string[] {
+  if (!isDatabaseRouter(root)) return [DEFAULT_DATABASE];
+  const options = routerOptions.get(root) ?? {};
+  return Object.keys(root.databases).filter((name) => perTenant(options, name));
+}
+
+/** The tenancy of a router's databases, for the tenant views and adapters made from it. */
+const routerOptions = new WeakMap<object, DatabaseRouterOptions>();
+
+function createRouter(databases: Record<string, DatabaseAdapter>, family: object, options: DatabaseRouterOptions, borrowed: ReadonlySet<string> = new Set()): DatabaseRouter {
   const logger = options.logger ?? jsonLogger;
   const names = Object.keys(databases);
   const defaultAdapter = databases[DEFAULT_DATABASE]!;
@@ -394,6 +534,8 @@ function createRouter(databases: Record<string, DatabaseAdapter>, family: object
       holders = names.filter((name) => name === DEFAULT_DATABASE || models.some((model) => !model.feature && !model.system && !model.link && databaseOf(model) === name));
       const connected: DatabaseAdapter[] = [];
       for (const name of names) {
+        // A tenant's adapter uses the service's shared databases as they are.
+        if (borrowed.has(name)) continue;
         const adapter = databases[name]!;
         const own = databaseModels(models, name);
         try {
@@ -414,9 +556,10 @@ function createRouter(databases: Record<string, DatabaseAdapter>, family: object
       }
     },
     async disconnect() {
-      const results = await Promise.allSettled(names.map((name) => databases[name]!.disconnect()));
+      const own = names.filter((name) => !borrowed.has(name));
+      const results = await Promise.allSettled(own.map((name) => databases[name]!.disconnect()));
       const failed = results.findIndex((result) => result.status === "rejected");
-      if (failed >= 0) throw tagged((results[failed] as PromiseRejectedResult).reason, names[failed]!);
+      if (failed >= 0) throw tagged((results[failed] as PromiseRejectedResult).reason, own[failed]!);
     },
     findById: (entity, id, read) =>
       everywhere(entity) ? first(entity, (adapter) => adapter.findById(entity, id, read), Boolean) : call(entity, (adapter) => adapter.findById(entity, id, read)),
@@ -465,6 +608,7 @@ function createRouter(databases: Record<string, DatabaseAdapter>, family: object
     },
     async ping() {
       for (const name of names) {
+        if (borrowed.has(name)) continue;
         const adapter = databases[name]!;
         try {
           if (adapter.ping) await adapter.ping();
@@ -554,15 +698,25 @@ function createRouter(databases: Record<string, DatabaseAdapter>, family: object
       views ??= new Map();
       let view = views.get(schema);
       if (!view) {
-        view = createRouter({ ...databases, [DEFAULT_DATABASE]: defaultAdapter.withSchema!(schema) }, family, options);
+        // The default database and every per-tenant one move into the schema; shared ones stay as they are.
+        const moved = Object.fromEntries(
+          names.map((name) => {
+            const adapter = databases[name]!;
+            if (!perTenant(options, name) || borrowed.has(name)) return [name, adapter];
+            if (!adapter.withSchema) throw new Error(`tenancy strategy "schema" needs an adapter with withSchema(); the ${adapter.kind ?? "configured"} adapter of database ${name} has none`);
+            return [name, adapter.withSchema(schema)];
+          }),
+        );
+        view = createRouter(moved, family, options, borrowed);
         views.set(schema, view);
       }
       return view;
     };
   }
   if (defaultAdapter.forConnection) {
-    router.forConnection = (connection) => createRouter({ ...databases, [DEFAULT_DATABASE]: defaultAdapter.forConnection!(connection) }, {}, options);
+    router.forConnection = (connection) => createRouter({ ...databases, [DEFAULT_DATABASE]: defaultAdapter.forConnection!(connection) }, {}, options, new Set(names.filter((name) => name !== DEFAULT_DATABASE)));
   }
+  routerOptions.set(router, options);
   routers.add(router);
   familyOf.set(router, family);
   return router;

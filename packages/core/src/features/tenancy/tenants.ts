@@ -1,4 +1,4 @@
-import { HttpError, type DatabaseAdapter, type EntityModel, type Logger, type ResolvedConfig } from "../public.ts";
+import { databaseModels, HttpError, isDatabaseRouter, tenantAdapter, tenantDatabaseModels, tenantDatabaseNames, type DatabaseAdapter, type EntityModel, type Logger, type ResolvedConfig } from "../public.ts";
 import { connectionResolver, type ConnectionOption } from "./connections.ts";
 import { configDirectory, databaseDirectory, serviceDirectory, tenantInfoOf, type TenantDirectory, type TenantInfo } from "./directory.ts";
 import { appliedTenantMigrations, migrateTenantDatabase, migrationFiles } from "./migrate.ts";
@@ -97,7 +97,7 @@ export function tenantOperations(input: { config: ResolvedConfig; models: readon
       return { adapter: root.withSchema(schema), schema, close: async () => {} };
     }
     if (!root.forConnection) throw new Error(`tenancy strategy "database" needs an adapter with forConnection(); the ${root.kind ?? "configured"} adapter has none`);
-    const adapter = root.forConnection(await connections.resolve(tenant));
+    const adapter = await tenantAdapter(root, await connections.resolve(tenant), tenant);
     await adapter.connect([...tenantModels, ...staging]);
     return { adapter, close: () => adapter.disconnect() };
   };
@@ -109,7 +109,22 @@ export function tenantOperations(input: { config: ResolvedConfig; models: readon
     async migrate(tenant) {
       const target = await open(tenant);
       try {
-        return (await migrateTenantDatabase(input.projectRoot, { adapter: target.adapter, ...(target.schema ? { schema: target.schema } : { staging }), models: tenantModels })).applied;
+        // With named databases, every per-tenant database runs its own migrations, each named in the result.
+        if (!isDatabaseRouter(target.adapter)) {
+          return (await migrateTenantDatabase(input.projectRoot, { adapter: target.adapter, ...(target.schema ? { schema: target.schema } : { staging }), models: tenantModels })).applied;
+        }
+        const applied: string[] = [];
+        for (const name of tenantDatabaseNames(root)) {
+          const placed = databaseModels(tenantModels, name);
+          const result = await migrateTenantDatabase(input.projectRoot, {
+            adapter: target.adapter.databases[name]!,
+            database: name,
+            ...(target.schema ? { schema: target.schema } : { staging: databaseModels(staging, name) }),
+            models: name === "default" ? placed : tenantDatabaseModels(placed),
+          });
+          applied.push(...result.applied.map((id) => `${name}: ${id}`));
+        }
+        return applied;
       } finally {
         await target.close();
       }
@@ -117,8 +132,13 @@ export function tenantOperations(input: { config: ResolvedConfig; models: readon
     async pending(tenant) {
       const target = await open(tenant);
       try {
-        const applied = new Set(await appliedTenantMigrations({ adapter: target.adapter, ...(target.schema ? { schema: target.schema } : {}) }));
-        return migrationFiles(input.projectRoot).filter((file) => !applied.has(file.id)).length;
+        let pending = 0;
+        for (const name of isDatabaseRouter(target.adapter) ? tenantDatabaseNames(root) : ["default"]) {
+          const adapter = isDatabaseRouter(target.adapter) ? target.adapter.databases[name]! : target.adapter;
+          const applied = new Set(await appliedTenantMigrations({ adapter, ...(target.schema ? { schema: target.schema } : {}) }));
+          pending += migrationFiles(input.projectRoot, name).filter((file) => !applied.has(file.id)).length;
+        }
+        return pending;
       } finally {
         await target.close();
       }

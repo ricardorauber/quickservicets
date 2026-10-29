@@ -23,9 +23,9 @@ export interface TenantMigrationFile {
   file: string;
 }
 
-/** The migration files of a project, oldest first. */
-export function migrationFiles(projectRoot: string): TenantMigrationFile[] {
-  const dir = join(projectRoot, "migrations");
+/** The migration files of a project's database (`migrations/`, or `migrations/<name>/` of a named one), oldest first. */
+export function migrationFiles(projectRoot: string, database = "default"): TenantMigrationFile[] {
+  const dir = database === "default" ? join(projectRoot, "migrations") : join(projectRoot, "migrations", database);
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
     .filter((entry) => /^\d{14}_[A-Z][A-Za-z0-9]*\.ts$/.test(entry))
@@ -50,6 +50,8 @@ export interface TenantMigrationTarget {
   models: readonly EntityModel[];
   /** The staging tables a database of its own needs for the relay of queue and outbox rows (created if missing). */
   staging?: readonly EntityModel[];
+  /** The database whose migrations run: `default` (the default) or a per-tenant named one. */
+  database?: string;
 }
 
 export interface TenantMigrationResult {
@@ -67,7 +69,7 @@ const toText = (query: TemplateStringsArray | string, placeholder: (index: numbe
  * tenant, keeping its history next to its tables: in its schema of the service's database, or in its own database.
  */
 export async function migrateTenantDatabase(projectRoot: string, target: TenantMigrationTarget): Promise<TenantMigrationResult> {
-  const files = migrationFiles(projectRoot);
+  const files = migrationFiles(projectRoot, target.database);
   const adapter = target.adapter;
   const repos = createRepositories([...target.models], adapter);
   const applied: string[] = [];

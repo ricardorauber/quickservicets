@@ -156,6 +156,24 @@ export default job(
 );
 ```
 
+## Named databases
+
+With named databases (`databases` in `quickservicets.config.ts`), each named database is split per tenant or shared by every tenant:
+
+```ts
+databases: {
+  orders: sqliteAdapter({ path: "orders.db" }), // per tenant: an adapter alone is { adapter, tenancy: "per-tenant" }
+  catalog: { adapter: postgresAdapter({ url: process.env.CATALOG_URL! }), tenancy: "shared" },
+},
+```
+
+- Every entity of a per-tenant database holds tenant data, even in its module folder (`entities/orders/Order.ts`), and every entity of a shared database is shared; a contradicting `@tenancy shared` or `@tenancy tenant` fails the build naming the file.
+- With the schema strategy, a tenant uses its schema (the same name) in every per-tenant database; an adapter without `withSchema` fails the start naming the database.
+- With the database strategy, each per-tenant named database needs `tenantConnection`, a text with `{tenant}` like `"orders_{tenant}.db"` or a function `({ tenant }) => connection`; without it the start fails with `databases.orders.tenantConnection is required for database-strategy tenants`.
+- A tenant's scope holds its copy of every per-tenant database and the shared ones, so `repos` reach the right copy of each.
+- `quickservicets migrate --tenant <id>` and `tenants create` run the tenant statements of every per-tenant database (`acme: orders: Applied <id>`), while shared databases are migrated once by `quickservicets migrate`.
+- Without the tenancy native, the `tenancy` setting has no effect and the start logs a warning.
+
 ## The relay and its delivery
 
 A tenant with a database of its own cannot write the shared queue and outbox tables in its transaction, so those rows are staged in its own database (`qs_staged_*` tables) and relayed to the shared tables right after the commit, when its pool opens, every `relay.interval` and by the daily `tenancy/relay` job. Delivery is at least once, delayed by up to `relay.interval` after a crash, so consumers must be idempotent.

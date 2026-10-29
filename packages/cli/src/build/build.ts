@@ -25,14 +25,12 @@ import {
   storageConfigured,
   crossDatabaseReferences,
   crossDatabaseWarning,
-  databaseAdapters,
-  databaseModels,
   DEFAULT_DATABASE,
 } from "@quickservicets/core";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import ts from "typescript";
-import { builtInTagOwner, parseProjectModels } from "../entities/parse-entities.ts";
+import { databaseTenancyOf, builtInTagOwner, parseProjectModels } from "../entities/parse-entities.ts";
 import { BuildError } from "../errors.ts";
 import type { EndpointRoute } from "../endpoints/scan-endpoints.ts";
 import { parseEndpointTags, type EndpointMetadata } from "../hooks/endpoint-tags.ts";
@@ -42,7 +40,7 @@ import { featureWatchPaths, scanFeatureFolders, scanProjectFiles, type FolderFil
 import { runBuildSteps, type BuildStepResult } from "./build-steps.ts";
 import { activeFeatureTags, assertNoHookConflicts, useFeatureTags } from "../entities/feature-tags.ts";
 import { validateHookReferences } from "../hooks/validate-hook-references.ts";
-import { hasPendingChanges, sqlDialectOf } from "../migrations/add.ts";
+import { hasPendingChanges, migrationTargets, sqlDialectOf } from "../migrations/add.ts";
 import { readLatestSnapshot } from "../migrations/snapshot.ts";
 import { envVarsLines, generateTypesFile, queuePayloadLines, serviceNameLines, type PublishedQueueEntry, type QueueTypeEntry } from "./generate-types.ts";
 import { overrideWarnings, publishProblems, publishTargets, type PublishTarget } from "./queue-publish.ts";
@@ -103,8 +101,17 @@ export const movedEntityWarning = (entity: string, from: string, to: string) => 
  * With named databases: the databases with model changes without a migration (SQL ones, as without named databases),
  * and one line per entity that moved between databases since their last migrations.
  */
+/** The databases with their models, without failing for an adapter migrations do not support. */
+function migrationTargetsOf(config: ResolvedConfig, models: EntityModel[]): { database: string; kind: string | undefined; models: EntityModel[] }[] {
+  try {
+    return migrationTargets(config, models);
+  } catch {
+    return [];
+  }
+}
+
 async function databaseMigrationWarnings(projectRoot: string, config: ResolvedConfig, models: EntityModel[]): Promise<string[]> {
-  const targets = databaseAdapters(config.database).map(([database, adapter]) => ({ database, kind: adapter.kind, models: databaseModels(models, database) }));
+  const targets = migrationTargetsOf(config, models);
   const folder = (database: string) => (database === DEFAULT_DATABASE ? undefined : database);
   const pending: string[] = [];
   for (const target of targets) {
@@ -462,7 +469,7 @@ export async function build(projectRoot: string, env: Record<string, string | un
 async function buildProject(projectRoot: string, config: ResolvedConfig, options: BuildOptions): Promise<BuildSummary> {
   const featureKeys = registeredProjectFeatures().map((feature) => feature.key);
   const variables = declaredVariables(config.env, config.features.map((feature) => ({ key: feature.key, env: feature.definition.env })));
-  const parsed = parseProjectModels(projectRoot, config.features, { storage: storageConfigured(config), databases: Object.keys(config.databases) });
+  const parsed = parseProjectModels(projectRoot, config.features, { storage: storageConfigured(config), databases: Object.keys(config.databases), databaseTenancy: databaseTenancyOf(config) });
   const overrides = [...replacedNatives().map(overrideLine), ...parsed.overrides];
   const models = parsed.models;
   const scanned = await scanProjectFiles(projectRoot, config.features);

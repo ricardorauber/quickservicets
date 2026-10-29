@@ -11,7 +11,7 @@ const sourceOf = (model: EntityModel): string | undefined => model.derivedFrom ?
  * models whose contributor declared `tenancy: "shared"` and the core's own entities; derived models take the value of
  * the model they derive from; every other model holds tenant data.
  */
-export function markTenancy(models: readonly EntityModel[]): EntityModel[] {
+export function markTenancy(models: readonly EntityModel[], databases: Readonly<Record<string, "per-tenant" | "shared">> = {}): EntityModel[] {
   const byKey = new Map(models.map((model) => [model.key, model]));
   const decided = new Map<string, "tenant" | "shared">();
   const decide = (model: EntityModel, seen: Set<string> = new Set()): "tenant" | "shared" => {
@@ -19,7 +19,11 @@ export function markTenancy(models: readonly EntityModel[]): EntityModel[] {
     if (known) return known;
     let value: "tenant" | "shared";
     const source = sourceOf(model);
-    if (model.schema) value = "shared";
+    // A named database's tenancy decides for the entities living in it, even in a module folder (an explicit schema).
+    const placed = model.database !== undefined ? databases[model.database] : undefined;
+    if (placed && source && byKey.has(source) && !seen.has(source)) value = decide(byKey.get(source)!, new Set([...seen, model.key]));
+    else if (placed && !model.system && !SHARED_ENTITY_KEYS.has(model.key) && model.feature !== "tenancy") value = placed === "per-tenant" ? "tenant" : "shared";
+    else if (model.schema) value = "shared";
     else if (model.tags?.tenancy?.on && model.tags.tenancy.options.scope === "shared") value = "shared";
     else if (model.tenancy) value = model.tenancy;
     else if (source && byKey.has(source) && !seen.has(source)) value = decide(byKey.get(source)!, new Set([...seen, model.key]));
@@ -41,6 +45,22 @@ export function withoutTenancyMarks(models: readonly EntityModel[]): EntityModel
     if (model.tenancy === undefined && (model.derivedFrom === undefined || keepsSource)) return model;
     const { tenancy: _tenancy, derivedFrom, ...rest } = model;
     return (keepsSource && derivedFrom !== undefined ? { ...rest, derivedFrom } : rest) as EntityModel;
+  });
+}
+
+/**
+ * The problems of `@tenancy` tags that contradict their named database: `@tenancy shared` on an entity of a
+ * per-tenant database, or `@tenancy tenant` on one of a shared database, each naming the file.
+ */
+export function databaseTenancyProblems(models: readonly EntityModel[], databases: Readonly<Record<string, "per-tenant" | "shared">>): string[] {
+  return models.flatMap((model) => {
+    const placed = model.database !== undefined ? databases[model.database] : undefined;
+    const scope = model.tags?.tenancy?.on ? model.tags.tenancy.options.scope : undefined;
+    if (!placed || model.feature || scope === undefined) return [];
+    const file = `entities/${model.key}.ts`;
+    if (placed === "per-tenant" && scope === "shared") return [`${file}: ${model.entityName} lives in database ${model.database}, which is per tenant; move it to a shared database or remove @tenancy shared`];
+    if (placed === "shared" && scope === "tenant") return [`${file}: ${model.entityName} lives in database ${model.database}, which is shared; move it to a per-tenant database or remove @tenancy tenant`];
+    return [];
   });
 }
 

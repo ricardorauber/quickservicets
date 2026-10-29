@@ -6,6 +6,7 @@ import {
   featureFileEntities,
   type FileBase,
   crossTenancyReferences,
+  databaseTenancyProblems,
   markTenancy,
   withoutTenancyMarks,
   featureDir,
@@ -289,6 +290,13 @@ export interface FileEntityUsage {
 export interface ProjectModelOptions extends FileEntityUsage {
   /** The names of the config's `databases`, which `@database` and entity folders place entities in. */
   databases?: readonly string[];
+  /** With the tenancy native, whether each named database is split per tenant or shared. */
+  databaseTenancy?: Readonly<Record<string, "per-tenant" | "shared">>;
+}
+
+/** The tenancy of the named databases of a resolved config (empty without the tenancy native). */
+export function databaseTenancyOf(config: { databases: Readonly<Record<string, { name: string; tenancy?: "per-tenant" | "shared" }>> }): Record<string, "per-tenant" | "shared"> {
+  return Object.fromEntries(Object.values(config.databases).flatMap((entry) => (entry.tenancy ? [[entry.name, entry.tenancy]] : [])));
 }
 
 /**
@@ -344,9 +352,11 @@ export function parseProjectEntities(projectRoot: string, features: readonly Res
  * With the `tenancy` native enabled, marks every model `tenant` or `shared` and fails on references across the two;
  * without it, the models carry no tenancy marks, so the build output does not change.
  */
-function withTenancyMarks(models: EntityModel[], features: readonly ResolvedFeature[]): EntityModel[] {
+function withTenancyMarks(models: EntityModel[], features: readonly ResolvedFeature[], databases: Readonly<Record<string, "per-tenant" | "shared">> = {}): EntityModel[] {
   if (!features.some((feature) => feature.key === "tenancy")) return withoutTenancyMarks(models);
-  const marked = markTenancy(models);
+  const [contradiction] = databaseTenancyProblems(models, databases);
+  if (contradiction) throw new EntityParseError(contradiction);
+  const marked = markTenancy(models, databases);
   const [problem] = crossTenancyReferences(marked);
   if (problem) throw new EntityParseError(problem);
   return marked;
@@ -360,7 +370,7 @@ export function parseProjectModels(projectRoot: string, features: readonly Resol
   const built = withFileEntities(contributed.models, usedFileEntities(contributed.models, features, usage));
   const all = hasJobFiles(projectRoot, features) ? withJobRunEntity(built) : built;
   return {
-    models: withTenancyMarks(assertCrossDatabaseRules(placeFeatureEntities(withDefaultDatabase(all, databases), features)), features),
+    models: withTenancyMarks(assertCrossDatabaseRules(placeFeatureEntities(withDefaultDatabase(all, databases), features)), features, usage.databaseTenancy),
     overrides: [...parsed.overrides, ...contributed.overrides],
   };
 }

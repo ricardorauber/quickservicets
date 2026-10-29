@@ -16,7 +16,7 @@ import {
   storageConfigured,
 } from "@quickservicets/core";
 import { join } from "node:path";
-import { parseProjectEntities } from "../entities/parse-entities.ts";
+import { databaseTenancyOf, parseProjectEntities } from "../entities/parse-entities.ts";
 import { scanProjectJobs } from "../build/feature-files.ts";
 
 /** What a job command prints and the exit code it ends with. */
@@ -54,7 +54,7 @@ async function withJobApp<T>(
   jobs: ReadonlyMap<string, JobDefinition>,
   work: (app: App, model: EntityModel) => Promise<T>,
 ): Promise<T> {
-  const models = parseProjectEntities(projectRoot, config.features, { storage: storageConfigured(config), databases: Object.keys(config.databases) });
+  const models = parseProjectEntities(projectRoot, config.features, { storage: storageConfigured(config), databases: Object.keys(config.databases), databaseTenancy: databaseTenancyOf(config) });
   // With tenancy, the features are set up so jobs can run for each tenant in its scope.
   const tenancy = config.features.some((feature) => feature.key === "tenancy");
   const lifecycle = tenancy ? createFeatureLifecycle({ features: config.features, config, models, worker: { index: 0, count: 1, runsScheduledWork: false }, generatedDir: join(projectRoot, ".generated") }) : undefined;

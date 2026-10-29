@@ -393,7 +393,7 @@ export function resolveConfig(
   assertFeatureFolders(features);
   const variables = declaredVariables(config.env, features.map((feature) => ({ key: feature.key, env: feature.definition.env })));
   const envValues = readVariables(variables, env);
-  const databases = resolveDatabases(config.databases, env);
+  const databases = resolveDatabases(config.databases, env, { tenancy: features.some((feature) => feature.key === "tenancy"), warnings: environment.warnings });
   // A feature's `database` must name a configured database.
   const featureProblems = features.flatMap((feature) => featureDatabaseProblem(feature.key, feature.options.database, Object.keys(databases)) ?? []);
   if (featureProblems.length > 0) throw new ConfigError(featureProblems.join("\n"));
@@ -401,7 +401,11 @@ export function resolveConfig(
     ...config,
     database: Object.keys(databases).length === 0
       ? withDatabase.database
-      : databaseRouter(withDatabase.database, Object.fromEntries(Object.values(databases).map((entry) => [entry.name, entry.adapter])), { logger: config.logger }),
+      : databaseRouter(withDatabase.database, Object.fromEntries(Object.values(databases).map((entry) => [entry.name, entry.adapter])), {
+          logger: config.logger,
+          tenancy: Object.fromEntries(Object.values(databases).flatMap((entry) => (entry.tenancy ? [[entry.name, entry.tenancy]] : []))),
+          tenantConnections: Object.fromEntries(Object.values(databases).flatMap((entry) => (entry.tenantConnection !== undefined ? [[entry.name, entry.tenantConnection]] : []))),
+        }),
     databases,
     // The config keys of features print their secrets masked, like the features' resolved options.
     ...maskedFeatureKeys(config as unknown as Record<string, unknown>, features),

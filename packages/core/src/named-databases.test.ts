@@ -41,7 +41,9 @@ describe("the databases config key", () => {
     const main = memoryAdapter();
     const config = resolve({ database: main, databases: { orders, catalog: { adapter: catalog, tenancy: "shared" } } });
     expect(Object.keys(config.databases)).toEqual(["orders", "catalog"]);
-    expect(config.databases.catalog).toEqual({ name: "catalog", adapter: catalog, tenancy: "shared" });
+    // Without the tenancy native the setting has no effect, with a warning.
+    expect(config.databases.catalog).toEqual({ name: "catalog", adapter: catalog });
+    expect(config.warnings).toContain("databases.catalog.tenancy has no effect without the tenancy native");
     expect(isDatabaseRouter(config.database)).toBe(true);
     expect(Object.keys((config.database as DatabaseRouter).databases)).toEqual(["default", "catalog", "orders"]);
     expect((config.database as DatabaseRouter).databases.default).toBe(main);
@@ -59,7 +61,7 @@ describe("the databases config key", () => {
   test("names that are not lowercase or are default fail naming the entry", () => {
     expect(() => resolve({ databases: { Orders: memoryAdapter() } })).toThrow(new ConfigError("Invalid databases.Orders: names must match ^[a-z][a-z0-9-]*$"));
     expect(() => resolve({ databases: { default: memoryAdapter() } })).toThrow("Invalid databases.default: the name default is taken by the database of database");
-    expect(() => resolve({ databases: { orders: { tenancy: "shared" } } })).toThrow("Invalid databases.orders: expected a database adapter or { adapter, tenancy? }");
+    expect(() => resolve({ databases: { orders: { tenancy: "shared" } } })).toThrow("Invalid databases.orders: expected a database adapter or { adapter, tenancy?, tenantConnection? }");
     expect(() => resolve({ databases: { orders: { adapter: memoryAdapter(), tenancy: "each" } } })).toThrow('Invalid databases.orders: tenancy must be "per-tenant" or "shared", got "each"');
   });
 });

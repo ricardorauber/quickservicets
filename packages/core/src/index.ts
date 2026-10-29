@@ -1,8 +1,8 @@
 export { CODES_BY_STATUS, HttpError, codeForStatus, toErrorResponse } from "./errors.ts";
 export type { ErrorResponseOptions, FieldErrorDetail, HttpErrorOptions } from "./errors.ts";
 export { configureDatabaseRelay, databaseModels, databaseRelaySweeper, databaseStagedModel, moveStagedRow, relayAllDatabases, relayDatabase, RELAY_SWEEP_MS, STAGED_TABLES, stagedSystemTarget } from "./database-staging.ts";
-export { acrossDatabases, connectedModels, featureDatabaseProblem, placeFeatureEntities, CrossDatabaseTransactionError, currentTransactionDatabase, outsideTransaction, transactionDatabase, crossDatabaseReferences, crossDatabaseWarning, DATABASE_NAME, DEFAULT_DATABASE, databaseAdapters, databaseOf, databaseRouter, databaseUrlVariable, errorDatabase, isDatabaseRouter, resolveDatabases } from "./named-databases.ts";
-export type { CrossDatabaseReference, DatabaseRouter, DatabaseRouterOptions, DatabaseTenancy, NamedDatabaseConfig, NamedDatabaseEntry, ResolvedDatabase } from "./named-databases.ts";
+export { acrossDatabases, connectedModels, tenantDatabaseNames, tenancyStrategyProblems, tenantAdapter, tenantConnectionRequired, tenantDatabaseModels, featureDatabaseProblem, placeFeatureEntities, CrossDatabaseTransactionError, currentTransactionDatabase, outsideTransaction, transactionDatabase, crossDatabaseReferences, crossDatabaseWarning, DATABASE_NAME, DEFAULT_DATABASE, databaseAdapters, databaseOf, databaseRouter, databaseUrlVariable, errorDatabase, isDatabaseRouter, resolveDatabases } from "./named-databases.ts";
+export type { CrossDatabaseReference, TenantConnection, DatabaseRouter, DatabaseRouterOptions, DatabaseTenancy, NamedDatabaseConfig, NamedDatabaseEntry, ResolvedDatabase } from "./named-databases.ts";
 export { alwaysHiddenPaths, CRUD_OPERATIONS, entityRoutePath, hiddenPathsFor, SYSTEM_FIELDS, vectorFields } from "./model.ts";
 export type { ArrayOnDeleteAction, EnumDeclarationInfo, ParsedTag, ParsedTags, FileAccessMode, RelationKind, RelationSide, VectorMetric, VectorSettings, CrudOperation, EntityModel, Exposure, ReadOperation, HookReference, ModelIndex, OverrideHooksMode, FieldConstraints, FieldModel, FieldStorage, FieldType, NestedFieldModel, OnDeleteAction, PrimitiveFieldType, StringFormat, TypeDescriptor } from "./model.ts";
 export { ReferenceArrayChange, validateBody } from "./validation.ts";
@@ -412,7 +412,7 @@ export type { StreamCallSpec, HttpTransport, HttpMock, MockCall, MockHandler, Mo
 export { bucketOf, evaluateRule, flagsFeature } from "./features/flags/index.ts";
 export { appliedTenantMigrations, migrateTenant, migrateTenantDatabase, migrationFiles, MONGO_MIGRATIONS_COLLECTION, provisionTenant, strategyOf, tenancyOptionsOf, tenantOperations } from "./features/tenancy/index.ts";
 export type { TenancyOptions, TenantOperations, TenantProvisionResult } from "./features/tenancy/index.ts";
-export { crossTenancyReferences, markTenancy, SHARED_ENTITY_KEYS, tenantPools, withoutTenancyMarks } from "./features/tenancy/index.ts";
+export { crossTenancyReferences, databaseTenancyProblems, markTenancy, SHARED_ENTITY_KEYS, tenantPools, withoutTenancyMarks } from "./features/tenancy/index.ts";
 export type { PoolCloseReason, PoolLease, PoolSettings, PoolStats, TenantPool, TenantPools } from "./features/tenancy/index.ts";
 export { cachedDirectory, compilePathPattern, configDirectory, databaseDirectory, directoryClock, matchPathPrefix, serviceDirectory, subdomainOf, TENANT_FIELDS, TENANT_ID, TENANT_SOURCES, tenancyFeature, tenantEntity, tenantInfoOf } from "./features/tenancy/index.ts";
 export type { CachedDirectory, DirectoryCacheOptions, TenancyApi, TenantDirectory, TenantInfo, TenantSource } from "./features/tenancy/index.ts";

@@ -1,4 +1,4 @@
-import { HttpError, maskConnections, safeLog, type DatabaseAdapter, type EntityModel, type Logger } from "../public.ts";
+import { HttpError, maskConnections, safeLog, tenantAdapter, type DatabaseAdapter, type EntityModel, type Logger } from "../public.ts";
 export { maskConnections };
 import { directoryClock, type TenantInfo } from "./directory.ts";
 
@@ -153,7 +153,7 @@ export function tenantPools(options: TenantPoolsOptions) {
       if (!options.root.forConnection) throw new Error(`tenancy strategy "database" needs an adapter with forConnection(); the ${options.root.kind ?? "configured"} adapter has none`);
       // Drivers that connect lazily are checked with a round trip, so an unreachable database fails here.
       const connecting = async (value: unknown) => {
-        const candidate = options.root.forConnection!(value);
+        const candidate = await tenantAdapter(options.root, value, tenant);
         try {
           await within(
             (async () => {

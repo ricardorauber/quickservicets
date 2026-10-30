@@ -59,6 +59,8 @@ export const mongodb = mongodbAdapter({ url: process.env.DATABASE_URL!, database
 
 `postgresAdapter` opens up to 10 connections; `max` changes that. The total holds across all the server's workers (see below).
 
+A service can also use several databases at once: `databases` names more of them, like `orders` on PostgreSQL next to a default SQLite database, and each entity lives in one of them. See [Named databases](/guides/named-databases/).
+
 ## Using every CPU
 
 A server is one process, so it uses one CPU. `server.workers` starts several processes that share the port:
@@ -247,6 +249,7 @@ An error thrown by the logger never changes the response.
 - [Configuration reference](/reference/config/): every key with its type and default.
 - [CLI](/reference/cli/): the commands that read the config.
 - [Environment](/guides/environment/): typed variables, `QS_*` overrides and their precedence.
+- [Named databases](/guides/named-databases/): the `databases` key, several databases in one service and `QS_DATABASES_<NAME>_URL`.
 - [Events](/guides/events/): the `events` key, for write events, listeners, the outbox and durable consumers.
 - [Security](/guides/security/): the `security` key, on by default: security headers, CORS, request limits, timeouts, load shedding, rate limits, IP lists and log masking.
 - [Queues](/guides/queues/): the `queues` key, for background work in the project's database with retries, dead letters, dedupe and `@publish`.

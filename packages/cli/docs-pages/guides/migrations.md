@@ -381,5 +381,6 @@ With named databases (`databases` in `quickservicets.config.ts`), each database 
 
 - [CLI](/reference/cli/): the usage line of every command.
 - [Configuration](/reference/config/): `migrations.autoInDev`, `production` and `schema`.
+- [Named databases](/guides/named-databases/): one migrations folder and history per database.
 
 Next: [API docs](/guides/api-docs/).

@@ -31,7 +31,7 @@ export const MEMORY_IN_PRODUCTION = "quickservicets is using the in-memory datab
 export interface ServiceConfig extends NativeFeatures {
   /** The database adapter: `memoryAdapter()`, `sqliteAdapter(...)`, `postgresAdapter(...)` or `mongodbAdapter(...)`; without it the service runs on `memoryAdapter()`, which loses its data on every restart (default: the in-memory database). */
   database?: DatabaseAdapter;
-  /** Named databases besides `database` (the `default` one), each an adapter or `{ adapter, tenancy? }`; an entity in `entities/<name>/` or tagged `@database <name>` lives in that database, and `QS_DATABASES_<NAME>_URL` sets each one's connection (default: none). */
+  /** Named databases besides `database` (the `default` one), by name: an adapter, or `{ adapter, tenancy, tenantConnection }` where `tenancy` is `per-tenant` (the default with the tenancy native) or `shared`, and `tenantConnection` is the connection of each database-strategy tenant's copy (a text with `{tenant}` or a function); an entity in `entities/<name>/` or tagged `@database <name>` lives in that database, and `QS_DATABASES_<NAME>_URL` sets each one's connection (default: none). */
   databases?: Record<string, NamedDatabaseEntry>;
   /** HTTP server settings. */
   server?: {

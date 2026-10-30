@@ -1,0 +1,16 @@
+{
+  "name": "named-databases-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "quickservicets dev",
+    "build": "quickservicets build",
+    "migrate": "quickservicets migrate",
+    "start": "bun .generated/server.ts",
+    "test": "bun test tests"
+  },
+  "dependencies": {
+    "@quickservicets/core": "workspace:*",
+    "@quickservicets/cli": "workspace:*"
+  }
+}

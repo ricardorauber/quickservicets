@@ -301,7 +301,7 @@ export function createRepository(
   repositoryOptions: RepositoryOptions = {},
 ): Repository {
   // With named databases, the entity's transactions belong to its own database from their start.
-  const home = isDatabaseRouter(adapter) ? adapter.on(databaseOf(model)) : undefined;
+  const home = isDatabaseRouter(adapter) ? adapter.on(databaseOf(model), model.entityName) : undefined;
   // With a tracer or a meter, every record read, write and aggregate of this repository is traced or measured.
   if (tracingEnabled() || metricsEnabled()) adapter = tracedAdapter(adapter);
   const transactional = home ?? adapter;

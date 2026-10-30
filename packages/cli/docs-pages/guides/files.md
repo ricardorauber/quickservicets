@@ -554,6 +554,7 @@ curl localhost:3000/media/01a146d1-c194-70f5-8e7b-b9c8fc884a3b
 
 - [Tags](/reference/tags/): `@maxSize`, `@accept`, `@access`, `@storage`, `@maxTotalSize` and `@keepFile`.
 - [Configuration](/reference/config/): the `storage` and `files.*` keys.
+- [Named databases](/guides/named-databases/): the built-in `File` and `Media` entities live in the default database; a reference to them from another database is checked by the application.
 - [Errors](/reference/errors/): every status and message.
 - [Security](/guides/security/): the headers of served files, and what files in `direct` mode need from the storage or CDN.
 

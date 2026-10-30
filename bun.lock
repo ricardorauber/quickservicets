@@ -148,6 +148,13 @@
         "@quickservicets/core": "workspace:*",
       },
     },
+    "examples/named-databases": {
+      "name": "named-databases-example",
+      "dependencies": {
+        "@quickservicets/cli": "workspace:*",
+        "@quickservicets/core": "workspace:*",
+      },
+    },
     "packages/cli": {
       "name": "@quickservicets/cli",
       "version": "0.2.0",
@@ -857,6 +864,8 @@
     "mrmime": ["mrmime@2.0.1", "", {}, "sha512-Y3wQdFg2Va6etvQ5I82yUhGdsKrcYox6p7FfL1LbK2J4V01F9TGlepTIhnK24t7koZibmg82KGglhA1XK5IsLQ=="],
 
     "ms": ["ms@2.1.3", "", {}, "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA=="],
+
+    "named-databases-example": ["named-databases-example@workspace:examples/named-databases"],
 
     "nanoid": ["nanoid@5.1.16", "", { "bin": { "nanoid": "bin/nanoid.js" } }, "sha512-kVrnsrJqMR8+oLJnGEmSWw9BivK5mt7H3FZatVRjrc5wGqFYuBxX1yG7+A7Gi5AefkX6t/oCkizcQgpu0cY1dQ=="],
 

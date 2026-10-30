@@ -168,6 +168,8 @@ databases: {
 - With the schema strategy, a tenant uses its schema (the same name) in every per-tenant database; an adapter without `withSchema` fails the start naming the database.
 - With the database strategy, each per-tenant named database needs `tenantConnection`, a text with `{tenant}` like `"orders_{tenant}.db"` or a function `({ tenant }) => connection`; without it the start fails with `databases.orders.tenantConnection is required for database-strategy tenants`.
 - A tenant's scope holds its copy of every per-tenant database and the shared ones, so `repos` reach the right copy of each.
+
+The [Named databases](/guides/named-databases/) guide covers the rest of working with several databases.
 - `quickservicets migrate --tenant <id>` and `tenants create` run the tenant statements of every per-tenant database (`acme: orders: Applied <id>`), while shared databases are migrated once by `quickservicets migrate`.
 - Without the tenancy native, the `tenancy` setting has no effect and the start logs a warning.
 

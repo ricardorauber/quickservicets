@@ -56,6 +56,27 @@ Every config key that holds a value can be set by `QS_` plus its path in upper s
 
 Lists are comma-separated or a JSON array; booleans are `true`, `false`, `1` or `0`. Keys that hold code (`database`, `logger`, `storage`) are not overridable. A `QS_*` name that matches no key is a warning with the closest name, not an error.
 
+## Named databases
+
+`databases` adds databases next to `database` (the `default` one), each a module of the service; every entity lives in one of them:
+
+```ts
+// quickservicets.config.ts
+import { defineConfig, postgresAdapter, sqliteAdapter } from "@quickservicets/core";
+
+export default defineConfig({
+  database: sqliteAdapter({ path: process.env.DATABASE_PATH ?? "data.db" }),
+  databases: { orders: postgresAdapter({ url: process.env.ORDERS_DATABASE_URL! }) },
+});
+```
+
+- `entities/orders/Order.ts` lives in `orders` (its folder is named like the database); `/** @database orders */` places any entity, `@database default` keeps one in the default database. Routes and `repos` do not change.
+- `QS_DATABASES_<NAME>_URL` (the name in upper snake case) sets a database's connection, a secret; `.env.example` and `env check` list it.
+- A reference to another database's entity is checked by the application (no foreign key); `@onDelete cascade` and `setNull` across databases fail the build.
+- A transaction covers one database: touching another inside it throws `CROSS_DATABASE_TRANSACTION`; name one with `transaction(fn, { database: "orders" })`.
+- Migrations live in `migrations/` (default) and `migrations/orders/`; `migrate --database orders` applies one. With tenancy, `{ adapter, tenancy: "shared" }` shares a database across tenants (`per-tenant` is the default).
+- `startTestService` runs every named database in memory.
+
 ## Production mode
 
 `NODE_ENV=production` (or `production: true`) hides error details in 500 responses, turns the API docs off unless `docs.enabled` is `true`, and makes `migrate` refuse to revert without `--force`.

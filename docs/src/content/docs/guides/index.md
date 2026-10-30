@@ -21,6 +21,7 @@ The native features are each turned on by one config key:
 - [Feature flags](/guides/feature-flags/)
 - [HTTP client](/guides/http-client/)
 - [Multi-tenancy](/guides/multi-tenancy/)
+- [Named databases](/guides/named-databases/)
 - [Authentication](/guides/authentication/)
 - [Usage metrics](/guides/usage-metrics/)
 - [API gateway](/guides/api-gateway/)

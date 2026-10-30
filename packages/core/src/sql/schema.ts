@@ -139,10 +139,13 @@ function schemaBuilder(models: EntityModel[], dialect: SqlDialect, options: Driz
     extra: (table: Record<string, unknown>) => unknown[],
   ) => AnyTable;
   const pgSchemas = new Map<string, { table: TableFactory }>();
-  /** Whether the entity `target` (a key) lives in the database of `model`; unknown targets count as the same. */
+  /**
+   * Whether the entity `target` (a key) lives in the database of `model`, so a foreign key can point to it; a target
+   * outside the models of this schema (another database's) gets none.
+   */
   const sameDatabase = (model: EntityModel, target: string) => {
     const other = models.find((candidate) => candidate.key === target);
-    return !other || databaseOf(other) === databaseOf(model);
+    return other !== undefined && databaseOf(other) === databaseOf(model);
   };
   // A default schema given here places the default-schema tables: a PostgreSQL schema, or a SQLite prefix.
   const defaultPrefix = options.sqliteDefaultPrefix ?? (options.defaultSchema ? sqliteDefaultPrefix(options.defaultSchema) : "");

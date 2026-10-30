@@ -25,6 +25,7 @@ import {
   storageConfigured,
   crossDatabaseReferences,
   crossDatabaseWarning,
+  databaseVariables,
   DEFAULT_DATABASE,
 } from "@quickservicets/core";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -564,7 +565,8 @@ async function buildProject(projectRoot: string, config: ResolvedConfig, options
   rmSync(join(projectRoot, `${GENERATED_DIR}.staging`), { recursive: true, force: true });
 
   const buildSteps = await runBuildSteps({ root: projectRoot, generatedDir: join(projectRoot, GENERATED_DIR), config, models, folderFiles, only: options.steps });
-  const envExampleWarning = writeEnvExample(projectRoot, variables);
+  // Each named database's connection variable is listed too, as an optional secret.
+  const envExampleWarning = writeEnvExample(projectRoot, [...variables, ...databaseVariables(Object.keys(config.databases))]);
   const warnings: string[] = [...config.warnings, ...publishWarnings, ...(envExampleWarning ? [envExampleWarning] : []), ...joinTableWarnings(models, config.database.kind), ...vectorIndexWarnings(models, config.database.kind)];
   const tsconfigWarning = generatedIncludeWarning(projectRoot);
   if (tsconfigWarning) warnings.push(tsconfigWarning);

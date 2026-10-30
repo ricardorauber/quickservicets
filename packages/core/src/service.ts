@@ -11,7 +11,7 @@ import { flushLogs, jsonLogger, safeLog } from "./logger.ts";
 import { MIGRATIONS_TABLE_RENAMED, renameLegacyMigrationTables } from "./legacy-names.ts";
 import { reportStartupFailure } from "./error-reports.ts";
 import type { EntityModel } from "./model.ts";
-import { errorDatabase, placeFeatureEntities } from "./named-databases.ts";
+import { databaseAdapters, databasesReport, errorDatabase, placeFeatureEntities } from "./named-databases.ts";
 import type { ResolvedFeature } from "./features.ts";
 import { loadServerTls, logServerCertificate } from "./tls.ts";
 import { reloadTls, setTlsRestart } from "./tls-reload.ts";
@@ -117,9 +117,15 @@ export async function startService(options: StartServiceOptions): Promise<Runnin
   } catch (error) {
     return fail(error, false, "connect");
   }
+  // With named databases, each database's kind and entity count, never its connection.
+  const report = databasesReport(config.database, options.models);
+  if (report) safeLog(logger, "info", { timestamp: new Date().toISOString(), message: report });
   try {
-    for (const table of await renameLegacyMigrationTables(config.database as { kind?: string; client?: unknown })) {
-      safeLog(logger, "info", { timestamp: new Date().toISOString(), message: MIGRATIONS_TABLE_RENAMED, from: table.from, to: table.to });
+    // Every database keeps its own migrations table.
+    for (const [, adapter] of databaseAdapters(config.database)) {
+      for (const table of await renameLegacyMigrationTables(adapter as { kind?: string; client?: unknown })) {
+        safeLog(logger, "info", { timestamp: new Date().toISOString(), message: MIGRATIONS_TABLE_RENAMED, from: table.from, to: table.to });
+      }
     }
   } catch (error) {
     return fail(error, true, "connect");

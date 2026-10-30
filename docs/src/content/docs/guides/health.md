@@ -34,7 +34,7 @@ Readiness runs every check at once, each limited by `timeout` (default `2s`); a 
 }
 ```
 
-`database` is critical and uses the adapter's `ping` (`select 1` on SQLite and PostgreSQL, the `ping` command on MongoDB). With `queues: {}`, `queue` asks the broker; for the database broker it counts the waiting messages and the age of the oldest one. It is non-critical, so a slow queue degrades readiness instead of taking the instance out.
+`database` is critical and uses the adapter's `ping` (`select 1` on SQLite and PostgreSQL, the `ping` command on MongoDB). With named databases, each one adds a critical check of its own, `database:<name>` (like `database:orders`), so one unreachable database makes the instance not ready and the answer names it. With `queues: {}`, `queue` asks the broker; for the database broker it counts the waiting messages and the age of the oldest one. It is non-critical, so a slow queue degrades readiness instead of taking the instance out.
 
 ## Adding checks
 

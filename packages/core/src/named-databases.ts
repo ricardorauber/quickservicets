@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { ConnectOptions, DatabaseAdapter, FindManyOptions, FindManyResult, RelatedScope, StoredRecord } from "./adapter.ts";
 import { ConfigError } from "./config-error.ts";
 import { HttpError } from "./errors.ts";
+import { secret, type AnyOptionSchema } from "./options.ts";
 import { databaseModels } from "./database-staging.ts";
 import { maskConnections } from "./secrets.ts";
 import { jsonLogger, safeLog, type Logger } from "./logger.ts";
@@ -109,6 +110,31 @@ const isObject = (value: unknown): value is Record<string, unknown> => typeof va
 
 const isAdapter = (value: unknown): value is DatabaseAdapter =>
   isObject(value) && typeof value.connect === "function" && typeof value.findById === "function" && typeof value.transaction === "function";
+
+/**
+ * The `QS_DATABASES_<NAME>_URL` variable of each named database, as an optional secret naming the database it
+ * overrides, for `.env.example` and `env check`.
+ */
+export function databaseVariables(names: readonly string[]): { name: string; schema: AnyOptionSchema; owner: string }[] {
+  return names.map((name) => ({
+    name: databaseUrlVariable(name),
+    schema: secret().optional().describe(`The connection of the named database ${name}, over the adapter of databases.${name}`),
+    owner: "the project",
+  }));
+}
+
+/**
+ * The startup line of a service with named databases, like `databases: default sqlite (3 entities), orders postgres
+ * (5 entities)`: each database's kind and the entities living in it; undefined without named databases.
+ */
+export function databasesReport(adapter: DatabaseAdapter, models: readonly EntityModel[]): string | undefined {
+  if (!isDatabaseRouter(adapter)) return undefined;
+  const parts = Object.entries(adapter.databases).map(([name, database]) => {
+    const count = models.filter((model) => !model.link && databaseOf(model) === name).length;
+    return `${name} ${database.kind ?? "custom"} (${count} ${count === 1 ? "entity" : "entities"})`;
+  });
+  return `databases: ${parts.join(", ")}`;
+}
 
 /** The connection texts set by `QS_DATABASES_<NAME>_URL`, masked wherever secrets are. */
 let connectionSecrets: readonly string[] = [];

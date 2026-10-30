@@ -9,6 +9,7 @@ import {
   overrideVariables,
   parseOptionString,
   resolveDatabases,
+  databaseVariables,
   resolveFeatures,
   SECRET_MASK,
   unknownVariableWarnings,
@@ -139,7 +140,8 @@ export async function envCheck(projectRoot: string, processEnv: Record<string, s
     ok = false;
   }
   try {
-    for (const variable of declaredVariables(config.env as Record<string, AnyOptionSchema> | undefined, features)) {
+    const named = Object.keys(typeof applied.databases === "object" && applied.databases !== null ? (applied.databases as object) : {});
+    for (const variable of [...declaredVariables(config.env as Record<string, AnyOptionSchema> | undefined, features), ...databaseVariables(named)]) {
       const status = statusLine(variable, environment[variable.name]);
       lines.push(status.line);
       variables.push(status.status);

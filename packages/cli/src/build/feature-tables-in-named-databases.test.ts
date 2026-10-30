@@ -23,7 +23,7 @@ const post = (body: unknown) => ({ method: "POST", headers: { "content-type": "a
 
 describe("derived feature entities", () => {
   test("the history of an orders entity lives in orders and is written in the order's transaction", async () => {
-    const service = await startTestService({ files: { "quickservicets.config.ts": config("events: {}, history: {}"), ...TRACKED } });
+    const service = await startTestService({ files: { "quickservicets.config.ts": config("events: {}, history: {}"), ...TRACKED }, databases: "config" });
     try {
       const models = await modelsOf(service.root);
       const history = models.find((model) => model.key === "OrderHistory")!;
@@ -39,7 +39,7 @@ describe("derived feature entities", () => {
 
 describe("per-database entities", () => {
   test("each database with entities gets the outbox, written in its own transactions, and readers see both", async () => {
-    const service = await startTestService({ files: { "quickservicets.config.ts": config("events: { outbox: true }"), ...ENTITIES } });
+    const service = await startTestService({ files: { "quickservicets.config.ts": config("events: { outbox: true }"), ...ENTITIES }, databases: "config" });
     try {
       const models = await modelsOf(service.root);
       const outbox = models.find((model) => model.key === "OutboxEvent")!;

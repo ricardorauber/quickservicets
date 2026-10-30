@@ -13,6 +13,7 @@ import {
   resolveConfig,
   placeFeatureEntities,
   type App,
+  type DatabaseAdapter,
   type EntityModel,
   type AuthProvider,
   type LifecyclePhase,
@@ -31,6 +32,24 @@ export interface TestServiceOptions {
    * `@quickservicets/core/testing`; the project's config must enable `auth`.
    */
   auth?: AuthProvider | readonly AuthProvider[];
+  /**
+   * The adapters of the project's named databases: each one is `memoryAdapter()` unless given here, and `"config"`
+   * keeps the project's own adapters (default: every named database in memory).
+   */
+  databases?: Record<string, DatabaseAdapter> | "config";
+}
+
+/** The project's named databases with each adapter replaced: by `chosen[name]`, or by a memory adapter. */
+function testDatabases(configured: unknown, chosen: Record<string, DatabaseAdapter> = {}): Record<string, unknown> | undefined {
+  if (typeof configured !== "object" || configured === null) return undefined;
+  return Object.fromEntries(
+    Object.entries(configured as Record<string, unknown>).map(([name, entry]) => {
+      const adapter = chosen[name] ?? memoryAdapter();
+      // An entry with settings keeps them (tenancy, tenantConnection) around the replaced adapter.
+      const settings = typeof entry === "object" && entry !== null && "adapter" in entry ? (entry as Record<string, unknown>) : undefined;
+      return [name, settings ? { ...settings, adapter } : adapter];
+    }),
+  );
 }
 
 /** The key of the project feature that registers the providers of the `auth` option. */
@@ -137,7 +156,7 @@ function writeProject(files: Record<string, string>): string {
  * features' setups and `onStart` callbacks run, but no port is opened. Rejects with the build output or the startup
  * error, removing the folder.
  */
-export async function startTestService({ files, env = {}, auth }: TestServiceOptions): Promise<TestService> {
+export async function startTestService({ files, env = {}, auth, databases }: TestServiceOptions): Promise<TestService> {
   const root = writeProject(files);
   const tracker = new Map<unknown, TimerOwner>();
   let started: { app: App; stop(): Promise<void> } | undefined;
@@ -156,7 +175,9 @@ export async function startTestService({ files, env = {}, auth }: TestServiceOpt
     const openApi = (await import(join(generated, "openapi.json"))).default;
     const providers = auth === undefined ? [] : Array.isArray(auth) ? auth : [auth as AuthProvider];
     registerProjectFeatures(providers.length > 0 ? [...features, { folder: TEST_AUTH_FEATURE, definition: testAuthFeature(providers) }] : features);
-    const config = resolveConfig({ ...projectConfig, database: memoryAdapter() }, { ...env }, root);
+    // Named databases run in memory too, unless the test gives adapters or keeps the project's.
+    const named = databases === "config" ? projectConfig.databases : testDatabases(projectConfig.databases, databases);
+    const config = resolveConfig({ ...projectConfig, database: memoryAdapter(), ...(named ? { databases: named as never } : {}) }, { ...env }, root);
     const models = placeFeatureEntities(generatedModels, config.features);
     installTimerTracking(tracker);
     const lifecycle = createFeatureLifecycle({

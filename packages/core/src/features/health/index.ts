@@ -1,4 +1,7 @@
 import {
+  databaseAdapters,
+  databaseModels,
+  DEFAULT_DATABASE,
   anyOf,
   boolean,
   provider,
@@ -103,7 +106,12 @@ const healthFeature = defineFeature({
     const enabled = (key: string) => ctx.config.features.some((feature) => feature.key === key);
     registry.checks = [];
     registry.open = true;
-    register("database", "health", { critical: true, timeout: ctx.options.timeout, run: databaseCheck(ctx.config.database, ctx.models) });
+    // One critical check per database: `database` for the default one, `database:<name>` for each named one.
+    for (const [name, adapter] of databaseAdapters(ctx.config.database)) {
+      const check = { critical: true, timeout: ctx.options.timeout, run: databaseCheck(adapter, databaseModels(ctx.models, name)) };
+      if (name === DEFAULT_DATABASE) register("database", "health", check);
+      else register(`database-${name}`, "health", check, `database:${name}`);
+    }
     if (enabled("queues")) {
       const queues = ctx.feature("queues");
       register("queue", "health", { critical: false, timeout: ctx.options.timeout, run: () => queues.health() });

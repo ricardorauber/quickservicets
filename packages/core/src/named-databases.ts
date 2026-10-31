@@ -288,7 +288,9 @@ export function outsideTransaction<T>(fn: () => T): T {
  * live in different databases (the application's checks across databases), and as it is otherwise.
  */
 export function acrossDatabases<T>(model: Pick<EntityModel, "database">, other: Pick<EntityModel, "database">, fn: () => T): T {
-  return databaseOf(model) === databaseOf(other) ? fn() : outsideTransaction(fn);
+  // Inside a transaction of `other`'s own database the work joins it: outside, a single-connection database (SQLite,
+  // memory) would wait for that very transaction to end.
+  return databaseOf(model) === databaseOf(other) || currentTransactionDatabase() === databaseOf(other) ? fn() : outsideTransaction(fn);
 }
 
 /** The database the open transaction of `adapter` (a router or one of its views) belongs to, once it touched one. */

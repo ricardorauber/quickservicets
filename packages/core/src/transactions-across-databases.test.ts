@@ -171,3 +171,25 @@ describe("generated routes", () => {
     expect(events).toEqual(["default read Customer", "orders begin", "orders insert Order", "orders commit"]);
   });
 });
+
+describe("checks across databases inside a transaction", () => {
+  test("a write of another database is refused, not left waiting, when its check reads the transaction's own SQLite database", async () => {
+    const { sqliteAdapter } = await import("./adapters/sqlite.ts");
+    const { createSqliteTables } = await import("./testing/sql.ts");
+    const { createRepositories } = await import("./repository.ts");
+    const mainDb = sqliteAdapter({ path: ":memory:" });
+    const ordersDb = memoryAdapter();
+    const routed = databaseRouter(mainDb, { orders: ordersDb });
+    await routed.connect([customer, order]);
+    await createSqliteTables(mainDb.client!, [customer]);
+    configureTransactions(routed, quiet);
+    const repos = createRepositories([customer, order], routed) as unknown as Record<string, { create(body: unknown): Promise<{ id: string }> }>;
+    const failure = await transaction(async () => {
+      const ada = await repos.customers!.create({ name: "Ada" });
+      await repos.orders!.create({ number: "A-1", customer: ada.id });
+    }).catch((error: unknown) => error);
+    expect(failure).toMatchObject({ code: "CROSS_DATABASE_TRANSACTION", message: "Cannot use Order (database orders) inside a transaction of database default; a transaction covers one database. Use a saga or the outbox for changes across databases" });
+    expect(await mainDb.count(customer, [])).toBe(0);
+    await routed.disconnect();
+  }, 20_000);
+});

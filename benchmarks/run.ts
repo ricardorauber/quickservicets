@@ -108,8 +108,14 @@ const log = (message: string) => console.log(`[${new Date().toISOString().slice(
 
 // ----------------------------------------------------------------------------------------------- docker helpers
 
-async function sh(command: string[], options: { stdin?: string; quiet?: boolean; allowFailure?: boolean } = {}) {
-  const proc = Bun.spawn(command, { stdin: options.stdin === undefined ? "ignore" : new TextEncoder().encode(options.stdin), stdout: "pipe", stderr: "pipe" });
+async function sh(command: string[], options: { stdin?: string; quiet?: boolean; allowFailure?: boolean; cwd?: string; env?: Record<string, string | undefined> } = {}) {
+  const proc = Bun.spawn(command, {
+    stdin: options.stdin === undefined ? "ignore" : new TextEncoder().encode(options.stdin),
+    stdout: "pipe",
+    stderr: "pipe",
+    ...(options.cwd ? { cwd: options.cwd } : {}),
+    ...(options.env ? { env: options.env } : {}),
+  });
   const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
   if (code !== 0 && !options.allowFailure) throw new Error(`${command.join(" ")} exited with ${code}\n${stderr || stdout}`);
   return { stdout, stderr, code };
@@ -132,7 +138,44 @@ async function resetSchema() {
 const SEED_SQL = seedSql();
 async function seed() {
   await psql(SEED_SQL);
+  if (features?.plan.migrateAllTenants) await psql(TENANT_COPY_SQL);
 }
+
+/** The database the host reaches: the compose PostgreSQL published on 55432. */
+const HOST_DATABASE_URL = "postgres://bench:bench@127.0.0.1:55432/bench";
+/** The schema of the tenancy run's one tenant, bench, from the default tenancy.schema template. */
+const TENANT_SCHEMA = "tenant_bench";
+
+/**
+ * Runs `quickservicets migrate --all-tenants` for a run whose switches need it (tenancy=on), on the host against the
+ * compose database, with the run's variables: the bench tenant's schema gets the tables.
+ */
+async function migrateAllTenants(variables: Record<string, string>) {
+  log("Migrating every tenant");
+  await sh(["bun", "run", "quickservicets", "migrate", "--all-tenants", "--yes"], { cwd: join(BENCH, "quickservicets"), env: { ...process.env, ...variables, DATABASE_URL: HOST_DATABASE_URL } });
+}
+
+/**
+ * Copies the seeded rows of every table of the public schema into the tenant's schema, column by column, with
+ * foreign keys checked once every table is copied (they hold within the copy as they do in public).
+ */
+const TENANT_COPY_SQL = `SET session_replication_role = replica;
+DO $$
+DECLARE t record; columns text;
+BEGIN
+  FOR t IN SELECT table_name FROM information_schema.tables WHERE table_schema = '${TENANT_SCHEMA}' AND table_type = 'BASE TABLE' AND table_name NOT LIKE '%migrations%' LOOP
+    EXECUTE format('TRUNCATE %I.%I CASCADE', '${TENANT_SCHEMA}', t.table_name);
+  END LOOP;
+  FOR t IN SELECT table_name FROM information_schema.tables WHERE table_schema = '${TENANT_SCHEMA}' AND table_type = 'BASE TABLE' AND table_name NOT LIKE '%migrations%' LOOP
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = t.table_name) THEN
+      SELECT string_agg(quote_ident(c.column_name), ', ') INTO columns FROM information_schema.columns c
+        WHERE c.table_schema = '${TENANT_SCHEMA}' AND c.table_name = t.table_name
+          AND EXISTS (SELECT 1 FROM information_schema.columns p WHERE p.table_schema = 'public' AND p.table_name = t.table_name AND p.column_name = c.column_name);
+      EXECUTE format('INSERT INTO %I.%I (%s) SELECT %s FROM public.%I', '${TENANT_SCHEMA}', t.table_name, columns, columns, t.table_name);
+    END IF;
+  END LOOP;
+END $$;
+SET session_replication_role = origin;`;
 
 async function buildImage(stack: string): Promise<{ image: string; buildSeconds: number | null }> {
   const image = `qsbench-${stack}`;
@@ -162,7 +205,7 @@ async function waitForHealth(timeoutMs: number): Promise<number | null> {
   const started = performance.now();
   while (performance.now() - started < timeoutMs) {
     try {
-      const res = await fetch(`http://127.0.0.1:${APP_HOST_PORT}/health`, { signal: AbortSignal.timeout(1000) });
+      const res = await fetch(`http://127.0.0.1:${APP_HOST_PORT}/health`, { signal: AbortSignal.timeout(1000), headers: features?.plan.headers ?? {} });
       await res.arrayBuffer();
       if (res.status === 200) return performance.now();
     } catch {
@@ -275,7 +318,7 @@ function summarize(samples: Sample[]) {
 async function runConformance() {
   const proc = Bun.spawn(["bun", "test", "./benchmarks/conformance/conformance.ts"], {
     cwd: ROOT,
-    env: { ...process.env, BASE_URL: `http://127.0.0.1:${APP_HOST_PORT}` },
+    env: { ...process.env, BASE_URL: `http://127.0.0.1:${APP_HOST_PORT}`, ...(features && Object.keys(features.plan.headers).length > 0 ? { HEADERS: JSON.stringify(features.plan.headers) } : {}) },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -292,7 +335,8 @@ async function runK6(stack: string, name: string, duration: string, label: strin
   mkdirSync(outDir, { recursive: true });
   const file = `${name}.${label}.json`;
   rmSync(join(outDir, file), { force: true });
-  const env = { BASE_URL: `http://${APP}:8080`, VUS, DURATION: duration, RUN_ID: `${stack}-${name}-${label}-${Date.now()}`, SUMMARY_OUT: `/out/${file}`, ...scenario.env };
+  const headers = features && Object.keys(features.plan.headers).length > 0 ? { HEADERS: JSON.stringify(features.plan.headers) } : {};
+  const env = { BASE_URL: `http://${APP}:8080`, VUS, DURATION: duration, RUN_ID: `${stack}-${name}-${label}-${Date.now()}`, SUMMARY_OUT: `/out/${file}`, ...headers, ...scenario.env };
   const command = [
     "docker", "run", "--rm", "--name", "qsbench-k6", "--network", NETWORK, `--cpus=${K6_CPUS}`,
     "-v", `${join(BENCH, "load")}:/load:ro`, "-v", `${CACHE}:/fixtures:ro`, "-v", `${outDir}:/out`,
@@ -334,13 +378,17 @@ async function runStack(stack: string) {
   const { image, buildSeconds } = await buildImage(stack);
   const sizeBytes = await imageSize(image);
 
+  // QuickService.ts runs switch features through QS_* variables only; the service's config has no feature keys.
+  const variables = stack.startsWith("quickservicets") ? quickServiceVariables(features) : {};
   log("Resetting the schema and seeding");
   await resetSchema();
+  if (features?.plan.migrateAllTenants) {
+    await psql(`DROP SCHEMA IF EXISTS ${TENANT_SCHEMA} CASCADE;`);
+    await migrateAllTenants(variables);
+  }
   await seed();
 
   const volume = `qsbench-uploads-${stack}`;
-  // QuickService.ts runs switch features through QS_* variables only; the service's config has no feature keys.
-  const variables = stack.startsWith("quickservicets") ? quickServiceVariables(features) : {};
   await removeApp();
   await sh(["docker", "volume", "rm", "-f", volume], { allowFailure: true });
   await sh(["docker", "volume", "create", volume]);
@@ -360,7 +408,7 @@ async function runStack(stack: string) {
     environment: await environment(),
     image: { name: image, sizeBytes, sizeMB: Math.round((sizeBytes / 1e6) * 10) / 10, buildSeconds: buildSeconds === null ? null : Math.round(buildSeconds * 10) / 10 },
     ...(Object.keys(variables).length > 0 ? { variables } : {}),
-    ...(features ? { features: { switches: features.switches, defaults: features.defaults, label: features.label } } : {}),
+    ...(features ? { features: { switches: features.switches, defaults: features.defaults, label: features.label, plan: features.plan } } : {}),
   };
 
   let sampler: ReturnType<typeof startSampler> | undefined;

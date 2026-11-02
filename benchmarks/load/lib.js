@@ -8,11 +8,26 @@
 //   FIXTURES     path of the seeded ids JSON (default /fixtures/fixtures.json)
 //   SUMMARY_OUT  where handleSummary writes the JSON summary (default /out/summary.json)
 //   RUN_ID       makes generated emails unique across runs (default: start time)
+//   HEADERS      a JSON object of headers sent with every request, like {"x-tenant-id":"bench"} (default none)
 import { check } from "k6";
+import k6http from "k6/http";
 import { Counter, Rate } from "k6/metrics";
 
 export const BASE_URL = (__ENV.BASE_URL || "http://localhost:8080").replace(/\/$/, "");
 export const RUN_ID = __ENV.RUN_ID || String(Date.now());
+
+/** The headers every request carries, from HEADERS, like the tenant header of a tenancy run. */
+const EXTRA_HEADERS = __ENV.HEADERS ? JSON.parse(__ENV.HEADERS) : {};
+const withHeaders = (params = {}) => (Object.keys(EXTRA_HEADERS).length === 0 ? params : { ...params, headers: { ...EXTRA_HEADERS, ...(params.headers || {}) } });
+
+/** k6's http module, with the HEADERS added to every request. */
+export const http = {
+  get: (url, params) => k6http.get(url, withHeaders(params)),
+  post: (url, body, params) => k6http.post(url, body, withHeaders(params)),
+  patch: (url, body, params) => k6http.patch(url, body, withHeaders(params)),
+  del: (url, body, params) => k6http.del(url, body, withHeaders(params)),
+  file: (...args) => k6http.file(...args),
+};
 
 const errors = new Rate("errors");
 const unexpected = new Counter("unexpected_status");

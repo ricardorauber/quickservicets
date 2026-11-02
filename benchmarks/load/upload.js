@@ -1,6 +1,5 @@
 // upload: POST /media, multipart/form-data with a ~50 KB PNG in the "file" part.
-import http from "k6/http";
-import { BASE_URL, expectStatus, options as makeOptions, summary } from "./lib.js";
+import { BASE_URL, expectStatus, options as makeOptions, summary, http } from "./lib.js";
 
 const png = open("./fixtures/upload.png", "b");
 export const options = makeOptions(["upload_media"]);

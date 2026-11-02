@@ -20,7 +20,25 @@ export interface FeatureSwitches {
   variables: Record<string, string>;
   /** The switches sorted and joined by `+`, like `events-on+security-off`: the result file's name. */
   label: string;
+  /** What the run does besides the variables: migrate every tenant before the load, and headers on every request. */
+  plan: { migrateAllTenants: boolean; headers: Record<string, string> };
 }
+
+/** What a switch turned on needs besides `QS_<KEY>_ENABLED`: more variables, steps before the load and request headers. */
+export interface SwitchExtras {
+  variables?: Record<string, string>;
+  /** Runs `quickservicets migrate --all-tenants` before the load. */
+  migrateAllTenants?: boolean;
+  headers?: Record<string, string>;
+}
+
+/**
+ * The extras of the switches that need more than their variable: `tenancy=on` serves one config tenant, `bench`, with
+ * the schema strategy, migrated before the load and named by every request.
+ */
+export const SWITCH_EXTRAS: Readonly<Record<string, SwitchExtras>> = {
+  tenancy: { variables: { QS_TENANCY_SOURCE: "config", QS_TENANCY_TENANTS: '{"bench":{}}' }, migrateAllTenants: true, headers: { "x-tenant-id": "bench" } },
+};
 
 /**
  * Variables every QuickService.ts run starts with: the load generator is one IP, so the default rate limit would
@@ -45,11 +63,13 @@ export function parseFeatures(text: string, natives: readonly BenchNative[]): Fe
     defaults[key] = native.enabledByDefault ? "on" : "off";
   }
   const keys = Object.keys(switches).sort();
+  const extras = keys.filter((key) => switches[key] === "on").map((key) => SWITCH_EXTRAS[key] ?? {});
   return {
     switches,
     defaults,
-    variables: Object.fromEntries(keys.map((key) => [envName(key), switches[key] === "on" ? "true" : "false"])),
+    variables: Object.assign(Object.fromEntries(keys.map((key) => [envName(key), switches[key] === "on" ? "true" : "false"])), ...extras.map((extra) => extra.variables ?? {})),
     label: keys.map((key) => `${key}-${switches[key]}`).join("+"),
+    plan: { migrateAllTenants: extras.some((extra) => extra.migrateAllTenants === true), headers: Object.assign({}, ...extras.map((extra) => extra.headers ?? {})) },
   };
 }
 
@@ -72,6 +92,12 @@ export const NOISE_BUDGET = 3;
 /** What the default security may cost on `crud`, in throughput and p50 latency. */
 export const SECURITY_BUDGET = 5;
 
+/**
+ * What a native switched on may cost on `crud`, in throughput and p50 latency: the infrastructure natives without
+ * providers, routes, references or files must cost nothing beyond noise, tenancy with the schema strategy at most 10%.
+ */
+export const ON_BUDGETS: Readonly<Record<string, number>> = { metrics: 3, auth: 3, proxy: 3, secrets: 3, realtime: 3, tenancy: 10 };
+
 interface ScenarioResult {
   reqPerSec: number;
   latencyMs: { p50: number; p99: number };
@@ -88,7 +114,8 @@ const percent = (value: number) => `${value >= 0 ? "+" : ""}${value.toFixed(1)}%
 /**
  * Compares a run with the baseline, scenario by scenario: the change of requests per second and of p50 and p99
  * latency. A run that only switches off features that are off by default fails above the noise budget; a run with
- * `security=off` fails when the default security costs more than its budget on `crud`.
+ * `security=off` fails when the default security costs more than its budget on `crud`; a run turning on natives with
+ * an on-budget fails when they cost more than it on `crud`.
  */
 export function compareResults(run: BenchResult, baseline: BenchResult): { lines: string[]; failures: string[] } {
   const lines: string[] = [];
@@ -98,6 +125,10 @@ export function compareResults(run: BenchResult, baseline: BenchResult): { lines
   const keys = Object.keys(switches);
   const noiseRun = keys.length > 0 && keys.every((key) => switches[key] === "off" && defaults[key] === "off");
   const securityOff = switches.security === "off";
+  // A run turning on only natives with an on-budget is held to the largest of their budgets.
+  const on = keys.filter((key) => switches[key] === "on" && defaults[key] === "off");
+  const budgeted = on.length > 0 && on.every((key) => ON_BUDGETS[key] !== undefined) && keys.every((key) => switches[key] === "on" || defaults[key] === "off");
+  const onBudget = budgeted ? Math.max(...on.map((key) => ON_BUDGETS[key]!)) : undefined;
   for (const [name, scenario] of Object.entries(run.scenarios ?? {})) {
     const base = baseline.scenarios?.[name];
     if (!base) continue;
@@ -108,6 +139,10 @@ export function compareResults(run: BenchResult, baseline: BenchResult): { lines
     if (noiseRun) {
       if (-throughput > NOISE_BUDGET) failures.push(`${name}: throughput is ${(-throughput).toFixed(1)}% lower than the baseline; the noise budget is ${NOISE_BUDGET}%`);
       if (p50 > NOISE_BUDGET) failures.push(`${name}: p50 latency is ${p50.toFixed(1)}% higher than the baseline; the noise budget is ${NOISE_BUDGET}%`);
+    }
+    if (onBudget !== undefined && name === "crud") {
+      const cost = Math.max(-throughput, p50);
+      if (cost > onBudget) failures.push(`${on.sort().join("+")} costs ${Math.round(cost * 10) / 10}% on crud; the budget is ${onBudget}%`);
     }
     if (securityOff && name === "crud") {
       // The run without security is the faster one: what it gains is what the default security costs.

@@ -1,0 +1,221 @@
+{
+  "stack": "quickservicets",
+  "startedAt": "2026-11-02T20:49:24.909Z",
+  "settings": {
+    "vus": 64,
+    "duration": "15s",
+    "warmup": "5s",
+    "appCpus": 2,
+    "appMemory": "1g",
+    "k6Cpus": 4,
+    "dbPoolSize": 10,
+    "k6Image": "grafana/k6:2.3.0"
+  },
+  "environment": {
+    "host": "darwin/arm64",
+    "docker": {
+      "serverVersion": "29.8.2",
+      "operatingSystem": "Docker Desktop",
+      "cpus": 10,
+      "memoryBytes": 25159561216,
+      "architecture": "aarch64"
+    },
+    "gitCommit": "687b9f9",
+    "bun": "1.4.2"
+  },
+  "image": {
+    "name": "qsbench-quickservicets",
+    "sizeBytes": 111898640,
+    "sizeMB": 111.9,
+    "buildSeconds": null
+  },
+  "variables": {
+    "QS_SECURITY_RATE_LIMIT_ENABLED": "false",
+    "QS_REALTIME_ENABLED": "true"
+  },
+  "features": {
+    "switches": {
+      "realtime": "on"
+    },
+    "defaults": {
+      "realtime": "off"
+    },
+    "label": "realtime-on",
+    "plan": {
+      "migrateAllTenants": false,
+      "headers": {}
+    }
+  },
+  "startup": {
+    "medianMs": 244,
+    "minMs": 244,
+    "samplesMs": [
+      244
+    ]
+  },
+  "memory": {
+    "idle": {
+      "samples": 8,
+      "peakMemMiB": 35,
+      "avgMemMiB": 35,
+      "avgCpuPercent": 0.1,
+      "peakCpuPercent": 0.2
+    },
+    "peakMiB": 79
+  },
+  "conformance": {
+    "passed": true,
+    "pass": 104,
+    "fail": 0,
+    "failures": []
+  },
+  "scenarios": {
+    "crud": {
+      "description": "GET /users/{id}, GET /users?limit=20&offset=n, POST, PATCH and DELETE /users",
+      "vus": 64,
+      "durationMs": 15283.437216,
+      "iterations": 20401,
+      "requests": 102005,
+      "reqPerSec": 6674.218538563597,
+      "latencyMs": {
+        "avg": 9.52219940239228,
+        "p50": 5.683208,
+        "p90": 10.358591800000001,
+        "p99": 248.2897509599999,
+        "max": 317.248
+      },
+      "errorRate": 0,
+      "endpoints": {
+        "delete_user": {
+          "requests": 20401,
+          "reqPerSec": 1334.8437077127194,
+          "latencyMs": {
+            "avg": 11.185990597225656,
+            "p50": 6.844416,
+            "p90": 11.765834,
+            "p99": 264.207917,
+            "max": 315.497001
+          },
+          "errorRate": 0
+        },
+        "create_user": {
+          "requests": 20401,
+          "reqPerSec": 1334.8437077127194,
+          "latencyMs": {
+            "avg": 8.021436961423396,
+            "p50": 4.706917,
+            "p90": 9.134375,
+            "p99": 45.674917,
+            "max": 317.248
+          },
+          "errorRate": 0
+        },
+        "get_user": {
+          "requests": 20401,
+          "reqPerSec": 1334.8437077127194,
+          "latencyMs": {
+            "avg": 8.19385640468606,
+            "p50": 4.575083,
+            "p90": 8.853,
+            "p99": 239.408292,
+            "max": 308.0845
+          },
+          "errorRate": 0
+        },
+        "list_users": {
+          "requests": 20401,
+          "reqPerSec": 1334.8437077127194,
+          "latencyMs": {
+            "avg": 11.98017677123671,
+            "p50": 7.121417,
+            "p90": 11.654042,
+            "p99": 275.385625,
+            "max": 316.592709
+          },
+          "errorRate": 0
+        },
+        "patch_user": {
+          "requests": 20401,
+          "reqPerSec": 1334.8437077127194,
+          "latencyMs": {
+            "avg": 8.22953627738836,
+            "p50": 4.816541,
+            "p90": 9.114292,
+            "p99": 219.291917,
+            "max": 310.942876
+          },
+          "errorRate": 0
+        }
+      },
+      "resources": {
+        "samples": 31,
+        "peakMemMiB": 79,
+        "avgMemMiB": 76.1,
+        "avgCpuPercent": 71.3,
+        "peakCpuPercent": 85.5
+      },
+      "postgres": {
+        "samples": 31,
+        "peakMemMiB": 867.6,
+        "avgMemMiB": 860.9,
+        "avgCpuPercent": 201,
+        "peakCpuPercent": 232.3
+      },
+      "container": {
+        "running": true,
+        "oomKilled": false,
+        "exitCode": 0
+      }
+    },
+    "health": {
+      "description": "GET /health only (framework floor)",
+      "vus": 64,
+      "durationMs": 14993.928701,
+      "iterations": 597689,
+      "requests": 597689,
+      "reqPerSec": 39862.06763542486,
+      "latencyMs": {
+        "avg": 1.5577189790024337,
+        "p50": 1.3195,
+        "p90": 2.491375,
+        "p99": 5.482941959999999,
+        "max": 43.411583
+      },
+      "errorRate": 0,
+      "endpoints": {
+        "health": {
+          "requests": 597689,
+          "reqPerSec": 39862.06763542486,
+          "latencyMs": {
+            "avg": 1.5577189790024337,
+            "p50": 1.3195,
+            "p90": 2.491375,
+            "p99": 5.482941959999999,
+            "max": 43.411583
+          },
+          "errorRate": 0
+        }
+      },
+      "resources": {
+        "samples": 31,
+        "peakMemMiB": 70,
+        "avgMemMiB": 68.6,
+        "avgCpuPercent": 96.8,
+        "peakCpuPercent": 101.6
+      },
+      "postgres": {
+        "samples": 31,
+        "peakMemMiB": 857.9,
+        "avgMemMiB": 857.5,
+        "avgCpuPercent": 1.7,
+        "peakCpuPercent": 2
+      },
+      "container": {
+        "running": true,
+        "oomKilled": false,
+        "exitCode": 0
+      }
+    }
+  },
+  "finishedAt": "2026-11-02T20:50:13.709Z"
+}

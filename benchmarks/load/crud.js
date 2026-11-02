@@ -1,6 +1,5 @@
 // crud: one iteration = read a seeded user, list a page, create a user, update it, delete it.
-import http from "k6/http";
-import { BASE_URL, JSON_HEADERS, RUN_ID, expectStatus, loadFixtures, options as makeOptions, pick, summary } from "./lib.js";
+import { BASE_URL, JSON_HEADERS, RUN_ID, expectStatus, loadFixtures, options as makeOptions, pick, summary, http } from "./lib.js";
 
 const fixtures = loadFixtures();
 const ENDPOINTS = ["get_user", "list_users", "create_user", "patch_user", "delete_user"];

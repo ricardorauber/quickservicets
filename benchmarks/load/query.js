@@ -1,6 +1,5 @@
 // query: filtered, sorted, projected user list plus an organization list with populated members.
-import http from "k6/http";
-import { BASE_URL, expectStatus, options as makeOptions, summary } from "./lib.js";
+import { BASE_URL, expectStatus, options as makeOptions, summary, http } from "./lib.js";
 
 export const options = makeOptions(["filter_users", "populate_orgs"]);
 const FILTER = "/users?where[role][eq]=admin&where[age][gte]=30&sort=-age,email&fields=email,name&limit=20";

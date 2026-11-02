@@ -110,11 +110,15 @@ export class UsageRecorder {
 
   /** Counts a completed request in the open window, under the given dimensions (default: the configured `by`). */
   record(observation: UsageObservation, by: readonly Dimension[] = this.settings.by): void {
-    const dimensions = this.dimensionsOf((dimension) => valueOf(dimension, observation), by);
-    const key = seriesKey(dimensions);
+    // The key is built from the observation directly; the dimensions object is only made for a new series.
+    const route = by.includes("route") ? valueOf("route", observation) : undefined;
+    const tenant = by.includes("tenant") ? valueOf("tenant", observation) : undefined;
+    const user = by.includes("user") ? valueOf("user", observation) : undefined;
+    const key = `${route ?? ""}\n${tenant ?? ""}\n${user ?? ""}`;
     const window = this.current.series;
     let series = window.get(key);
     if (!series) {
+      const dimensions = this.dimensionsOf((dimension) => valueOf(dimension, observation), by);
       if (window.size >= this.settings.maxSeries) {
         series = window.get(this.overflowKey);
         if (!series) {

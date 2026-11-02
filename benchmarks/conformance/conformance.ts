@@ -21,10 +21,13 @@ const ISO_MS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 /** Allowed difference between the service clock and this machine's clock. */
 const CLOCK_TOLERANCE_MS = 120_000;
 
+/** Headers every request carries, from HEADERS, like the tenant header of a tenancy run. */
+const EXTRA_HEADERS: Record<string, string> = process.env.HEADERS ? (JSON.parse(process.env.HEADERS) as Record<string, string>) : {};
+
 type Res = { status: number; headers: Headers; body: any; text: string; bytes: Uint8Array };
 
 async function call(method: string, path: string, init: { json?: unknown; raw?: string; form?: FormData; headers?: Record<string, string> } = {}): Promise<Res> {
-  const headers: Record<string, string> = { ...init.headers };
+  const headers: Record<string, string> = { ...EXTRA_HEADERS, ...init.headers };
   let body: BodyInit | undefined;
   if (init.json !== undefined) {
     headers["content-type"] = "application/json";

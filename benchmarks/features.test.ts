@@ -58,3 +58,53 @@ describe("compare-features", () => {
     expect(compareResults(run({ security: "off" }, { crud: scenario(1040, 9.7) }), baseline).failures).toEqual([]);
   });
 });
+
+const infrastructure = [
+  { key: "security", enabledByDefault: true },
+  { key: "tenancy", enabledByDefault: false },
+  { key: "auth", enabledByDefault: false },
+  { key: "metrics", enabledByDefault: false },
+  { key: "proxy", enabledByDefault: false },
+  { key: "secrets", enabledByDefault: false },
+  { key: "realtime", enabledByDefault: false },
+];
+const onRun = (switches: Record<string, "on" | "off">, crud: ReturnType<typeof scenario>): BenchResult => ({
+  features: { switches, defaults: Object.fromEntries(Object.keys(switches).map((key) => [key, "off"])) },
+  scenarios: { crud },
+});
+
+describe("runner plans for the infrastructure switches", () => {
+  test("tenancy=on serves the config tenant bench, migrates every tenant first and names it on every request", () => {
+    const parsed = parseFeatures("tenancy=on", infrastructure);
+    expect(parsed.variables).toEqual({ QS_TENANCY_ENABLED: "true", QS_TENANCY_SOURCE: "config", QS_TENANCY_TENANTS: '{"bench":{}}' });
+    expect(parsed.plan).toEqual({ migrateAllTenants: true, headers: { "x-tenant-id": "bench" } });
+    expect(parseFeatures("tenancy=off", infrastructure).plan).toEqual({ migrateAllTenants: false, headers: {} });
+  });
+
+  test("metrics, auth, proxy, secrets and realtime only set their variable", () => {
+    const parsed = parseFeatures("metrics=on,auth=on", infrastructure);
+    expect(parsed.variables).toEqual({ QS_AUTH_ENABLED: "true", QS_METRICS_ENABLED: "true" });
+    expect(parsed.label).toBe("auth-on+metrics-on");
+    expect(parsed.plan).toEqual({ migrateAllTenants: false, headers: {} });
+    for (const key of ["proxy", "secrets", "realtime"]) expect(parseFeatures(`${key}=on`, infrastructure).variables).toEqual({ [`QS_${key.toUpperCase()}_ENABLED`]: "true" });
+  });
+});
+
+describe("on-budget comparisons", () => {
+  test("tenancy=on 8% slower on crud passes and 12% slower fails its 10% budget; metrics=on 4% slower fails its 3% budget", () => {
+    expect(compareResults(onRun({ tenancy: "on" }, scenario(920, 10)), baseline).failures).toEqual([]);
+    expect(compareResults(onRun({ tenancy: "on" }, scenario(880, 10)), baseline).failures).toEqual(["tenancy costs 12% on crud; the budget is 10%"]);
+    expect(compareResults(onRun({ metrics: "on" }, scenario(960, 10)), baseline).failures).toEqual(["metrics costs 4% on crud; the budget is 3%"]);
+    expect(compareResults(onRun({ secrets: "on" }, scenario(1000, 10.4)), baseline).failures).toEqual(["secrets costs 4% on crud; the budget is 3%"]);
+    for (const key of ["auth", "proxy", "secrets", "realtime"]) expect(compareResults(onRun({ [key]: "on" }, scenario(980, 10.2)), baseline).failures).toEqual([]);
+  });
+});
+
+describe("the all-off comparison", () => {
+  const allOff = Object.fromEntries(["tenancy", "auth", "metrics", "proxy", "secrets", "realtime"].map((key) => [key, "off" as const]));
+  test("every infrastructure native off within 2% of the baseline passes, and 4% slower fails naming the metric", () => {
+    expect(compareResults(onRun(allOff, scenario(985, 10.15)), baseline).failures).toEqual([]);
+    expect(compareResults(onRun(allOff, scenario(960, 10)), baseline).failures).toEqual(["crud: throughput is 4.0% lower than the baseline; the noise budget is 3%"]);
+    expect(compareResults(onRun(allOff, scenario(1000, 10.4)), baseline).failures).toEqual(["crud: p50 latency is 4.0% higher than the baseline; the noise budget is 3%"]);
+  });
+});

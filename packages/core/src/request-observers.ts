@@ -41,15 +41,26 @@ export function requestsObserved(): boolean {
   return list.length > 0;
 }
 
-/** Calls every observer with an observation, after the current task, logging nothing and never throwing. */
+/** The observations waiting for the next microtask, handed to the observers together. */
+let pending: { observation: RequestObservation; observers: RequestObserver[] }[] = [];
+
+/**
+ * Calls every observer with an observation, after the current task, logging nothing and never throwing; the
+ * observations of one task are handed over in one microtask.
+ */
 export function notifyRequestObservers(observation: RequestObservation): void {
-  const current = list;
+  pending.push({ observation, observers: list });
+  if (pending.length > 1) return;
   queueMicrotask(() => {
-    for (const observer of current) {
-      try {
-        observer(observation);
-      } catch {
-        // An observer never changes a response or another observer.
+    const batch = pending;
+    pending = [];
+    for (const { observation: done, observers: current } of batch) {
+      for (const observer of current) {
+        try {
+          observer(done);
+        } catch {
+          // An observer never changes a response or another observer.
+        }
       }
     }
   });

@@ -1,7 +1,6 @@
 // Single-endpoint variants, for profiling one code path at a time. ENDPOINT picks the request:
 //   health | get_user | list_users | create_user | filter_users | populate_orgs
-import http from "k6/http";
-import { BASE_URL, JSON_HEADERS, RUN_ID, expectStatus, loadFixtures, options as makeOptions, pick, summary } from "./lib.js";
+import { BASE_URL, JSON_HEADERS, RUN_ID, expectStatus, loadFixtures, options as makeOptions, pick, summary, http } from "./lib.js";
 
 const fixtures = loadFixtures();
 const ENDPOINT = __ENV.ENDPOINT || "health";

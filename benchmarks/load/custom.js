@@ -1,6 +1,5 @@
 // custom: the hand-written endpoint GET /organizations/{orgId}/stats on random seeded organizations.
-import http from "k6/http";
-import { BASE_URL, expectStatus, loadFixtures, options as makeOptions, pick, summary } from "./lib.js";
+import { BASE_URL, expectStatus, loadFixtures, options as makeOptions, pick, summary, http } from "./lib.js";
 
 const fixtures = loadFixtures();
 export const options = makeOptions(["org_stats"]);

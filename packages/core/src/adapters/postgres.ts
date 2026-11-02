@@ -8,9 +8,11 @@ import { buildDrizzleSchema, columnName, lazyDrizzleSchema, schemaIdentifier, ty
 import { schemaViews } from "./schema-views.ts";
 import { relationFields, splitRelations, writeRelations } from "../sql/relations.ts";
 import { EntityStatements, type Statement } from "./postgres-statements.ts";
+import { isSecretReference, secretValue, type SecretReference } from "../secret-references.ts";
 
 export interface PostgresAdapterOptions {
-  url: string;
+  /** The connection URL, or a secret reference to it (read when the adapter connects). */
+  url: string | SecretReference;
   /** Most connections the pool opens (default 10); with `server.workers` above 1 it is divided across the workers. */
   max?: number;
 }
@@ -275,13 +277,13 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
       statements.clear();
       const defaultSchema = connectOptions.defaultSchema ? schemaIdentifier(connectOptions.defaultSchema) : undefined;
       if (defaultSchema) {
-        const admin = new SQL(options.url);
+        const admin = new SQL(secretValue(options.url));
         await admin.unsafe(`create schema if not exists "${defaultSchema}"`);
         await admin.close();
       }
       const max = connectOptions.poolSize ?? poolSizePerWorker(options.max ?? DEFAULT_POSTGRES_POOL_SIZE, connectOptions.workers);
       // The search path is a connection parameter, so every pooled connection uses the default schema.
-      client = new SQL({ url: options.url, max, ...(defaultSchema ? { connection: { search_path: defaultSchema } } : {}) } as never);
+      client = new SQL({ url: secretValue(options.url), max, ...(defaultSchema ? { connection: { search_path: defaultSchema } } : {}) } as never);
       const { drizzle } = await driver;
       drizzleFor = (sqlClient) => drizzle({ client: sqlClient });
       db = drizzleFor(client);
@@ -302,10 +304,11 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
       return postgresAdapter({ ...options, url });
     },
     sharesConnectionWith: (other) => other === adapter || views.owns(other),
+    secretReferences: () => (isSecretReference(options.url) ? [options.url] : []),
     async listen(channel, onPayload, onListen) {
       assertChannelName(channel);
       // A client of its own, so the listening connection never takes one of the pool's.
-      const listener = new SQL({ url: options.url, max: 1 });
+      const listener = new SQL({ url: secretValue(options.url), max: 1 });
       try {
         const subscription = await listener.listen(channel, onPayload, onListen);
         return async () => {

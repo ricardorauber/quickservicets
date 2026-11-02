@@ -14,6 +14,7 @@ import type { CrudOperation, ParsedTags } from "./model.ts";
 import { setActiveSetup } from "./setup-phase.ts";
 import { configureTracing, tracedLogger } from "./tracing.ts";
 import { configureMetrics } from "./metering.ts";
+import { RESOLVE_STARTUP_SECRETS, usesSecrets } from "./secret-references.ts";
 
 /** Which worker process runs a feature's setup. */
 export interface WorkerInfo {
@@ -298,7 +299,14 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
       // A service starts without the tracer of a service set up before it in this process.
       configureTracing(undefined);
       configureMetrics(undefined);
-      for (const entry of registered) {
+      // Secret references resolve once the secrets native and the features registering providers are set up, before
+      // every other setup, so the others only see values.
+      const lastSecretsFeature = registered.findLastIndex((entry) => usesSecrets(entry.feature.definition));
+      const resolveSecrets = async () => {
+        const resolve = (apis.get("secrets") as Record<symbol, unknown> | undefined)?.[RESOLVE_STARTUP_SECRETS];
+        if (typeof resolve === "function") await resolve();
+      };
+      for (const [position, entry] of registered.entries()) {
         const { feature } = entry;
         let open = true;
         const duringSetup = (name: string) => {
@@ -381,6 +389,7 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
           settingUp = undefined;
           setActiveSetup(undefined);
         }
+        if (position === lastSecretsFeature) await resolveSecrets();
       }
     },
     async start(context) {

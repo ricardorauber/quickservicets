@@ -15,6 +15,7 @@ import { databaseAdapters, databasesReport, errorDatabase, placeFeatureEntities 
 import type { ResolvedFeature } from "./features.ts";
 import { loadServerTls, logServerCertificate } from "./tls.ts";
 import { reloadTls, setTlsRestart } from "./tls-reload.ts";
+import { containsSecretReference } from "./secret-references.ts";
 
 /** The pause between two workers restarting for renewed certificates, after the previous one stopped. */
 export const TLS_RESTART_GAP_MS = 2000;
@@ -99,18 +100,30 @@ export async function startService(options: StartServiceOptions): Promise<Runnin
     return undefined;
   };
 
-  // The certificate and key are read and checked before anything starts, and described once per worker.
-  if (config.server.tls) {
+  // The certificate and key are read and checked before anything starts, and described once per worker; secret
+  // references among them are resolved first, by the setup of the secrets native.
+  const checkTls = () => {
+    if (!config.server.tls) return true;
     try {
       logServerCertificate(logger, loadServerTls(config.server.tls).info, config.server.tls);
+      return true;
     } catch (error) {
-      return fail(error, false, "tls");
+      return error;
     }
+  };
+  const tlsReferences = containsSecretReference(config.server.tls);
+  if (!tlsReferences) {
+    const checked = checkTls();
+    if (checked !== true) return fail(checked, false, "tls");
   }
   try {
     await lifecycle.setup();
   } catch (error) {
     return fail(error, false);
+  }
+  if (tlsReferences) {
+    const checked = checkTls();
+    if (checked !== true) return fail(checked, false, "tls");
   }
   try {
     await config.database.connect(options.models, { defaultSchema: config.schema, workers: config.server.workers });

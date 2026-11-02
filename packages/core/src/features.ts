@@ -1,3 +1,4 @@
+import { usesSecrets } from "./secret-references.ts";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { ConfigError } from "./config-error.ts";
@@ -827,7 +828,11 @@ export function lastResolvedFeatures(): ResolvedFeatures | undefined {
   return lastResolution;
 }
 
-/** Orders features after the enabled features they require, enable or follow, keeping the given order otherwise. */
+/**
+ * Orders features after the enabled features they require, enable or follow; when nothing else decides, the `secrets`
+ * native and the features using it come first, so references resolve before the others set up. Keeps the given order
+ * otherwise.
+ */
 function orderFeatures(features: FeatureDefinition[]): FeatureDefinition[] {
   const keys = new Set(features.map((feature) => feature.key));
   const dependencies = new Map(
@@ -839,7 +844,8 @@ function orderFeatures(features: FeatureDefinition[]): FeatureDefinition[] {
   const ordered: FeatureDefinition[] = [];
   const placed = new Set<string>();
   while (ordered.length < features.length) {
-    const next = features.find((feature) => !placed.has(feature.key) && dependencies.get(feature.key)!.every((key) => placed.has(key)));
+    const ready = (feature: FeatureDefinition) => !placed.has(feature.key) && dependencies.get(feature.key)!.every((key) => placed.has(key));
+    const next = features.find((feature) => ready(feature) && usesSecrets(feature)) ?? features.find(ready);
     if (!next) throw new ConfigError(`Feature dependency cycle: ${findCycle(features.filter((feature) => !placed.has(feature.key)), dependencies).join(" -> ")}`);
     ordered.push(next);
     placed.add(next.key);

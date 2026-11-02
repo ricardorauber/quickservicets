@@ -134,6 +134,13 @@
         "@quickservicets/core": "workspace:*",
       },
     },
+    "examples/minimal/secrets": {
+      "name": "minimal-secrets",
+      "dependencies": {
+        "@quickservicets/cli": "workspace:*",
+        "@quickservicets/core": "workspace:*",
+      },
+    },
     "examples/minimal/security": {
       "name": "minimal-security",
       "dependencies": {
@@ -852,6 +859,8 @@
     "minimal-queues": ["minimal-queues@workspace:examples/minimal/queues"],
 
     "minimal-realtime": ["minimal-realtime@workspace:examples/minimal/realtime"],
+
+    "minimal-secrets": ["minimal-secrets@workspace:examples/minimal/secrets"],
 
     "minimal-security": ["minimal-security@workspace:examples/minimal/security"],
 

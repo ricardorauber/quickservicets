@@ -1,6 +1,7 @@
 import { ConfigError } from "./config-error.ts";
 import { databaseConnectionSecrets } from "./named-databases.ts";
 import { maskSecrets } from "./secrets.ts";
+import { knownSecretValues } from "./secret-references.ts";
 import { expectationOf, optionTypeOf, parseOptionString, type AnyOptionSchema, type OptionSettings } from "./options.ts";
 
 /**
@@ -121,7 +122,19 @@ export function setEnvValues(values: Record<string, unknown>, secrets: readonly 
 export function secretVariableValues(): string[] {
   const declared = secretNames.map((name) => store[name]).filter((value): value is string => typeof value === "string");
   const connections = databaseConnectionSecrets();
-  return connections.length === 0 ? declared : [...declared, ...connections];
+  const resolved = knownSecretValues();
+  return connections.length === 0 && resolved.length === 0 ? declared : [...declared, ...connections, ...resolved];
+}
+
+/** The names and values of the declared secret variables that are set, which may hold secret references. */
+export function secretVariables(): { name: string; value: unknown }[] {
+  return secretNames.map((name) => ({ name, value: store[name] }));
+}
+
+/** Replaces the value of a stored variable, like a secret variable whose reference resolved; it prints masked. */
+export function replaceEnvValue(name: string, value: unknown): void {
+  if (!Object.hasOwn(store, name)) return;
+  Object.defineProperty(store, name, { value, enumerable: true, configurable: true, writable: false });
 }
 
 const readOnly = () => {

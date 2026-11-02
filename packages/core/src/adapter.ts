@@ -1,3 +1,4 @@
+import type { SecretReference } from "./secret-references.ts";
 import type { EntityModel } from "./model.ts";
 import type { Condition, SortField } from "./query.ts";
 
@@ -162,6 +163,11 @@ export interface DatabaseAdapter {
    * Throws `Invalid tenant connection for <kind>: <reason>` without the value for one it cannot use.
    */
   forConnection?(connection: unknown): DatabaseAdapter;
+  /**
+   * The secret references the adapter was given as credentials, like `postgresAdapter({ url: secret("env://PG_URL") })`;
+   * the `secrets` native resolves them before the adapter connects (optional).
+   */
+  secretReferences?(): readonly SecretReference[];
 }
 
 /** The error of a connection `forConnection` cannot use; the message never holds the connection. */

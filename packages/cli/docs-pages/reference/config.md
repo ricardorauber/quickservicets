@@ -17,10 +17,10 @@ Every key that holds a value can also be set by an environment variable named af
 | `server.publicUrl` | `string` | relative URLs | `QS_SERVER_PUBLIC_URL` | Absolute base URL of the API, used in file URLs (default: relative URLs). |
 | `server.workers` | `number \| "auto"` | `"auto"` in production on Linux with PostgreSQL or MongoDB, otherwise 1 | `QS_SERVER_WORKERS` (or `QS_WORKERS`) | Processes serving requests on the shared port, an integer or `"auto"` for the CPUs available, read from the container's CPU quota on Linux (default `"auto"` in production on Linux with PostgreSQL or MongoDB, otherwise 1); `QS_WORKERS` overrides it. Above 1 it needs PostgreSQL or MongoDB, and connections spread across the processes only on Linux. |
 | `server.tls` | `object` | — | — | Serves HTTPS on `port` itself, for deployments without a TLS proxy; setting `cert` and `key` (or their variables) turns it on. |
-| `server.tls.cert` | `string` | — | `QS_SERVER_TLS_CERT` | The certificate (with its chain), as a file path or PEM text. |
-| `server.tls.key` | `string` | — | `QS_SERVER_TLS_KEY` | The private key, as a file path or PEM text. |
+| `server.tls.cert` | `string \| SecretReference` | — | `QS_SERVER_TLS_CERT` | The certificate (with its chain), as a file path or PEM text, or a secret reference holding the PEM text. |
+| `server.tls.key` | `string \| SecretReference` | — | `QS_SERVER_TLS_KEY` | The private key, as a file path or PEM text, or a secret reference holding the PEM text. |
 | `server.tls.ca` | `string \| string[]` | — | `QS_SERVER_TLS_CA` | Certificate authorities, as file paths or PEM text, one or a list. |
-| `server.tls.passphrase` | `string` | — | `QS_SERVER_TLS_PASSPHRASE` | The passphrase of an encrypted key, a secret. |
+| `server.tls.passphrase` | `string \| SecretReference` | — | `QS_SERVER_TLS_PASSPHRASE` | The passphrase of an encrypted key, a secret or a secret reference. |
 | `server.tls.minVersion` | `"TLSv1.2" \| "TLSv1.3"` | "TLSv1.2" | `QS_SERVER_TLS_MIN_VERSION` | The lowest TLS version accepted, `"TLSv1.2"` or `"TLSv1.3"` (default "TLSv1.2"). |
 | `server.tls.expiryWarning` | `string` | "14d" | `QS_SERVER_TLS_EXPIRY_WARNING` | Logs a warning at startup when the certificate expires within this duration (default "14d"). |
 | `server.tls.expiryCritical` | `string` | "3d" | `QS_SERVER_TLS_EXPIRY_CRITICAL` | How close to expiry the certificate counts as critical for expiry monitoring (default "3d"). |
@@ -38,7 +38,7 @@ Every key that holds a value can also be set by an environment variable named af
 | `files.accept` | `string[]` | any | `QS_FILES_ACCEPT` | Accepted MIME patterns (default any). |
 | `files.access` | `"direct" \| "proxy" \| "signed"` | direct when the storage has a public URL, otherwise proxy | `QS_FILES_ACCESS` | How file URLs work (default: direct when the storage has a public URL, otherwise proxy). |
 | `files.signedUrlTtl` | `number` | 900 | `QS_FILES_SIGNED_URL_TTL` | Lifetime of signed URLs in seconds (default 900). |
-| `files.signingSecret` | `string` | — | `QS_FILES_SIGNING_SECRET` (or `FILES_SIGNING_SECRET`) | HMAC secret of signed proxy URLs; `FILES_SIGNING_SECRET` sets it. |
+| `files.signingSecret` | `string \| SecretReference` | — | `QS_FILES_SIGNING_SECRET` (or `FILES_SIGNING_SECRET`) | HMAC secret of signed proxy URLs, or a secret reference; `FILES_SIGNING_SECRET` sets it. |
 | `files.deleteOnRemove` | `boolean` | true | `QS_FILES_DELETE_ON_REMOVE` | Delete a file record's object when the record is deleted (default true). |
 | `files.deleteReplaced` | `boolean` | true | `QS_FILES_DELETE_REPLACED` | Delete replaced content and files no longer referenced after a reference changes (default true). |
 | `files.deleteWithOwner` | `boolean` | true | `QS_FILES_DELETE_WITH_OWNER` | Delete the files a record references when the record is deleted (default true). |
@@ -901,3 +901,16 @@ Every option, tag, command and hook of `proxy` is on [its reference page](/refer
 | `proxy.routes.<name>.websocket` | `record of boolean` | `false` | `QS_PROXY_ROUTES_<NAME>_WEBSOCKET` | Proxies WebSocket upgrades on the route's path to the upstream (ws:// or wss://), with the route's checks and the limits of realtime.websockets; needs realtime: {}. |
 | `proxy.enabled` | `boolean` | `true` | `QS_PROXY_ENABLED` | Turns the feature off when false. |
 | `proxy.database` | `string` | — | `QS_PROXY_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
+
+### `secrets`
+
+Secret references like secret("vault://kv/db#url") in the configuration, resolved at startup by pluggable providers, with built-in env:// and file:// providers.
+
+Every option, tag, command and hook of `secrets` is on [its reference page](/reference/features/secrets/).
+
+| Key | Type | Default | Environment variable | Description |
+| --- | --- | --- | --- | --- |
+| `secrets.timeout` | `duration` | `"10s"` | `QS_SECRETS_TIMEOUT` | The longest each attempt to resolve a reference may take. |
+| `secrets.retries` | `integer` | `2` | `QS_SECRETS_RETRIES` | How many times a failed resolution is retried, with backoff, before startup fails. |
+| `secrets.enabled` | `boolean` | `true` | `QS_SECRETS_ENABLED` | Turns the feature off when false. |
+| `secrets.database` | `string` | — | `QS_SECRETS_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |

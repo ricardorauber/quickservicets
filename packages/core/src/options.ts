@@ -5,6 +5,7 @@ import { DURATION_UNITS, parseDuration } from "./jobs/job.ts";
 import { CIDR_EXPECTATION, isCidr } from "./cidr.ts";
 import { RATE_EXPECTATION, rateOf } from "./rates.ts";
 import { HOOK_PATH } from "./feature-hooks.ts";
+import { isSecretReference, parseSecretReference, type SecretReference } from "./secret-references.ts";
 
 /** The kinds of option schema nodes. */
 export type OptionKind =
@@ -109,6 +110,8 @@ export interface BoundedOptionSchema<T> extends OptionSchema<T> {
 
 /** A secret string: never shown in messages or docs, and never given a default. */
 export interface SecretOptionSchema extends BaseOptionSchema<string> {
+  /** Marks the schema as secret for type inference: its input may be a `secret("<scheme>://...")` reference. */
+  readonly __secret: true;
   /** Secrets cannot have a default: a default would be shared by every environment and appear in the docs. */
   default(value: never): never;
   min(n: number): this;
@@ -179,7 +182,9 @@ type PlainValue<S> =
           ? PlainValue<I>[]
           : ValueOf<S>;
 type InputValue<S> =
-  S extends { readonly __hook: infer F }
+  S extends { readonly __secret: true }
+    ? string | SecretReference
+    : S extends { readonly __hook: infer F }
     ? F | F[]
     : S extends { readonly __toggle: infer Shape extends Record<string, AnyOptionSchema> }
     ? boolean | Simplify<InputShape<Shape> & { enabled?: boolean }>
@@ -311,8 +316,16 @@ export function list<I extends AnyOptionSchema>(item: I): ListOptionSchema<I> {
 export function object<S extends Record<string, AnyOptionSchema>>(shape: S): ObjectOptionSchema<S> {
   return node("object", { shape: Object.freeze({ ...shape }) }) as never;
 }
-/** A string flagged as secret: masked as `[secret]` in messages and left out of the docs' defaults. */
-export function secret(): SecretOptionSchema {
+/**
+ * Without an argument, a string option flagged as secret: masked as `[secret]` in messages and left out of the docs'
+ * defaults. With a text, a reference to a secret in a vault, like `secret("vault://kv/db#url")`, resolved at startup by
+ * the `secrets` native; throws `Invalid secret reference <text>: <reason>` for text that is not
+ * `<scheme>://<path>[#<key>][?version=<version>]`.
+ */
+export function secret(): SecretOptionSchema;
+export function secret(reference: string): SecretReference;
+export function secret(reference?: string): SecretOptionSchema | SecretReference {
+  if (arguments.length > 0) return parseSecretReference(reference as string);
   return node("secret") as never;
 }
 /** An object with every listed method, the form used to replace a feature's implementation. */
@@ -501,6 +514,8 @@ function validate(schema: AnyOptionSchema, value: unknown, path: string, problem
   switch (schema.kind) {
     case "string":
     case "secret":
+      // A secret option takes a reference, replaced by its value once the `secrets` native resolved it.
+      if (schema.kind === "secret" && isSecretReference(value)) return value;
       if (typeof value !== "string") return invalid();
       return bounded(value.length) ? value : undefined;
     case "number":

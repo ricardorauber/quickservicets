@@ -17,6 +17,8 @@ import { applyEnvironment } from "./environment.ts";
 import { setHookLogger } from "./feature-hooks.ts";
 import { declaredVariables, readVariables, setEnvValues, type DeclaredVariable } from "./env-vars.ts";
 import { maskSecrets } from "./secrets.ts";
+import { referencesIn, setSecretEnvironment, type ReferenceLocation, type SecretReference } from "./secret-references.ts";
+import { databaseAdapters } from "./named-databases.ts";
 import type { AnyOptionSchema } from "./options.ts";
 import type { Middleware } from "./middleware.ts";
 import type { OpenApiDoc, ProjectOpenApiContext } from "./openapi.ts";
@@ -43,14 +45,14 @@ export interface ServiceConfig extends NativeFeatures {
     workers?: number | "auto";
     /** Serves HTTPS on `port` itself, for deployments without a TLS proxy; setting `cert` and `key` (or their variables) turns it on. */
     tls?: {
-      /** The certificate (with its chain), as a file path or PEM text. */
-      cert: string;
-      /** The private key, as a file path or PEM text. */
-      key: string;
+      /** The certificate (with its chain), as a file path or PEM text, or a secret reference holding the PEM text. */
+      cert: string | SecretReference;
+      /** The private key, as a file path or PEM text, or a secret reference holding the PEM text. */
+      key: string | SecretReference;
       /** Certificate authorities, as file paths or PEM text, one or a list. */
       ca?: string | string[];
-      /** The passphrase of an encrypted key, a secret. */
-      passphrase?: string;
+      /** The passphrase of an encrypted key, a secret or a secret reference. */
+      passphrase?: string | SecretReference;
       /** The lowest TLS version accepted, `"TLSv1.2"` or `"TLSv1.3"` (default "TLSv1.2"). */
       minVersion?: "TLSv1.2" | "TLSv1.3";
       /** Logs a warning at startup when the certificate expires within this duration (default "14d"). */
@@ -88,8 +90,8 @@ export interface ServiceConfig extends NativeFeatures {
     access?: "direct" | "proxy" | "signed";
     /** Lifetime of signed URLs in seconds (default 900). */
     signedUrlTtl?: number;
-    /** HMAC secret of signed proxy URLs; `FILES_SIGNING_SECRET` sets it. */
-    signingSecret?: string;
+    /** HMAC secret of signed proxy URLs, or a secret reference; `FILES_SIGNING_SECRET` sets it. */
+    signingSecret?: string | SecretReference;
     /** Delete a file record's object when the record is deleted (default true). */
     deleteOnRemove?: boolean;
     /** Delete replaced content and files no longer referenced after a reference changes (default true). */
@@ -290,7 +292,8 @@ export const DEFAULT_SIGNED_URL_TTL = 900;
 function resolveFiles(config: ServiceConfig): ResolvedConfig["files"] {
   const maxSize = config.files?.maxSize === undefined ? DEFAULT_MAX_FILE_SIZE : parseSize(config.files.maxSize);
   if (maxSize === undefined) throw new ConfigError(`Invalid files.maxSize: ${String(config.files?.maxSize)}`);
-  const signingSecret = config.files?.signingSecret || undefined;
+  // A reference is replaced by its value once the secrets native resolved it.
+  const signingSecret = (config.files?.signingSecret || undefined) as string | undefined;
   return {
     maxSize,
     accept: config.files?.accept ?? ["*/*"],
@@ -413,7 +416,13 @@ export function resolveConfig(
     disabledFeatures,
     enabledBy,
     warnings: environment.warnings,
-    server: { ...config.server, port: resolvePort(config), workers: resolveWorkers(withDatabase, env, cpus, production, platform) },
+    server: {
+      ...config.server,
+      // A copy, so resolving its secret references never changes the project's config object.
+      ...(config.server?.tls ? { tls: { ...config.server.tls } } : {}),
+      port: resolvePort(config),
+      workers: resolveWorkers(withDatabase, env, cpus, production, platform),
+    } as ResolvedConfig["server"],
     production,
     docs: { enabled: config.docs?.enabled ?? !production, ...(config.docs?.openapi ? { openapi: config.docs.openapi } : {}) },
     schema: resolveSchema(config, env),
@@ -424,10 +433,31 @@ export function resolveConfig(
     lifecycle: resolveLifecycle(config),
   };
   setHookLogger(resolved.logger);
+  setSecretEnvironment(env);
+  // Secret references need the secrets native, which resolves them when the service starts.
+  if (!features.some((feature) => feature.key === "secrets")) {
+    const references = configSecretReferences(resolved);
+    if (references.length > 0) throw new ConfigError(references.map((found) => `${found.path} uses ${found.reference.text}; add secrets: {} to quickservicets.config.ts`).join("\n"));
+  }
   // Published last, so `env` only ever holds the variables of a configuration that resolved.
   publishEnv(envValues, variables);
   if (resolved.files.signingSecret) maskSecrets(resolved.files as unknown as Record<string, unknown>, ["signingSecret"]);
   return resolved;
+}
+
+/**
+ * The secret references of a resolved configuration, with their config paths: in the features' options, `server.tls`,
+ * `files` and the database adapters' credentials (which keep their references and read the values when connecting).
+ */
+export function configSecretReferences(config: ResolvedConfig): ReferenceLocation[] {
+  const found: ReferenceLocation[] = [];
+  for (const feature of config.features) found.push(...referencesIn(feature.options, feature.key));
+  if (config.server.tls) found.push(...referencesIn(config.server.tls, "server.tls"));
+  found.push(...referencesIn(config.files, "files"));
+  for (const [name, adapter] of databaseAdapters(config.database)) {
+    for (const reference of adapter.secretReferences?.() ?? []) found.push({ path: name === "default" ? "database.url" : `databases.${name}.url`, reference });
+  }
+  return found;
 }
 
 /** Stores the values of the declared variables of a resolved configuration, so `env` reads them. */

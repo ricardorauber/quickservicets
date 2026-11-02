@@ -3,6 +3,9 @@ export const SECRET_MASK = "[secret]";
 
 const INSPECT = Symbol.for("nodejs.util.inspect.custom");
 
+/** The paths each object prints masked. */
+const maskedPaths = new WeakMap<object, string[]>();
+
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 
 /** A shallow copy of `target` with the value at each present dotted path replaced by the mask. */
@@ -23,7 +26,10 @@ export function maskedCopy(target: Record<string, unknown>, paths: readonly stri
  */
 export function maskSecrets(target: Record<string, unknown>, paths: readonly string[]): void {
   if (paths.length === 0) return;
-  const masked = () => maskedCopy(target, paths);
+  // Paths masked earlier stay masked, like the keys whose references resolved after the options did.
+  const all = [...new Set([...(maskedPaths.get(target) ?? []), ...paths])];
+  maskedPaths.set(target, all);
+  const masked = () => maskedCopy(target, all);
   Object.defineProperty(target, "toJSON", { value: masked, enumerable: false, configurable: true });
   Object.defineProperty(target, INSPECT, { value: masked, enumerable: false, configurable: true });
 }

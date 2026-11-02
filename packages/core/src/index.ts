@@ -14,7 +14,7 @@ export type { AdapterKind, Aggregate, AggregateValues, ConnectOptions, ReadColum
 export { memoryAdapter } from "./adapters/memory.ts";
 export { LEGACY_CONFIG_FILE, LEGACY_CONFIG_MESSAGE, LEGACY_MIGRATIONS_TABLE, MIGRATIONS_TABLE, MIGRATIONS_TABLE_RENAMED, renameLegacyMigrationTables } from "./legacy-names.ts";
 export type { RenamedTable } from "./legacy-names.ts";
-export { CONFIG_FILE, ConfigError, DEFAULT_PORT, DEFAULT_POPULATE_DEPTH, defineConfig, importConfigFile, JOB_DEFAULTS, LIFECYCLE_DEFAULTS, loadConfig, MEMORY_IN_PRODUCTION, resolveConfig, storageConfigured, WORKERS_NEED_DATABASE_SERVER } from "./config.ts";
+export { CONFIG_FILE, ConfigError, configSecretReferences, DEFAULT_PORT, DEFAULT_POPULATE_DEPTH, defineConfig, importConfigFile, JOB_DEFAULTS, LIFECYCLE_DEFAULTS, loadConfig, MEMORY_IN_PRODUCTION, resolveConfig, storageConfigured, WORKERS_NEED_DATABASE_SERVER } from "./config.ts";
 export { availableCpus, isPrimary, poolSizePerWorker, runPrimary, runsScheduledWork, runWorkers, SERVER_WORKERS_ENV, WORKER_INDEX_ENV, WORKERS_ENV, workerIndex } from "./workers.ts";
 export type { PrimaryOptions, WorkerProcess } from "./workers.ts";
 export type { ResolvedConfig, ServiceConfig } from "./config.ts";
@@ -263,6 +263,30 @@ export type { OptionsTarget, RuntimeTarget, TaggedRoute } from "./feature-target
 export type { FeatureApi, FeatureApis, FeatureConfig, FeatureDefinition, FeatureDocs, FeatureEntities, FeatureBuild, FeatureEntitiesContext, FeatureFileEntities, FeatureFolder, FeatureInput, FeatureOpenApi, FeatureSetup, FeatureTag, FeatureTagTarget, TargetOptions, FeatureOptions, FeatureRequirement, NativeFeatures, ProjectFeatureModule, ResolvedFeature } from "./features.ts";
 export { applyEnvironment, CONFIG_OVERRIDES, configVariable, envNameFor, featureVariables, logConfigWarnings, NOT_OVERRIDABLE, optionLeaves, overrideVariables, unknownVariableWarnings } from "./environment.ts";
 export { maskConnections, maskSecrets, SECRET_MASK } from "./secrets.ts";
+export {
+  addKnownSecretValues,
+  BUILT_IN_SECRET_SCHEMES,
+  clearStoredSecrets,
+  containsSecretReference,
+  isSecretReference,
+  knownSecretValues,
+  onKnownSecretValues,
+  onSecretValue,
+  parseSecretReference,
+  readBuiltInSecret,
+  referencesIn,
+  RESERVED_SECRET_SCHEMES,
+  RESOLVE_STARTUP_SECRETS,
+  SECRET_SCHEME,
+  secretEnvironment,
+  SecretReference,
+  secretValue,
+  selectSecretKey,
+  storedSecret,
+  storeSecretValue,
+  usesSecrets,
+} from "./secret-references.ts";
+export type { ReferenceLocation, StoredSecret } from "./secret-references.ts";
 export type { ConfigOverride, EnvAlias, EnvironmentResult, OptionLeaf } from "./environment.ts";
 export { runAfterHooks, runBeforeHooks } from "./feature-hooks.ts";
 export { afterCommit, assertWritable, currentTransaction, inTransaction, onRollback, runInTransaction, transaction, transactionTarget } from "./transactions.ts";
@@ -278,7 +302,7 @@ export { cidrMatcher, isCidr, matchesCidr, normalizeAddress } from "./cidr.ts";
 export { cookieValue, sessionCookie } from "./cookies.ts";
 export { normalizeOrigin, OriginMatcher, ownOriginReader } from "./origins.ts";
 export type { SessionCookieOptions } from "./cookies.ts";
-export { declaredVariables, env, readVariables, secretVariableValues, variableType } from "./env-vars.ts";
+export { declaredVariables, env, readVariables, replaceEnvValue, secretVariables, secretVariableValues, variableType } from "./env-vars.ts";
 export type { DeclaredVariable, EnvVars } from "./env-vars.ts";
 // The natives the core ships, registered when the core loads; they come last, after every export they use.
 import eventsNative, { type EventsApi } from "./features/events/index.ts";
@@ -296,6 +320,7 @@ import tenancyNative, { type TenancyApi } from "./features/tenancy/index.ts";
 import authNative, { type AuthApi, type RequestAuth, type SessionRevokedEvent } from "./features/auth/index.ts";
 import metricsNative, { type MetricsApi } from "./features/metrics/index.ts";
 import proxyNative from "./features/proxy/index.ts";
+import secretsNative, { type SecretsApi } from "./features/secrets/index.ts";
 import { registerNative as registerShippedNative, type FeatureConfig as NativeConfig } from "./features.ts";
 registerShippedNative(securityNative);
 registerShippedNative(eventsNative);
@@ -312,6 +337,7 @@ registerShippedNative(tenancyNative);
 registerShippedNative(authNative);
 registerShippedNative(metricsNative);
 registerShippedNative(proxyNative);
+registerShippedNative(secretsNative);
 export {
   addAuthScheme,
   AuthError,
@@ -335,6 +361,8 @@ export type { CertificateAuthOptions, LoginCheck, LoginGuard, LoginGuardOptions,
 export type { AuthApi, AuthCredentials, AuthenticatedUser, AuthMethod, AuthProvider, AuthResult, AuthResultUser, RequestAuth, RevokeTarget } from "./features/auth/index.ts";
 export { LatencySketch, metricsFeature, queryMetrics, setMetricsClock } from "./features/metrics/index.ts";
 export type { EncodedSketch, MetricsApi, MetricsFigures, MetricsQuery, MetricsResult, MetricsSeries, MetricsStore, MetricWindow, StoredSeries, StoredWindow, WindowClosed } from "./features/metrics/index.ts";
+export { providerRegistry, resolveReference, schemeProblem, secretsFeature } from "./features/secrets/index.ts";
+export type { SecretProvider, SecretResolution, SecretResolveContext, SecretsApi } from "./features/secrets/index.ts";
 export { forward, IDENTITY_HEADER, proxyFeature, proxyIdentity, proxyRequest, signIdentity } from "./features/proxy/index.ts";
 export type { ForwardOptions, ProxyDone, ProxyFailure, ProxyForwarder, ProxyIdentityOptions, ProxyOverrides, ProxyStep } from "./features/proxy/index.ts";
 export { addOutboxPatterns, events, eventsFeature, listen, memoryEventBus, readOutbox, tailOutbox } from "./features/events/index.ts";
@@ -498,6 +526,8 @@ declare module "./features.ts" {
     metrics?: NativeConfig<typeof metricsNative>;
     /** Proxy routes forwarding paths to upstream services; see the `proxy` reference page. */
     proxy?: NativeConfig<typeof proxyNative>;
+    /** Secret references resolved at startup by pluggable providers; see the `secrets` reference page. */
+    secrets?: NativeConfig<typeof secretsNative>;
   }
   interface FeatureApis {
     events: EventsApi;
@@ -513,6 +543,7 @@ declare module "./features.ts" {
     tenancy: TenancyApi;
     auth: AuthApi;
     metrics: MetricsApi;
+    secrets: SecretsApi;
   }
 }
 

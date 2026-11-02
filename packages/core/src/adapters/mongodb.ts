@@ -14,10 +14,12 @@ import {
 import type { EntityModel, FieldModel } from "../model.ts";
 import { schemaIdentifier } from "../sql/schema.ts";
 import { placedView, schemaViews } from "./schema-views.ts";
+import { isSecretReference, secretValue, type SecretReference } from "../secret-references.ts";
 import { isConditionGroup, type Condition, type FieldCondition, type SizeFilter, type SortField } from "../query.ts";
 
 export interface MongodbAdapterOptions {
-  url: string;
+  /** The connection URL, or a secret reference to it (read when the adapter connects). */
+  url: string | SecretReference;
   database: string;
 }
 
@@ -341,9 +343,10 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
       return db;
     },
     databaseFor,
+    secretReferences: () => (isSecretReference(options.url) ? [options.url] : []),
     async connect(_, connectOptions = {}) {
       const { MongoClient } = await driver;
-      client = new MongoClient(options.url);
+      client = new MongoClient(secretValue(options.url));
       await client.connect();
       db = client.db(connectOptions.defaultSchema ? schemaIdentifier(connectOptions.defaultSchema) : options.database);
       const hello = await db.admin().command({ hello: 1 });

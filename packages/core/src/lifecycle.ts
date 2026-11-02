@@ -210,6 +210,8 @@ export interface FeatureLifecycleOptions {
    */
   endpoints?: readonly { method: string; path: string; feature?: string; tags?: ParsedTags; kind?: string }[];
   crudRoutes?: readonly { method: string; path: string; entity: string }[];
+  /** `false` sets up the features without resolving the secret references after the secrets group, for checks. */
+  resolveSecrets?: boolean;
   /** Wraps every call of a feature's lifecycle code, with the feature's key and the phase; test harnesses use it. */
   around?: <T>(feature: string, phase: LifecyclePhase, run: () => Promise<T>) => Promise<T>;
 }
@@ -243,7 +245,7 @@ interface Registered {
 }
 
 /** Runs the enabled features' setups and the callbacks they register, with the `lifecycle` time limits. */
-export function createFeatureLifecycle({ features, config, models, featureFolders = {}, worker, generatedDir = join(process.cwd(), ".generated"), extendContext, endpoints = [], crudRoutes = [], around = (_feature, _phase, run) => run() }: FeatureLifecycleOptions): FeatureLifecycle {
+export function createFeatureLifecycle({ features, config, models, featureFolders = {}, worker, generatedDir = join(process.cwd(), ".generated"), extendContext, endpoints = [], crudRoutes = [], around = (_feature, _phase, run) => run(), resolveSecrets: resolvesSecrets = true }: FeatureLifecycleOptions): FeatureLifecycle {
   const baseLogger = config.logger ?? jsonLogger;
   let masked: Logger | undefined;
   let wrapped: Logger | undefined;
@@ -389,7 +391,7 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
           settingUp = undefined;
           setActiveSetup(undefined);
         }
-        if (position === lastSecretsFeature) await resolveSecrets();
+        if (position === lastSecretsFeature && resolvesSecrets) await resolveSecrets();
       }
     },
     async start(context) {

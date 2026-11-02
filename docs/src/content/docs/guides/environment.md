@@ -117,7 +117,7 @@ Run it in a deploy pipeline before starting the new version.
 
 ## Secrets and masking
 
-A `secret()` value never appears in what the framework prints or writes: `env check`, error messages, logs of the resolved config and `.env.example` show `[secret]` instead, and so does printing `env` or a feature's options. Secrets have no defaults, so they are always provided by the environment.
+A `secret()` value never appears in what the framework prints or writes: `env check`, error messages, logs of the resolved config and `.env.example` show `[secret]` instead, and so does printing `env` or a feature's options. Secrets have no defaults, so they are always provided by the environment. A secret variable may also hold a reference, like `STRIPE_KEY=file:///run/secrets/stripe`, which the `secrets` native resolves at startup; see [Secrets](/guides/secrets/).
 
 ## Overriding config keys with `QS_*`
 
@@ -171,3 +171,4 @@ For each config key and feature option, the first of these that is set wins:
 - [Configuration and logging](/guides/configuration/): the config file and its keys.
 - [Configuration reference](/reference/config/): every key with its variable.
 - [Project features](/guides/project-features/): features with their own options and variables.
+- [Secrets](/guides/secrets/): references to vaults instead of secret values.

@@ -1,16 +1,8 @@
-import { parseDuration, safeLog, storeSecretValue, type Logger, type ReferenceLocation, type SecretReference } from "../public.ts";
+import { parseDuration, safeLog, secretsNow, storeSecretValue, type Logger, type ReferenceLocation, type SecretReference } from "../public.ts";
 import { reasonOf, resolveReference, type NoRetry, type ProviderRegistry, type ResolvedSecret, type ResolveSettings } from "./resolve.ts";
 
-/** The clock the secrets cache reads; tests replace it. */
-let clock: () => number = () => Date.now();
-
-/** Replaces the clock of the secrets cache (undefined restores the real one); for tests with a fake clock. */
-export function setSecretsClock(now: (() => number) | undefined): void {
-  clock = now ?? (() => Date.now());
-}
-
-/** The cache's current time. */
-export const secretsNow = (): number => clock();
+/** The cache's clock, which tests replace with `setSecretsClock`. */
+const clock = (): number => secretsNow();
 
 /** What `onRotate` hooks and the `secret.rotated` event receive: where the secret is used, the reference and the new version, never the value. */
 export interface SecretRotation {
@@ -65,6 +57,10 @@ export interface CacheSettings {
   registry: ProviderRegistry;
   resolve: ResolveSettings;
   noRetry?: NoRetry;
+  /** The reference a provider receives for an entry, like one `beforeResolve` hooks changed (default: the entry's own). */
+  prepare?(reference: SecretReference, paths: string[]): SecretReference | Promise<SecretReference>;
+  /** Called with the reason each time a resolution or refresh fails, never with a value. */
+  failure?(reference: SecretReference, paths: string[], reason: string): void | Promise<void>;
   /** The `ttl` option, in milliseconds. */
   ttl: number;
   logger: Logger;
@@ -136,7 +132,7 @@ export class SecretCache {
       this.entries.set(reference.text, created);
       this.evict();
     }
-    const running = resolveReference(this.settings.registry, reference, this.settings.resolve, this.settings.noRetry).then((resolved) => {
+    const running = this.resolve(created).then((resolved) => {
       this.apply(created, resolved);
       return resolved.value;
     });
@@ -156,6 +152,18 @@ export class SecretCache {
       return created.value;
     } finally {
       created.running = undefined;
+    }
+  }
+
+  /** Resolves an entry through its provider, with the reference `prepare` gives, telling `failure` the reason. */
+  private async resolve(entry: CacheEntry): Promise<ResolvedSecret> {
+    const paths = SecretCache.paths(entry);
+    try {
+      const reference = (await this.settings.prepare?.(entry.reference, paths)) ?? entry.reference;
+      return await resolveReference(this.settings.registry, reference, this.settings.resolve, this.settings.noRetry);
+    } catch (error) {
+      await this.settings.failure?.(entry.reference, paths, reasonOf(entry.reference, error));
+      throw error;
     }
   }
 
@@ -214,7 +222,7 @@ export class SecretCache {
   /** Refreshes one entry; resolves it when its value changed. */
   private async refresh(entry: CacheEntry): Promise<CacheEntry | undefined> {
     const previous = entry.value;
-    const work = resolveReference(this.settings.registry, entry.reference, this.settings.resolve, this.settings.noRetry);
+    const work = this.resolve(entry);
     entry.running = work.then((resolved) => resolved.value);
     entry.running.catch(() => {});
     try {

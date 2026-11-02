@@ -44,6 +44,7 @@ const PAGES = [
   "guides/usage-metrics.md",
   "guides/api-gateway.md",
   "guides/mtls.md",
+  "guides/secrets.md",
   "guides/configuration.md",
   "guides/jobs.md",
   "guides/environment.md",

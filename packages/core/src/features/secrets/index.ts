@@ -1,5 +1,12 @@
 import {
   clearStoredSecrets,
+  createFeatureLifecycle,
+  defineCommand,
+  isSecretReference,
+  list,
+  provider,
+  string,
+  usesSecrets,
   hasTenantPlaceholder,
   referenceForTenant,
   TENANT_ID,
@@ -19,6 +26,8 @@ import {
   runAfterHooks,
   safeLog,
   secrets,
+  secretsNow,
+  secretsRuntime,
   secretVariables,
   setSecretsRuntime,
   storeSecretValue,
@@ -26,13 +35,13 @@ import {
   type ReferenceLocation,
   type SecretReference,
 } from "../public.ts";
-import type { SecretProvider, SecretsApi } from "./api.ts";
-import { SecretCache, secretsNow, type CacheEntry, type SecretRotation } from "./cache.ts";
+import type { SecretCheckLine, SecretProvider, SecretResolveFailure, SecretResolveStep, SecretsApi } from "./api.ts";
+import { SecretCache, type CacheEntry, type SecretRotation } from "./cache.ts";
 import { builtInProviders, providerRegistry, reasonOf, resolveReference, type ProviderRegistry, type ResolvedSecret } from "./resolve.ts";
 
-export type { SecretProvider, SecretResolution, SecretResolveContext, SecretsApi } from "./api.ts";
+export type { SecretCheckLine, SecretProvider, SecretResolution, SecretResolveContext, SecretResolveFailure, SecretResolveStep, SecretsApi } from "./api.ts";
 export type { SecretRotation } from "./cache.ts";
-export { dueTime, setSecretsClock } from "./cache.ts";
+export { dueTime } from "./cache.ts";
 export { providerRegistry, resolveReference, schemeProblem } from "./resolve.ts";
 
 const options = object({
@@ -45,6 +54,13 @@ const options = object({
     .describe("What a failed refresh does: keep serves the last value, fail also fails the readiness check; both retry at the next check."),
   onRotate: hook<SecretRotation, undefined>().describe("Runs after a value changed, with the config path, the reference and the new version, never the value."),
   tenantCacheSize: integer().min(1).default(10000).describe("The most per-tenant values each worker keeps; the least recently used is evicted."),
+  providers: list(provider<SecretProvider>("SecretProvider", ["resolve"]))
+    .default([])
+    .describe("Project providers registered next to the built-in env and file ones and those of features, each for its schemes."),
+  beforeResolve: hook<SecretResolveStep, undefined>().describe(
+    "Runs before each resolution with the reference, its config path and the tenant; it may return another reference (a text or secret()), like one with an environment prefix.",
+  ),
+  onResolveFailed: hook<SecretResolveFailure, undefined>().describe("Runs when a resolution or refresh fails, with the reference, its path, the tenant and the reason, never a value."),
 });
 
 type SecretsOptions = {
@@ -55,7 +71,31 @@ type SecretsOptions = {
   onRefreshError: "keep" | "fail";
   onRotate: ((rotation: SecretRotation) => unknown)[];
   tenantCacheSize: number;
+  providers: SecretProvider[];
+  beforeResolve: ((step: SecretResolveStep, ctx: undefined) => unknown)[];
+  onResolveFailed: ((failure: SecretResolveFailure, ctx: undefined) => unknown)[];
 };
+
+/** The reference a provider receives: the one `beforeResolve` hooks return, in order, or the reference itself. */
+async function prepared(options: SecretsOptions, reference: SecretReference, path: string, tenant?: string): Promise<SecretReference> {
+  let current = reference;
+  for (const hook of options.beforeResolve) {
+    const result = await hook({ reference: current.text, path, ...(tenant !== undefined ? { tenant } : {}) }, undefined);
+    if (isSecretReference(result)) current = result;
+    else if (typeof result === "string") current = parseSecretReference(result);
+  }
+  return current;
+}
+
+/** Tells the `onResolveFailed` hooks about a failure, logging a hook that throws instead of failing. */
+async function failed(ctx: FeatureSetupContext<SecretsOptions>, failure: SecretResolveFailure): Promise<void> {
+  if (ctx.options.onResolveFailed.length === 0) return;
+  try {
+    await runAfterHooks(ctx.options.onResolveFailed as never, failure, undefined);
+  } catch (error) {
+    safeLog(ctx.logger, "error", { timestamp: new Date(secretsNow()).toISOString(), message: "secrets.hook.failed", path: failure.path, error: { message: (error as Error)?.message ?? String(error) } });
+  }
+}
 
 /** The places a `{tenant}` reference may be: the tenancy connection and the connections of configured tenants. */
 const TENANT_LOCATION = /^tenancy\.(connection|tenants\.[^.]+\.connection)$/;
@@ -82,17 +122,6 @@ function startupReferences(ctx: FeatureSetupContext, registry: ProviderRegistry,
   return found;
 }
 
-/** The caches of the running service, which `refreshSecrets()` checks. */
-let active: { refreshDue(): Promise<void> } | undefined;
-
-/**
- * Checks now for values that are due (as each worker does every `refresh`) and re-resolves them, resolving once the
- * pass ended; for tests with a fake clock and for operations that cannot wait.
- */
-export function refreshSecrets(): Promise<void> {
-  return active?.refreshDue() ?? Promise.resolve();
-}
-
 /**
  * Resolves every reference once (the same text once), puts each value in place of its references and keeps it in the
  * cache; fails with one `ConfigError` listing every failure, never a value.
@@ -110,7 +139,7 @@ async function resolveAtStartup(ctx: FeatureSetupContext<SecretsOptions>, regist
   const pending = new Map<string, Promise<ResolvedSecret>>();
   for (const location of locations) {
     const { reference } = location;
-    if (!pending.has(reference.text)) pending.set(reference.text, resolveReference(registry, reference, resolveSettings(ctx.options)));
+    if (!pending.has(reference.text)) pending.set(reference.text, prepared(ctx.options, reference, location.path).then((actual) => resolveReference(registry, actual, resolveSettings(ctx.options))));
   }
   const results = new Map<string, { ok: true; secret: ResolvedSecret } | { ok: false; reason: string }>();
   await Promise.all(
@@ -124,7 +153,9 @@ async function resolveAtStartup(ctx: FeatureSetupContext<SecretsOptions>, regist
   );
   for (const location of locations) {
     const result = results.get(location.reference.text)!;
-    if (!result.ok) problems.push(`${location.path}: ${location.reference.text} (${result.reason})`);
+    if (result.ok) continue;
+    problems.push(`${location.path}: ${location.reference.text} (${result.reason})`);
+    await failed(ctx, { reference: location.reference.text, path: location.path, reason: result.reason });
   }
   if (problems.length > 0) throw new ConfigError(["Cannot resolve secrets:", ...problems.map((line) => `  ${line}`)].join("\n"));
   for (const [text, result] of results) {
@@ -135,6 +166,65 @@ async function resolveAtStartup(ctx: FeatureSetupContext<SecretsOptions>, regist
     for (const location of used) location.replace?.(result.secret.value);
   }
 }
+
+/** Checks the references of the service set up last in this process, for `quickservicets secrets check`. */
+let latestCheck: ((tenant?: string) => Promise<SecretCheckLine[]>) | undefined;
+
+/**
+ * Resolves every reference of the configuration once (with `tenant`, also the `{tenant}` references for that tenant),
+ * without failing: one line per reference with its path, its text and `ok` with the version or the reason.
+ */
+async function checkReferences(ctx: FeatureSetupContext<SecretsOptions>, registry: ProviderRegistry, tenant?: string): Promise<SecretCheckLine[]> {
+  const problems: string[] = [];
+  const found = startupReferences(ctx, registry, problems);
+  const lines: SecretCheckLine[] = problems.map((problem) => {
+    const [path, ...rest] = problem.split(": ");
+    return { path: path!, reference: "", ok: false, reason: rest.join(": ") };
+  });
+  if (tenant !== undefined && !TENANT_ID.test(tenant)) throw new ConfigError(`Invalid tenant id ${JSON.stringify(tenant)}`);
+  const results = new Map<string, Promise<ResolvedSecret>>();
+  for (const location of found) {
+    const placeholder = hasTenantPlaceholder(location.reference);
+    if (placeholder && tenant === undefined) continue;
+    const reference = placeholder ? referenceForTenant(location.reference, tenant!) : location.reference;
+    let work = results.get(reference.text);
+    if (!work) {
+      work = prepared(ctx.options, location.reference, location.path, placeholder ? tenant : undefined).then((actual) =>
+        resolveReference(registry, placeholder ? referenceForTenant(actual, tenant!) : actual, resolveSettings(ctx.options)),
+      );
+      work.catch(() => {});
+      results.set(reference.text, work);
+    }
+    try {
+      const resolved = await work;
+      lines.push({ path: location.path, reference: location.reference.text, ok: true, ...(resolved.version !== undefined ? { version: resolved.version } : {}) });
+    } catch (error) {
+      lines.push({ path: location.path, reference: location.reference.text, ok: false, reason: reasonOf(reference, error) });
+    }
+  }
+  return lines;
+}
+
+const checkCommand = defineCommand({
+  name: "secrets check",
+  usage: "quickservicets secrets check [--tenant <id>]",
+  description:
+    "Resolves every secret reference of the configuration (with --tenant, also its per-tenant references for that tenant) and prints one line per reference with its config path, the reference, ok and the version or failed and the reason, never a value; exits 1 when one fails.",
+  flags: object({ tenant: string().optional().describe("Also resolves the per-tenant references for this tenant id.") }),
+  json: { references: [{ path: "string", reference: "string", ok: "boolean", version: "string?", reason: "string?" }] },
+  async run(ctx) {
+    // Only the features that register providers set up, without resolving the references at startup.
+    const features = ctx.config.features.filter((feature) => usesSecrets(feature.definition));
+    const lifecycle = createFeatureLifecycle({ features, config: ctx.config, models: [], worker: { index: 0, count: 1, runsScheduledWork: false }, resolveSecrets: false });
+    latestCheck = undefined;
+    await lifecycle.setup();
+    const lines = await latestCheck!(ctx.flags.tenant);
+    for (const line of lines) ctx.output.log(`${line.path} ${line.reference} ${line.ok ? `ok${line.version !== undefined ? ` version ${line.version}` : ""}` : `failed: ${line.reason}`}`);
+    if (lines.length === 0) ctx.output.log("No secret references.");
+    ctx.result({ references: lines.map((line) => ({ path: line.path, reference: line.reference, ok: line.ok, ...(line.version !== undefined ? { version: line.version } : {}), ...(line.reason !== undefined ? { reason: line.reason } : {}) })) });
+    return lines.some((line) => !line.ok) ? 1 : 0;
+  },
+});
 
 const resolveSettings = (options: SecretsOptions) => ({ timeout: parseDuration(options.timeout) ?? 10_000, retries: options.retries });
 
@@ -174,7 +264,7 @@ const secretsFeature = defineFeature({
         text: [
           "A reference is `<scheme>://<path>[#<key>][?version=<version>]`, written as `secret(\"env://STRIPE_KEY\")` in `quickservicets.config.ts`. It is accepted by every `secret()` option of the config and of the features, by `server.tls.cert`, `key` and `passphrase`, by `files.signingSecret`, and by the `url` of `postgresAdapter` and `mongodbAdapter`. A declared variable of kind `secret()` whose text starts with a registered scheme and `://`, like `STRIPE_KEY=file:///run/secrets/stripe`, is a reference too.",
           "",
-          "`env://NAME` reads the variable (unset or empty fails), and `file://<path>` the file's content without one trailing line break (`file:///abs/path` for an absolute path, otherwise relative to the working directory). `#<key>` reads that property of the value parsed as JSON.",
+          "`env://NAME` reads the variable (unset or empty fails), and `file://<path>` the file's content without one trailing line break (`file:///abs/path` for an absolute path, otherwise relative to the project root). `#<key>` reads that property of the value parsed as JSON.",
         ].join("\n"),
       },
       {
@@ -183,6 +273,18 @@ const secretsFeature = defineFeature({
           "The native and the features that list `secrets` in `requires` or `enables` set up first; then every reference is resolved, each text once, with `timeout` per attempt and `retries` retries. Other features, adapters and `env` only see values. Failures stop startup with one error starting `Cannot resolve secrets:` and one line per failure, `<config path>: <reference> (<reason>)`, never a value.",
           "",
           "Resolved values are masked as `[secret]` in logs, errors, reports and printed configs. A reference while the native is off fails with `<path> uses <reference>; add secrets: {} to quickservicets.config.ts`.",
+        ].join("\n"),
+      },
+      {
+        title: "Customization",
+        text: [
+          "No tags: secrets are configuration values, not entity, field or route options, so the native has no JSDoc tags.",
+          "",
+          "No files: the native has no endpoints, hooks or entity files to override.",
+          "",
+          "The per-request level is the per-tenant reference: `{tenant}` in a reference resolves for the request's tenant. The hooks `beforeResolve` (it may return another reference, like `vault://kv/staging/db` for `vault://kv/db`), `onRotate` and `onResolveFailed` never receive values. The `providers` option registers project providers, `ctx.feature(\"secrets\").provider(p)` registers a feature's, and `quickservicets eject secrets` copies the native into `features/secrets/`.",
+          "",
+          "`quickservicets secrets check [--tenant <id>]` sets up only the features that register providers, resolves every reference (with `--tenant`, also the `{tenant}` ones for that tenant) and prints `<path> <reference> ok version <n>` or `<path> <reference> failed: <reason>` per reference, never a value, exiting 1 when one fails; run it in CI and before deploys.",
         ].join("\n"),
       },
       {
@@ -216,6 +318,7 @@ const secretsFeature = defineFeature({
     ],
   },
   options,
+  commands: [checkCommand],
   request: {
     // The request's secrets: `{tenant}` references resolve for the request's tenant.
     secrets: (req) => ({
@@ -231,11 +334,14 @@ const secretsFeature = defineFeature({
     const options = ctx.options as unknown as SecretsOptions;
     const registry = providerRegistry();
     for (const provider of builtInProviders()) registry.add(provider, "secrets");
+    for (const provider of options.providers) registry.add(provider, "secrets.providers");
     const cache = new SecretCache({
       registry,
       resolve: resolveSettings(options),
       ttl: parseDuration(options.ttl) ?? 900_000,
       logger: ctx.logger,
+      prepare: (reference, paths) => prepared(options, reference, paths[0] ?? reference.text),
+      failure: (reference, paths, reason) => Promise.all(paths.map((path) => failed(ctx as never, { reference: reference.text, path, reason }))).then(() => {}),
       rotated: (entry) => rotated(ctx as never, entry),
       // A rotated certificate or key reaches new connections without a restart, once both changed in the same pass.
       afterPass: async (changed) => {
@@ -251,35 +357,46 @@ const secretsFeature = defineFeature({
       maxEntries: options.tenantCacheSize,
       onlyUsed: true,
       failureCooldown: TENANT_RETRY_MS,
+      prepare: (reference) => {
+        const owner = tenantOf.get(reference.text);
+        return owner ? prepared(options, owner.reference, owner.reference.text, owner.tenant).then((actual) => referenceForTenant(actual, owner.tenant)) : reference;
+      },
+      failure: (reference, _paths, reason) => {
+        const owner = tenantOf.get(reference.text);
+        return owner ? failed(ctx as never, { reference: owner.reference.text, path: owner.reference.text, tenant: owner.tenant, reason }) : undefined;
+      },
       rotated: () => {},
     });
+    /** The tenant and the `{tenant}` reference of each per-tenant entry, for the hooks. */
+    const tenantOf = new Map<string, { tenant: string; reference: SecretReference }>();
     const forTenant = async (tenant: string, reference: SecretReference): Promise<string> => {
       // The id becomes part of the vault path, so only ids of the tenant id rule are accepted.
       if (typeof tenant !== "string" || !TENANT_ID.test(tenant)) throw new Error(`Invalid tenant id ${JSON.stringify(tenant)} for ${reference.text}`);
       if (!hasTenantPlaceholder(reference)) return cache.get(reference);
+      const own = referenceForTenant(reference, tenant);
+      if (!tenantOf.has(own.text) && tenantOf.size >= options.tenantCacheSize * 2) tenantOf.clear();
+      tenantOf.set(own.text, { tenant, reference });
       try {
-        return await tenantCache.get(referenceForTenant(reference, tenant));
+        return await tenantCache.get(own);
       } catch (error) {
         safeLog(ctx.logger, "error", { timestamp: new Date(secretsNow()).toISOString(), message: "secrets.tenant.failed", tenant, reference: reference.text, reason: reasonOf(reference, error) });
         throw error;
       }
     };
-    const refresher = { refreshDue: async () => void (await Promise.all([cache.refreshDue(), tenantCache.refreshDue()])) };
-    active = refresher;
-    setSecretsRuntime({ get: (reference) => cache.get(reference), forTenant, resolves: (scheme) => registry.has(scheme) });
+    const refresh = async () => void (await Promise.all([cache.refreshDue(), tenantCache.refreshDue()]));
+    const runtime = { get: (reference: SecretReference) => cache.get(reference), forTenant, resolves: (scheme: string) => registry.has(scheme), refresh };
+    setSecretsRuntime(runtime);
     let timer: ReturnType<typeof setInterval> | undefined;
     // Each worker checks for due values in the background, never on the request path.
     ctx.app.onStart(() => {
-      timer = setInterval(() => void active?.refreshDue(), parseDuration(options.refresh) ?? 60_000);
+      timer = setInterval(() => void refresh(), parseDuration(options.refresh) ?? 60_000);
     });
     ctx.app.onStop(async () => {
       clearInterval(timer);
-      if (active === refresher) {
-        active = undefined;
-        setSecretsRuntime(undefined);
-      }
+      if (secretsRuntime() === runtime) setSecretsRuntime(undefined);
       for (const provider of registry.all()) await provider.close?.();
     });
+    latestCheck = (tenant) => checkReferences(ctx as never, registry, tenant);
     return {
       provider: (provider: SecretProvider) => registry.add(provider, ctx.currentFeature() ?? "a feature"),
       status: () => ({ critical: options.onRefreshError === "fail", failing: cache.failingPaths() }),

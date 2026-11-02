@@ -153,10 +153,13 @@ export function onSecretValue(reference: SecretReference | string, fn: (value: s
 
 /** The environment of the configuration resolved last, which `env://` references read. */
 let environment: Record<string, string | undefined> | undefined;
+/** The project root of the configuration resolved last, which relative `file://` references start from. */
+let projectRoot: string | undefined;
 
-/** Sets the environment `env://` references read; `resolveConfig` sets the one it resolved with. */
-export function setSecretEnvironment(env: Record<string, string | undefined> | undefined): void {
+/** Sets the environment `env://` references read and the root relative `file://` paths start from; `resolveConfig` sets them. */
+export function setSecretEnvironment(env: Record<string, string | undefined> | undefined, root?: string): void {
   environment = env;
+  projectRoot = root;
 }
 
 /** The environment `env://` references read: the one the configuration resolved with, or the process's. */
@@ -169,8 +172,8 @@ const failure = (reference: SecretReference, reason: string) => new Error(`${ref
 
 /**
  * The value of the built-in `env` and `file` schemes: `env://NAME` reads the variable (failing when it is unset or
- * empty) and `file://<path>` the file's content without one trailing line break, relative to the working directory
- * unless absolute.
+ * empty) and `file://<path>` the file's content without one trailing line break, relative to the project root unless
+ * absolute.
  */
 export function readBuiltInSecret(reference: SecretReference, env: Record<string, string | undefined> = secretEnvironment()): string {
   if (reference.scheme === "env") {
@@ -179,7 +182,7 @@ export function readBuiltInSecret(reference: SecretReference, env: Record<string
     return value;
   }
   if (reference.scheme === "file") {
-    const path = isAbsolute(reference.path) ? reference.path : resolvePath(process.cwd(), reference.path);
+    const path = isAbsolute(reference.path) ? reference.path : resolvePath(projectRoot ?? process.cwd(), reference.path);
     let content: string;
     try {
       content = readFileSync(path, "utf8");
@@ -315,6 +318,28 @@ export interface SecretsRuntime {
   forTenant(tenant: string, reference: SecretReference): Promise<string>;
   /** Whether a provider resolves the scheme. */
   resolves(scheme: string): boolean;
+  /** Re-resolves the values that are due now, resolving once the pass ended. */
+  refresh(): Promise<void>;
+}
+
+let clock: () => number = () => Date.now();
+
+/** Replaces the clock the secrets cache reads (undefined restores the real one); for tests with a fake clock. */
+export function setSecretsClock(now: (() => number) | undefined): void {
+  clock = now ?? (() => Date.now());
+}
+
+/** The time the secrets cache reads. */
+export function secretsNow(): number {
+  return clock();
+}
+
+/**
+ * Checks now for values that are due (as each worker does every `secrets.refresh`) and re-resolves them, resolving once
+ * the pass ended; for tests with a fake clock and for operations that cannot wait.
+ */
+export function refreshSecrets(): Promise<void> {
+  return runtime?.refresh() ?? Promise.resolve();
 }
 
 /** The runtime of the running service's `secrets` native, or undefined without one. */

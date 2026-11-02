@@ -285,8 +285,11 @@ export {
   isSecretNotFoundError,
   SecretAccessError,
   SecretNotFoundError,
+  refreshSecrets,
   secrets,
+  secretsNow,
   secretsRuntime,
+  setSecretsClock,
   setSecretsRuntime,
   hasTenantPlaceholder,
   referenceForTenant,
@@ -373,8 +376,8 @@ export type { CertificateAuthOptions, LoginCheck, LoginGuard, LoginGuardOptions,
 export type { AuthApi, AuthCredentials, AuthenticatedUser, AuthMethod, AuthProvider, AuthResult, AuthResultUser, RequestAuth, RevokeTarget } from "./features/auth/index.ts";
 export { LatencySketch, metricsFeature, queryMetrics, setMetricsClock } from "./features/metrics/index.ts";
 export type { EncodedSketch, MetricsApi, MetricsFigures, MetricsQuery, MetricsResult, MetricsSeries, MetricsStore, MetricWindow, StoredSeries, StoredWindow, WindowClosed } from "./features/metrics/index.ts";
-export { dueTime, providerRegistry, refreshSecrets, resolveReference, schemeProblem, secretsFeature, setSecretsClock } from "./features/secrets/index.ts";
-export type { SecretProvider, SecretResolution, SecretResolveContext, SecretRotation, SecretsApi } from "./features/secrets/index.ts";
+export { dueTime, providerRegistry, resolveReference, schemeProblem, secretsFeature } from "./features/secrets/index.ts";
+export type { SecretCheckLine, SecretProvider, SecretResolution, SecretResolveContext, SecretResolveFailure, SecretResolveStep, SecretRotation, SecretsApi } from "./features/secrets/index.ts";
 export { forward, IDENTITY_HEADER, proxyFeature, proxyIdentity, proxyRequest, signIdentity } from "./features/proxy/index.ts";
 export type { ForwardOptions, ProxyDone, ProxyFailure, ProxyForwarder, ProxyIdentityOptions, ProxyOverrides, ProxyStep } from "./features/proxy/index.ts";
 export { addOutboxPatterns, events, eventsFeature, listen, memoryEventBus, readOutbox, tailOutbox } from "./features/events/index.ts";

@@ -920,5 +920,8 @@ Every option, tag, command and hook of `secrets` is on [its reference page](/ref
 | `secrets.onRefreshError` | `"keep" \| "fail"` | `"keep"` | `QS_SECRETS_ON_REFRESH_ERROR` | What a failed refresh does: keep serves the last value, fail also fails the readiness check; both retry at the next check. |
 | `secrets.onRotate` | `hook` | — | not overridable | Runs after a value changed, with the config path, the reference and the new version, never the value. |
 | `secrets.tenantCacheSize` | `integer` | `10000` | `QS_SECRETS_TENANT_CACHE_SIZE` | The most per-tenant values each worker keeps; the least recently used is evicted. |
+| `secrets.providers` | `SecretProvider[]` | `[]` | `QS_SECRETS_PROVIDERS` | Project providers registered next to the built-in env and file ones and those of features, each for its schemes. |
+| `secrets.beforeResolve` | `hook` | — | not overridable | Runs before each resolution with the reference, its config path and the tenant; it may return another reference (a text or secret()), like one with an environment prefix. |
+| `secrets.onResolveFailed` | `hook` | — | not overridable | Runs when a resolution or refresh fails, with the reference, its path, the tenant and the reason, never a value. |
 | `secrets.enabled` | `boolean` | `true` | `QS_SECRETS_ENABLED` | Turns the feature off when false. |
 | `secrets.database` | `string` | — | `QS_SECRETS_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |

@@ -25,3 +25,4 @@ The native features are each turned on by one config key:
 - [Usage metrics](/guides/usage-metrics/)
 - [API gateway](/guides/api-gateway/)
 - [mTLS](/guides/mtls/)
+- [Secrets](/guides/secrets/)

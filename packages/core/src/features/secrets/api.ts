@@ -44,3 +44,24 @@ export interface SecretsApi {
   /** Whether a failing refresh fails readiness (`onRefreshError: "fail"`), and the paths of the values failing to refresh or expired. */
   status(): { critical: boolean; failing: string[] };
 }
+
+/** What `beforeResolve` hooks receive: the reference text, where it is used and the tenant, never a value. */
+export interface SecretResolveStep {
+  reference: string;
+  path: string;
+  tenant?: string;
+}
+
+/** What `onResolveFailed` hooks receive: the step and the reason, never a value. */
+export interface SecretResolveFailure extends SecretResolveStep {
+  reason: string;
+}
+
+/** One line of `quickservicets secrets check`: the path, the reference and whether it resolved, never the value. */
+export interface SecretCheckLine {
+  path: string;
+  reference: string;
+  ok: boolean;
+  version?: string;
+  reason?: string;
+}

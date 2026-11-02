@@ -608,3 +608,34 @@ quickservicets tenants resume <id>
 **Arguments:**
 
 - `<id>` (required): The tenant's id.
+
+### `secrets`
+
+#### `secrets check`
+
+Resolves every secret reference of the configuration (with --tenant, also its per-tenant references for that tenant) and prints one line per reference with its config path, the reference, ok and the version or failed and the reason, never a value; exits 1 when one fails.
+
+```bash
+quickservicets secrets check [--tenant <id>]
+```
+
+**Flags:**
+
+- `--tenant` (`string`): Also resolves the per-tenant references for this tenant id.
+
+**JSON (`--json`):**
+
+```json
+{
+  "ok": true,
+  "references": [
+    {
+      "path": "string",
+      "reference": "string",
+      "ok": "boolean",
+      "version": "string?",
+      "reason": "string?"
+    }
+  ]
+}
+```

@@ -3,12 +3,12 @@ import "./index.ts";
 import { memoryAdapter } from "./adapters/memory.ts";
 import { resolveConfig, type ServiceConfig } from "./config.ts";
 import { defineFeature, registerProjectFeatures } from "./features.ts";
-import { refreshSecrets, setSecretsClock, type SecretProvider } from "./features/secrets/index.ts";
+import type { SecretProvider } from "./features/secrets/index.ts";
 import { markTenancy } from "./features/tenancy/models.ts";
 import type { Endpoint } from "./http/server.ts";
 import { createFeatureLifecycle } from "./lifecycle.ts";
 import { secret } from "./options.ts";
-import { secrets } from "./secret-references.ts";
+import { refreshSecrets, secrets, setSecretsClock } from "./secret-references.ts";
 import { startTestApp, type TestApp } from "./tenancy-test-support.ts";
 import { entity, field } from "./testing/entities.ts";
 

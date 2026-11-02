@@ -433,7 +433,7 @@ export function resolveConfig(
     lifecycle: resolveLifecycle(config),
   };
   setHookLogger(resolved.logger);
-  setSecretEnvironment(env);
+  setSecretEnvironment(env, projectRoot);
   // Secret references need the secrets native, which resolves them when the service starts.
   if (!features.some((feature) => feature.key === "secrets")) {
     const references = configSecretReferences(resolved);

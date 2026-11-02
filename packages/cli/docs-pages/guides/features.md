@@ -34,7 +34,7 @@ export default defineConfig({
 | `auth` | One authentication contract for every provider, filling `req.user` and `req.auth` | by its key | — | [Authentication](/guides/authentication/) | [auth](/reference/features/auth/) |
 | `metrics` | Requests, errors and p50, p95 and p99 latency per route, tenant and optionally user, in time windows kept by the service | by its key | — | [Usage metrics](/guides/usage-metrics/) | [metrics](/reference/features/metrics/) |
 | `proxy` | Proxy routes forwarding configured paths to an upstream URL or a named service, streaming both ways | by its key | `http` | [API gateway](/guides/api-gateway/) | [proxy](/reference/features/proxy/) |
-| `secrets` | Secret references like `secret("vault://kv/db#url")` in the configuration, resolved at startup, with built-in `env://` and `file://` providers | by its key | — (a feature that lists it in `enables` turns it on) | [Environment variables](/guides/environment/) | [secrets](/reference/features/secrets/) |
+| `secrets` | Secret references like `secret("vault://kv/db#url")` in the configuration, resolved at startup, with built-in `env://` and `file://` providers | by its key | — (a feature that lists it in `enables` turns it on) | [Secrets](/guides/secrets/) | [secrets](/reference/features/secrets/) |
 
 A native that needs another fails the build until it is on, naming the fix, like `history requires events; add events: {} to quickservicets.config.ts`. Natives that store data (queues, history, the events outbox, idempotency keys, flags in the database) add tables, so they need a migration like any entity change.
 

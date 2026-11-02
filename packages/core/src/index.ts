@@ -281,7 +281,11 @@ export {
   secretEnvironment,
   SecretReference,
   secrets,
+  secretsRuntime,
   setSecretsRuntime,
+  hasTenantPlaceholder,
+  referenceForTenant,
+  TENANT_PLACEHOLDER,
   secretValue,
   selectSecretKey,
   storedSecret,
@@ -323,6 +327,7 @@ import authNative, { type AuthApi, type RequestAuth, type SessionRevokedEvent } 
 import metricsNative, { type MetricsApi } from "./features/metrics/index.ts";
 import proxyNative from "./features/proxy/index.ts";
 import secretsNative, { type SecretRotation, type SecretsApi } from "./features/secrets/index.ts";
+import type { SecretReference as RequestSecretReference } from "./secret-references.ts";
 import { registerNative as registerShippedNative, type FeatureConfig as NativeConfig } from "./features.ts";
 registerShippedNative(securityNative);
 registerShippedNative(eventsNative);
@@ -488,6 +493,11 @@ declare module "./hooks.ts" {
      * through services propagate what they ask for; present while the `http` native is enabled.
      */
     http: Http;
+    /**
+     * Reads secrets at runtime: `{tenant}` references resolve for the request's tenant through the per-tenant cache;
+     * present while the `secrets` native is enabled.
+     */
+    secrets: { get(reference: RequestSecretReference | string): Promise<string> };
     /** The `Last-Event-ID` header, or the `lastEventId` query parameter without it; present while the `realtime` native is enabled. */
     lastEventId: string | undefined;
     /**

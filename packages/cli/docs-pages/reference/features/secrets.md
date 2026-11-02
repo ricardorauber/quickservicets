@@ -24,6 +24,7 @@ It is not enabled by default: turn it on with `secrets: {}` or `QS_SECRETS_ENABL
 | `secrets.refresh` | `duration` | `"1m"` | `QS_SECRETS_REFRESH` | no | How often each worker checks for values that are due, re-resolving them in the background. |
 | `secrets.onRefreshError` | `"keep" \| "fail"` | `"keep"` | `QS_SECRETS_ON_REFRESH_ERROR` | no | What a failed refresh does: keep serves the last value, fail also fails the readiness check; both retry at the next check. |
 | `secrets.onRotate` | `hook` | — | not overridable | no | Runs after a value changed, with the config path, the reference and the new version, never the value. |
+| `secrets.tenantCacheSize` | `integer` | `10000` | `QS_SECRETS_TENANT_CACHE_SIZE` | no | The most per-tenant values each worker keeps; the least recently used is evicted. |
 | `secrets.enabled` | `boolean` | `true` | `QS_SECRETS_ENABLED` | no | Turns the feature off when false. |
 | `secrets.database` | `string` | — | `QS_SECRETS_DATABASE` | no | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
 
@@ -67,6 +68,12 @@ A reference is `<scheme>://<path>[#<key>][?version=<version>]`, written as `secr
 The native and the features that list `secrets` in `requires` or `enables` set up first; then every reference is resolved, each text once, with `timeout` per attempt and `retries` retries. Other features, adapters and `env` only see values. Failures stop startup with one error starting `Cannot resolve secrets:` and one line per failure, `<config path>: <reference> (<reason>)`, never a value.
 
 Resolved values are masked as `[secret]` in logs, errors, reports and printed configs. A reference while the native is off fails with `<path> uses <reference>; add secrets: {} to quickservicets.config.ts`.
+
+## Per-tenant secrets
+
+A reference may hold `{tenant}` in its path or key, like `secret("vault://kv/tenants/{tenant}/db#url")`: it is not resolved at startup but for each tenant on first use, with the id checked against the tenant id rule first, so it cannot change the path. It works in `tenancy.connection` and in a tenant's `connection` (resolved when the tenant's pool opens), through `secrets.forTenant(id).get(reference)`, and through `req.secrets.get(reference)` for the request's tenant; anywhere else (a global option, `env`, an adapter) startup fails with `<path> uses {tenant}, which only works for tenant connections, tenant entries and secrets.forTenant()`.
+
+Each worker keeps at most `tenantCacheSize` per-tenant values, evicting the least recently used, with one resolution in flight per tenant and reference; only values read since they resolved are refreshed, so idle tenants cost no vault calls. A failed resolution fails only that tenant's request (503 for its database), logs `secrets.tenant.failed` with the tenant and the reference, and is not retried for 10 seconds. Creating the secrets of a new tenant in the vault is an operator task.
 
 ## Cache and rotation
 

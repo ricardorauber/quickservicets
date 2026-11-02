@@ -292,10 +292,33 @@ export function usesSecrets(definition: { key: string; requires: readonly { name
   return definition.key === "secrets" || definition.requires.some((requirement) => requirement.name === "secrets") || definition.enables.includes("secrets");
 }
 
+/** The placeholder a reference holds in its path or key to serve every tenant with its own secret. */
+export const TENANT_PLACEHOLDER = "{tenant}";
+
+/** Whether a reference holds `{tenant}`, so it resolves per tenant instead of at startup. */
+export function hasTenantPlaceholder(reference: SecretReference): boolean {
+  return reference.text.includes(TENANT_PLACEHOLDER);
+}
+
+/** The reference of one tenant: `{tenant}` replaced by its id (checked by the caller against the tenant id rule). */
+export function referenceForTenant(reference: SecretReference, tenant: string): SecretReference {
+  if (!hasTenantPlaceholder(reference)) return reference;
+  return parseSecretReference(reference.text.replaceAll(TENANT_PLACEHOLDER, tenant));
+}
+
 /** What the `secrets` native gives `secrets.get` while a service runs. */
 export interface SecretsRuntime {
   /** The current value of a reference, resolved through the providers and the cache. */
   get(reference: SecretReference): Promise<string>;
+  /** The current value of a reference for a tenant, through the per-tenant cache; rejects an invalid tenant id. */
+  forTenant(tenant: string, reference: SecretReference): Promise<string>;
+  /** Whether a provider resolves the scheme. */
+  resolves(scheme: string): boolean;
+}
+
+/** The runtime of the running service's `secrets` native, or undefined without one. */
+export function secretsRuntime(): SecretsRuntime | undefined {
+  return runtime;
 }
 
 let runtime: SecretsRuntime | undefined;
@@ -318,6 +341,19 @@ export const secrets = {
     const parsed = referenceOf(reference);
     if (!runtime) throw new Error(`secrets.get(${parsed.text}) needs the secrets native; add secrets: {} to quickservicets.config.ts`);
     return runtime.get(parsed);
+  },
+  /**
+   * The secrets of one tenant: `get` replaces `{tenant}` with the id (checked against the tenant id rule) and resolves
+   * through the per-tenant cache, like `await secrets.forTenant("acme").get("vault://kv/tenants/{tenant}/stripe#key")`.
+   */
+  forTenant(tenant: string) {
+    return {
+      async get(reference: SecretReference | string): Promise<string> {
+        const parsed = referenceOf(reference);
+        if (!runtime) throw new Error(`secrets.forTenant(${tenant}).get(${parsed.text}) needs the secrets native; add secrets: {} to quickservicets.config.ts`);
+        return runtime.forTenant(tenant, parsed);
+      },
+    };
   },
   /** Calls `fn(newValue)` after each change of the reference's value; returns a function that removes it. */
   onRotate(reference: SecretReference | string, fn: (value: string) => void): () => void {

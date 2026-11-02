@@ -1,9 +1,38 @@
-import { http, safeLog, type Logger } from "../public.ts";
+import { hasTenantPlaceholder, http, isSecretReference, parseSecretReference, referenceForTenant, safeLog, secretsRuntime, secretValue, RESERVED_SECRET_SCHEMES, type Logger, type SecretReference } from "../public.ts";
 import { directoryClock, type TenantInfo } from "./directory.ts";
 import { MissingConnectionError, type ConnectionSource } from "./pools.ts";
 
-/** The `connection` option: a template with `{tenant}`, or a function of the tenant. */
-export type ConnectionOption = string | ((context: { tenant: TenantInfo }) => unknown) | undefined;
+/** The `connection` option: a template with `{tenant}`, a secret reference (with or without `{tenant}`), or a function of the tenant. */
+export type ConnectionOption = string | SecretReference | ((context: { tenant: TenantInfo }) => unknown) | undefined;
+
+/**
+ * The secret reference a connection is, if any: a reference, or the text of a tenant entry that starts with a scheme a
+ * secrets provider resolves (never a connection URL scheme).
+ */
+function referenceIn(value: unknown): SecretReference | undefined {
+  if (isSecretReference(value)) return value;
+  if (typeof value !== "string") return undefined;
+  const scheme = /^([a-z][a-z0-9-]*):\/\//.exec(value)?.[1];
+  if (scheme === undefined || RESERVED_SECRET_SCHEMES.includes(scheme) || !secretsRuntime()?.resolves(scheme)) return undefined;
+  try {
+    return parseSecretReference(value);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The value of a connection that is a secret reference, for one tenant: `{tenant}` references through the per-tenant
+ * cache of the `secrets` native (or read directly for `env://` and `file://` outside a service), others as resolved at
+ * startup; any other value as it is.
+ */
+async function resolvedConnection(tenant: string, value: unknown): Promise<unknown> {
+  const reference = referenceIn(value);
+  if (!reference) return value;
+  if (!hasTenantPlaceholder(reference)) return secretValue(reference);
+  const runtime = secretsRuntime();
+  return runtime ? runtime.forTenant(tenant, reference) : secretValue(referenceForTenant(reference, tenant));
+}
 
 export interface ConnectionResolverOptions {
   option: ConnectionOption;
@@ -37,10 +66,13 @@ export function connectionResolver(options: ConnectionResolverOptions): Connecti
     return { value: body?.connection, ...(typeof body?.ttl === "number" && body.ttl > 0 ? { ttlMs: body.ttl * 1000 } : {}) };
   };
   const compute = async (tenant: TenantInfo): Promise<{ value: unknown; ttlMs: number }> => {
-    const own = checked(tenant.id, tenant.connection);
+    const own = checked(tenant.id, await resolvedConnection(tenant.id, tenant.connection));
     if (own !== undefined) return { value: own, ttlMs: options.ttlMs };
+    // Read at each resolution, so a value rotated in place is used.
     const option = options.option;
-    const configured = checked(tenant.id, typeof option === "function" ? await option({ tenant }) : typeof option === "string" ? option.replaceAll("{tenant}", tenant.id) : undefined);
+    const template = isSecretReference(option) ? await resolvedConnection(tenant.id, option) : option;
+    const computed = typeof template === "function" ? await resolvedConnection(tenant.id, await template({ tenant })) : typeof template === "string" ? template.replaceAll("{tenant}", tenant.id) : undefined;
+    const configured = checked(tenant.id, computed);
     if (configured !== undefined) return { value: configured, ttlMs: options.ttlMs };
     if (options.service) {
       const answered = await fromService(tenant.id);

@@ -412,7 +412,10 @@ const tenancyFeature = defineFeature({
       },
       logger: ctx.logger,
       connections: connectionResolver({
-        option: ctx.options.connection as ConnectionOption,
+        // Read at each resolution, so a reference resolved (or rotated) in place is used.
+        get option() {
+          return ctx.options.connection as ConnectionOption;
+        },
         ...(ctx.options.connectionService ? { service: ctx.options.connectionService } : {}),
         ttlMs: parseDuration(ctx.options.connectionCache.ttl) ?? 600_000,
         logger: ctx.logger,

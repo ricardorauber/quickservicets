@@ -916,5 +916,6 @@ Every option, tag, command and hook of `secrets` is on [its reference page](/ref
 | `secrets.refresh` | `duration` | `"1m"` | `QS_SECRETS_REFRESH` | How often each worker checks for values that are due, re-resolving them in the background. |
 | `secrets.onRefreshError` | `"keep" \| "fail"` | `"keep"` | `QS_SECRETS_ON_REFRESH_ERROR` | What a failed refresh does: keep serves the last value, fail also fails the readiness check; both retry at the next check. |
 | `secrets.onRotate` | `hook` | — | not overridable | Runs after a value changed, with the config path, the reference and the new version, never the value. |
+| `secrets.tenantCacheSize` | `integer` | `10000` | `QS_SECRETS_TENANT_CACHE_SIZE` | The most per-tenant values each worker keeps; the least recently used is evicted. |
 | `secrets.enabled` | `boolean` | `true` | `QS_SECRETS_ENABLED` | Turns the feature off when false. |
 | `secrets.database` | `string` | — | `QS_SECRETS_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |

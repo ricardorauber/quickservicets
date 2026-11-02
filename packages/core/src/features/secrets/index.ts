@@ -1,5 +1,8 @@
 import {
   clearStoredSecrets,
+  hasTenantPlaceholder,
+  referenceForTenant,
+  TENANT_ID,
   ConfigError,
   configSecretReferences,
   defineFeature,
@@ -15,6 +18,7 @@ import {
   RESOLVE_STARTUP_SECRETS,
   runAfterHooks,
   safeLog,
+  secrets,
   secretVariables,
   setSecretsRuntime,
   storeSecretValue,
@@ -40,9 +44,24 @@ const options = object({
     .default("keep")
     .describe("What a failed refresh does: keep serves the last value, fail also fails the readiness check; both retry at the next check."),
   onRotate: hook<SecretRotation, undefined>().describe("Runs after a value changed, with the config path, the reference and the new version, never the value."),
+  tenantCacheSize: integer().min(1).default(10000).describe("The most per-tenant values each worker keeps; the least recently used is evicted."),
 });
 
-type SecretsOptions = { timeout: string; retries: number; ttl: string; refresh: string; onRefreshError: "keep" | "fail"; onRotate: ((rotation: SecretRotation) => unknown)[] };
+type SecretsOptions = {
+  timeout: string;
+  retries: number;
+  ttl: string;
+  refresh: string;
+  onRefreshError: "keep" | "fail";
+  onRotate: ((rotation: SecretRotation) => unknown)[];
+  tenantCacheSize: number;
+};
+
+/** The places a `{tenant}` reference may be: the tenancy connection and the connections of configured tenants. */
+const TENANT_LOCATION = /^tenancy\.(connection|tenants\.[^.]+\.connection)$/;
+
+/** How long a failed per-tenant resolution is refused before the provider is called again. */
+export const TENANT_RETRY_MS = 10_000;
 
 /** The text a declared secret variable holds when it is a reference: a registered scheme followed by `://`. */
 const REFERENCE_TEXT = /^([a-z][a-z0-9-]*):\/\//;
@@ -63,8 +82,8 @@ function startupReferences(ctx: FeatureSetupContext, registry: ProviderRegistry,
   return found;
 }
 
-/** The cache of the running service, which `refreshSecrets()` checks. */
-let active: SecretCache | undefined;
+/** The caches of the running service, which `refreshSecrets()` checks. */
+let active: { refreshDue(): Promise<void> } | undefined;
 
 /**
  * Checks now for values that are due (as each worker does every `refresh`) and re-resolves them, resolving once the
@@ -82,7 +101,12 @@ async function resolveAtStartup(ctx: FeatureSetupContext<SecretsOptions>, regist
   const problems: string[] = [];
   // A service starting again in this process resolves its references anew.
   clearStoredSecrets();
-  const locations = startupReferences(ctx, registry, problems);
+  const found = startupReferences(ctx, registry, problems);
+  // References with {tenant} resolve per tenant on first use; they only work where a tenant is known.
+  const placeholders = found.filter((location) => hasTenantPlaceholder(location.reference));
+  const misplaced = placeholders.filter((location) => !TENANT_LOCATION.test(location.path));
+  if (misplaced.length > 0) throw new ConfigError(misplaced.map((location) => `${location.path} uses {tenant}, which only works for tenant connections, tenant entries and secrets.forTenant()`).join("\n"));
+  const locations = found.filter((location) => !hasTenantPlaceholder(location.reference));
   const pending = new Map<string, Promise<ResolvedSecret>>();
   for (const location of locations) {
     const { reference } = location;
@@ -162,6 +186,14 @@ const secretsFeature = defineFeature({
         ].join("\n"),
       },
       {
+        title: "Per-tenant secrets",
+        text: [
+          "A reference may hold `{tenant}` in its path or key, like `secret(\"vault://kv/tenants/{tenant}/db#url\")`: it is not resolved at startup but for each tenant on first use, with the id checked against the tenant id rule first, so it cannot change the path. It works in `tenancy.connection` and in a tenant's `connection` (resolved when the tenant's pool opens), through `secrets.forTenant(id).get(reference)`, and through `req.secrets.get(reference)` for the request's tenant; anywhere else (a global option, `env`, an adapter) startup fails with `<path> uses {tenant}, which only works for tenant connections, tenant entries and secrets.forTenant()`.",
+          "",
+          "Each worker keeps at most `tenantCacheSize` per-tenant values, evicting the least recently used, with one resolution in flight per tenant and reference; only values read since they resolved are refreshed, so idle tenants cost no vault calls. A failed resolution fails only that tenant's request (503 for its database), logs `secrets.tenant.failed` with the tenant and the reference, and is not retried for 10 seconds. Creating the secrets of a new tenant in the vault is an operator task.",
+        ].join("\n"),
+      },
+      {
         title: "Cache and rotation",
         text: [
           "Each value is due again at its provider's `ttl`, or at two thirds of the time until its `expiresAt`, whichever comes first (the `ttl` option when the provider gives neither). Every `refresh`, each worker re-resolves the due values in the background, never on the request path.",
@@ -176,6 +208,17 @@ const secretsFeature = defineFeature({
     ],
   },
   options,
+  request: {
+    // The request's secrets: `{tenant}` references resolve for the request's tenant.
+    secrets: (req) => ({
+      get: (reference: SecretReference | string) => {
+        const parsed = typeof reference === "string" ? parseSecretReference(reference) : reference;
+        if (!hasTenantPlaceholder(parsed)) return secrets.get(parsed);
+        if (!req.tenant) return Promise.reject(new Error(`req.secrets.get(${parsed.text}) needs the request's tenant`));
+        return secrets.forTenant(req.tenant.id).get(parsed);
+      },
+    }),
+  },
   api: (ctx): SecretsApi & { [RESOLVE_STARTUP_SECRETS]: () => Promise<void> } => {
     const options = ctx.options as unknown as SecretsOptions;
     const registry = providerRegistry();
@@ -191,16 +234,39 @@ const secretsFeature = defineFeature({
         if (changed.some((entry) => entry.locations.some((location) => location.path.startsWith("server.tls.")))) await reloadTlsValues();
       },
     });
-    active = cache;
-    setSecretsRuntime({ get: (reference) => cache.get(reference) });
+    // Per-tenant values: resolved on first use, the least recently used evicted, and only those in use refreshed.
+    const tenantCache = new SecretCache({
+      registry,
+      resolve: resolveSettings(options),
+      ttl: parseDuration(options.ttl) ?? 900_000,
+      logger: ctx.logger,
+      maxEntries: options.tenantCacheSize,
+      onlyUsed: true,
+      failureCooldown: TENANT_RETRY_MS,
+      rotated: () => {},
+    });
+    const forTenant = async (tenant: string, reference: SecretReference): Promise<string> => {
+      // The id becomes part of the vault path, so only ids of the tenant id rule are accepted.
+      if (typeof tenant !== "string" || !TENANT_ID.test(tenant)) throw new Error(`Invalid tenant id ${JSON.stringify(tenant)} for ${reference.text}`);
+      if (!hasTenantPlaceholder(reference)) return cache.get(reference);
+      try {
+        return await tenantCache.get(referenceForTenant(reference, tenant));
+      } catch (error) {
+        safeLog(ctx.logger, "error", { timestamp: new Date(secretsNow()).toISOString(), message: "secrets.tenant.failed", tenant, reference: reference.text, reason: reasonOf(reference, error) });
+        throw error;
+      }
+    };
+    const refresher = { refreshDue: async () => void (await Promise.all([cache.refreshDue(), tenantCache.refreshDue()])) };
+    active = refresher;
+    setSecretsRuntime({ get: (reference) => cache.get(reference), forTenant, resolves: (scheme) => registry.has(scheme) });
     let timer: ReturnType<typeof setInterval> | undefined;
     // Each worker checks for due values in the background, never on the request path.
     ctx.app.onStart(() => {
-      timer = setInterval(() => void cache.refreshDue(), parseDuration(options.refresh) ?? 60_000);
+      timer = setInterval(() => void active?.refreshDue(), parseDuration(options.refresh) ?? 60_000);
     });
     ctx.app.onStop(async () => {
       clearInterval(timer);
-      if (active === cache) {
+      if (active === refresher) {
         active = undefined;
         setSecretsRuntime(undefined);
       }

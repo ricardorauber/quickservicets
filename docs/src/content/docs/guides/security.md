@@ -25,7 +25,7 @@ The samples come from the example project `examples/minimal/security`: posts, cu
 | `mtls` | Callers that cannot prove which service they are | Off: needs `ca` and `server.tls`, or a trusted proxy's header | handshake refused, `401`, `403` |
 | `masking` | Passwords, tokens and personal data leaking through logs and error reports | The default keys, `@sensitive` fields and secret values | `[secret]` and `[sensitive]` in logs |
 
-Client certificates, HTTPS from the service, forwarded identities from a mesh and certificates for outgoing calls are covered by the [mTLS guide](/guides/mtls/).
+Client certificates, HTTPS from the service, forwarded identities from a mesh and certificates for outgoing calls are covered by the [mTLS guide](/guides/mtls/). The `csrf` item, which refuses cross-site writes that ride on a session cookie, is explained with cookie sessions in the [authentication guide](/guides/authentication/#csrf-for-cookie-sessions).
 
 Every refusal is an `HttpError` passing through the `error` stage, so an `error` middleware can change its response, and the security headers are added to refusals too.
 

@@ -55,14 +55,37 @@ describe("the native features guide", () => {
     for (const [key, cells] of rows) {
       expect(cells[2]).toBe(key === "security" || key === "http" ? "by default" : "by its key");
       const links = [...cells.join(" ").matchAll(/\]\(([^)]+)\)/g)].map((match) => match[1]!);
-      expect(links).toHaveLength(2);
+      // realtime links both of its guides, Server-Sent Events and WebSockets.
+      expect(links).toHaveLength(key === "realtime" ? 3 : 2);
       for (const link of links) expect(pageOf(link)).toBeDefined();
-      expect(links[1]).toBe(`/reference/features/${key}/`);
+      expect(links.at(-1)).toBe(`/reference/features/${key}/`);
     }
     expect(rows.get("history")![3]).toBe("`events`");
     expect(rows.get("realtime")![3]).toContain("`events`");
     expect(rows.get("queues")![3]).toContain("`@publish` needs `events`");
     expect(guide).toContain("`<key>: false` or `QS_<KEY>_ENABLED=false`");
+  });
+
+  test("the infrastructure natives are listed with what enables them and what they work with", () => {
+    const rows = tableRows(guide);
+    for (const key of ["tenancy", "auth", "metrics", "proxy", "secrets"]) expect(rows.get(key)?.[2]).toBe("by its key");
+    for (const key of ["auth", "secrets"]) expect(rows.get(key)![3]).toContain("`enables`");
+    for (const key of ["queues", "events", "realtime"]) expect(rows.get("tenancy")![3]).toContain(`\`${key}\``);
+    expect(rows.get("realtime")![1]).toContain("WebSockets");
+    expect(rows.get("realtime")![4]).toBe("[Server-Sent Events](/guides/server-sent-events/), [WebSockets](/guides/websockets/)");
+  });
+
+  test("the guides index groups the infrastructure guides after the features guide", () => {
+    const index = readFileSync(join(content, "guides/index.md"), "utf8");
+    const group = index.split("Infrastructure:\n")[1]!.split("\n\n")[0]!;
+    expect([...group.matchAll(/\]\(([^)]+)\)/g)].map((match) => match[1])).toEqual(["/guides/multi-tenancy/", "/guides/authentication/", "/guides/websockets/", "/guides/usage-metrics/", "/guides/api-gateway/", "/guides/mtls/", "/guides/secrets/"]);
+    expect(index.indexOf("/guides/features/")).toBeLessThan(index.indexOf("Infrastructure:"));
+  });
+
+  test("the security guide links to the CSRF section of the authentication guide and to the mTLS guide", () => {
+    const security = readFileSync(join(content, "guides/security.md"), "utf8");
+    expect(security).toContain("(/guides/authentication/#csrf-for-cookie-sessions)");
+    expect(security).toContain("(/guides/mtls/)");
   });
 
   test("it has the customization levels and links to the project features guide", () => {

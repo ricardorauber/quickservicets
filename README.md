@@ -158,7 +158,8 @@ Everything beyond the generated API is a feature turned on by a key in `quickser
 The native features ship inside `@quickservicets/core`, each turned on by one config key (`<key>: {}`) and off by `<key>: false`:
 
 - On by default: `security` (headers, CORS, limits, rate limits, log masking) and `http` (the outgoing HTTP client with SSRF protection).
-- By their key: `events`, `queues`, `health`, `idempotency`, `etag`, `history`, `realtime`, `errors` and `flags`.
+- By their key: `events`, `queues`, `health`, `idempotency`, `etag`, `history`, `realtime` (Server-Sent Events and WebSockets), `errors` and `flags`.
+- Infrastructure, by their key: `tenancy` (multi-tenancy), `auth` (authentication), `metrics` (usage metrics), `proxy` (an API gateway) and `secrets` (references to vaults).
 
 The [Native features](docs/src/content/docs/guides/features.md) guide lists what each one does, what it needs and how to customize it.
 

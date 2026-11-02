@@ -78,6 +78,8 @@ export default defineConfig({
   // Other native features are one key each, like:
   // events: {},
   // history: {}, // needs events
+  // tenancy: {},
+  // auth: {},
 });
 `,
   mongodb: `import { defineConfig, mongodbAdapter } from "@quickservicets/core";
@@ -88,6 +90,8 @@ export default defineConfig({
   // Other native features are one key each, like:
   // events: {},
   // history: {}, // needs events
+  // tenancy: {},
+  // auth: {},
 });
 `,
   sqlite: `import { defineConfig, sqliteAdapter } from "@quickservicets/core";
@@ -98,6 +102,8 @@ export default defineConfig({
   // Other native features are one key each, like:
   // events: {},
   // history: {}, // needs events
+  // tenancy: {},
+  // auth: {},
 });
 `,
   memory: `import { defineConfig } from "@quickservicets/core";
@@ -111,6 +117,8 @@ export default defineConfig({
   // Other native features are one key each, like:
   // events: {},
   // history: {}, // needs events
+  // tenancy: {},
+  // auth: {},
 });
 `,
 };

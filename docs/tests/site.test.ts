@@ -3,6 +3,8 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { readTopics } from "../../packages/cli/src/agents/topics.ts";
 import { llmsFiles, pageMarkdown, readPage, readPages } from "../scripts/llms.ts";
+import { referencePages } from "../scripts/reference.ts";
+import { REPOSITORY_URL, siteUrl } from "../scripts/site.ts";
 
 const docs = join(import.meta.dir, "..");
 const dist = join(docs, "dist");
@@ -59,5 +61,38 @@ describe("files for LLMs", () => {
 
   test("the footer links to /llms.txt", () => {
     for (const path of ["index.html", "guides/queues/index.html"]) expect(page(path)).toContain('href="/llms.txt"');
+  });
+});
+
+describe("repository links", () => {
+  const editLinks = (html: string) => html.match(/href="https:\/\/github\.com\/ricardorauber\/quickservicets\/edit\/[^"]*"/g) ?? [];
+
+  test("a hand-written page has the GitHub header link and an Edit page link to its source on main", () => {
+    const html = page("getting-started/installation/index.html");
+    expect(html).toMatch(/<a href="https:\/\/github\.com\/ricardorauber\/quickservicets" rel="me"[^>]*><span[^>]*>GitHub<\/span>/);
+    expect(editLinks(html)).toEqual(['href="https://github.com/ricardorauber/quickservicets/edit/main/docs/src/content/docs/getting-started/installation.md"']);
+  });
+
+  test("generated reference pages set editUrl: false and show no Edit page link", () => {
+    const generated = Object.entries(referencePages());
+    expect(generated.length).toBeGreaterThan(0);
+    for (const [path, content] of generated) {
+      expect(/^---\n[\s\S]*?\n---\n/.exec(content)?.[0]).toContain("\neditUrl: false\n");
+      const built = path.replace(/\/index\.mdx?$/, "/index.html").replace(/\.mdx?$/, "/index.html");
+      expect(editLinks(page(built))).toEqual([]);
+    }
+  });
+
+  test("the footer has the Source on GitHub line", () => {
+    for (const path of ["index.html", "guides/queues/index.html", "reference/cli/index.html"]) {
+      expect(page(path)).toMatch(new RegExp(`<a href="${REPOSITORY_URL}"[^>]*>Source on GitHub</a>`));
+    }
+  });
+
+  test("the site URL comes from DOCS_SITE_URL, then the Vercel production domain, then none", () => {
+    expect(siteUrl({ DOCS_SITE_URL: "https://docs.example.com", VERCEL_PROJECT_PRODUCTION_URL: "qs.vercel.app" })).toBe("https://docs.example.com");
+    expect(siteUrl({ VERCEL_PROJECT_PRODUCTION_URL: "qs.vercel.app" })).toBe("https://qs.vercel.app");
+    expect(siteUrl({ DOCS_SITE_URL: "", VERCEL_PROJECT_PRODUCTION_URL: "" })).toBeUndefined();
+    expect(siteUrl({})).toBeUndefined();
   });
 });

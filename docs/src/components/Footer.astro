@@ -1,5 +1,6 @@
 ---
 import Default from "@astrojs/starlight/components/Footer.astro";
+import { REPOSITORY_URL } from "../../scripts/site.ts";
 ---
 
 <Default />
@@ -7,6 +8,7 @@ import Default from "@astrojs/starlight/components/Footer.astro";
   For LLMs and coding agents: <a href="/llms.txt">llms.txt</a>, <a href="/llms-full.txt">llms-full.txt</a> and a
   Markdown copy of every page at its path plus <code>.md</code>.
 </p>
+<p class="llms"><a href={REPOSITORY_URL}>Source on GitHub</a></p>
 
 <style>
   .llms {

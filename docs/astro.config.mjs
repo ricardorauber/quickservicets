@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, passthroughImageService } from "astro/config";
 import { llmsFiles } from "./scripts/llms.ts";
+import { EDIT_BASE_URL, REPOSITORY_URL, siteUrl } from "./scripts/site.ts";
 
 /** Writes `llms.txt`, `llms-full.txt`, `llms-small.txt` and the Markdown copy of every page and agent topic into the built site. */
 const llms = {
@@ -25,6 +26,8 @@ const llms = {
 const group = (label, directory) => ({ label, items: [{ autogenerate: { directory } }] });
 
 export default defineConfig({
+  // The public URL, for canonical links: DOCS_SITE_URL, or the Vercel production domain, or none for local builds.
+  site: siteUrl(),
   // The site only ships SVG images, which need no optimization.
   image: { service: passthroughImageService() },
   integrations: [
@@ -32,6 +35,8 @@ export default defineConfig({
       title: "QuickService.ts",
       description: "Backend services from TypeScript types, on Bun.",
       logo: { light: "./src/assets/logo-light.svg", dark: "./src/assets/logo-dark.svg", replacesTitle: true },
+      social: [{ icon: "github", label: "GitHub", href: REPOSITORY_URL }],
+      editLink: { baseUrl: EDIT_BASE_URL },
       customCss: ["./src/styles/theme.css"],
       components: { Footer: "./src/components/Footer.astro" },
       sidebar: [

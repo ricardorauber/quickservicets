@@ -94,7 +94,7 @@ const healthFeature = defineFeature({
   key: "health",
   docs: { summary: "Liveness and readiness routes for orchestrators and load balancers, checking the database, the queue and the checks features add." },
   options,
-  after: ["security", "queues"],
+  after: ["security", "queues", "secrets"],
   validate(options, config) {
     const lifecycle = config.lifecycle as { stopTimeout?: string } | undefined;
     const stopTimeout = lifecycle?.stopTimeout ?? "10s";
@@ -115,6 +115,18 @@ const healthFeature = defineFeature({
     if (enabled("queues")) {
       const queues = ctx.feature("queues");
       register("queue", "health", { critical: false, timeout: ctx.options.timeout, run: () => queues.health() });
+    }
+    if (enabled("secrets")) {
+      // Values failing to refresh or expired: critical with secrets.onRefreshError "fail", degrading readiness otherwise.
+      const secrets = ctx.feature("secrets");
+      register("secrets", "health", {
+        critical: secrets.status().critical,
+        timeout: ctx.options.timeout,
+        run: () => {
+          const failing = secrets.status().failing;
+          if (failing.length > 0) throw new Error(`Secrets failing to refresh or expired: ${failing.join(", ")}`);
+        },
+      });
     }
     for (const [name, resolved] of Object.entries(ctx.options.checks)) {
       const entry = resolved as unknown as HealthCheckFunction[] | { check: HealthCheckFunction[]; critical: boolean };

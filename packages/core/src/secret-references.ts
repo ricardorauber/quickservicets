@@ -291,3 +291,36 @@ export const RESOLVE_STARTUP_SECRETS = Symbol.for("quickservicets.secrets.resolv
 export function usesSecrets(definition: { key: string; requires: readonly { name: string }[]; enables: readonly string[] }): boolean {
   return definition.key === "secrets" || definition.requires.some((requirement) => requirement.name === "secrets") || definition.enables.includes("secrets");
 }
+
+/** What the `secrets` native gives `secrets.get` while a service runs. */
+export interface SecretsRuntime {
+  /** The current value of a reference, resolved through the providers and the cache. */
+  get(reference: SecretReference): Promise<string>;
+}
+
+let runtime: SecretsRuntime | undefined;
+
+/** Sets the runtime of the `secrets` native of the running service (undefined when it stops). */
+export function setSecretsRuntime(next: SecretsRuntime | undefined): void {
+  runtime = next;
+}
+
+const referenceOf = (reference: SecretReference | string): SecretReference => (typeof reference === "string" ? parseSecretReference(reference) : reference);
+
+/**
+ * Secrets read at runtime through the providers and the cache of the `secrets` native: `get` resolves a reference
+ * once (one resolution in flight) and keeps it fresh like the configuration's, and `onRotate` calls a function with the
+ * new value after each change, for code holding a derived object such as a client.
+ */
+export const secrets = {
+  /** The current value of `reference`, like `await secrets.get("vault://kv/partner#key")`. */
+  async get(reference: SecretReference | string): Promise<string> {
+    const parsed = referenceOf(reference);
+    if (!runtime) throw new Error(`secrets.get(${parsed.text}) needs the secrets native; add secrets: {} to quickservicets.config.ts`);
+    return runtime.get(parsed);
+  },
+  /** Calls `fn(newValue)` after each change of the reference's value; returns a function that removes it. */
+  onRotate(reference: SecretReference | string, fn: (value: string) => void): () => void {
+    return onSecretValue(referenceOf(reference), fn);
+  },
+};

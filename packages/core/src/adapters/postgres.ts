@@ -8,7 +8,7 @@ import { buildDrizzleSchema, columnName, lazyDrizzleSchema, schemaIdentifier, ty
 import { schemaViews } from "./schema-views.ts";
 import { relationFields, splitRelations, writeRelations } from "../sql/relations.ts";
 import { EntityStatements, type Statement } from "./postgres-statements.ts";
-import { isSecretReference, secretValue, type SecretReference } from "../secret-references.ts";
+import { isSecretReference, onSecretValue, secretValue, type SecretReference } from "../secret-references.ts";
 
 export interface PostgresAdapterOptions {
   /** The connection URL, or a secret reference to it (read when the adapter connects). */
@@ -266,6 +266,7 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
     };
     return view as Partial<PostgresAdapter>;
   };
+  let stopRotation: (() => void) | undefined;
   const adapter: PostgresAdapter = {
     kind: "postgres",
     supportsRollback: true,
@@ -283,14 +284,29 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
       }
       const max = connectOptions.poolSize ?? poolSizePerWorker(options.max ?? DEFAULT_POSTGRES_POOL_SIZE, connectOptions.workers);
       // The search path is a connection parameter, so every pooled connection uses the default schema.
-      client = new SQL({ url: secretValue(options.url), max, ...(defaultSchema ? { connection: { search_path: defaultSchema } } : {}) } as never);
+      const pool = () => new SQL({ url: secretValue(options.url), max, ...(defaultSchema ? { connection: { search_path: defaultSchema } } : {}) } as never);
+      client = pool();
       const { drizzle } = await driver;
       drizzleFor = (sqlClient) => drizzle({ client: sqlClient });
       db = drizzleFor(client);
+      // A rotated credential is used by every new connection: a new pool takes over, and the old one closes once its
+      // open connections finished their queries.
+      stopRotation?.();
+      stopRotation = isSecretReference(options.url)
+        ? onSecretValue(options.url, () => {
+            const previous = client;
+            if (!previous) return;
+            client = pool();
+            db = drizzleFor!(client);
+            void previous.close({ timeout: 30 }).catch(() => {});
+          })
+        : undefined;
       schema = buildDrizzleSchema(entityModels, "postgres");
       views = schemaViews<PostgresAdapter>(() => adapter, (name) => viewOf(name));
     },
     async disconnect() {
+      stopRotation?.();
+      stopRotation = undefined;
       await client?.close();
       client = undefined;
       db = undefined;

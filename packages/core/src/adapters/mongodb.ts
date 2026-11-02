@@ -14,7 +14,7 @@ import {
 import type { EntityModel, FieldModel } from "../model.ts";
 import { schemaIdentifier } from "../sql/schema.ts";
 import { placedView, schemaViews } from "./schema-views.ts";
-import { isSecretReference, secretValue, type SecretReference } from "../secret-references.ts";
+import { isSecretReference, onSecretValue, secretValue, type SecretReference } from "../secret-references.ts";
 import { isConditionGroup, type Condition, type FieldCondition, type SizeFilter, type SortField } from "../query.ts";
 
 export interface MongodbAdapterOptions {
@@ -256,6 +256,7 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
   const driver = import("mongodb");
   driver.catch(() => {});
   let client: MongoClient | undefined;
+  let stopRotation: (() => void) | undefined;
   let db: Db | undefined;
   let supportsTransactions = false;
   const sessions = new AsyncLocalStorage<ClientSession>();
@@ -348,11 +349,33 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
       const { MongoClient } = await driver;
       client = new MongoClient(secretValue(options.url));
       await client.connect();
-      db = client.db(connectOptions.defaultSchema ? schemaIdentifier(connectOptions.defaultSchema) : options.database);
+      const name = connectOptions.defaultSchema ? schemaIdentifier(connectOptions.defaultSchema) : options.database;
+      db = client.db(name);
       const hello = await db.admin().command({ hello: 1 });
       supportsTransactions = Boolean(hello.setName) || hello.msg === "isdbgrid";
+      // A rotated credential is used by every new connection: a new client takes over once it connected, and the old
+      // one closes after its operations had time to finish.
+      stopRotation?.();
+      stopRotation = isSecretReference(options.url)
+        ? onSecretValue(options.url, () => {
+            const next = new MongoClient(secretValue(options.url));
+            void next.connect().then(
+              () => {
+                const previous = client;
+                if (!previous) return void next.close();
+                client = next;
+                db = next.db(name);
+                const timer = setTimeout(() => void previous.close().catch(() => {}), 30_000);
+                (timer as { unref?: () => void }).unref?.();
+              },
+              () => void next.close().catch(() => {}),
+            );
+          })
+        : undefined;
     },
     async disconnect() {
+      stopRotation?.();
+      stopRotation = undefined;
       await client?.close();
       client = undefined;
       db = undefined;

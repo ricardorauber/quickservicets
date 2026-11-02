@@ -1,4 +1,4 @@
-import { cidrMatcher, coreInstruments, type DatabaseAdapter, type EntityModel, metricsEnabled, anyOf, hook, normalizeAddress, provider, runAfterHooks, secretVariableValues, boolean, cidr, defineFeature, duration, integer, list, object, oneOf, parseDuration, parseSize, peerAddress, rate, safeLog, size, string, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext, type LogMasker, type ServiceRequest, activeSetup, readCertificates, reloadTls, type Logger, type ClientCertificate, type FeatureHook, type OptionFunction, type HandlerMiddleware, type ParsedTags, type RequestMiddleware, type ServerSettings, type TaggedRoute } from "../public.ts";
+import { knownSecretValues, onKnownSecretValues, cidrMatcher, coreInstruments, type DatabaseAdapter, type EntityModel, metricsEnabled, anyOf, hook, normalizeAddress, provider, runAfterHooks, secretVariableValues, boolean, cidr, defineFeature, duration, integer, list, object, oneOf, parseDuration, parseSize, peerAddress, rate, safeLog, size, string, taggedRoutes, toggle, type FeatureOptions, type FeatureSetupContext, type LogMasker, type ServiceRequest, activeSetup, readCertificates, reloadTls, type Logger, type ClientCertificate, type FeatureHook, type OptionFunction, type HandlerMiddleware, type ParsedTags, type RequestMiddleware, type ServerSettings, type TaggedRoute } from "../public.ts";
 import type { SecurityRouteOptions } from "./api.ts";
 import type { ClientIpResolver, RateLimitRefusal, SecurityApi, SecurityRefusal } from "./api.ts";
 import { corsProblems, corsStep, ownOptionsRoutes, routeCorsOptions } from "./cors.ts";
@@ -633,7 +633,15 @@ const securityFeature = defineFeature({
         ...ctx.config.features.flatMap((feature) => secretOptionValues(feature.definition.schema, feature.options)),
         ...(ctx.config.files?.signingSecret ? [ctx.config.files.signingSecret] : []),
       ];
-      const mask = masker({ keys: ctx.options.masking.keys, sensitive: sensitiveFieldNames(ctx.models), secrets });
+      let current = masker({ keys: ctx.options.masking.keys, sensitive: sensitiveFieldNames(ctx.models), secrets });
+      // Secret values resolved later, like rotated ones, are masked from then on, the earlier ones included.
+      const known = new Set(secrets);
+      const stopWatching = onKnownSecretValues(() => {
+        for (const value of knownSecretValues()) known.add(value);
+        current = masker({ keys: ctx.options.masking.keys, sensitive: sensitiveFieldNames(ctx.models), secrets: [...known] });
+      });
+      ctx.app.onStop(stopWatching);
+      const mask: LogMasker = { entry: (value) => current.entry(value), text: (text) => current.text(text) };
       setupStates.get(ctx.app)!.mask = mask;
       ctx.app.configureServer({ mask });
     }

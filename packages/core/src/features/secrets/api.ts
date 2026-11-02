@@ -36,4 +36,6 @@ export interface SecretsApi {
    * reserved URL schemes, fails startup naming it.
    */
   provider(provider: SecretProvider): void;
+  /** Whether a failing refresh fails readiness (`onRefreshError: "fail"`), and the paths of the values failing to refresh or expired. */
+  status(): { critical: boolean; failing: string[] };
 }

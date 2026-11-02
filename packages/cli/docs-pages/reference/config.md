@@ -912,5 +912,9 @@ Every option, tag, command and hook of `secrets` is on [its reference page](/ref
 | --- | --- | --- | --- | --- |
 | `secrets.timeout` | `duration` | `"10s"` | `QS_SECRETS_TIMEOUT` | The longest each attempt to resolve a reference may take. |
 | `secrets.retries` | `integer` | `2` | `QS_SECRETS_RETRIES` | How many times a failed resolution is retried, with backoff, before startup fails. |
+| `secrets.ttl` | `duration` | `"15m"` | `QS_SECRETS_TTL` | How long a value is kept before it is resolved again, when its provider gives no ttl or expiry. |
+| `secrets.refresh` | `duration` | `"1m"` | `QS_SECRETS_REFRESH` | How often each worker checks for values that are due, re-resolving them in the background. |
+| `secrets.onRefreshError` | `"keep" \| "fail"` | `"keep"` | `QS_SECRETS_ON_REFRESH_ERROR` | What a failed refresh does: keep serves the last value, fail also fails the readiness check; both retry at the next check. |
+| `secrets.onRotate` | `hook` | — | not overridable | Runs after a value changed, with the config path, the reference and the new version, never the value. |
 | `secrets.enabled` | `boolean` | `true` | `QS_SECRETS_ENABLED` | Turns the feature off when false. |
 | `secrets.database` | `string` | — | `QS_SECRETS_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |

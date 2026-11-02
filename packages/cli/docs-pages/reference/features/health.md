@@ -14,7 +14,7 @@ health: {}
 
 It is not enabled by default: turn it on with `health: {}` or `QS_HEALTH_ENABLED=true`, and off with `health: false` or `QS_HEALTH_ENABLED=false`.
 
-**Runs after:** `security`, `queues`
+**Runs after:** `security`, `queues`, `secrets`
 
 ## Options
 

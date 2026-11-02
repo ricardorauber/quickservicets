@@ -58,6 +58,16 @@ export function requestTlsRestart(): void {
 
 /** The running reloaders of this process, which `SIGHUP` and `reloadTls()` check at once. */
 const reloaders = new Set<TlsReloader>();
+/** The running reloaders whose certificate or key is PEM text, like a resolved secret reference, which `reloadTlsValues()` checks. */
+const valueReloaders = new Set<TlsReloader>();
+
+/** The PEM texts and passphrase of `server.tls` as they are now, hashed, so a value replaced in place is noticed. */
+function valuesHash(tls: ServerTlsConfig): string {
+  const cas = tls.ca === undefined ? [] : Array.isArray(tls.ca) ? tls.ca : [tls.ca as string];
+  const values = [tls.cert, tls.key, ...cas].filter((value) => typeof value === "string" && isPem(value));
+  if (values.length === 0) return "";
+  return new Bun.CryptoHasher("sha256").update(JSON.stringify([...values, tls.passphrase ?? ""])).digest("hex");
+}
 
 /**
  * Watches the files of `server.tls` (and of `security.mtls.ca`) by content hash, at start and every `reloadInterval`,
@@ -71,12 +81,15 @@ export class TlsReloader {
   private failedHashes: string | undefined;
   private timer: ReturnType<typeof setInterval> | undefined;
   private running: Promise<TlsReloadResult> | undefined;
+  /** The hash of the PEM texts the server uses now. */
+  private values: string;
 
   constructor(private readonly options: TlsReloaderOptions) {
     const { tls } = options;
     const cas = tls.ca === undefined ? [] : Array.isArray(tls.ca) ? tls.ca : [tls.ca as string];
     this.files = [tls.cert, tls.key, ...cas, ...(options.clientCa ?? [])].filter((value) => typeof value === "string" && !isPem(value));
     for (const file of this.files) this.hashes.set(file, hashOf(file));
+    this.values = valuesHash(tls);
   }
 
   /** Whether the reloader watches anything: `watch` is on and at least one value is a file. */
@@ -86,6 +99,7 @@ export class TlsReloader {
 
   /** Starts checking every `reloadInterval`; does nothing while nothing is watched. */
   start(): void {
+    if (this.values !== "") valueReloaders.add(this);
     if (!this.watching || this.timer) return;
     const intervalMs = parseDuration(this.options.tls.reloadInterval ?? "1m") ?? 60_000;
     this.timer = setInterval(() => void this.check(), intervalMs);
@@ -96,6 +110,7 @@ export class TlsReloader {
     if (this.timer) clearInterval(this.timer);
     this.timer = undefined;
     reloaders.delete(this);
+    valueReloaders.delete(this);
   }
 
   /** Checks the files now, applying a changed and valid set. */
@@ -106,9 +121,10 @@ export class TlsReloader {
 
   private async checkOnce(): Promise<TlsReloadResult> {
     const current = new Map(this.files.map((file) => [file, hashOf(file)]));
-    const changed = this.files.some((file) => current.get(file) !== this.hashes.get(file));
+    const values = valuesHash(this.options.tls);
+    const changed = this.files.some((file) => current.get(file) !== this.hashes.get(file)) || values !== this.values;
     if (!changed) return { changed: false, applied: false };
-    const key = this.files.map((file) => current.get(file)).join(",");
+    const key = [...this.files.map((file) => current.get(file)), values].join(",");
     const { tls, logger } = this.options;
     let next: ReloadedTls;
     try {
@@ -137,6 +153,7 @@ export class TlsReloader {
       return { changed: true, applied: false };
     }
     this.hashes = current;
+    this.values = values;
     this.failedHashes = undefined;
     logServerCertificate(logger, next.info, tls, "tls.reloaded");
     return { changed: true, applied: true };
@@ -154,5 +171,14 @@ export async function reloadTls(logger?: Logger): Promise<TlsReloadResult> {
     return { changed: false, applied: false };
   }
   const results = await Promise.all(active.map((reloader) => reloader.check()));
+  return { changed: results.some((result) => result.changed), applied: results.some((result) => result.applied) };
+}
+
+/**
+ * Checks the PEM texts of every running server of this process at once, after a secret reference behind
+ * `server.tls` rotated in place: a changed and valid set is applied to new connections like renewed files.
+ */
+export async function reloadTlsValues(): Promise<TlsReloadResult> {
+  const results = await Promise.all([...valueReloaders].map((reloader) => reloader.check()));
   return { changed: results.some((result) => result.changed), applied: results.some((result) => result.applied) };
 }

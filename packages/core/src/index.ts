@@ -67,7 +67,7 @@ export { observeJobRuns } from "./jobs/observers.ts";
 export { contextFlags, setContextFlags } from "./context-flags.ts";
 export { contextHttp, setContextHttp } from "./context-http.ts";
 export { activeSetup } from "./setup-phase.ts";
-export { reloadTls, requestTlsRestart, setTlsRestart, TlsReloader } from "./tls-reload.ts";
+export { reloadTls, reloadTlsValues, requestTlsRestart, setTlsRestart, TlsReloader } from "./tls-reload.ts";
 export type { ReloadedTls, TlsReloaderOptions, TlsReloadResult } from "./tls-reload.ts";
 export { clientCertificateOf, clientFromEscapedPem, clientFromPeer, clientFromPem, clientFromXfcc, InvalidForwardedCertificate, parseAltNames, setClientCertificate } from "./client-certificates.ts";
 export type { ClientCertificate } from "./client-certificates.ts";
@@ -280,13 +280,15 @@ export {
   SECRET_SCHEME,
   secretEnvironment,
   SecretReference,
+  secrets,
+  setSecretsRuntime,
   secretValue,
   selectSecretKey,
   storedSecret,
   storeSecretValue,
   usesSecrets,
 } from "./secret-references.ts";
-export type { ReferenceLocation, StoredSecret } from "./secret-references.ts";
+export type { ReferenceLocation, SecretsRuntime, StoredSecret } from "./secret-references.ts";
 export type { ConfigOverride, EnvAlias, EnvironmentResult, OptionLeaf } from "./environment.ts";
 export { runAfterHooks, runBeforeHooks } from "./feature-hooks.ts";
 export { afterCommit, assertWritable, currentTransaction, inTransaction, onRollback, runInTransaction, transaction, transactionTarget } from "./transactions.ts";
@@ -320,7 +322,7 @@ import tenancyNative, { type TenancyApi } from "./features/tenancy/index.ts";
 import authNative, { type AuthApi, type RequestAuth, type SessionRevokedEvent } from "./features/auth/index.ts";
 import metricsNative, { type MetricsApi } from "./features/metrics/index.ts";
 import proxyNative from "./features/proxy/index.ts";
-import secretsNative, { type SecretsApi } from "./features/secrets/index.ts";
+import secretsNative, { type SecretRotation, type SecretsApi } from "./features/secrets/index.ts";
 import { registerNative as registerShippedNative, type FeatureConfig as NativeConfig } from "./features.ts";
 registerShippedNative(securityNative);
 registerShippedNative(eventsNative);
@@ -361,8 +363,8 @@ export type { CertificateAuthOptions, LoginCheck, LoginGuard, LoginGuardOptions,
 export type { AuthApi, AuthCredentials, AuthenticatedUser, AuthMethod, AuthProvider, AuthResult, AuthResultUser, RequestAuth, RevokeTarget } from "./features/auth/index.ts";
 export { LatencySketch, metricsFeature, queryMetrics, setMetricsClock } from "./features/metrics/index.ts";
 export type { EncodedSketch, MetricsApi, MetricsFigures, MetricsQuery, MetricsResult, MetricsSeries, MetricsStore, MetricWindow, StoredSeries, StoredWindow, WindowClosed } from "./features/metrics/index.ts";
-export { providerRegistry, resolveReference, schemeProblem, secretsFeature } from "./features/secrets/index.ts";
-export type { SecretProvider, SecretResolution, SecretResolveContext, SecretsApi } from "./features/secrets/index.ts";
+export { dueTime, providerRegistry, refreshSecrets, resolveReference, schemeProblem, secretsFeature, setSecretsClock } from "./features/secrets/index.ts";
+export type { SecretProvider, SecretResolution, SecretResolveContext, SecretRotation, SecretsApi } from "./features/secrets/index.ts";
 export { forward, IDENTITY_HEADER, proxyFeature, proxyIdentity, proxyRequest, signIdentity } from "./features/proxy/index.ts";
 export type { ForwardOptions, ProxyDone, ProxyFailure, ProxyForwarder, ProxyIdentityOptions, ProxyOverrides, ProxyStep } from "./features/proxy/index.ts";
 export { addOutboxPatterns, events, eventsFeature, listen, memoryEventBus, readOutbox, tailOutbox } from "./features/events/index.ts";
@@ -472,6 +474,8 @@ declare module "./event-types.ts" {
     "auth.session.revoked": SessionRevokedEvent;
     /** The overall readiness of a worker changed; emitted by the `health` native while `events` is enabled. */
     "health.status.changed": HealthStatusChangedEvent;
+    /** A secret's value changed after a refresh; emitted by the `secrets` native while `events` is enabled, never with the value. */
+    "secret.rotated": SecretRotation;
   }
 }
 

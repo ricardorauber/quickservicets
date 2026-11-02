@@ -1,9 +1,14 @@
 import type { SecretReference } from "../public.ts";
 
-/** What a provider resolves a reference to: one text, with its version and how long it stays valid. */
+/**
+ * What a provider resolves a reference to: one text (`value`), or several keyed texts (`values`, for vaults storing
+ * key-value secrets, from which the core takes `#key`), with the version and how long it stays valid.
+ */
 export interface SecretResolution {
   /** The secret's value. */
-  value: string;
+  value?: string;
+  /** The keyed texts of a key-value secret. */
+  values?: Readonly<Record<string, string>>;
   /** The version the provider resolved, like a vault's version number. */
   version?: string;
   /** How long the value may be cached, in milliseconds or as a duration like `5m`. */

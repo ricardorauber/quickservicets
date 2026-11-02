@@ -280,6 +280,11 @@ export {
   SECRET_SCHEME,
   secretEnvironment,
   SecretReference,
+  defineSecretProvider,
+  isSecretAccessError,
+  isSecretNotFoundError,
+  SecretAccessError,
+  SecretNotFoundError,
   secrets,
   secretsRuntime,
   setSecretsRuntime,
@@ -292,7 +297,7 @@ export {
   storeSecretValue,
   usesSecrets,
 } from "./secret-references.ts";
-export type { ReferenceLocation, SecretsRuntime, StoredSecret } from "./secret-references.ts";
+export type { ReferenceLocation, SecretProviderDefinition, SecretsRuntime, StoredSecret } from "./secret-references.ts";
 export type { ConfigOverride, EnvAlias, EnvironmentResult, OptionLeaf } from "./environment.ts";
 export { runAfterHooks, runBeforeHooks } from "./feature-hooks.ts";
 export { afterCommit, assertWritable, currentTransaction, inTransaction, onRollback, runInTransaction, transaction, transactionTarget } from "./transactions.ts";

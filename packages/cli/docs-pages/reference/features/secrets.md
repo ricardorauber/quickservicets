@@ -69,6 +69,12 @@ The native and the features that list `secrets` in `requires` or `enables` set u
 
 Resolved values are masked as `[secret]` in logs, errors, reports and printed configs. A reference while the native is off fails with `<path> uses <reference>; add secrets: {} to quickservicets.config.ts`.
 
+## Providers
+
+A provider is `defineSecretProvider({ name, schemes, resolve, health?, close?, transport? })` from `@quickservicets/core`; `resolve(reference, { signal })` resolves `{ value }` or `{ values }` (a key-value secret, from which the core takes `#key`; without a key a single entry is taken, and several fail with `<reference>: the secret has several keys; add #<key>`), with optional `version`, `ttl` and `expiresAt`. It aborts its requests when `signal` aborts, honors `?version=`, reports a missing secret or version with `SecretNotFoundError` and a refused access with `SecretAccessError` (neither is retried), and calls its API through a service registered with `addService` unless `transport: "sdk"` says an official SDK makes the calls.
+
+`testSecretProvider(entries)` and `runSecretProviderContract(create, { fixtures })` of `@quickservicets/core/testing` give provider authors a test double and the contract every provider passes; the repository runs it for every `packages/plugin-secrets-*` package.
+
 ## Per-tenant secrets
 
 A reference may hold `{tenant}` in its path or key, like `secret("vault://kv/tenants/{tenant}/db#url")`: it is not resolved at startup but for each tenant on first use, with the id checked against the tenant id rule first, so it cannot change the path. It works in `tenancy.connection` and in a tenant's `connection` (resolved when the tenant's pool opens), through `secrets.forTenant(id).get(reference)`, and through `req.secrets.get(reference)` for the request's tenant; anywhere else (a global option, `env`, an adapter) startup fails with `<path> uses {tenant}, which only works for tenant connections, tenant entries and secrets.forTenant()`.

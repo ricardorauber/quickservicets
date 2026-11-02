@@ -1,4 +1,4 @@
-import { readBuiltInSecret, RESERVED_SECRET_SCHEMES, SECRET_SCHEME, secretEnvironment, selectSecretKey, type SecretReference } from "../public.ts";
+import { isSecretAccessError, isSecretNotFoundError, readBuiltInSecret, RESERVED_SECRET_SCHEMES, SECRET_SCHEME, secretEnvironment, selectSecretKey, type SecretReference } from "../public.ts";
 import type { SecretProvider, SecretResolution } from "./api.ts";
 
 /** The providers of a service, by scheme. */
@@ -109,11 +109,14 @@ async function attempt(provider: SecretProvider, reference: SecretReference, tim
 /** Whether an error must not be retried, like a secret that does not exist or an access refused. */
 export type NoRetry = (error: unknown) => boolean;
 
+/** A missing secret or version and a refused access do not change on a retry. */
+export const permanent: NoRetry = (error) => isSecretNotFoundError(error) || isSecretAccessError(error);
+
 /**
  * Resolves one reference through the provider of its scheme, each attempt within `timeout`, retrying failures up to
  * `retries` times with backoff; rejects with a `ResolutionFailure` whose reason holds no value.
  */
-export async function resolveReference(registry: ProviderRegistry, reference: SecretReference, settings: ResolveSettings, noRetry: NoRetry = () => false): Promise<ResolvedSecret> {
+export async function resolveReference(registry: ProviderRegistry, reference: SecretReference, settings: ResolveSettings, noRetry: NoRetry = permanent): Promise<ResolvedSecret> {
   const provider = registry.get(reference.scheme);
   if (!provider) throw new ResolutionFailure(reference, `no provider for the scheme ${reference.scheme}`);
   let last: unknown;

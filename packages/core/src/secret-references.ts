@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { isAbsolute, resolve as resolvePath } from "node:path";
 import { maskSecrets } from "./secrets.ts";
+import type { SecretProvider } from "./features/secrets/api.ts";
 
 const BRAND = Symbol.for("quickservicets.secretReference");
 
@@ -360,3 +361,58 @@ export const secrets = {
     return onSecretValue(referenceOf(reference), fn);
   },
 };
+
+const NOT_FOUND = "SecretNotFoundError";
+const ACCESS = "SecretAccessError";
+
+/** A secret or version the vault does not have; the message is `<reference>: not found`, never a value. Never retried. */
+export class SecretNotFoundError extends Error {
+  constructor(reference: SecretReference | string) {
+    super(`${typeof reference === "string" ? reference : reference.text}: not found`);
+    this.name = NOT_FOUND;
+  }
+}
+
+/** A secret the vault refuses to give; the message is `<reference>: access denied`, never a value. Never retried. */
+export class SecretAccessError extends Error {
+  constructor(reference: SecretReference | string) {
+    super(`${typeof reference === "string" ? reference : reference.text}: access denied`);
+    this.name = ACCESS;
+  }
+}
+
+/** Whether an error is a `SecretNotFoundError`, also one made by another copy of the core. */
+export const isSecretNotFoundError = (error: unknown): boolean => error instanceof Error && error.name === NOT_FOUND;
+
+/** Whether an error is a `SecretAccessError`, also one made by another copy of the core. */
+export const isSecretAccessError = (error: unknown): boolean => error instanceof Error && error.name === ACCESS;
+
+/** What `defineSecretProvider` takes: a name, the schemes, `resolve`, and the optional `health`, `close` and `transport`. */
+export interface SecretProviderDefinition extends SecretProvider {
+  /** The provider's name, like `vault`, shown in contract tests. */
+  name: string;
+  /** `"sdk"` when an official cloud SDK makes the calls, so the contract does not require a registered HTTP service. */
+  transport?: "http" | "sdk";
+}
+
+/**
+ * Checks a provider definition (a name, schemes matching `^[a-z][a-z0-9-]*$` that are not URL schemes, a `resolve`
+ * function) and returns the provider; throws naming what is wrong.
+ */
+export function defineSecretProvider<D extends SecretProviderDefinition>(definition: D): D {
+  const invalid = (reason: string) => new Error(`Invalid secret provider ${typeof definition?.name === "string" ? definition.name : "definition"}: ${reason}`);
+  if (typeof definition !== "object" || definition === null) throw new Error("Invalid secret provider definition: expected an object");
+  if (typeof definition.name !== "string" || definition.name === "") throw invalid("name must be a non-empty text");
+  if (!Array.isArray(definition.schemes) || definition.schemes.length === 0) throw invalid("schemes must list at least one scheme");
+  const seen = new Set<string>();
+  for (const scheme of definition.schemes) {
+    if (typeof scheme !== "string" || !SECRET_SCHEME.test(scheme)) throw invalid(`the scheme ${JSON.stringify(scheme)} must match ${SECRET_SCHEME.source}`);
+    if (RESERVED_SECRET_SCHEMES.includes(scheme)) throw invalid(`the scheme ${scheme} is reserved for connection URLs`);
+    if (seen.has(scheme)) throw invalid(`the scheme ${scheme} is listed twice`);
+    seen.add(scheme);
+  }
+  if (typeof definition.resolve !== "function") throw invalid("resolve must be a function");
+  for (const name of ["health", "close"] as const) if (definition[name] !== undefined && typeof definition[name] !== "function") throw invalid(`${name} must be a function`);
+  if (definition.transport !== undefined && definition.transport !== "http" && definition.transport !== "sdk") throw invalid('transport must be "http" or "sdk"');
+  return definition;
+}

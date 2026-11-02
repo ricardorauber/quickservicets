@@ -1,0 +1,33 @@
+# The showcase with PostgreSQL: the service's database (saas) and the enterprise workspace's own (saas_initech).
+#   docker compose -f examples/saas-projects/docker-compose.yml up --build
+#   docker compose -f examples/saas-projects/docker-compose.yml exec app bun scripts/seed.ts
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: saas
+      POSTGRES_PASSWORD: saas
+      POSTGRES_DB: saas
+    volumes:
+      - ./docker/create-databases.sql:/docker-entrypoint-initdb.d/create-databases.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U saas -d saas"]
+      interval: 2s
+      retries: 30
+  app:
+    build:
+      context: ../..
+      dockerfile: examples/saas-projects/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://saas:saas@postgres:5432/saas
+      TENANT_DATABASE_TEMPLATE: postgres://saas:saas@postgres:5432/saas_{tenant}
+      APP_DOMAIN: saas.localhost
+      QS_SERVER_PORT: "3000"
+      QS_SERVER_WORKERS: "1"
+      SEED_PORT: "3999"
+    ports:
+      # SAAS_PORT publishes the service on another host port.
+      - "127.0.0.1:${SAAS_PORT:-3000}:3000"

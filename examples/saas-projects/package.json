@@ -1,0 +1,17 @@
+{
+  "name": "saas-projects",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "quickservicets dev",
+    "build": "quickservicets build",
+    "migrate": "quickservicets migrate --all-tenants",
+    "start": "bun .generated/server.ts",
+    "seed": "quickservicets build && bun scripts/seed.ts",
+    "test": "bun test tests"
+  },
+  "dependencies": {
+    "@quickservicets/core": "workspace:*",
+    "@quickservicets/cli": "workspace:*"
+  }
+}

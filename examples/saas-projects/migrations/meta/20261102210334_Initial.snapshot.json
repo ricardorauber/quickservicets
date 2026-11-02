@@ -1,0 +1,2297 @@
+{
+  "dialect": "postgres",
+  "models": [
+    {
+      "key": "Comment",
+      "entityName": "Comment",
+      "schema": null,
+      "name": "comments",
+      "repoKey": "comments",
+      "tableName": "comments",
+      "fields": [
+        {
+          "name": "task",
+          "type": "ref",
+          "target": "Task",
+          "onDelete": "restrict",
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "authorId",
+          "type": "string",
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "body",
+          "type": "string",
+          "optional": false,
+          "minLength": 1,
+          "storage": "column"
+        }
+      ],
+      "hooks": [],
+      "overrideHooks": "inherit",
+      "internal": false,
+      "exposure": {
+        "list": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "task",
+            "authorId",
+            "body"
+          ],
+          "exclude": []
+        },
+        "read": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "task",
+            "authorId",
+            "body"
+          ],
+          "exclude": []
+        }
+      },
+      "tenancy": "tenant"
+    },
+    {
+      "key": "Member",
+      "entityName": "Member",
+      "schema": null,
+      "name": "members",
+      "repoKey": "members",
+      "tableName": "members",
+      "fields": [
+        {
+          "name": "tenantKey",
+          "type": "string",
+          "optional": false,
+          "index": true,
+          "storage": "column"
+        },
+        {
+          "name": "userId",
+          "type": "string",
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "role",
+          "type": "enum",
+          "values": [
+            "owner",
+            "admin",
+            "member"
+          ],
+          "optional": false,
+          "storage": "column"
+        }
+      ],
+      "hooks": [
+        {
+          "name": "uniqueMembership",
+          "operations": [
+            "create"
+          ],
+          "args": []
+        }
+      ],
+      "overrideHooks": "inherit",
+      "internal": false,
+      "tags": {
+        "tenancy": {
+          "on": true,
+          "options": {
+            "scope": "shared"
+          }
+        }
+      },
+      "exposure": {
+        "list": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "tenantKey",
+            "userId",
+            "role"
+          ],
+          "exclude": []
+        },
+        "read": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "tenantKey",
+            "userId",
+            "role"
+          ],
+          "exclude": []
+        }
+      },
+      "tenancy": "shared"
+    },
+    {
+      "key": "Plan",
+      "entityName": "Plan",
+      "schema": null,
+      "name": "plans",
+      "repoKey": "plans",
+      "tableName": "plans",
+      "fields": [
+        {
+          "name": "slug",
+          "type": "string",
+          "optional": false,
+          "unique": true,
+          "storage": "column"
+        },
+        {
+          "name": "maxProjects",
+          "type": "number",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "maxMembers",
+          "type": "number",
+          "optional": true,
+          "storage": "column"
+        }
+      ],
+      "hooks": [],
+      "overrideHooks": "inherit",
+      "internal": false,
+      "tags": {
+        "tenancy": {
+          "on": true,
+          "options": {
+            "scope": "shared"
+          }
+        }
+      },
+      "exposure": {
+        "list": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "slug",
+            "maxProjects",
+            "maxMembers"
+          ],
+          "exclude": []
+        },
+        "read": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "slug",
+            "maxProjects",
+            "maxMembers"
+          ],
+          "exclude": []
+        }
+      },
+      "tenancy": "shared"
+    },
+    {
+      "key": "Project",
+      "entityName": "Project",
+      "schema": null,
+      "name": "projects",
+      "repoKey": "projects",
+      "tableName": "projects",
+      "fields": [
+        {
+          "name": "name",
+          "type": "string",
+          "optional": false,
+          "minLength": 1,
+          "storage": "column"
+        },
+        {
+          "name": "archived",
+          "type": "boolean",
+          "optional": false,
+          "default": false,
+          "storage": "column"
+        }
+      ],
+      "hooks": [
+        {
+          "name": "planLimit",
+          "operations": [
+            "create"
+          ],
+          "args": []
+        }
+      ],
+      "overrideHooks": "inherit",
+      "internal": false,
+      "exposure": {
+        "list": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "name",
+            "archived"
+          ],
+          "exclude": []
+        },
+        "read": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "name",
+            "archived"
+          ],
+          "exclude": []
+        }
+      },
+      "tenancy": "tenant"
+    },
+    {
+      "key": "Task",
+      "entityName": "Task",
+      "schema": null,
+      "name": "tasks",
+      "repoKey": "tasks",
+      "tableName": "tasks",
+      "fields": [
+        {
+          "name": "project",
+          "type": "ref",
+          "target": "Project",
+          "onDelete": "restrict",
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "title",
+          "type": "string",
+          "optional": false,
+          "minLength": 1,
+          "storage": "column"
+        },
+        {
+          "name": "status",
+          "type": "enum",
+          "values": [
+            "todo",
+            "doing",
+            "done"
+          ],
+          "optional": false,
+          "default": "todo",
+          "storage": "column"
+        },
+        {
+          "name": "assigneeId",
+          "type": "string",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "dueAt",
+          "type": "date",
+          "optional": true,
+          "storage": "column"
+        }
+      ],
+      "hooks": [],
+      "overrideHooks": "inherit",
+      "internal": false,
+      "exposure": {
+        "list": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "project",
+            "title",
+            "status",
+            "assigneeId",
+            "dueAt"
+          ],
+          "exclude": []
+        },
+        "read": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "project",
+            "title",
+            "status",
+            "assigneeId",
+            "dueAt"
+          ],
+          "exclude": []
+        }
+      },
+      "tenancy": "tenant"
+    },
+    {
+      "key": "Tenant",
+      "entityName": "Tenant",
+      "schema": null,
+      "name": "tenants",
+      "repoKey": "tenants",
+      "tableName": "tenants",
+      "fields": [
+        {
+          "name": "key",
+          "type": "string",
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "plan",
+          "type": "string",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "strategy",
+          "type": "enum",
+          "values": [
+            "schema",
+            "database"
+          ],
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "schema",
+          "type": "string",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "connection",
+          "type": "string",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "status",
+          "type": "enum",
+          "values": [
+            "active",
+            "suspended"
+          ],
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "attributes",
+          "type": "object",
+          "fields": [
+            {
+              "name": "region",
+              "type": "string",
+              "optional": true
+            }
+          ],
+          "optional": true,
+          "storage": "json"
+        },
+        {
+          "name": "billingEmail",
+          "type": "string",
+          "optional": true,
+          "format": "email",
+          "storage": "column"
+        },
+        {
+          "name": "planSlug",
+          "type": "string",
+          "optional": true,
+          "storage": "column"
+        }
+      ],
+      "hooks": [],
+      "overrideHooks": "inherit",
+      "internal": false,
+      "exposure": {
+        "list": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "key",
+            "plan",
+            "strategy",
+            "schema",
+            "connection",
+            "status",
+            "attributes",
+            "billingEmail",
+            "planSlug"
+          ],
+          "exclude": []
+        },
+        "read": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "key",
+            "plan",
+            "strategy",
+            "schema",
+            "connection",
+            "status",
+            "attributes",
+            "billingEmail",
+            "planSlug"
+          ],
+          "exclude": []
+        }
+      },
+      "tenancy": "shared"
+    },
+    {
+      "key": "OutboxEvent",
+      "entityName": "OutboxEvent",
+      "schema": null,
+      "name": "outbox-events",
+      "repoKey": "outboxEvents",
+      "tableName": "outbox_events",
+      "fields": [
+        {
+          "name": "type",
+          "type": "string",
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "event",
+          "type": "json",
+          "optional": false,
+          "storage": "json"
+        },
+        {
+          "name": "at",
+          "type": "date",
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "requestId",
+          "type": "string",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "trace",
+          "type": "string",
+          "optional": true,
+          "storage": "column"
+        }
+      ],
+      "hooks": [],
+      "overrideHooks": "inherit",
+      "internal": true,
+      "exposure": {
+        "list": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "type",
+            "event",
+            "at",
+            "requestId",
+            "trace"
+          ],
+          "exclude": []
+        },
+        "read": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "type",
+            "event",
+            "at",
+            "requestId",
+            "trace"
+          ],
+          "exclude": []
+        }
+      },
+      "indexes": [
+        {
+          "fields": [
+            "at"
+          ]
+        },
+        {
+          "fields": [
+            "type",
+            "at"
+          ]
+        }
+      ],
+      "system": true,
+      "perDatabase": true,
+      "feature": "events",
+      "tenancy": "shared"
+    },
+    {
+      "key": "OutboxDelivery",
+      "entityName": "OutboxDelivery",
+      "schema": null,
+      "name": "outbox-deliveries",
+      "repoKey": "outboxDeliveries",
+      "tableName": "outbox_deliveries",
+      "fields": [
+        {
+          "name": "event",
+          "type": "string",
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "consumer",
+          "type": "string",
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "status",
+          "type": "enum",
+          "values": [
+            "pending",
+            "delivering",
+            "delivered",
+            "failed"
+          ],
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "attempt",
+          "type": "number",
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "nextAttemptAt",
+          "type": "date",
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "lockedUntil",
+          "type": "date",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "lastError",
+          "type": "string",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "deliveredAt",
+          "type": "date",
+          "optional": true,
+          "storage": "column"
+        }
+      ],
+      "hooks": [],
+      "overrideHooks": "inherit",
+      "internal": true,
+      "exposure": {
+        "list": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "event",
+            "consumer",
+            "status",
+            "attempt",
+            "nextAttemptAt",
+            "lockedUntil",
+            "lastError",
+            "deliveredAt"
+          ],
+          "exclude": []
+        },
+        "read": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "event",
+            "consumer",
+            "status",
+            "attempt",
+            "nextAttemptAt",
+            "lockedUntil",
+            "lastError",
+            "deliveredAt"
+          ],
+          "exclude": []
+        }
+      },
+      "indexes": [
+        {
+          "fields": [
+            "event",
+            "consumer"
+          ],
+          "unique": true
+        },
+        {
+          "fields": [
+            "status",
+            "nextAttemptAt"
+          ]
+        }
+      ],
+      "system": true,
+      "feature": "events",
+      "tenancy": "shared"
+    },
+    {
+      "key": "QueueMessage",
+      "entityName": "QueueMessage",
+      "schema": null,
+      "name": "queue-messages",
+      "repoKey": "queueMessages",
+      "tableName": "queue_messages",
+      "fields": [
+        {
+          "name": "queue",
+          "type": "string",
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "payload",
+          "type": "json",
+          "optional": false,
+          "storage": "json"
+        },
+        {
+          "name": "status",
+          "type": "enum",
+          "values": [
+            "waiting",
+            "active",
+            "completed",
+            "dead"
+          ],
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "priority",
+          "type": "number",
+          "optional": false,
+          "default": 0,
+          "storage": "column"
+        },
+        {
+          "name": "runAt",
+          "type": "date",
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "attempt",
+          "type": "number",
+          "optional": false,
+          "min": 0,
+          "storage": "column"
+        },
+        {
+          "name": "maxAttempts",
+          "type": "number",
+          "optional": false,
+          "min": 1,
+          "storage": "column"
+        },
+        {
+          "name": "dedupeKey",
+          "type": "string",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "dedupeSlot",
+          "type": "string",
+          "optional": true,
+          "unique": true,
+          "storage": "column"
+        },
+        {
+          "name": "lockedUntil",
+          "type": "date",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "worker",
+          "type": "string",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "lastError",
+          "type": "object",
+          "optional": true,
+          "fields": [
+            {
+              "name": "message",
+              "type": "string",
+              "optional": false
+            },
+            {
+              "name": "stack",
+              "type": "string",
+              "optional": true
+            }
+          ],
+          "storage": "json"
+        },
+        {
+          "name": "result",
+          "type": "json",
+          "optional": true,
+          "storage": "json"
+        },
+        {
+          "name": "enqueuedAt",
+          "type": "date",
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "startedAt",
+          "type": "date",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "finishedAt",
+          "type": "date",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "requestId",
+          "type": "string",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "tenant",
+          "type": "string",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "actor",
+          "type": "object",
+          "optional": true,
+          "fields": [
+            {
+              "name": "user",
+              "type": "string",
+              "optional": true
+            },
+            {
+              "name": "tenant",
+              "type": "string",
+              "optional": true
+            },
+            {
+              "name": "scope",
+              "type": "string",
+              "optional": true
+            }
+          ],
+          "storage": "json"
+        },
+        {
+          "name": "trace",
+          "type": "string",
+          "optional": true,
+          "storage": "column"
+        }
+      ],
+      "hooks": [],
+      "overrideHooks": "inherit",
+      "internal": true,
+      "exposure": {
+        "list": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "queue",
+            "payload",
+            "status",
+            "priority",
+            "runAt",
+            "attempt",
+            "maxAttempts",
+            "dedupeKey",
+            "dedupeSlot",
+            "lockedUntil",
+            "worker",
+            "lastError",
+            "result",
+            "enqueuedAt",
+            "startedAt",
+            "finishedAt",
+            "requestId",
+            "tenant",
+            "actor",
+            "trace"
+          ],
+          "exclude": []
+        },
+        "read": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "queue",
+            "payload",
+            "status",
+            "priority",
+            "runAt",
+            "attempt",
+            "maxAttempts",
+            "dedupeKey",
+            "dedupeSlot",
+            "lockedUntil",
+            "worker",
+            "lastError",
+            "result",
+            "enqueuedAt",
+            "startedAt",
+            "finishedAt",
+            "requestId",
+            "tenant",
+            "actor",
+            "trace"
+          ],
+          "exclude": []
+        }
+      },
+      "indexes": [
+        {
+          "fields": [
+            "queue",
+            "status",
+            "priority",
+            "runAt"
+          ]
+        }
+      ],
+      "system": true,
+      "feature": "queues",
+      "tenancy": "shared"
+    },
+    {
+      "key": "JobRun",
+      "entityName": "JobRun",
+      "schema": null,
+      "name": "job-runs",
+      "repoKey": "jobRuns",
+      "tableName": "job_runs",
+      "fields": [
+        {
+          "name": "job",
+          "type": "string",
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "trigger",
+          "type": "enum",
+          "values": [
+            "schedule",
+            "manual",
+            "code"
+          ],
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "scheduledAt",
+          "type": "date",
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "attempt",
+          "type": "number",
+          "optional": false,
+          "min": 1,
+          "storage": "column"
+        },
+        {
+          "name": "status",
+          "type": "enum",
+          "values": [
+            "running",
+            "success",
+            "failed",
+            "timedOut",
+            "skipped",
+            "abandoned",
+            "interrupted"
+          ],
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "startedAt",
+          "type": "date",
+          "optional": false,
+          "storage": "column"
+        },
+        {
+          "name": "finishedAt",
+          "type": "date",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "durationMs",
+          "type": "number",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "heartbeatAt",
+          "type": "date",
+          "optional": true,
+          "storage": "column"
+        },
+        {
+          "name": "result",
+          "type": "json",
+          "optional": true,
+          "storage": "json"
+        },
+        {
+          "name": "error",
+          "type": "object",
+          "optional": true,
+          "fields": [
+            {
+              "name": "message",
+              "type": "string",
+              "optional": false
+            },
+            {
+              "name": "stack",
+              "type": "string",
+              "optional": true
+            }
+          ],
+          "storage": "json"
+        },
+        {
+          "name": "logs",
+          "type": "array",
+          "optional": false,
+          "items": {
+            "type": "object",
+            "fields": [
+              {
+                "name": "level",
+                "type": "enum",
+                "values": [
+                  "info",
+                  "warn",
+                  "error"
+                ],
+                "optional": false
+              },
+              {
+                "name": "message",
+                "type": "string",
+                "optional": false
+              },
+              {
+                "name": "at",
+                "type": "string",
+                "optional": false
+              },
+              {
+                "name": "fields",
+                "type": "json",
+                "optional": true
+              }
+            ]
+          },
+          "storage": "json"
+        }
+      ],
+      "hooks": [],
+      "overrideHooks": "inherit",
+      "internal": true,
+      "exposure": {
+        "list": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "job",
+            "trigger",
+            "scheduledAt",
+            "attempt",
+            "status",
+            "startedAt",
+            "finishedAt",
+            "durationMs",
+            "heartbeatAt",
+            "result",
+            "error",
+            "logs"
+          ],
+          "exclude": []
+        },
+        "read": {
+          "include": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "job",
+            "trigger",
+            "scheduledAt",
+            "attempt",
+            "status",
+            "startedAt",
+            "finishedAt",
+            "durationMs",
+            "heartbeatAt",
+            "result",
+            "error",
+            "logs"
+          ],
+          "exclude": []
+        }
+      },
+      "indexes": [
+        {
+          "fields": [
+            "job",
+            "scheduledAt",
+            "attempt"
+          ],
+          "unique": true
+        },
+        {
+          "fields": [
+            "job",
+            "startedAt"
+          ]
+        }
+      ],
+      "system": true,
+      "tenancy": "shared"
+    }
+  ],
+  "drizzle": {
+    "version": "7",
+    "dialect": "postgresql",
+    "tables": {
+      "public.comments": {
+        "name": "comments",
+        "schema": "",
+        "columns": {
+          "id": {
+            "name": "id",
+            "type": "text",
+            "primaryKey": true,
+            "notNull": true
+          },
+          "created_at": {
+            "name": "created_at",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "updated_at": {
+            "name": "updated_at",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "task": {
+            "name": "task",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "author_id": {
+            "name": "author_id",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "body": {
+            "name": "body",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true
+          }
+        },
+        "indexes": {
+          "comments_created_at_idx": {
+            "name": "comments_created_at_idx",
+            "columns": [
+              {
+                "expression": "created_at",
+                "isExpression": false,
+                "asc": true,
+                "nulls": "last"
+              }
+            ],
+            "isUnique": false,
+            "concurrently": false,
+            "method": "btree",
+            "with": {}
+          }
+        },
+        "foreignKeys": {
+          "comments_task_tasks_id_fk": {
+            "name": "comments_task_tasks_id_fk",
+            "tableFrom": "comments",
+            "tableTo": "tasks",
+            "columnsFrom": [
+              "task"
+            ],
+            "columnsTo": [
+              "id"
+            ],
+            "onDelete": "restrict",
+            "onUpdate": "no action"
+          }
+        },
+        "compositePrimaryKeys": {},
+        "uniqueConstraints": {},
+        "policies": {},
+        "checkConstraints": {},
+        "isRLSEnabled": false
+      },
+      "public.members": {
+        "name": "members",
+        "schema": "",
+        "columns": {
+          "id": {
+            "name": "id",
+            "type": "text",
+            "primaryKey": true,
+            "notNull": true
+          },
+          "created_at": {
+            "name": "created_at",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "updated_at": {
+            "name": "updated_at",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "tenant_key": {
+            "name": "tenant_key",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "user_id": {
+            "name": "user_id",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "role": {
+            "name": "role",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true
+          }
+        },
+        "indexes": {
+          "members_created_at_idx": {
+            "name": "members_created_at_idx",
+            "columns": [
+              {
+                "expression": "created_at",
+                "isExpression": false,
+                "asc": true,
+                "nulls": "last"
+              }
+            ],
+            "isUnique": false,
+            "concurrently": false,
+            "method": "btree",
+            "with": {}
+          },
+          "members_tenant_key_idx": {
+            "name": "members_tenant_key_idx",
+            "columns": [
+              {
+                "expression": "tenant_key",
+                "isExpression": false,
+                "asc": true,
+                "nulls": "last"
+              }
+            ],
+            "isUnique": false,
+            "concurrently": false,
+            "method": "btree",
+            "with": {}
+          }
+        },
+        "foreignKeys": {},
+        "compositePrimaryKeys": {},
+        "uniqueConstraints": {},
+        "policies": {},
+        "checkConstraints": {
+          "members_role_check": {
+            "name": "members_role_check",
+            "value": "\"members\".\"role\" in ('owner', 'admin', 'member')"
+          }
+        },
+        "isRLSEnabled": false
+      },
+      "public.plans": {
+        "name": "plans",
+        "schema": "",
+        "columns": {
+          "id": {
+            "name": "id",
+            "type": "text",
+            "primaryKey": true,
+            "notNull": true
+          },
+          "created_at": {
+            "name": "created_at",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "updated_at": {
+            "name": "updated_at",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "slug": {
+            "name": "slug",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "max_projects": {
+            "name": "max_projects",
+            "type": "double precision",
+            "primaryKey": false,
+            "notNull": false
+          },
+          "max_members": {
+            "name": "max_members",
+            "type": "double precision",
+            "primaryKey": false,
+            "notNull": false
+          }
+        },
+        "indexes": {
+          "plans_created_at_idx": {
+            "name": "plans_created_at_idx",
+            "columns": [
+              {
+                "expression": "created_at",
+                "isExpression": false,
+                "asc": true,
+                "nulls": "last"
+              }
+            ],
+            "isUnique": false,
+            "concurrently": false,
+            "method": "btree",
+            "with": {}
+          },
+          "plans_slug_uq": {
+            "name": "plans_slug_uq",
+            "columns": [
+              {
+                "expression": "slug",
+                "isExpression": false,
+                "asc": true,
+                "nulls": "last"
+              }
+            ],
+            "isUnique": true,
+            "concurrently": false,
+            "method": "btree",
+            "with": {}
+          }
+        },
+        "foreignKeys": {},
+        "compositePrimaryKeys": {},
+        "uniqueConstraints": {},
+        "policies": {},
+        "checkConstraints": {},
+        "isRLSEnabled": false
+      },
+      "public.projects": {
+        "name": "projects",
+        "schema": "",
+        "columns": {
+          "id": {
+            "name": "id",
+            "type": "text",
+            "primaryKey": true,
+            "notNull": true
+          },
+          "created_at": {
+            "name": "created_at",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "updated_at": {
+            "name": "updated_at",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "name": {
+            "name": "name",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "archived": {
+            "name": "archived",
+            "type": "boolean",
+            "primaryKey": false,
+            "notNull": true
+          }
+        },
+        "indexes": {
+          "projects_created_at_idx": {
+            "name": "projects_created_at_idx",
+            "columns": [
+              {
+                "expression": "created_at",
+                "isExpression": false,
+                "asc": true,
+                "nulls": "last"
+              }
+            ],
+            "isUnique": false,
+            "concurrently": false,
+            "method": "btree",
+            "with": {}
+          }
+        },
+        "foreignKeys": {},
+        "compositePrimaryKeys": {},
+        "uniqueConstraints": {},
+        "policies": {},
+        "checkConstraints": {},
+        "isRLSEnabled": false
+      },
+      "public.tasks": {
+        "name": "tasks",
+        "schema": "",
+        "columns": {
+          "id": {
+            "name": "id",
+            "type": "text",
+            "primaryKey": true,
+            "notNull": true
+          },
+          "created_at": {
+            "name": "created_at",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "updated_at": {
+            "name": "updated_at",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "project": {
+            "name": "project",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "title": {
+            "name": "title",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "status": {
+            "name": "status",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "assignee_id": {
+            "name": "assignee_id",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false
+          },
+          "due_at": {
+            "name": "due_at",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": false
+          }
+        },
+        "indexes": {
+          "tasks_created_at_idx": {
+            "name": "tasks_created_at_idx",
+            "columns": [
+              {
+                "expression": "created_at",
+                "isExpression": false,
+                "asc": true,
+                "nulls": "last"
+              }
+            ],
+            "isUnique": false,
+            "concurrently": false,
+            "method": "btree",
+            "with": {}
+          }
+        },
+        "foreignKeys": {
+          "tasks_project_projects_id_fk": {
+            "name": "tasks_project_projects_id_fk",
+            "tableFrom": "tasks",
+            "tableTo": "projects",
+            "columnsFrom": [
+              "project"
+            ],
+            "columnsTo": [
+              "id"
+            ],
+            "onDelete": "restrict",
+            "onUpdate": "no action"
+          }
+        },
+        "compositePrimaryKeys": {},
+        "uniqueConstraints": {},
+        "policies": {},
+        "checkConstraints": {
+          "tasks_status_check": {
+            "name": "tasks_status_check",
+            "value": "\"tasks\".\"status\" in ('todo', 'doing', 'done')"
+          }
+        },
+        "isRLSEnabled": false
+      },
+      "public.tenants": {
+        "name": "tenants",
+        "schema": "",
+        "columns": {
+          "id": {
+            "name": "id",
+            "type": "text",
+            "primaryKey": true,
+            "notNull": true
+          },
+          "created_at": {
+            "name": "created_at",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "updated_at": {
+            "name": "updated_at",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "key": {
+            "name": "key",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "plan": {
+            "name": "plan",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false
+          },
+          "strategy": {
+            "name": "strategy",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false
+          },
+          "schema": {
+            "name": "schema",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false
+          },
+          "connection": {
+            "name": "connection",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false
+          },
+          "status": {
+            "name": "status",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "attributes": {
+            "name": "attributes",
+            "type": "jsonb",
+            "primaryKey": false,
+            "notNull": false
+          },
+          "billing_email": {
+            "name": "billing_email",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false
+          },
+          "plan_slug": {
+            "name": "plan_slug",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false
+          }
+        },
+        "indexes": {
+          "tenants_created_at_idx": {
+            "name": "tenants_created_at_idx",
+            "columns": [
+              {
+                "expression": "created_at",
+                "isExpression": false,
+                "asc": true,
+                "nulls": "last"
+              }
+            ],
+            "isUnique": false,
+            "concurrently": false,
+            "method": "btree",
+            "with": {}
+          }
+        },
+        "foreignKeys": {},
+        "compositePrimaryKeys": {},
+        "uniqueConstraints": {},
+        "policies": {},
+        "checkConstraints": {
+          "tenants_strategy_check": {
+            "name": "tenants_strategy_check",
+            "value": "\"tenants\".\"strategy\" in ('schema', 'database')"
+          },
+          "tenants_status_check": {
+            "name": "tenants_status_check",
+            "value": "\"tenants\".\"status\" in ('active', 'suspended')"
+          }
+        },
+        "isRLSEnabled": false
+      },
+      "public.outbox_events": {
+        "name": "outbox_events",
+        "schema": "",
+        "columns": {
+          "id": {
+            "name": "id",
+            "type": "text",
+            "primaryKey": true,
+            "notNull": true
+          },
+          "created_at": {
+            "name": "created_at",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "updated_at": {
+            "name": "updated_at",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "type": {
+            "name": "type",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "event": {
+            "name": "event",
+            "type": "jsonb",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "at": {
+            "name": "at",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "request_id": {
+            "name": "request_id",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false
+          },
+          "trace": {
+            "name": "trace",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false
+          }
+        },
+        "indexes": {
+          "outbox_events_created_at_idx": {
+            "name": "outbox_events_created_at_idx",
+            "columns": [
+              {
+                "expression": "created_at",
+                "isExpression": false,
+                "asc": true,
+                "nulls": "last"
+              }
+            ],
+            "isUnique": false,
+            "concurrently": false,
+            "method": "btree",
+            "with": {}
+          },
+          "outbox_events_at_idx": {
+            "name": "outbox_events_at_idx",
+            "columns": [
+              {
+                "expression": "at",
+                "isExpression": false,
+                "asc": true,
+                "nulls": "last"
+              }
+            ],
+            "isUnique": false,
+            "concurrently": false,
+            "method": "btree",
+            "with": {}
+          },
+          "outbox_events_type_at_idx": {
+            "name": "outbox_events_type_at_idx",
+            "columns": [
+              {
+                "expression": "type",
+                "isExpression": false,
+                "asc": true,
+                "nulls": "last"
+              },
+              {
+                "expression": "at",
+                "isExpression": false,
+                "asc": true,
+                "nulls": "last"
+              }
+            ],
+            "isUnique": false,
+            "concurrently": false,
+            "method": "btree",
+            "with": {}
+          }
+        },
+        "foreignKeys": {},
+        "compositePrimaryKeys": {},
+        "uniqueConstraints": {},
+        "policies": {},
+        "checkConstraints": {},
+        "isRLSEnabled": false
+      },
+      "public.outbox_deliveries": {
+        "name": "outbox_deliveries",
+        "schema": "",
+        "columns": {
+          "id": {
+            "name": "id",
+            "type": "text",
+            "primaryKey": true,
+            "notNull": true
+          },
+          "created_at": {
+            "name": "created_at",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "updated_at": {
+            "name": "updated_at",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "event": {
+            "name": "event",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "consumer": {
+            "name": "consumer",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "status": {
+            "name": "status",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "attempt": {
+            "name": "attempt",
+            "type": "double precision",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "next_attempt_at": {
+            "name": "next_attempt_at",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "locked_until": {
+            "name": "locked_until",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": false
+          },
+          "last_error": {
+            "name": "last_error",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false
+          },
+          "delivered_at": {
+            "name": "delivered_at",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": false
+          }
+        },
+        "indexes": {
+          "outbox_deliveries_created_at_idx": {
+            "name": "outbox_deliveries_created_at_idx",
+            "columns": [
+              {
+                "expression": "created_at",
+                "isExpression": false,
+                "asc": true,
+                "nulls": "last"
+              }
+            ],
+            "isUnique": false,
+            "concurrently": false,
+            "method": "btree",
+            "with": {}
+          },
+          "outbox_deliveries_event_consumer_uq": {
+            "name": "outbox_deliveries_event_consumer_uq",
+            "columns": [
+              {
+                "expression": "event",
+                "isExpression": false,
+                "asc": true,
+                "nulls": "last"
+              },
+              {
+                "expression": "consumer",
+                "isExpression": false,
+                "asc": true,
+                "nulls": "last"
+              }
+            ],
+            "isUnique": true,
+            "concurrently": false,
+            "method": "btree",
+            "with": {}
+          },
+          "outbox_deliveries_status_next_attempt_at_idx": {
+            "name": "outbox_deliveries_status_next_attempt_at_idx",
+            "columns": [
+              {
+                "expression": "status",
+                "isExpression": false,
+                "asc": true,
+                "nulls": "last"
+              },
+              {
+                "expression": "next_attempt_at",
+                "isExpression": false,
+                "asc": true,
+                "nulls": "last"
+              }
+            ],
+            "isUnique": false,
+            "concurrently": false,
+            "method": "btree",
+            "with": {}
+          }
+        },
+        "foreignKeys": {},
+        "compositePrimaryKeys": {},
+        "uniqueConstraints": {},
+        "policies": {},
+        "checkConstraints": {
+          "outbox_deliveries_status_check": {
+            "name": "outbox_deliveries_status_check",
+            "value": "\"outbox_deliveries\".\"status\" in ('pending', 'delivering', 'delivered', 'failed')"
+          }
+        },
+        "isRLSEnabled": false
+      },
+      "public.queue_messages": {
+        "name": "queue_messages",
+        "schema": "",
+        "columns": {
+          "id": {
+            "name": "id",
+            "type": "text",
+            "primaryKey": true,
+            "notNull": true
+          },
+          "created_at": {
+            "name": "created_at",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "updated_at": {
+            "name": "updated_at",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "queue": {
+            "name": "queue",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "payload": {
+            "name": "payload",
+            "type": "jsonb",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "status": {
+            "name": "status",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "priority": {
+            "name": "priority",
+            "type": "double precision",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "run_at": {
+            "name": "run_at",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "attempt": {
+            "name": "attempt",
+            "type": "double precision",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "max_attempts": {
+            "name": "max_attempts",
+            "type": "double precision",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "dedupe_key": {
+            "name": "dedupe_key",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false
+          },
+          "dedupe_slot": {
+            "name": "dedupe_slot",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false
+          },
+          "locked_until": {
+            "name": "locked_until",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": false
+          },
+          "worker": {
+            "name": "worker",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false
+          },
+          "last_error": {
+            "name": "last_error",
+            "type": "jsonb",
+            "primaryKey": false,
+            "notNull": false
+          },
+          "result": {
+            "name": "result",
+            "type": "jsonb",
+            "primaryKey": false,
+            "notNull": false
+          },
+          "enqueued_at": {
+            "name": "enqueued_at",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "started_at": {
+            "name": "started_at",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": false
+          },
+          "finished_at": {
+            "name": "finished_at",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": false
+          },
+          "request_id": {
+            "name": "request_id",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false
+          },
+          "tenant": {
+            "name": "tenant",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false
+          },
+          "actor": {
+            "name": "actor",
+            "type": "jsonb",
+            "primaryKey": false,
+            "notNull": false
+          },
+          "trace": {
+            "name": "trace",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": false
+          }
+        },
+        "indexes": {
+          "queue_messages_created_at_idx": {
+            "name": "queue_messages_created_at_idx",
+            "columns": [
+              {
+                "expression": "created_at",
+                "isExpression": false,
+                "asc": true,
+                "nulls": "last"
+              }
+            ],
+            "isUnique": false,
+            "concurrently": false,
+            "method": "btree",
+            "with": {}
+          },
+          "queue_messages_dedupe_slot_uq": {
+            "name": "queue_messages_dedupe_slot_uq",
+            "columns": [
+              {
+                "expression": "dedupe_slot",
+                "isExpression": false,
+                "asc": true,
+                "nulls": "last"
+              }
+            ],
+            "isUnique": true,
+            "concurrently": false,
+            "method": "btree",
+            "with": {}
+          },
+          "queue_messages_queue_status_priority_run_at_idx": {
+            "name": "queue_messages_queue_status_priority_run_at_idx",
+            "columns": [
+              {
+                "expression": "queue",
+                "isExpression": false,
+                "asc": true,
+                "nulls": "last"
+              },
+              {
+                "expression": "status",
+                "isExpression": false,
+                "asc": true,
+                "nulls": "last"
+              },
+              {
+                "expression": "priority",
+                "isExpression": false,
+                "asc": true,
+                "nulls": "last"
+              },
+              {
+                "expression": "run_at",
+                "isExpression": false,
+                "asc": true,
+                "nulls": "last"
+              }
+            ],
+            "isUnique": false,
+            "concurrently": false,
+            "method": "btree",
+            "with": {}
+          }
+        },
+        "foreignKeys": {},
+        "compositePrimaryKeys": {},
+        "uniqueConstraints": {},
+        "policies": {},
+        "checkConstraints": {
+          "queue_messages_status_check": {
+            "name": "queue_messages_status_check",
+            "value": "\"queue_messages\".\"status\" in ('waiting', 'active', 'completed', 'dead')"
+          }
+        },
+        "isRLSEnabled": false
+      },
+      "public.job_runs": {
+        "name": "job_runs",
+        "schema": "",
+        "columns": {
+          "id": {
+            "name": "id",
+            "type": "text",
+            "primaryKey": true,
+            "notNull": true
+          },
+          "created_at": {
+            "name": "created_at",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "updated_at": {
+            "name": "updated_at",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "job": {
+            "name": "job",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "trigger": {
+            "name": "trigger",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "scheduled_at": {
+            "name": "scheduled_at",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "attempt": {
+            "name": "attempt",
+            "type": "double precision",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "status": {
+            "name": "status",
+            "type": "text",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "started_at": {
+            "name": "started_at",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": true
+          },
+          "finished_at": {
+            "name": "finished_at",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": false
+          },
+          "duration_ms": {
+            "name": "duration_ms",
+            "type": "double precision",
+            "primaryKey": false,
+            "notNull": false
+          },
+          "heartbeat_at": {
+            "name": "heartbeat_at",
+            "type": "timestamp with time zone",
+            "primaryKey": false,
+            "notNull": false
+          },
+          "result": {
+            "name": "result",
+            "type": "jsonb",
+            "primaryKey": false,
+            "notNull": false
+          },
+          "error": {
+            "name": "error",
+            "type": "jsonb",
+            "primaryKey": false,
+            "notNull": false
+          },
+          "logs": {
+            "name": "logs",
+            "type": "jsonb",
+            "primaryKey": false,
+            "notNull": true
+          }
+        },
+        "indexes": {
+          "job_runs_created_at_idx": {
+            "name": "job_runs_created_at_idx",
+            "columns": [
+              {
+                "expression": "created_at",
+                "isExpression": false,
+                "asc": true,
+                "nulls": "last"
+              }
+            ],
+            "isUnique": false,
+            "concurrently": false,
+            "method": "btree",
+            "with": {}
+          },
+          "job_runs_job_scheduled_at_attempt_uq": {
+            "name": "job_runs_job_scheduled_at_attempt_uq",
+            "columns": [
+              {
+                "expression": "job",
+                "isExpression": false,
+                "asc": true,
+                "nulls": "last"
+              },
+              {
+                "expression": "scheduled_at",
+                "isExpression": false,
+                "asc": true,
+                "nulls": "last"
+              },
+              {
+                "expression": "attempt",
+                "isExpression": false,
+                "asc": true,
+                "nulls": "last"
+              }
+            ],
+            "isUnique": true,
+            "concurrently": false,
+            "method": "btree",
+            "with": {}
+          },
+          "job_runs_job_started_at_idx": {
+            "name": "job_runs_job_started_at_idx",
+            "columns": [
+              {
+                "expression": "job",
+                "isExpression": false,
+                "asc": true,
+                "nulls": "last"
+              },
+              {
+                "expression": "started_at",
+                "isExpression": false,
+                "asc": true,
+                "nulls": "last"
+              }
+            ],
+            "isUnique": false,
+            "concurrently": false,
+            "method": "btree",
+            "with": {}
+          }
+        },
+        "foreignKeys": {},
+        "compositePrimaryKeys": {},
+        "uniqueConstraints": {},
+        "policies": {},
+        "checkConstraints": {
+          "job_runs_trigger_check": {
+            "name": "job_runs_trigger_check",
+            "value": "\"job_runs\".\"trigger\" in ('schedule', 'manual', 'code')"
+          },
+          "job_runs_status_check": {
+            "name": "job_runs_status_check",
+            "value": "\"job_runs\".\"status\" in ('running', 'success', 'failed', 'timedOut', 'skipped', 'abandoned', 'interrupted')"
+          }
+        },
+        "isRLSEnabled": false
+      }
+    },
+    "enums": {},
+    "schemas": {},
+    "sequences": {},
+    "roles": {},
+    "policies": {},
+    "views": {},
+    "_meta": {
+      "schemas": {},
+      "tables": {},
+      "columns": {}
+    },
+    "id": "71623493-1259-46ca-b4a4-1570f65d9cae",
+    "prevId": "00000000-0000-0000-0000-000000000000"
+  }
+}

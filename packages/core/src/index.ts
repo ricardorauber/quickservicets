@@ -49,6 +49,7 @@ export type {
 } from "./hooks.ts";
 export { bunServerOf, createServer, deferRequestLog, endUpgradedRequest, noteRequestLog, peerAddress, requestSpanOf, toResponse, upgradeRequest } from "./http/server.ts";
 export { assertRoomName, defineSocket, isSocketDefinition, ROOM_NAME, setSocketHub, setSocketRunner, socketEndpoint, sockets, withMessageValidator } from "./http/socket.ts";
+export type { WebhookRunner } from "./http/server.ts";
 export type { AnySocketHandlers, DisconnectFilter, MessageValidator, PublishOptions, Sockets, Socket, SocketContext, SocketDefinition, SocketHandlers, SocketRunner, SocketTypes, TypedSocketHandlers } from "./http/socket.ts";
 export { compileMessageValidator } from "./http/socket-messages.ts";
 export { decodeEnvelopeData, encodeEnvelopeData, localTransport, transportOrigin } from "./http/socket-transport.ts";
@@ -355,8 +356,8 @@ registerShippedNative(metricsNative);
 registerShippedNative(proxyNative);
 registerShippedNative(secretsNative);
 registerShippedNative(webhooksNative);
-export { RESEND_LIMIT, webhookClock, signWebhook, verifyWebhook, GONE_REASON, PING_LIMIT, MAX_RETRY_DELAY_MS, retryDelay, bodyOf, CACHE_REFRESH_MS, WEBHOOK_DELIVERY_STATUSES, MAX_PAYLOAD_BYTES, subscriptionCache, webhookDeliveryEntity, DeliverableEvents, entityDeliveries, generateSecret, patternMatchesType, patternProblem, patternsOverlap, PREVIOUS_SECRET_MS, webhooks, webhooksFeature, webhookSubscriptionEntity } from "./features/webhooks/index.ts";
-export type { DeliveryListOptions, DeliveryPage, DeliverySummary, WebhookDeliveryEvent, WebhookSubscriptionDisabledEvent, SignInput, VerifyInput, WebhookDeliveryStatus, WebhookDelivery, CreateSubscriptionInput, SubscriptionListOptions, UpdateSubscriptionInput, WebhooksApi, WebhookSubscription, WebhookSubscriptions } from "./features/webhooks/index.ts";
+export { defineWebhook, githubSignature, hmacSignature, invalidSignature, isWebhookDefinition, standardWebhookSignature, stripeSignature, RESEND_LIMIT, webhookClock, signWebhook, verifyWebhook, GONE_REASON, PING_LIMIT, MAX_RETRY_DELAY_MS, retryDelay, bodyOf, CACHE_REFRESH_MS, WEBHOOK_DELIVERY_STATUSES, MAX_PAYLOAD_BYTES, subscriptionCache, webhookDeliveryEntity, DeliverableEvents, entityDeliveries, generateSecret, patternMatchesType, patternProblem, patternsOverlap, PREVIOUS_SECRET_MS, webhooks, webhooksFeature, webhookSubscriptionEntity } from "./features/webhooks/index.ts";
+export type { HmacSignatureOptions, WebhookDefinition, WebhookHandleContext, WebhookOptions, WebhookRejection, WebhookSecret, WebhookSecretValue, WebhookVerification, WebhookVerifier, WebhookVerifyInput, DeliveryListOptions, DeliveryPage, DeliverySummary, WebhookDeliveryEvent, WebhookSubscriptionDisabledEvent, SignInput, VerifyInput, WebhookDeliveryStatus, WebhookDelivery, CreateSubscriptionInput, SubscriptionListOptions, UpdateSubscriptionInput, WebhooksApi, WebhookSubscription, WebhookSubscriptions } from "./features/webhooks/index.ts";
 export {
   addAuthScheme,
   AuthError,

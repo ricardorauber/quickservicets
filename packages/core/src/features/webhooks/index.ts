@@ -2,6 +2,7 @@ import { defineFeature, HttpError, queues, safeLog, systemTarget, type Condition
 import type { WebhooksApi } from "./api.ts";
 import { DeliverableEvents, entityDeliveries, patternProblem } from "./deliverable.ts";
 import { deliverer } from "./attempts.ts";
+import { incomingRunner } from "./incoming.ts";
 import { retryRule, RETRY_SCHEDULE_PROBLEM, validSchedule } from "./retries.ts";
 import { CLEANUP_INTERVAL, deliveryLog } from "./log.ts";
 import { DELIVER_QUEUE } from "./matching.ts";
@@ -172,6 +173,13 @@ const webhooksFeature = defineFeature({
       },
     };
     apis.set(ctx.options, api);
+    // `webhook.ts` routes: the signature checked on the raw body before the hooks and `handle`.
+    const incoming = incomingRunner({
+      logger: ctx.logger,
+      settings: () => ({ tolerance: ctx.options.incoming.tolerance, maxBodySize: ctx.options.incoming.maxBodySize }),
+      verifierNamed: () => undefined,
+    });
+    ctx.app.configureServer({ webhookRunner: incoming });
     // The management routes need authentication: without auth, subscriptions are managed from code only.
     if (ctx.options.routes.enabled) {
       if (authEnabled(ctx.config)) registerRoutes(ctx, ctx.options.routes, () => api, () => webhookClock.now());
@@ -208,6 +216,8 @@ export { CACHE_REFRESH_MS, subscriptionCache } from "./cache.ts";
 export type { WebhookDeliveryStatus, WebhookDelivery } from "./deliveries.ts";
 export { generateSecret, PREVIOUS_SECRET_MS } from "./subscriptions.ts";
 export { signWebhook, verifyWebhook } from "./signing.ts";
+export { defineWebhook, githubSignature, hmacSignature, invalidSignature, isWebhookDefinition, standardWebhookSignature, stripeSignature } from "./incoming.ts";
+export type { HmacSignatureOptions, WebhookDefinition, WebhookHandleContext, WebhookOptions, WebhookRejection, WebhookSecret, WebhookSecretValue, WebhookVerification, WebhookVerifier, WebhookVerifyInput } from "./incoming.ts";
 export { GONE_REASON, PING_LIMIT } from "./attempts.ts";
 export { MAX_RETRY_DELAY_MS, retryDelay } from "./retries.ts";
 export { RESEND_LIMIT } from "./routes.ts";

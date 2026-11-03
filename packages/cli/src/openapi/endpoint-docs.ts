@@ -1,3 +1,4 @@
+import { webhookVerifierName } from "../endpoints/webhook-files.ts";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import type { CrudOperation, EntityModel, HookCall, QueryItem } from "@quickservicets/core";
 import ts from "typescript";
@@ -29,7 +30,9 @@ export interface EndpointDoc {
   /** Success status from `@status`. */
   status?: number;
   /** `sse` for an `sse.ts` endpoint, which answers a `text/event-stream`; `websocket` for a `ws.ts` one, upgraded with 101. */
-  kind?: "sse" | "websocket";
+  kind?: "sse" | "websocket" | "webhook";
+  /** The verifier of a `webhook.ts` endpoint, documented as `x-webhook`. */
+  webhook?: { verifier: string };
   /** The message schemas of a `ws.ts` endpoint, from the `in` and `out` types of `defineSocket<{ in; out }>`. */
   socket?: { in?: JsonSchema; out?: JsonSchema };
 }
@@ -313,6 +316,7 @@ export function describeEndpoints(
       ...(query ? { query } : {}),
       ...(metadata.status !== undefined ? { status: metadata.status } : {}),
       ...(route.kind ? { kind: route.kind } : {}),
+      ...(route.kind === "webhook" && sourceFile ? { webhook: { verifier: webhookVerifierName(sourceFile.getFullText(), route.file) } } : {}),
       ...socketDocs(route.kind === "websocket" && sourceFile ? socketTypesOf(sourceFile) : undefined, convert),
       hooks,
     };

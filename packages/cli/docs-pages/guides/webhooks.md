@@ -2,7 +2,7 @@
 
 > Let other systems subscribe to the service's events with the webhooks native, choosing which events are deliverable and managing subscriptions with their secrets per tenant.
 
-A webhook tells another system that something happened, by calling a URL it registered. The `webhooks` native keeps those registrations as subscriptions: a URL, the event patterns it wants and a secret, scoped to its tenant. The options, variables, tags and setup API are listed on the [webhooks reference page](/reference/features/webhooks/).
+A webhook tells another system that something happened, by calling a URL it registered. The `webhooks` native keeps those registrations as subscriptions: a URL, the event patterns it wants and a secret, scoped to its tenant. It also receives webhooks from other services through `webhook.ts` endpoint files. The options, variables, tags and setup API are listed on the [webhooks reference page](/reference/features/webhooks/).
 
 ## Enable it
 
@@ -173,3 +173,36 @@ Every route needs a user holding one of `routes.roles` (default `["admin"]`): an
 ## Tenants
 
 With [multi-tenancy](/guides/multi-tenancy/), `create` records the current tenant, and every other call made in a tenant's scope (a request, a job or a consumer of that tenant) only sees that tenant's subscriptions: another tenant's id answers `Webhook subscription <id> not found` from code and 404 `Webhook subscription not found` over HTTP.
+
+## Incoming webhooks
+
+A `webhook.ts` file in `endpoints/` is a `POST` route at its folder's path that receives webhooks from Stripe, GitHub, a Standard Webhooks sender or any service signing with an HMAC. It default-exports `defineWebhook`:
+
+```ts
+// endpoints/stripe/webhook.ts
+import { defineWebhook, env, stripeSignature } from "@quickservicets/core";
+
+export default defineWebhook<{ id: string; type: string; data: { object: { id: string } } }>({
+  verify: stripeSignature({ secret: env.STRIPE_WEBHOOK_SECRET }),
+  handle: async (event, ctx) => {
+    if (event.type === "invoice.paid") await ctx.repos.invoices.update(event.data.object.id, { status: "paid" });
+  },
+});
+```
+
+The route reads the raw body (up to `incoming.maxBodySize`, `1MB`, and the route's `@limits`; a larger one answers 413) and checks its signature before the endpoint's hooks or `handle` run. A missing, malformed, wrong or expired signature answers 401 `INVALID_SIGNATURE` `Invalid webhook signature` and logs `webhook.incoming.rejected` with the route and the reason (`missing`, `malformed`, `mismatch` or `expired`), never the signature or the body. When `handle` resolves, the route answers 200 `{ "received": true }`; an `HttpError` it throws is answered as such, and any other error answers 500, so the sender retries.
+
+| Verifier | Checks | Delivery id |
+| --- | --- | --- |
+| `stripeSignature({ secret, tolerance? })` | `Stripe-Signature` (`t=<unix>,v1=<hex>`), the HMAC-SHA256 of `<t>.<body>`, the timestamp within `tolerance` (default `incoming.tolerance`, `5m`) | the event's `id` |
+| `githubSignature({ secret })` | `X-Hub-Signature-256` (`sha256=<hex>` of the HMAC-SHA256 of the body); `eventType` is `X-GitHub-Event` | `X-GitHub-Delivery` |
+| `standardWebhookSignature({ secret, tolerance? })` | `webhook-id`, `webhook-timestamp` and `webhook-signature` with `verifyWebhook` | `webhook-id` |
+| `hmacSignature({ header, secret, algorithm, encoding, prefix?, idHeader? })` | the HMAC (`sha1`, `sha256` or `sha512`, `hex` or `base64`) of the body in `header`, after removing `prefix` | `idHeader`, when given |
+
+Every comparison runs in constant time. A `secret` is a text, a [secret reference](/guides/secrets/) (with `{tenant}` resolved for the request's tenant), a function `({ req, tenant }) => string`, or a list of them during a rotation, any one matching:
+
+```ts
+verify: hmacSignature({ header: "x-signature", secret: ({ tenant }) => partnerSecrets[tenant ?? "default"]!, algorithm: "sha256", encoding: "hex", prefix: "sha256=" }),
+```
+
+`handle(event, ctx)` gets the parsed JSON body and `ctx` with `req`, `repos`, `rawBody`, `headers`, `deliveryId`, `eventType` and `log`. Webhook routes are exempt from the CSRF item (senders sign their requests instead of sending cookies) and keep the global rate limit unless tagged `@rateLimit off`; `/openapi.json` documents them as `POST` with an `x-webhook: { verifier }` entry.

@@ -699,6 +699,18 @@ function customOperation(doc: EndpointDoc, schemas: Record<string, JsonSchema>):
       "x-websocket": Object.keys(messages).length > 0 ? messages : true,
     };
   }
+  if (doc.kind === "webhook") {
+    return {
+      ...endpointIdentity(doc),
+      ...(doc.params.length > 0 ? { parameters: pathParameters(doc.params) } : {}),
+      requestBody: { required: true, content: json({ type: "object" }) },
+      responses: {
+        "200": { description: "The webhook was received", content: json({ type: "object", required: ["received"], properties: { received: { type: "boolean" }, duplicate: { type: "boolean" } } }) },
+        "401": { description: "Invalid webhook signature" },
+      },
+      "x-webhook": { verifier: doc.webhook?.verifier ?? "custom" },
+    };
+  }
   const success =
     doc.kind === "sse"
       ? { "200": { description: "A stream of Server-Sent Events", content: { "text/event-stream": { schema: { type: "string" } } } } }

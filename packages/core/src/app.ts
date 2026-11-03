@@ -61,9 +61,12 @@ export interface AppEndpoint {
   tags?: ParsedTags;
   /** The schema of a `ws.ts` endpoint's incoming messages, generated from the `in` type of `defineSocket<{ in }>`. */
   messages?: MessageSchema;
-  /** `sse` for an `sse.ts` endpoint, whose default export is `defineSse(...)`; `websocket` for a `ws.ts` one (`defineSocket(...)`). */
-  kind?: "sse" | "websocket";
-  handler: Endpoint | SseDefinition | SocketDefinition;
+  /**
+   * `sse` for an `sse.ts` endpoint, whose default export is `defineSse(...)`; `websocket` for a `ws.ts` one
+   * (`defineSocket(...)`); `webhook` for a `webhook.ts` one (`defineWebhook(...)`).
+   */
+  kind?: "sse" | "websocket" | "webhook";
+  handler: Endpoint | SseDefinition | SocketDefinition | object;
 }
 
 async function populateResult(result: unknown, populate: (records: never[]) => Promise<unknown[]>): Promise<unknown> {
@@ -259,6 +262,16 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
       // Pre-hooks run before the upgrade; post-hooks never see a socket.
       const definition = withMessageValidator(endpoint.handler, endpoint.messages ? compileMessageValidator(endpoint.messages) : undefined);
       return { method: endpoint.method, path: endpoint.path, handler: withHooks(socketEndpoint(definition, () => settings.socketRunner), endpoint.hooks, hooks) };
+    }
+    if (endpoint.kind === "webhook") {
+      // The signature is verified on the raw body first; only then do the pre-hooks and `handle` run.
+      const definition = endpoint.handler;
+      const runnerOf = () => {
+        if (!settings.webhookRunner) throw new Error(`POST ${endpoint.path}: webhook.ts needs webhooks: {} in quickservicets.config.ts`);
+        return settings.webhookRunner;
+      };
+      const handled = withHooks((repos, req, res) => runnerOf().handle({ definition, path: endpoint.path, repos, req, res }), endpoint.hooks, hooks);
+      return { method: endpoint.method, path: endpoint.path, handler: (repos, req, res) => runnerOf().receive({ definition, method: endpoint.method, path: endpoint.path, repos, req, res, next: handled }) };
     }
     if (endpoint.kind === "sse") {
       if (!isSseDefinition(endpoint.handler)) throw new Error(`GET ${endpoint.path}: sse.ts must default-export defineSse(...)`);

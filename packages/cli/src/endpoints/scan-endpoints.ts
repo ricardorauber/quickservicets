@@ -18,8 +18,11 @@ export interface EndpointRoute {
   source?: string;
   /** The key of the feature whose folder holds the file. */
   feature?: string;
-  /** `sse` for an `sse.ts` file: a `GET` route streaming Server-Sent Events; `websocket` for a `ws.ts` file. */
-  kind?: "sse" | "websocket";
+  /**
+   * `sse` for an `sse.ts` file: a `GET` route streaming Server-Sent Events; `websocket` for a `ws.ts` file; `webhook`
+   * for a `webhook.ts` file, a `POST` route receiving signed webhooks.
+   */
+  kind?: "sse" | "websocket" | "webhook";
 }
 
 /** The file name of a Server-Sent Events endpoint, served as `GET`. */
@@ -27,6 +30,9 @@ export const SSE_FILE = "sse.ts";
 
 /** The file name of a WebSocket endpoint, served as `GET` and upgraded. */
 export const WS_FILE = "ws.ts";
+
+/** The file name of an incoming webhook endpoint, served as `POST`. */
+export const WEBHOOK_FILE = "webhook.ts";
 
 const PARAM_NAME = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 /** A static segment: lowercase letters, digits, `-` and `.`, with an optional leading `_` for system-style paths like `_metrics`. */
@@ -86,10 +92,13 @@ export function scanEndpointFolder(root: string, nameOf: (file: string) => strin
       if (!entry.endsWith(".ts")) continue;
       const sse = entry === SSE_FILE;
       const ws = entry === WS_FILE;
-      const method = sse || ws ? "get" : entry.slice(0, -3);
-      if (!sse && !ws && !(ENDPOINT_METHODS as readonly string[]).includes(method)) {
-        throw new BuildError(`${relativePath}: endpoint files must be named ${ENDPOINT_METHODS.join(", ")}, sse or ws (with .ts)`);
+      const webhook = entry === WEBHOOK_FILE;
+      const method = sse || ws ? "get" : webhook ? "post" : entry.slice(0, -3);
+      if (!sse && !ws && !webhook && !(ENDPOINT_METHODS as readonly string[]).includes(method)) {
+        throw new BuildError(`${relativePath}: endpoint files must be named ${ENDPOINT_METHODS.join(", ")}, sse, ws or webhook (with .ts)`);
       }
+      // A folder has one POST route: post.ts or webhook.ts.
+      if (webhook && entries.includes("post.ts")) throw new BuildError(`${nameOf(join(dir, "post.ts"))} and ${relativePath}: a folder has one POST route; keep one of them`);
       // A folder has one GET route: get.ts, sse.ts or ws.ts.
       for (const other of sse ? ["get.ts"] : ws ? ["get.ts", SSE_FILE] : []) {
         if (entries.includes(other)) throw new BuildError(`${nameOf(join(dir, other))} and ${relativePath}: a folder has one GET route; keep one of them`);
@@ -103,7 +112,7 @@ export function scanEndpointFolder(root: string, nameOf: (file: string) => strin
         params: segments.flatMap((segment) => (segment.param === undefined ? [] : [segment.param])),
         file: relativePath,
         source: full,
-        ...(sse ? { kind: "sse" as const } : ws ? { kind: "websocket" as const } : {}),
+        ...(sse ? { kind: "sse" as const } : ws ? { kind: "websocket" as const } : webhook ? { kind: "webhook" as const } : {}),
       });
     }
   };

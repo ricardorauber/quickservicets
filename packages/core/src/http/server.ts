@@ -22,6 +22,12 @@ import { parseTraceparent, spanAttributes, startSpan, tracingEnabled, withSpan, 
 
 export type HandlerResult<Result> = Result | Response | undefined;
 
+/** Serves `webhook.ts` endpoints: verifies the raw body, then runs `next` (the route's hooks around `handle`). */
+export interface WebhookRunner {
+  receive(input: { definition: unknown; method: string; path: string; repos: Repositories; req: ServiceRequest; res: ServiceResponse; next: Endpoint }): Promise<unknown>;
+  handle(input: { definition: unknown; path: string; repos: Repositories; req: ServiceRequest; res: ServiceResponse }): Promise<unknown>;
+}
+
 /** An endpoint handler: receives the repositories, the request and the response controls. */
 export type Endpoint<Body = unknown, Result = unknown> = (
   repos: Repositories,
@@ -71,6 +77,8 @@ export interface ServerSettings {
   websocket?: Bun.WebSocketHandler<unknown>;
   /** What serves the upgrade requests of this service's `ws.ts` endpoints. */
   socketRunner?: SocketRunner;
+  /** What verifies and handles this service's `webhook.ts` endpoints (the `webhooks` native sets it). */
+  webhookRunner?: WebhookRunner;
   /** Set by `setTracer()` during setup: the tracer of the service and the feature that set it. */
   tracer?: TracerSetting;
   /** Set by `setMeter()` during setup: the meter of the service, the feature that set it and its options. */

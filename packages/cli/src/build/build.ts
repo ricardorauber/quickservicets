@@ -35,6 +35,7 @@ import { databaseTenancyOf, builtInTagOwner, parseProjectModels } from "../entit
 import { BuildError } from "../errors.ts";
 import type { EndpointRoute } from "../endpoints/scan-endpoints.ts";
 import { parseEndpointTags, type EndpointMetadata } from "../hooks/endpoint-tags.ts";
+import { webhookCallOf } from "../endpoints/webhook-files.ts";
 import type { HookEntry } from "../hooks/scan-hooks.ts";
 import type { JobEntry } from "../jobs/scan-jobs.ts";
 import { featureWatchPaths, scanFeatureFolders, scanProjectFiles, type FolderFile } from "./feature-files.ts";
@@ -256,6 +257,11 @@ function assertSocketExport(source: string, file: string): void {
   if (!defined) throw new BuildError(`${file}: must default-export defineSocket(...)`);
 }
 
+/** Fails unless a `webhook.ts` file's default export is a call of `defineWebhook`. */
+function assertWebhookExport(source: string, file: string): void {
+  if (!webhookCallOf(source, file)) throw new BuildError(`${file}: must default-export defineWebhook(...)`);
+}
+
 /** Whether the resolved config serves WebSockets: the `realtime` native with its `websockets` item on. */
 function websocketsEnabled(config: ResolvedConfig): boolean {
   const realtime = config.features.find((feature) => feature.key === "realtime");
@@ -339,13 +345,13 @@ function generateRoutesFile(
 ): string {
   const hookNames = [...hooks.keys()].sort();
   const imports = [
-    'import type { AppEndpoint, CrudRouteEntry, Endpoint, HookDefinition, SocketDefinition, SseDefinition } from "@quickservicets/core";',
+    `import type { AppEndpoint, CrudRouteEntry, Endpoint, HookDefinition, SocketDefinition, SseDefinition${endpoints.some((endpoint) => endpoint.route.kind === "webhook") ? ", WebhookDefinition" : ""} } from "@quickservicets/core";`,
     ...endpoints.map((endpoint, index) => `import endpoint${index} from ${JSON.stringify(importPath(endpoint.route.file))};`),
     ...hookNames.map((name) => `import hook_${name} from ${JSON.stringify(importPath(hooks.get(name)!.file))};`),
   ];
   const endpointEntries = endpoints.map(
     (endpoint, index) =>
-      `  { method: ${JSON.stringify(endpoint.route.method)}, path: ${JSON.stringify(endpoint.route.path)}, hooks: ${JSON.stringify(endpoint.hooks)}, ${endpoint.projection ? `projection: ${JSON.stringify(endpoint.projection)}, ` : ""}${endpoint.populate ? `populate: ${JSON.stringify(endpoint.populate)}, ` : ""}${endpoint.query ? `query: ${JSON.stringify(endpoint.query)}, ` : ""}${endpoint.status !== undefined ? `status: ${endpoint.status}, ` : ""}${endpoint.route.feature ? `feature: ${JSON.stringify(endpoint.route.feature)}, ` : ""}${endpoint.route.kind ? `kind: ${JSON.stringify(endpoint.route.kind)}, ` : ""}${endpoint.tags ? `tags: ${JSON.stringify(endpoint.tags)}, ` : ""}${endpoint.messages ? `messages: ${JSON.stringify(endpoint.messages)}, ` : ""}handler: endpoint${index} as ${endpoint.route.kind === "sse" ? "SseDefinition" : endpoint.route.kind === "websocket" ? "SocketDefinition" : "Endpoint"} },`,
+      `  { method: ${JSON.stringify(endpoint.route.method)}, path: ${JSON.stringify(endpoint.route.path)}, hooks: ${JSON.stringify(endpoint.hooks)}, ${endpoint.projection ? `projection: ${JSON.stringify(endpoint.projection)}, ` : ""}${endpoint.populate ? `populate: ${JSON.stringify(endpoint.populate)}, ` : ""}${endpoint.query ? `query: ${JSON.stringify(endpoint.query)}, ` : ""}${endpoint.status !== undefined ? `status: ${endpoint.status}, ` : ""}${endpoint.route.feature ? `feature: ${JSON.stringify(endpoint.route.feature)}, ` : ""}${endpoint.route.kind ? `kind: ${JSON.stringify(endpoint.route.kind)}, ` : ""}${endpoint.tags ? `tags: ${JSON.stringify(endpoint.tags)}, ` : ""}${endpoint.messages ? `messages: ${JSON.stringify(endpoint.messages)}, ` : ""}handler: endpoint${index} as ${endpoint.route.kind === "sse" ? "SseDefinition" : endpoint.route.kind === "websocket" ? "SocketDefinition" : endpoint.route.kind === "webhook" ? "WebhookDefinition" : "Endpoint"} },`,
   );
   return [
     HEADER,
@@ -490,6 +496,15 @@ async function buildProject(projectRoot: string, config: ResolvedConfig, options
     if (route.kind === "websocket") {
       if (!websocketsEnabled(config)) throw new BuildError(`${route.file} needs realtime: {} in quickservicets.config.ts`);
       assertSocketExport(source, route.file);
+    }
+    if (route.kind === "webhook") {
+      if (!config.features.some((feature) => feature.key === "webhooks")) throw new BuildError(`${route.file} needs webhooks: {} in quickservicets.config.ts`);
+      assertWebhookExport(source, route.file);
+      // Senders authenticate with their signature, not a cookie, so the CSRF item never applies to webhook routes.
+      const parsed = parseEndpointTags(source, route.file);
+      if (!config.features.some((feature) => feature.key === "security")) return { route, ...parsed };
+      const tags = { ...(parsed.metadata.tags ?? {}), csrf: { on: false, options: {} } };
+      return { route, ...parsed, metadata: { ...parsed.metadata, tags } };
     }
     return { route, ...parseEndpointTags(source, route.file) };
   });

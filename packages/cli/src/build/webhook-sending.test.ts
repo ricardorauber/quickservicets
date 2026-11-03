@@ -129,22 +129,26 @@ describe("sending a delivery", () => {
     cleanups.push(useTestResolver({ "receiver.test": "127.0.0.1", "rebind.test": () => (++calls === 1 ? "93.184.216.34" : "127.0.0.1") }));
     for (const url of [redirect.url, large.url, slow.url, "http://rebind.test/hook"]) await webhooks.subscriptions.create({ url, events: ["order.created"] });
     await createOrder(service);
-    const all = await finished(service, 4);
+    // Failed attempts are retried later; each delivery records its first attempt's outcome.
+    const all = await until(async () => {
+      const rows = await deliveries(service);
+      return rows.length === 4 && rows.every((row) => row.lastError) ? rows : undefined;
+    });
     const bySubscription = new Map((await webhooks.subscriptions.list()).data.map((subscription) => [subscription.id, subscription.url]));
     const of = async (url: string) => {
       const rows = (await (service.repos as unknown as { webhookDeliveries: { query(): { toArray(): Promise<(Delivery & { subscription: string })[]> } } }).webhookDeliveries.query().toArray()).filter((row) => bySubscription.get(row.subscription) === url);
       return rows[0]!;
     };
     expect(all).toHaveLength(4);
-    expect(await of(redirect.url)).toMatchObject({ status: "failed", lastStatus: 302, lastError: "Redirects are not followed" });
+    expect(await of(redirect.url)).toMatchObject({ attempt: 1, lastStatus: 302, lastError: "Redirects are not followed" });
     const failedLarge = await of(large.url);
-    expect(failedLarge).toMatchObject({ status: "failed", lastStatus: 500, lastError: "500 Internal Server Error" });
+    expect(failedLarge).toMatchObject({ attempt: 1, lastStatus: 500, lastError: "500 Internal Server Error" });
     expect(failedLarge.lastResponse).toHaveLength(1024);
     const timedOut = await of(slow.url);
-    expect(timedOut).toMatchObject({ status: "failed", lastStatus: 0 });
+    expect(timedOut).toMatchObject({ attempt: 1, lastStatus: 0 });
     expect(timedOut.lastError).toContain("timed out after 1s");
     const blocked = await of("http://rebind.test/hook");
-    expect(blocked).toMatchObject({ status: "failed", lastStatus: 0 });
+    expect(blocked).toMatchObject({ attempt: 1, lastStatus: 0 });
     expect(blocked.lastError).toContain("127.0.0.1 is a loopback address");
   });
 

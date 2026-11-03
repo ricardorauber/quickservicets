@@ -8,3 +8,6 @@ export function sharedState<T>(name: string, init: () => T): T {
   const store = ((globalThis as unknown as Record<symbol, Record<string, unknown>>)[STORE] ??= {});
   return (store[name] ??= init()) as T;
 }
+
+/** The clock of the native's delivery code, which tests may replace. */
+export const webhookClock = sharedState("clock", () => ({ now: () => Date.now() }));

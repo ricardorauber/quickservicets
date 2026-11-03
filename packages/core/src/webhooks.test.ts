@@ -6,6 +6,7 @@ import { entityModel, field } from "./entity-model.ts";
 import { DeliverableEvents, entityDeliveries, patternsOverlap } from "./features/webhooks/deliverable.ts";
 import { generateSecret } from "./features/webhooks/subscriptions.ts";
 import { CACHE_REFRESH_MS, subscriptionCache } from "./features/webhooks/cache.ts";
+import { retryDelay } from "./features/webhooks/retries.ts";
 import webhooksFeature from "./features/webhooks/index.ts";
 import type { EntityModel, ParsedTags } from "./model.ts";
 
@@ -127,5 +128,27 @@ describe("the subscription cache", () => {
     await cache.refresh();
     expect(cache.matching("order.created", undefined)).toHaveLength(1);
     expect(loads).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("the retry schedule", () => {
+  const schedule = ["5s", "5m", "30m", "2h", "5h", "10h", "10h"];
+  test("each retry waits its entry with up to 10% jitter, and the default gives 8 attempts over about 27.6 hours", () => {
+    expect(retryDelay(schedule, 1, () => 0.5)).toBe(5000);
+    expect(retryDelay(schedule, 1, () => 0)).toBe(4500);
+    expect(retryDelay(schedule, 1, () => 1)).toBe(5500);
+    expect(retryDelay(schedule, 2, () => 0.5)).toBe(300_000);
+    expect(retryDelay(schedule, 7, () => 0.5)).toBe(36_000_000);
+    expect(retryDelay(schedule, 8, () => 0.5)).toBeNull();
+    const total = schedule.reduce((sum, _entry, index) => sum + retryDelay(schedule, index + 1, () => 0.5)!, 0);
+    expect(total / 3_600_000).toBeCloseTo(27.6, 0);
+  });
+
+  test("an empty schedule or an entry above 7d fails resolution", () => {
+    const message = "Invalid webhooks.delivery.retrySchedule: expected 1 to 20 durations of at most 7d";
+    expect(() => resolve({ delivery: { retrySchedule: [] } })).toThrow(message);
+    expect(() => resolve({ delivery: { retrySchedule: ["8d"] } })).toThrow(message);
+    expect(() => resolve({ delivery: { retrySchedule: Array.from({ length: 21 }, () => "1s") } })).toThrow(message);
+    expect(optionsOf(resolve({ delivery: { retrySchedule: ["7d"] } })).delivery).toMatchObject({ retrySchedule: ["7d"] });
   });
 });

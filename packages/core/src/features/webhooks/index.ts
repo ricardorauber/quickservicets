@@ -2,6 +2,7 @@ import { defineFeature, HttpError, systemTarget, type Condition } from "../publi
 import type { WebhooksApi } from "./api.ts";
 import { DeliverableEvents, entityDeliveries, patternProblem } from "./deliverable.ts";
 import { deliverer } from "./attempts.ts";
+import { retryRule, RETRY_SCHEDULE_PROBLEM, validSchedule } from "./retries.ts";
 import { CACHE_REFRESH_MS, subscriptionCache } from "./cache.ts";
 import { webhookDeliveryEntity } from "./deliveries.ts";
 import { matchingListener } from "./matching.ts";
@@ -32,10 +33,12 @@ const webhooksFeature = defineFeature({
   enables: ["events", "queues"],
   options: webhooksOptions,
   validate(options) {
-    return options.events.flatMap((pattern, index) => {
+    const problems = options.events.flatMap((pattern, index) => {
       const reason = patternProblem(pattern);
       return reason ? [`Invalid webhooks.events[${index}]: ${reason}`] : [];
     });
+    if (!validSchedule(options.delivery.retrySchedule)) problems.push(RETRY_SCHEDULE_PROBLEM);
+    return problems;
   },
   entities: () => [webhookSubscriptionEntity(), webhookDeliveryEntity()],
   tags: {
@@ -86,7 +89,25 @@ const webhooksFeature = defineFeature({
       refresh.unref?.();
     });
     ctx.app.onStop(() => clearInterval(refresh));
-    const sender = deliverer({ adapter, model: deliveryModel, store: subscriptions, delivery: ctx.options.delivery, logger: ctx.logger });
+    const retries = retryRule({
+      adapter,
+      model: deliveryModel,
+      store: subscriptions,
+      schedule: ctx.options.delivery.retrySchedule,
+      disableAfter: ctx.options.delivery.disableAfter,
+      logger: ctx.logger,
+      emit: (type, payload) => ctx.events.emit(type as never, payload as never),
+    });
+    const sender = deliverer({
+      adapter,
+      model: deliveryModel,
+      store: subscriptions,
+      delivery: ctx.options.delivery,
+      logger: ctx.logger,
+      failed: retries.failed,
+      succeeded: retries.succeeded,
+      disable: retries.disable,
+    });
     const api: WebhooksApi = {
       subscriptions: {
         ...subscriptions.api,
@@ -128,6 +149,7 @@ function authEnabled(config: { features: readonly { key: string }[] }): boolean 
 export default webhooksFeature;
 export { webhooksFeature };
 export { webhooks } from "./running.ts";
+export { webhookClock } from "./state.ts";
 export { DeliverableEvents, entityDeliveries, patternMatchesType, patternProblem, patternsOverlap } from "./deliverable.ts";
 export { webhookSubscriptionEntity } from "./models.ts";
 export { bodyOf, WEBHOOK_DELIVERY_STATUSES, MAX_PAYLOAD_BYTES, webhookDeliveryEntity } from "./deliveries.ts";
@@ -136,6 +158,8 @@ export type { WebhookDeliveryStatus, WebhookDelivery } from "./deliveries.ts";
 export { generateSecret, PREVIOUS_SECRET_MS } from "./subscriptions.ts";
 export { signWebhook, verifyWebhook } from "./signing.ts";
 export { GONE_REASON, PING_LIMIT } from "./attempts.ts";
+export { MAX_RETRY_DELAY_MS, retryDelay } from "./retries.ts";
+export type { WebhookDeliveryEvent, WebhookSubscriptionDisabledEvent } from "./retries.ts";
 export type { SignInput, VerifyInput } from "./signing.ts";
 export type { WebhooksApi } from "./api.ts";
 export type { CreateSubscriptionInput, SubscriptionListOptions, UpdateSubscriptionInput, WebhookSubscription, WebhookSubscriptions } from "./subscriptions.ts";

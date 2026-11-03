@@ -2,6 +2,7 @@ import { queues, safeLog, systemTarget, type AnyEvent, type DatabaseAdapter, typ
 import type { SubscriptionCache } from "./cache.ts";
 import type { DeliverableEvents } from "./deliverable.ts";
 import { bodyOf, MAX_PAYLOAD_BYTES } from "./deliveries.ts";
+import { webhookClock } from "./state.ts";
 
 /** The queue each delivery attempt runs in. */
 export const DELIVER_QUEUE = "webhooks/deliver";
@@ -22,7 +23,7 @@ export interface MatchingOptions {
  * handled once.
  */
 export function matchingListener(options: MatchingOptions): (event: AnyEvent) => Promise<void> {
-  const now = options.now ?? Date.now;
+  const now = options.now ?? (() => webhookClock.now());
   const handled = new WeakSet<object>();
   return async (event) => {
     if (handled.has(event)) return;

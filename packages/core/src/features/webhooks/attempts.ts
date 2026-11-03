@@ -2,6 +2,7 @@ import { HttpError, systemTarget, type DatabaseAdapter, type EntityModel, type L
 import type { WebhookDelivery } from "./deliveries.ts";
 import { attemptHeaders, logAttempt, sendAttempt, type AttemptOutcome } from "./send.ts";
 import type { StoredSubscription, SubscriptionStore } from "./subscriptions.ts";
+import { webhookClock } from "./state.ts";
 
 /** The reason a subscription is disabled when its receiver answers 410. */
 export const GONE_REASON = "Receiver answered 410 Gone";
@@ -54,12 +55,16 @@ export interface DelivererOptions {
   logger: Logger;
   /** What happens to a delivery whose attempt failed; marks it `failed` by default. */
   failed?: (attempt: FailedAttempt) => Promise<void>;
+  /** Runs after a successful attempt, with the delivery and the status. */
+  succeeded?: (delivery: WebhookDelivery, status: number) => Promise<void>;
+  /** Disables a subscription; a plain update by default. */
+  disable?: (subscription: StoredSubscription, reason: string) => Promise<StoredSubscription>;
   now?: () => number;
 }
 
 /** Sends deliveries and pings: one attempt each, signed, through the HTTP client with SSRF protection. */
 export function deliverer(options: DelivererOptions) {
-  const now = options.now ?? Date.now;
+  const now = options.now ?? (() => webhookClock.now());
   const limited = keyedLimiter(options.delivery.concurrency);
   const db = () => systemTarget(options.adapter, options.model).adapter;
   const update = (id: string, changes: Record<string, unknown>) => db().updateById(options.model, id, { ...changes, updatedAt: new Date(now()) });
@@ -69,6 +74,9 @@ export function deliverer(options: DelivererOptions) {
     const headers = attemptHeaders({ subscription, eventId, body, at: now() });
     return sendAttempt({ url: subscription.url, body, headers, timeout: options.delivery.timeout, responseBodyLimit: options.delivery.responseBodyLimit, ...(signal ? { signal } : {}) });
   };
+  const disable =
+    options.disable ??
+    (async (subscription: StoredSubscription, reason: string) => (await options.store.patch(subscription.id, { enabled: false, disabledReason: reason })) ?? { ...subscription, enabled: false, disabledReason: reason });
   const failed =
     options.failed ??
     (async ({ delivery }: FailedAttempt) => {
@@ -88,16 +96,19 @@ export function deliverer(options: DelivererOptions) {
       const number = delivery.status === "delivering" ? Math.max(delivery.attempt, 1) : delivery.attempt + 1;
       await update(delivery.id, { status: "delivering", attempt: number });
       const outcome = await limited(subscription.id, () => attempt(subscription, delivery.event, delivery.payload, context.signal));
+      // A worker shutting down gives the message back: the delivery stays delivering and runs as the same attempt.
+      if (context.signal?.aborted && (context.signal.reason as { name?: unknown } | undefined)?.name === "AbortError") return new Promise<never>(() => {});
       logAttempt(options.logger, { subscription: subscription.id, delivery: delivery.id, type: delivery.type, attempt: number, outcome });
       const recorded = { lastStatus: outcome.status, durationMs: outcome.durationMs, lastResponse: outcome.response ?? null };
       if (outcome.ok) {
-        await update(delivery.id, { ...recorded, status: "succeeded", deliveredAt: new Date(now()), lastError: null, nextAttemptAt: null });
+        const done = (await update(delivery.id, { ...recorded, status: "succeeded", deliveredAt: new Date(now()), lastError: null, nextAttemptAt: null })) as unknown as WebhookDelivery | null;
         if (subscription.failingSince) await options.store.patch(subscription.id, { failingSince: null });
+        await options.succeeded?.(done ?? { ...delivery, attempt: number }, outcome.status);
         return;
       }
       const stored = (await update(delivery.id, { ...recorded, lastError: outcome.error ?? null })) as unknown as WebhookDelivery | null;
       let current = subscription;
-      if (outcome.status === 410) current = (await options.store.patch(subscription.id, { enabled: false, disabledReason: GONE_REASON })) ?? { ...subscription, enabled: false, disabledReason: GONE_REASON };
+      if (outcome.status === 410) current = await disable(subscription, GONE_REASON);
       await failed({ delivery: stored ?? { ...delivery, attempt: number }, subscription: current, outcome });
     },
     /** Sends a signed `webhook.ping` at once, without a delivery; at most 10 per minute per subscription. */

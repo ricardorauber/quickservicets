@@ -1,6 +1,7 @@
 import { currentTenant, HttpError, safeLog, ssrfProblem, systemTarget, type Condition, type DatabaseAdapter, type EntityModel, type Logger, type StoredRecord } from "../public.ts";
 import type { DeliverableEvents } from "./deliverable.ts";
 import { patternProblem } from "./deliverable.ts";
+import { webhookClock } from "./state.ts";
 
 /** A webhook subscription as reads return it, without its secrets. */
 export interface WebhookSubscription {
@@ -137,7 +138,7 @@ export interface SubscriptionStoreOptions {
 /** The subscriptions of the project's database, scoped to the current tenant. */
 export function subscriptionStore(options: SubscriptionStoreOptions) {
   const { model, deliverable } = options;
-  const now = options.now ?? Date.now;
+  const now = options.now ?? (() => webhookClock.now());
   const db = () => systemTarget(options.adapter, model).adapter;
   const notFound = (id: string) => new HttpError(404, `Webhook subscription ${id} not found`);
   const scoped = (): Condition[] => {

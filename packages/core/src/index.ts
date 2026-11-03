@@ -335,7 +335,7 @@ import authNative, { type AuthApi, type RequestAuth, type SessionRevokedEvent } 
 import metricsNative, { type MetricsApi } from "./features/metrics/index.ts";
 import proxyNative from "./features/proxy/index.ts";
 import secretsNative, { type SecretRotation, type SecretsApi } from "./features/secrets/index.ts";
-import webhooksNative, { type WebhooksApi } from "./features/webhooks/index.ts";
+import webhooksNative, { type WebhookDeliveryEvent, type WebhookSubscriptionDisabledEvent, type WebhooksApi } from "./features/webhooks/index.ts";
 import type { SecretReference as RequestSecretReference } from "./secret-references.ts";
 import { registerNative as registerShippedNative, type FeatureConfig as NativeConfig } from "./features.ts";
 registerShippedNative(securityNative);
@@ -355,8 +355,8 @@ registerShippedNative(metricsNative);
 registerShippedNative(proxyNative);
 registerShippedNative(secretsNative);
 registerShippedNative(webhooksNative);
-export { signWebhook, verifyWebhook, GONE_REASON, PING_LIMIT, bodyOf, CACHE_REFRESH_MS, WEBHOOK_DELIVERY_STATUSES, MAX_PAYLOAD_BYTES, subscriptionCache, webhookDeliveryEntity, DeliverableEvents, entityDeliveries, generateSecret, patternMatchesType, patternProblem, patternsOverlap, PREVIOUS_SECRET_MS, webhooks, webhooksFeature, webhookSubscriptionEntity } from "./features/webhooks/index.ts";
-export type { SignInput, VerifyInput, WebhookDeliveryStatus, WebhookDelivery, CreateSubscriptionInput, SubscriptionListOptions, UpdateSubscriptionInput, WebhooksApi, WebhookSubscription, WebhookSubscriptions } from "./features/webhooks/index.ts";
+export { webhookClock, signWebhook, verifyWebhook, GONE_REASON, PING_LIMIT, MAX_RETRY_DELAY_MS, retryDelay, bodyOf, CACHE_REFRESH_MS, WEBHOOK_DELIVERY_STATUSES, MAX_PAYLOAD_BYTES, subscriptionCache, webhookDeliveryEntity, DeliverableEvents, entityDeliveries, generateSecret, patternMatchesType, patternProblem, patternsOverlap, PREVIOUS_SECRET_MS, webhooks, webhooksFeature, webhookSubscriptionEntity } from "./features/webhooks/index.ts";
+export type { WebhookDeliveryEvent, WebhookSubscriptionDisabledEvent, SignInput, VerifyInput, WebhookDeliveryStatus, WebhookDelivery, CreateSubscriptionInput, SubscriptionListOptions, UpdateSubscriptionInput, WebhooksApi, WebhookSubscription, WebhookSubscriptions } from "./features/webhooks/index.ts";
 export {
   addAuthScheme,
   AuthError,
@@ -493,6 +493,12 @@ declare module "./event-types.ts" {
     "health.status.changed": HealthStatusChangedEvent;
     /** A secret's value changed after a refresh; emitted by the `secrets` native while `events` is enabled, never with the value. */
     "secret.rotated": SecretRotation;
+    /** A webhook delivery succeeded; emitted by the `webhooks` native, never deliverable as a webhook. */
+    "webhook.delivery.succeeded": WebhookDeliveryEvent;
+    /** A webhook delivery failed its last attempt. */
+    "webhook.delivery.failed": WebhookDeliveryEvent;
+    /** A webhook subscription was disabled, after a 410 or after failing for longer than delivery.disableAfter. */
+    "webhook.subscription.disabled": WebhookSubscriptionDisabledEvent;
   }
 }
 

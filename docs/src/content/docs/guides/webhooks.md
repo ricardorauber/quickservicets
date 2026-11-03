@@ -84,6 +84,30 @@ export async function receive(request: Request, secret: string): Promise<Respons
 
 `signWebhook({ id, timestamp, body, secret })` produces the same `v1,` signature. Every attempt goes through the [HTTP client](/guides/http-client/) with SSRF protection checking the address again (a subscription's host is never trusted like a named service), with `delivery.timeout` (10 seconds), without following redirects (a 3xx fails with `Redirects are not followed`), and keeping at most `delivery.responseBodyLimit` (1 KB) of the answer in the delivery's `lastResponse`. A 2xx marks the delivery `succeeded`; any other status, a timeout, a network error or an SSRF block records `lastStatus` (0 without an answer), `lastError` and `durationMs`. A 410 also disables the subscription with `Receiver answered 410 Gone`, and deliveries of a disabled subscription end `failed` with `Subscription disabled` without a request. At most `delivery.concurrency` (10) attempts of one subscription run at once per worker, and each attempt logs `webhook.delivery.succeeded` or `webhook.delivery.failed` with the subscription, delivery, type, attempt, status and duration, never the body or headers.
 
+## Retries and auto-disable
+
+A failed attempt is retried by the native itself, as a new `webhooks/deliver` message with a `runAt` (the queue never retries these messages): after attempt `n`, the delivery goes back to `pending` with `nextAttemptAt` = now + entry `n` of `delivery.retrySchedule`, with up to ±10% jitter. The default `["5s", "5m", "30m", "2h", "5h", "10h", "10h"]` gives 8 attempts over about 27.6 hours; when the last one fails, the delivery is `failed` with its last status, error and response. The schedule takes 1 to 20 durations of at most `7d`, otherwise resolution fails with `Invalid webhooks.delivery.retrySchedule: expected 1 to 20 durations of at most 7d`.
+
+```ts
+webhooks: { delivery: { retrySchedule: ["10s", "1m", "10m", "1h"], disableAfter: "2d" } }
+```
+
+The first failure of a subscription after a success sets its `failingSince`, and any success clears it. A failure while `failingSince` is older than `delivery.disableAfter` (`5d`) disables the subscription with `Failing for more than 5d`, fails its pending deliveries with `Subscription disabled` and logs `webhook.subscription.disabled`. Re-enable it with `update(id, { enabled: true })` or `PATCH /webhooks/[id]`.
+
+The native emits `webhook.delivery.succeeded`, `webhook.delivery.failed` (on the final failure) with `{ subscriptionId, deliveryId, eventId, type, attempt, status }`, and `webhook.subscription.disabled` with `{ subscriptionId, reason, tenant }`, so a listener can tell the owner:
+
+```ts
+import { listen } from "@quickservicets/core";
+
+export default listen("webhook.subscription.disabled", async (event) => {
+  console.warn("webhook disabled", event.payload.subscriptionId, event.payload.reason);
+});
+```
+
+These events are never delivered as webhooks.
+
+Delivery is at least once. A worker that shuts down during an attempt gives the message back: the delivery stays `delivering` and the next worker sends it again as the same attempt, with the same `webhook-id`. Receivers must deduplicate by `webhook-id`.
+
 `webhooks.subscriptions.ping(id)` (and `POST /webhooks/[id]/ping` with the management routes) sends a signed `webhook.ping` event with `data: { subscriptionId }` at once, without a delivery, and answers `{ status, ok, durationMs }`; at most 10 pings per minute per subscription, then 429 `Too many requests`.
 
 ## Subscriptions from code

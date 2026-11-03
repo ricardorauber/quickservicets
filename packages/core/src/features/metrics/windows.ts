@@ -47,6 +47,13 @@ function valueOf(dimension: Dimension, observation: UsageObservation): string {
   return observation.userId ?? "-";
 }
 
+/** The most routes, and methods per route, whose route value a recorder keeps; others are built on each request. */
+const MAX_CACHED_ROUTES = 10_000;
+const MAX_CACHED_METHODS = 32;
+
+/** The bits of the dimensions a `by` list holds: 1 for route, 2 for tenant, 4 for user. */
+const dimensionBits = (by: readonly Dimension[]) => (by.includes("route") ? 1 : 0) | (by.includes("tenant") ? 2 : 0) | (by.includes("user") ? 4 : 0);
+
 /** The key of a series from its dimension values. */
 export const seriesKey = (series: Pick<Series, Dimension>): string => `${series.route ?? ""}\n${series.tenant ?? ""}\n${series.user ?? ""}`;
 
@@ -81,7 +88,44 @@ export interface RecorderSettings {
 export const windowStart = (at: number, size: number) => Math.floor(at / size) * size;
 
 /**
- * The usage windows of one worker: the open window, recorded into with one map lookup, three increments and one
+ * How one method and route is counted under one list of dimensions: its route value, and the series of the open window
+ * it found last and by tenant and user. Made by `UsageRecorder.slot`; the recorder updates it.
+ */
+export interface RouteSlot {
+  readonly by: readonly Dimension[];
+  /** The dimensions of `by`: 1 for route, 2 for tenant, 4 for user. */
+  readonly bits: number;
+  /** The route value (`GET /posts`), or "" when `by` leaves the route out. */
+  readonly route: string;
+  /** The window the series below belong to. */
+  window: UsageWindow | undefined;
+  tenant: string;
+  user: string;
+  series: Series | undefined;
+  index: Map<string, Map<string, Series>> | undefined;
+}
+
+/** Counts one request in a series. */
+function count(series: Series, observation: UsageObservation): void {
+  series.requests += 1;
+  const status = observation.status;
+  series.classes[status >= 500 ? 5 : status < 100 ? 0 : Math.floor(status / 100)]! += 1;
+  if (status >= 500) series.errors += 1;
+  else if (status >= 400) series.clientErrors += 1;
+  series.sketch.add(observation.durationMs);
+}
+
+/** Keeps a series in an index by route, tenant and user value. */
+function keep(index: Map<string, Map<string, Map<string, Series>>>, route: string, tenant: string, user: string, series: Series): void {
+  let tenants = index.get(route);
+  if (!tenants) index.set(route, (tenants = new Map()));
+  let users = tenants.get(tenant);
+  if (!users) tenants.set(tenant, (users = new Map()));
+  users.set(user, series);
+}
+
+/**
+ * The usage windows of one worker: the open window, recorded into with three map lookups, a few increments and one
  * sketch insert, the closed minute windows within the retention, and the hourly rollups of older ones.
  */
 export class UsageRecorder {
@@ -108,37 +152,129 @@ export class UsageRecorder {
     return dimensions;
   }
 
-  /** Counts a completed request in the open window, under the given dimensions (default: the configured `by`). */
+  /** The route value (`GET /posts`) of each route and method, so a request builds no string. */
+  private readonly routeValues = new Map<string | null, Map<string, string>>();
+  /** The series of the open window by route, tenant and user value ("" for a dimension left out), as its keys hold them. */
+  private index = new Map<string, Map<string, Map<string, Series>>>();
+  /** The window `index` points into; another open window empties it. */
+  private indexed: UsageWindow | undefined;
+  /** The last `by` list recorded with, and the bits of its dimensions. */
+  private lastBy: readonly Dimension[] | undefined;
+  private lastBits = 0;
+
+  /** The route value of a request's method and route, built once per method and route. */
+  private routeValue(method: string, route: string | null): string {
+    let methods = this.routeValues.get(route);
+    if (!methods) {
+      if (this.routeValues.size >= MAX_CACHED_ROUTES) return `${method} ${route ?? "unmatched"}`;
+      this.routeValues.set(route, (methods = new Map()));
+    }
+    let value = methods.get(method);
+    if (value === undefined) {
+      value = `${method} ${route ?? "unmatched"}`;
+      if (methods.size < MAX_CACHED_METHODS) methods.set(method, value);
+    }
+    return value;
+  }
+
+  /**
+   * Counts a completed request in the open window, under the given dimensions (default: the configured `by`): three
+   * map lookups on values the request already holds find its series, and no string or object is made unless the series
+   * is new.
+   */
   record(observation: UsageObservation, by: readonly Dimension[] = this.settings.by): void {
-    // The key is built from the observation directly; the dimensions object is only made for a new series.
-    const route = by.includes("route") ? valueOf("route", observation) : undefined;
-    const tenant = by.includes("tenant") ? valueOf("tenant", observation) : undefined;
-    const user = by.includes("user") ? valueOf("user", observation) : undefined;
-    const key = `${route ?? ""}\n${tenant ?? ""}\n${user ?? ""}`;
+    if (by !== this.lastBy) {
+      this.lastBy = by;
+      this.lastBits = dimensionBits(by);
+    }
+    const bits = this.lastBits;
+    const route = bits & 1 ? this.routeValue(observation.method, observation.route) : "";
+    const tenant = bits & 2 ? (observation.tenantId ?? "-") : "";
+    const user = bits & 4 ? (observation.userId ?? "-") : "";
+    if (this.indexed !== this.current) {
+      this.indexed = this.current;
+      this.index = new Map();
+    }
+    let series = this.index.get(route)?.get(tenant)?.get(user);
+    if (!series) {
+      series = this.find(route, tenant, user, observation, by);
+      if (series) keep(this.index, route, tenant, user, series);
+      else series = this.overflowSeries();
+    }
+    count(series, observation);
+  }
+
+  /**
+   * The slot of a method and route under a list of dimensions (default: the configured `by`), for callers that decide
+   * once per route how its requests are counted and then record with `recordIn`.
+   */
+  slot(method: string, route: string | null, by: readonly Dimension[] = this.settings.by): RouteSlot {
+    const bits = dimensionBits(by);
+    return { by, bits, route: bits & 1 ? `${method} ${route ?? "unmatched"}` : "", window: undefined, tenant: "", user: "", series: undefined, index: undefined };
+  }
+
+  /**
+   * Counts a completed request of a slot's method and route in the open window, as `record` does with the slot's
+   * dimensions: a request with the tenant and user of the slot's last one finds its series without a lookup, others
+   * with two.
+   */
+  recordIn(slot: RouteSlot, observation: UsageObservation): void {
+    const tenant = slot.bits & 2 ? (observation.tenantId ?? "-") : "";
+    const user = slot.bits & 4 ? (observation.userId ?? "-") : "";
+    let series: Series | undefined;
+    if (slot.window !== this.current) {
+      slot.window = this.current;
+      slot.series = undefined;
+      slot.index = undefined;
+    } else if (slot.series !== undefined && slot.tenant === tenant && slot.user === user) series = slot.series;
+    if (!series) {
+      series = slot.index?.get(tenant)?.get(user);
+      if (!series) {
+        series = this.find(slot.route, tenant, user, observation, slot.by);
+        if (series) {
+          slot.index ??= new Map();
+          let users = slot.index.get(tenant);
+          if (!users) slot.index.set(tenant, (users = new Map()));
+          users.set(user, series);
+        } else series = this.overflowSeries();
+      }
+      // One series per slot is remembered, the overflow one too, so the memory stays bounded.
+      slot.tenant = tenant;
+      slot.user = user;
+      slot.series = series;
+    }
+    count(series, observation);
+  }
+
+  /**
+   * The series of the open window with these dimension values, found by its key or made; undefined when it is new and
+   * the window already holds `maxSeries`.
+   */
+  private find(route: string, tenant: string, user: string, observation: UsageObservation, by: readonly Dimension[]): Series | undefined {
+    const key = `${route}\n${tenant}\n${user}`;
     const window = this.current.series;
     let series = window.get(key);
     if (!series) {
-      const dimensions = this.dimensionsOf((dimension) => valueOf(dimension, observation), by);
-      if (window.size >= this.settings.maxSeries) {
-        series = window.get(this.overflowKey);
-        if (!series) {
-          series = emptySeries(this.dimensionsOf(() => "other"));
-          window.set(this.overflowKey, series);
-        }
-        if (!this.overflowed) {
-          this.overflowed = true;
-          this.settings.onOverflow(this.settings.maxSeries);
-        }
-      } else {
-        series = emptySeries(dimensions);
-        window.set(key, series);
-      }
+      if (window.size >= this.settings.maxSeries) return undefined;
+      series = emptySeries(this.dimensionsOf((dimension) => valueOf(dimension, observation), by));
+      window.set(key, series);
     }
-    series.requests += 1;
-    series.classes[Math.min(Math.max(Math.floor(observation.status / 100), 0), 5)]! += 1;
-    if (observation.status >= 500) series.errors += 1;
-    else if (observation.status >= 400) series.clientErrors += 1;
-    series.sketch.add(observation.durationMs);
+    return series;
+  }
+
+  /** The series whose dimensions are all `other`, counting the series past `maxSeries`; the overflow is logged once per window. */
+  private overflowSeries(): Series {
+    const window = this.current.series;
+    let overflow = window.get(this.overflowKey);
+    if (!overflow) {
+      overflow = emptySeries(this.dimensionsOf(() => "other"));
+      window.set(this.overflowKey, overflow);
+    }
+    if (!this.overflowed) {
+      this.overflowed = true;
+      this.settings.onOverflow(this.settings.maxSeries);
+    }
+    return overflow;
   }
 
   /**

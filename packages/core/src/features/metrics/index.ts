@@ -2,7 +2,7 @@ import { hostname } from "node:os";
 import { anyOf, boolean, cidr, defineFeature, duration, hook, integer, list, object, observeRequests, oneOf, parseDuration, provider, resolveOption, runAfterHooks, runBeforeHooks, safeLog, secret, string, systemClock, type FeatureHook, type JobClock, type OptionFunction, type RequestObservation } from "../public.ts";
 import { figuresOf, type MetricsResult } from "./query.ts";
 import type { MetricsStore } from "./store.ts";
-import type { UsageWindow } from "./windows.ts";
+import type { RouteSlot, UsageRecorder, UsageWindow } from "./windows.ts";
 import { metricsEndpoint } from "./route.ts";
 import type { MetricsApi } from "./api.ts";
 import { metricWindowEntity } from "./model.ts";
@@ -125,6 +125,36 @@ function routeSettings(by: readonly Dimension[]): (method: string, route: string
   };
 }
 
+/** The most methods per route whose decision is kept; other methods are decided on each request. */
+const MAX_CACHED_METHODS = 32;
+
+/**
+ * The recorder slot of each counted route and method, or undefined when its requests are not counted, decided once
+ * from the exclusions and the `@metrics` tags and kept by route and then method, so a request needs two map lookups on
+ * the strings it already holds and builds no key.
+ */
+function routeSlots(excluded: (route: string | null) => boolean, routes: (method: string, route: string | null) => { on: boolean; by: readonly Dimension[] }, recorder: UsageRecorder): (route: string | null, method: string) => RouteSlot | undefined {
+  const decide = (route: string | null, method: string) => {
+    if (excluded(route)) return null;
+    const decision = routes(method, route);
+    return decision.on ? recorder.slot(method, route, decision.by) : null;
+  };
+  const byRoute = new Map<string | null, Map<string, RouteSlot | null>>();
+  return (route, method) => {
+    let methods = byRoute.get(route);
+    if (!methods) {
+      if (byRoute.size >= 10_000) return decide(route, method) ?? undefined;
+      byRoute.set(route, (methods = new Map()));
+    }
+    let slot = methods.get(method);
+    if (slot === undefined) {
+      slot = decide(route, method);
+      if (methods.size < MAX_CACHED_METHODS) methods.set(method, slot);
+    }
+    return slot ?? undefined;
+  };
+}
+
 /** The running runtime of each set of resolved options, for the API. */
 const runtimes = new WeakMap<object, MetricsRuntime>();
 
@@ -236,11 +266,11 @@ const metricsFeature = defineFeature({
     const excluded = excludedBy([...ctx.options.exclude, ctx.options.path]);
     const routes = routeSettings(settings.by);
     const decide = ctx.options.record as boolean | OptionFunction<boolean>;
+    const recorder = runtime.recorder;
+    const slots = routeSlots(excluded, routes, recorder);
     const count = (observation: RequestObservation) => {
-      if (excluded(observation.route)) return;
-      const route = routes(observation.method, observation.route);
-      if (!route.on) return;
-      runtime.record(observation, route.by);
+      const slot = slots(observation.route, observation.method);
+      if (slot) recorder.recordIn(slot, observation);
     };
     // Without a record function or beforeRecord hooks, recording stays synchronous: one lookup, increments and an insert.
     const slow = typeof decide === "function" || beforeRecord.length > 0;

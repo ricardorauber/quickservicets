@@ -39,7 +39,7 @@ After each response is complete (or when an SSE stream or a socket closes), the 
 - `clientErrors`: responses from 400 to 499;
 - a latency sketch, which answers `p50`, `p95`, `p99` and `max` in milliseconds.
 
-Recording is one map lookup, a few increments and one sketch insert, with no promise and no database call on the request path. Without `metrics`, the core registers no observer and does no work per request; any feature can observe requests the same way with `observeRequests(fn)` from `@quickservicets/core`.
+Recording is a few map lookups on values the request already holds, a few increments and one sketch insert, with no promise and no database call on the request path. Without `metrics`, the core registers no observer and does no work per request; any feature can observe requests the same way with `observeRequests(fn)` from `@quickservicets/core`.
 
 ## How quantiles are computed
 
@@ -105,7 +105,7 @@ The meter interface (`setMeter`) records the standard OpenTelemetry instruments 
 
 ## Cost
 
-Recording adds one map lookup, a few increments and one sketch insert per request, within 3% of the baseline on the CRUD benchmark; without `metrics` there is no cost at all. Closing windows, flushing and rollups run on timers and in the job, never on the request path, and building a response yields to other requests every 1000 series.
+Recording adds a few map lookups, a few increments and one sketch insert per request, and builds no string or object for a series it already counts; the benchmarks README has its measured cost on the CRUD benchmark, and without `metrics` there is no cost at all. Closing windows, flushing and rollups run on timers and in the job, never on the request path, and building a response yields to other requests every 1000 series.
 
 ## Customization
 

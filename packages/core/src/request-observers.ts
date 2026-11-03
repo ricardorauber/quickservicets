@@ -41,27 +41,35 @@ export function requestsObserved(): boolean {
   return list.length > 0;
 }
 
-/** The observations waiting for the next microtask, handed to the observers together. */
-let pending: { observation: RequestObservation; observers: RequestObserver[] }[] = [];
+/** The observations waiting for the next microtask, and the observers registered when each was made. */
+let pending: RequestObservation[] = [];
+let pendingObservers: RequestObserver[][] = [];
+
+/** Hands the waiting observations to their observers, in order. */
+function deliver(): void {
+  const batch = pending;
+  const batchObservers = pendingObservers;
+  pending = [];
+  pendingObservers = [];
+  for (let index = 0; index < batch.length; index++) {
+    const done = batch[index]!;
+    const current = batchObservers[index]!;
+    for (let at = 0; at < current.length; at++) {
+      try {
+        current[at]!(done);
+      } catch {
+        // An observer never changes a response or another observer.
+      }
+    }
+  }
+}
 
 /**
  * Calls every observer with an observation, after the current task, logging nothing and never throwing; the
  * observations of one task are handed over in one microtask.
  */
 export function notifyRequestObservers(observation: RequestObservation): void {
-  pending.push({ observation, observers: list });
-  if (pending.length > 1) return;
-  queueMicrotask(() => {
-    const batch = pending;
-    pending = [];
-    for (const { observation: done, observers: current } of batch) {
-      for (const observer of current) {
-        try {
-          observer(done);
-        } catch {
-          // An observer never changes a response or another observer.
-        }
-      }
-    }
-  });
+  pending.push(observation);
+  pendingObservers.push(list);
+  if (pending.length === 1) queueMicrotask(deliver);
 }

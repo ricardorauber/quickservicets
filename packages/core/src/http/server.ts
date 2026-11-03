@@ -16,7 +16,7 @@ import { bunTlsOptions, loadServerTls, type ServerTlsConfig } from "../tls.ts";
 import { listenWithClientCertificates } from "./tls-server.ts";
 import { requestTlsRestart, TlsReloader, type ReloadedTls } from "../tls-reload.ts";
 import { clientCertificateOf } from "../client-certificates.ts";
-import { notifyRequestObservers, requestsObserved } from "../request-observers.ts";
+import { notifyRequestObservers, requestsObserved, type RequestObservation } from "../request-observers.ts";
 import { coreInstruments, metricsEnabled, tenantAttributes, type MeterSetting, type MetricAttributes } from "../metering.ts";
 import { parseTraceparent, spanAttributes, startSpan, tracingEnabled, withSpan, type Span, type TracerSetting } from "../tracing.ts";
 
@@ -378,18 +378,18 @@ function clientField(request: Request): { client?: string } {
 
 /** Hands a completed request to the request observers. */
 function observeEnd(request: Request, state: { route: string | null; req?: ServiceRequest }, status: number, startedAt: number, observedAt: number): void {
-  const userId = idOf(state.req?.user);
-  const tenantId = idOf(state.req?.tenant);
-  notifyRequestObservers({
-    method: request.method,
-    route: state.route,
-    status,
-    durationMs: performance.now() - startedAt,
-    ...(userId !== undefined ? { userId } : {}),
-    ...(tenantId !== undefined ? { tenantId } : {}),
-    startedAt: observedAt,
-    ...(state.req ? { req: state.req } : {}),
-  });
+  const req = state.req;
+  // Built by assignment in the order of its fields: optional ones are left out, and no object is spread.
+  const observation: RequestObservation = { method: request.method, route: state.route, status, durationMs: performance.now() - startedAt } as RequestObservation;
+  if (req) {
+    const userId = idOf(req.user);
+    if (userId !== undefined) observation.userId = userId;
+    const tenantId = idOf(req.tenant);
+    if (tenantId !== undefined) observation.tenantId = tenantId;
+  }
+  observation.startedAt = observedAt;
+  if (req) observation.req = req;
+  notifyRequestObservers(observation);
 }
 
 /** The id of a request's user or tenant, as a text. */

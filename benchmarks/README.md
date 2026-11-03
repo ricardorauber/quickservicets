@@ -104,6 +104,8 @@ bun benchmarks/compare-features.ts benchmarks/results/features/tenancy-on.json -
 
 In that run every budget holds except `metrics=on`, which costs +0.4% throughput but +3.5% p50 latency on `crud`, over its 3% budget (see `adrs/0087-metrics-on-measures-over-its-3-percent-p50-budget-and-the-budget-stays.md`); `secrets=on`, `tenancy=on` and the run with every infrastructure native off stay within theirs.
 
+A cheaper recording path for `metrics` followed (no string, key or object built per counted request, measured at about half its earlier share of the service's CPU); round by round on an idle machine it costs +1.5% to +3.6% p50 on `crud`, but no complete run on an idle machine has shown it within its budget yet, so the files above stay those of the run described here (see `adrs/0088-the-cheaper-metrics-recording-path-does-not-yet-show-the-3-percent-budget-holding.md`).
+
 ## Scenarios
 
 k6 (`grafana/k6:2.3.0`) runs in a container on the same network with 4 CPUs, 64 VUs, no think time, keep-alive connections. Each request is tagged, so the results have totals and per-endpoint numbers. An error is any status other than the expected one.

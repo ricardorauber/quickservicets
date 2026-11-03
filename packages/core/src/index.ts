@@ -391,7 +391,8 @@ export type { EventBus, EventListener, Events, EventsApi, ListenerContext, Liste
 export { databaseIpList, DEFAULT_MASKED_KEYS, ipBlocks, maskEntry, maskText, maskUrl, memoryRateLimitStore, securityFeature, slidingWindowHit } from "./features/security/index.ts";
 export type { ClientCertificateVerifier, ClientIpResolver, ExemptibleItem, IpBlock, IpBlockEvent, IpBlocks, IpListCounts, IpListSource, IpUnblockEvent, SecurityIpApi, SecurityRouteOptions, MaskingRules, MemoryRateLimitStore, RateLimitRefusal, SecurityRefusal, RateLimitHit, RateLimitResult, RateLimitStore, SecurityApi, WindowCounts } from "./features/security/index.ts";
 
-export { databaseBroker, isQueueDefinition, QUEUE_MESSAGE_STATUSES, queue, queueMessageEntity, queues, queuesFeature } from "./features/queues/index.ts";
+export { brokerName, createConsumerPool, createDedupeStore, decodeQueueMessage, encodeQueueMessage, nextRetryAt, QueueBrokerError, queueDedupeEntity, databaseBroker, isQueueDefinition, QUEUE_MESSAGE_STATUSES, queue, queueMessageEntity, queues, queuesFeature } from "./features/queues/index.ts";
+export type { ConsumerPool, ConsumerPoolOptions, DedupeStore, DedupeStoreTarget, QueueEnvelope } from "./features/queues/index.ts";
 export type {
   QueueDeadMessage,
   QueueEnqueueContext,

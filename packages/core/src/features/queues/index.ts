@@ -429,6 +429,8 @@ export { isQueueDefinition, queue } from "./queue.ts";
 export type { QueueMessage, QueueMessageStatus } from "./message.ts";
 export type { QueueAddOptions, QueueAddResult, QueueClient, QueueContext, QueueDefinition, QueueMessageInfo, QueueName, QueueOptions, QueuePayloadOf, QueuePayloads, Queues } from "./queue.ts";
 export { databaseBroker } from "./database.ts";
+export { brokerName, createConsumerPool, createDedupeStore, decodeQueueMessage, encodeQueueMessage, nextRetryAt, QueueBrokerError, queueDedupeEntity } from "./kit.ts";
+export type { ConsumerPool, ConsumerPoolOptions, DedupeStore, DedupeStoreTarget, QueueEnvelope } from "./kit.ts";
 export type { DatabaseBroker, DatabaseBrokerOptions } from "./database.ts";
 export type { QueueActor, QueueBroker, QueueBrokerContext, QueueBrokerMessage, QueueOutcome, QueueOutcomeReport, QueueReceivedMessage, QueueSettings, QueueStats } from "./broker.ts";
 export type { QueueDeadMessage, QueueEnqueueContext, QueueEnqueued, QueueEnqueueStep, QueueMessageEvent, QueueProcessed, QueueProcessStep, QueuesApi } from "./api.ts";

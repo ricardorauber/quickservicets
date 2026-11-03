@@ -216,6 +216,21 @@ export function memoryBroker(): QueueBroker & { received: QueueBrokerMessage[] }
 
 A real broker keeps retries, delays, priorities and dedupe too: `runQueueBrokerContract(createBroker)` from `@quickservicets/core/testing` registers the tests every broker must pass, and the database broker passes them on memory, SQLite and PostgreSQL. A broker without an optional method makes the matching command and function fail with `The <name> queue broker does not support <method>`.
 
+### The broker kit
+
+The core gives external brokers the pieces they share, so each one only maps them onto its service and behaves like the database broker:
+
+| Export | What it does |
+| --- | --- |
+| `encodeQueueMessage(message)` / `decodeQueueMessage(text)` | The JSON envelope `{ v: 1, id, queue, payload, priority, runAt, attempt, maxAttempts, dedupeKey?, tenant?, requestId?, enqueuedAt, trace? }`; decoding another version, invalid JSON or a missing field throws `Invalid queue message: <reason>` |
+| `nextRetryAt(attempt, { retryDelay, maxRetryDelay, maxAttempts? }, now)` | The retry time of the database broker: `retryDelay` doubled per attempt, at most `maxRetryDelay`, ±10% jitter; `null` once `attempt` reached `maxAttempts` |
+| `queueDedupeEntity` and `createDedupeStore({ adapter })` | Dedupe keys kept in the project's database (`queue_dedupe_keys`): `claim` (one of two concurrent claims wins), `release` (with a `window` for a `dedupeWindow`) and `cleanup`; inside a transaction they join it |
+| `createConsumerPool({ queues, handle, signal?, logger? })` | Runs messages with each queue's `concurrency`: `push` waits while the queue is full, calls `ack` or `nack`, and `drain(graceMs)` waits for running handlers |
+| `brokerName(queue, prefix)` | `billing/close` with `quickservicets.` is `quickservicets.billing.close`; names over 249 characters throw |
+| `QueueBrokerError` | The error callers get when the broker's service fails, with `broker` and `cause` |
+
+A feature that sets an external broker follows the same conventions: a `url` option (`secret()`) or the service's credential options, `prefix` (default `"quickservicets."`), `enables: ["queues"]`, `setBroker` in its setup, publishing transactional adds after the commit, the health check `<key>.connection`, an integration contract run only with its test variable, log entries named `<key>.<event>`, and `queueDedupeEntity` in its `entities`, so the dedupe table exists only while it is enabled. The database broker keeps its own `dedupeSlot` column and adds no table.
+
 ## Queues or jobs
 
 Use a [job](/guides/jobs/) for work that happens on a schedule or as one named task (a nightly cleanup, a report every Monday), recorded per run. Use a queue for work triggered by something that happened, one message per occurrence (an email per signup, a sync per changed record), with many messages in flight, dedupe, priorities and a dead letter. A job often adds messages to a queue: the job decides what to do, the queue does it item by item.

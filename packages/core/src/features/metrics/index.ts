@@ -1,5 +1,6 @@
+import type { UsageCounter } from "./prometheus.ts";
 import { hostname } from "node:os";
-import { anyOf, boolean, cidr, defineFeature, duration, hook, integer, list, object, observeRequests, oneOf, parseDuration, provider, resolveOption, runAfterHooks, runBeforeHooks, safeLog, secret, string, systemClock, type FeatureHook, type JobClock, type OptionFunction, type RequestObservation } from "../public.ts";
+import { activeSetup, currentOperation, disableOperationContext, enableOperationContext, operationContextEnabled, operationMiddleware, anyOf, boolean, cidr, defineFeature, duration, hook, integer, list, object, observeRequests, oneOf, parseDuration, provider, resolveOption, runAfterHooks, runBeforeHooks, safeLog, secret, string, systemClock, type FeatureHook, type JobClock, type OptionFunction, type RequestObservation } from "../public.ts";
 import { figuresOf, type MetricsResult } from "./query.ts";
 import type { MetricsStore } from "./store.ts";
 import type { RouteSlot, UsageRecorder, UsageWindow } from "./windows.ts";
@@ -11,7 +12,7 @@ import { MetricsRuntime } from "./runtime.ts";
 import { databaseMetricsStore, type DatabaseMetricsStore } from "./store.ts";
 import type { Dimension } from "./windows.ts";
 
-export type { MetricsApi } from "./api.ts";
+export type { MetricsApi, UsageRecorderHandle } from "./api.ts";
 export type { MetricsFigures, MetricsQuery, MetricsResult, MetricsSeries } from "./query.ts";
 export { LatencySketch } from "./sketch.ts";
 export type { EncodedSketch } from "./sketch.ts";
@@ -288,6 +289,16 @@ const metricsFeature = defineFeature({
           })().catch((error: unknown) =>
             safeLog(ctx.logger, "error", { timestamp: new Date(clock.now()).toISOString(), message: "metrics.record.failed", error: { message: (error as Error)?.message ?? String(error) } }),
           );
+    // Usage counters added inside a request default to its route, tenant and user, read from the operation context; a
+    // feature that may register counters turns it on when no other native did.
+    const mayCount = ctx.config.features.some(
+      (feature) => feature.key !== "metrics" && (feature.definition.requires.some((entry) => entry.name === "metrics") || feature.definition.after.includes("metrics") || feature.definition.enables.includes("metrics")),
+    );
+    if (mayCount && !operationContextEnabled()) {
+      enableOperationContext();
+      ctx.app.use(operationMiddleware);
+      ctx.app.onStop(() => disableOperationContext());
+    }
     const path = ctx.options.path;
     ctx.app.route(
       "GET",
@@ -298,6 +309,7 @@ const metricsFeature = defineFeature({
         by: settings.by,
         maxRangeMs: settings.rollupRetentionMs,
         ...(ctx.config.server.workers > 1 ? { worker: ctx.worker.index } : {}),
+        usage: () => [...(counters.get(ctx.options)?.values() ?? [])],
       }),
       { log: false, auth: false },
     );
@@ -335,8 +347,36 @@ const metricsFeature = defineFeature({
       if (!runtime) return Promise.reject(new Error("metrics is not running"));
       return runtime.query(query);
     },
+    usage(name, options) {
+      if (!activeSetup()) throw new Error("usage() must be called during setup");
+      if (typeof name !== "string" || !USAGE_NAME.test(name)) throw new Error(`Invalid usage metric name ${String(name)}: expected lowercase segments separated by dots, like ai.tokens.input`);
+      let registered = counters.get(ctx.options);
+      if (!registered) counters.set(ctx.options, (registered = new Map()));
+      if (registered.has(name)) throw new Error(`Usage metric ${name} is registered twice`);
+      registered.set(name, { name, unit: String(options?.unit ?? ""), description: String(options?.description ?? name) });
+      return {
+        add(value, dimensions = {}) {
+          if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw new Error("Usage values must be finite and not negative");
+          const runtime = runtimes.get(ctx.options);
+          if (!runtime) return;
+          // Inside a request the dimensions default to its route, tenant and user; outside one, to "-".
+          const req = currentOperation()?.req as { method?: string; route?: string | null; tenant?: { id?: unknown }; user?: { id?: unknown } } | undefined;
+          const idOf = (value: { id?: unknown } | undefined) => (value?.id === undefined ? undefined : String(value.id));
+          const route = dimensions.route ?? (req?.method ? `${req.method} ${req.route ?? "unmatched"}` : undefined);
+          const tenant = dimensions.tenant ?? idOf(req?.tenant);
+          const user = dimensions.user ?? idOf(req?.user);
+          runtime.recorder.addUsage(name, value, { ...(route ? { route } : {}), ...(tenant ? { tenant } : {}), ...(user ? { user } : {}) });
+        },
+      };
+    },
   }),
 });
+
+/** The usage counters features registered, per running configuration. */
+const counters = new WeakMap<object, Map<string, UsageCounter>>();
+
+/** The pattern of usage counter names. */
+const USAGE_NAME = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/;
 
 export default metricsFeature;
 export { metricsFeature };

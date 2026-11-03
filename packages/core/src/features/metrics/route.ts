@@ -1,11 +1,14 @@
 import { timingSafeEqual } from "node:crypto";
 import { cidrMatcher, HttpError, parseDuration, type Endpoint, type ServiceRequest } from "../public.ts";
-import { prometheusText } from "./prometheus.ts";
+import { prometheusText, type UsageCounter } from "./prometheus.ts";
 import type { MetricsFigures, MetricsQuery, MetricsResult } from "./query.ts";
 import type { MetricsRuntime } from "./runtime.ts";
 import type { Dimension } from "./windows.ts";
 
 const SORTS = ["requests", "errors", "p95", "p99"] as const;
+
+/** `sort=usage:<name>` orders series by the sum of a usage counter. */
+const USAGE_SORT = /^usage:[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/;
 const MAX_LIMIT = 1000;
 
 /** A 400 naming the parameter. */
@@ -46,7 +49,7 @@ export function parseMetricsQuery(params: URLSearchParams, options: { by: readon
   if (Object.keys(filter).length > 0) query.filter = filter;
   const sort = params.get("sort");
   if (sort !== null) {
-    if (!(SORTS as readonly string[]).includes(sort)) throw invalid("sort", `expected one of ${SORTS.join(", ")}`);
+    if (!(SORTS as readonly string[]).includes(sort) && !USAGE_SORT.test(sort)) throw invalid("sort", `expected one of ${SORTS.join(", ")} or usage:<name>`);
     query.sort = sort as MetricsQuery["sort"];
   }
   const limit = params.get("limit");
@@ -71,6 +74,7 @@ function figures(value: MetricsFigures) {
     p95: round(value.p95, 2),
     p99: round(value.p99, 2),
     max: round(value.max, 2),
+    ...(value.usage ? { usage: value.usage } : {}),
   };
 }
 
@@ -125,14 +129,14 @@ export function checkAccess(req: ServiceRequest, access: MetricsAccess, allowed:
 }
 
 /** The handler of `GET <path>`: access rules first, then the JSON form or the Prometheus exposition. */
-export function metricsEndpoint(runtime: () => MetricsRuntime | undefined, settings: { access: MetricsAccess; window: string; by: readonly Dimension[]; maxRangeMs: number; worker?: number }): Endpoint {
+export function metricsEndpoint(runtime: () => MetricsRuntime | undefined, settings: { access: MetricsAccess; window: string; by: readonly Dimension[]; maxRangeMs: number; worker?: number; usage?: () => readonly UsageCounter[] }): Endpoint {
   const allowed = settings.access.allow.length > 0 ? cidrMatcher(settings.access.allow) : undefined;
   return async (_repos, req) => {
     checkAccess(req, settings.access, allowed);
     const running = runtime();
     if (!running) throw new HttpError(503, "Metrics are not running");
     if (wantsPrometheus(req)) {
-      const text = prometheusText(running.sinceStart(), { tenant: settings.by.includes("tenant"), ...(settings.worker !== undefined ? { worker: settings.worker } : {}) });
+      const text = prometheusText(running.sinceStart(), { tenant: settings.by.includes("tenant"), ...(settings.worker !== undefined ? { worker: settings.worker } : {}), usage: settings.usage?.() ?? [] });
       return new Response(text, { status: 200, headers: { "content-type": "text/plain; version=0.0.4; charset=utf-8" } });
     }
     const query = parseMetricsQuery(req.query, settings);

@@ -23,7 +23,7 @@ const number = (value: number) => (Number.isInteger(value) ? String(value) : Str
  * the `quickservicets_http_request_duration_seconds` histogram by method and route (and tenant), with `worker` on every
  * sample when given.
  */
-export function prometheusText(series: readonly Series[], options: { tenant: boolean; worker?: number }): string {
+export function prometheusText(series: readonly Series[], options: { tenant: boolean; worker?: number; usage?: readonly UsageCounter[] }): string {
   const worker: (readonly [string, string])[] = options.worker === undefined ? [] : [["worker", String(options.worker)]];
   const lines: string[] = [
     "# HELP quickservicets_http_requests_total HTTP requests served by this worker since it started.",
@@ -58,5 +58,28 @@ export function prometheusText(series: readonly Series[], options: { tenant: boo
     lines.push(`quickservicets_http_request_duration_seconds_sum${labels([...base, ...worker])} ${number(sum)}`);
     lines.push(`quickservicets_http_request_duration_seconds_count${labels([...base, ...worker])} ${count}`);
   }
+  // One counter per usage name, by route (and tenant), cumulative since the worker started.
+  for (const counter of options.usage ?? []) {
+    const metric = `quickservicets_usage_${counter.name.replace(/\./g, "_")}_total`;
+    lines.push(`# HELP ${metric} ${counter.description} (${counter.unit})`, `# TYPE ${metric} counter`);
+    const sums = new Map<string, { pairs: (readonly [string, string])[]; value: number }>();
+    for (const entry of series) {
+      const value = entry.usage?.[counter.name];
+      if (value === undefined) continue;
+      const pairs: (readonly [string, string])[] = [["route", entry.route ?? "-"], ...(options.tenant ? [["tenant", entry.tenant ?? "-"] as const] : []), ...worker];
+      const key = labels(pairs);
+      const sum = sums.get(key);
+      if (sum) sum.value += value;
+      else sums.set(key, { pairs, value });
+    }
+    for (const { pairs, value } of sums.values()) lines.push(`${metric}${labels(pairs)} ${number(value)}`);
+  }
   return `${lines.join("\n")}\n`;
+}
+
+/** A usage counter a feature registered, as the exposition names and describes it. */
+export interface UsageCounter {
+  name: string;
+  unit: string;
+  description: string;
 }

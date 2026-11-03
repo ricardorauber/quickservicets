@@ -12,6 +12,8 @@ export interface StoredSeries {
   errors: number;
   clientErrors: number;
   sketch: EncodedSketch;
+  /** The sums of the usage counters, by name. */
+  usage?: Record<string, number>;
 }
 
 /** A closed window as stores receive and return it: the worker that recorded it, its resolution, start and series. */
@@ -45,6 +47,7 @@ export function storedWindow(window: UsageWindow, instance: string): StoredWindo
       errors: series.errors,
       clientErrors: series.clientErrors,
       sketch: series.sketch.encode(),
+      ...(series.usage ? { usage: { ...series.usage } } : {}),
     })),
   };
 }
@@ -54,7 +57,7 @@ export function usageWindow(window: StoredWindow): UsageWindow {
   const series = new Map<string, Series>();
   for (const stored of window.series) {
     const sketch = LatencySketch.decode(stored.sketch);
-    series.set(stored.seriesKey, { ...dimensionsOf(stored), requests: stored.requests, errors: stored.errors, clientErrors: stored.clientErrors, classes: [0, 0, 0, 0, 0, 0], sketch });
+    series.set(stored.seriesKey, { ...dimensionsOf(stored), requests: stored.requests, errors: stored.errors, clientErrors: stored.clientErrors, classes: [0, 0, 0, 0, 0, 0], sketch, ...(stored.usage ? { usage: { ...stored.usage } } : {}) });
   }
   return { start: window.windowStart.getTime(), resolution: window.resolution, series };
 }
@@ -103,6 +106,7 @@ export function databaseMetricsStore(adapter: DatabaseAdapter, model: EntityMode
     errors: series.errors,
     clientErrors: series.clientErrors,
     sketch: series.sketch as unknown as StoredRecord[string],
+    usage: (series.usage ?? null) as unknown as StoredRecord[string],
   });
   const keyOf = (row: Record<string, unknown>) => [
     condition("instance", "eq", row.instance),
@@ -114,7 +118,7 @@ export function databaseMetricsStore(adapter: DatabaseAdapter, model: EntityMode
   const upsert = async (row: StoredRecord) => {
     const existing = await adapter.findOne(model, keyOf(row));
     if (existing) {
-      await adapter.updateById(model, existing.id, { requests: row.requests, errors: row.errors, clientErrors: row.clientErrors, sketch: row.sketch, updatedAt: row.updatedAt });
+      await adapter.updateById(model, existing.id, { requests: row.requests, errors: row.errors, clientErrors: row.clientErrors, sketch: row.sketch, usage: row.usage ?? null, updatedAt: row.updatedAt });
       return;
     }
     try {
@@ -122,7 +126,7 @@ export function databaseMetricsStore(adapter: DatabaseAdapter, model: EntityMode
     } catch (error) {
       if (!(error instanceof UniqueViolationError)) throw error;
       const raced = await adapter.findOne(model, keyOf(row));
-      if (raced) await adapter.updateById(model, raced.id, { requests: row.requests, errors: row.errors, clientErrors: row.clientErrors, sketch: row.sketch, updatedAt: row.updatedAt });
+      if (raced) await adapter.updateById(model, raced.id, { requests: row.requests, errors: row.errors, clientErrors: row.clientErrors, sketch: row.sketch, usage: row.usage ?? null, updatedAt: row.updatedAt });
     }
   };
   /** Every row matching `where`, read in pages. */
@@ -142,6 +146,7 @@ export function databaseMetricsStore(adapter: DatabaseAdapter, model: EntityMode
     errors: row.errors as number,
     clientErrors: row.clientErrors as number,
     sketch: row.sketch as unknown as EncodedSketch,
+    ...(row.usage && typeof row.usage === "object" ? { usage: row.usage as Record<string, number> } : {}),
   });
   const store: DatabaseMetricsStore = {
     async write(windows) {
@@ -199,10 +204,10 @@ export function databaseMetricsStore(adapter: DatabaseAdapter, model: EntityMode
               await adapter.lockForUpdate?.(model, existing.id);
               const current = (await adapter.findById(model, existing.id)) ?? existing;
               mergeSeries(series, { ...toSeries(current), classes: [0, 0, 0, 0, 0, 0], sketch: LatencySketch.decode(current.sketch as unknown as EncodedSketch) });
-              await adapter.updateById(model, existing.id, { requests: series.requests, errors: series.errors, clientErrors: series.clientErrors, sketch: series.sketch.encode() as unknown as StoredRecord[string], updatedAt: new Date() });
+              await adapter.updateById(model, existing.id, { requests: series.requests, errors: series.errors, clientErrors: series.clientErrors, sketch: series.sketch.encode() as unknown as StoredRecord[string], usage: (series.usage ?? null) as unknown as StoredRecord[string], updatedAt: new Date() });
             } else {
               const now = new Date();
-              await upsert(rowOf({ instance, resolution: "hour", windowStart, series: [] }, { seriesKey: series.seriesKey, ...dimensionsOf(series), requests: series.requests, errors: series.errors, clientErrors: series.clientErrors, sketch: series.sketch.encode() }, now));
+              await upsert(rowOf({ instance, resolution: "hour", windowStart, series: [] }, { seriesKey: series.seriesKey, ...dimensionsOf(series), requests: series.requests, errors: series.errors, clientErrors: series.clientErrors, sketch: series.sketch.encode(), ...(series.usage ? { usage: series.usage } : {}) }, now));
             }
           }
         });

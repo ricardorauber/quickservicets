@@ -384,7 +384,7 @@ export {
 export type { CertificateAuthOptions, LoginCheck, LoginGuard, LoginGuardOptions, LoginThrottleRecord, LoginThrottleStore, SessionRevokedEvent, SessionStore, SessionStoreOptions, StoredSession } from "./features/auth/index.ts";
 export type { AuthApi, AuthCredentials, AuthenticatedUser, AuthMethod, AuthProvider, AuthResult, AuthResultUser, RequestAuth, RevokeTarget } from "./features/auth/index.ts";
 export { LatencySketch, metricsFeature, queryMetrics, setMetricsClock } from "./features/metrics/index.ts";
-export type { EncodedSketch, MetricsApi, MetricsFigures, MetricsQuery, MetricsResult, MetricsSeries, MetricsStore, MetricWindow, StoredSeries, StoredWindow, WindowClosed } from "./features/metrics/index.ts";
+export type { UsageRecorderHandle, EncodedSketch, MetricsApi, MetricsFigures, MetricsQuery, MetricsResult, MetricsSeries, MetricsStore, MetricWindow, StoredSeries, StoredWindow, WindowClosed } from "./features/metrics/index.ts";
 export { dueTime, providerRegistry, resolveReference, schemeProblem, secretsFeature } from "./features/secrets/index.ts";
 export type { SecretCheckLine, SecretProvider, SecretResolution, SecretResolveContext, SecretResolveFailure, SecretResolveStep, SecretRotation, SecretsApi } from "./features/secrets/index.ts";
 export { forward, IDENTITY_HEADER, proxyFeature, proxyIdentity, proxyRequest, signIdentity } from "./features/proxy/index.ts";

@@ -102,6 +102,31 @@ scrape_configs:
 
 Usage metrics reveal traffic and tenants. The route answers only addresses on `access.allow` (loopback and private networks by default), and 403 `Metrics are not available from this address` to others. With `access.token`, it also requires `Authorization: Bearer` with that token (compared in constant time), answering 401 otherwise; `allow: []` with a token accepts any address that has it. The route skips tenant resolution, `auth.required`, rate limits and load shedding, writes no request log entries and is not in the OpenAPI document.
 
+## Usage counters
+
+Features add their own usage measures, like AI tokens and cost, tool calls or messages sent, counted per route, tenant and user in the same windows as requests. A feature registers a counter during its setup and adds values from anywhere:
+
+```ts
+import { defineFeature } from "@quickservicets/core";
+
+export default defineFeature({
+  key: "assistant",
+  requires: ["metrics"],
+  setup(ctx) {
+    const tokens = ctx.feature("metrics").usage("ai.tokens.input", { unit: "tokens", description: "Input tokens sent to the model" });
+    ctx.app.onStart(() => tokens.add(0));
+  },
+});
+```
+
+- Names are lowercase dot-separated segments (`ai.tokens.input`); a name registered twice throws `Usage metric <name> is registered twice`, and `add(value, { route?, tenant?, user? })` takes finite values of zero or more (`Usage values must be finite and not negative`).
+- Inside a request the dimensions default to its route, tenant and user, and outside one (a job, a consumer) to `-`; dimensions `by` leaves out are dropped, and usage-only series count toward `maxSeries`, overflowing into `other`.
+- Each series holds the sum per name next to its request counts; rollups and retention sum them like requests, and the database store keeps them in the `usage` JSON column of `metric_windows`, written by the same idempotent flush.
+- `query`, `queryMetrics` and `GET /_metrics` show `usage` (name to sum) in the totals and each series, and `sort=usage:<name>` orders series by one sum.
+- The Prometheus form adds `quickservicets_usage_<name with dots as underscores>_total` per name, labeled like request counters (`route`, `tenant` when `by` lists it, `worker` with several workers), cumulative per worker since it started, with `# HELP <description> (<unit>)`.
+
+Without counters, recording keeps its memory layout and cost.
+
 ## Usage metrics and the meter interface
 
 The meter interface (`setMeter`) records the standard OpenTelemetry instruments (request and client durations, database operations, jobs, queues) and hands them to an exporter, usually an OpenTelemetry plugin sending them to a time-series database. Usage metrics answer a different question inside the service, without any backend: who used what, how often and how fast, per tenant and user, kept and queried by the service itself. Use the meter for infrastructure monitoring and alerting across services, and usage metrics for product questions, tenant reports and a quick view without a stack; both can run together.

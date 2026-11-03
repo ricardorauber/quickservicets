@@ -16,7 +16,7 @@ export interface MetricsQuery {
   /** The most series returned (default 100). */
   limit?: number;
   /** What the series are sorted by, descending (default `requests`). */
-  sort?: "requests" | "errors" | "p95" | "p99";
+  sort?: "requests" | "errors" | "p95" | "p99" | `usage:${string}`;
 }
 
 /** The figures of a series or of the totals, latencies in milliseconds. */
@@ -28,6 +28,8 @@ export interface MetricsFigures {
   p95: number;
   p99: number;
   max: number;
+  /** The sums of the usage counters, by name, when any was added. */
+  usage?: Record<string, number>;
 }
 
 /** One series of a query's answer, with the dimensions it was grouped by. */
@@ -52,7 +54,7 @@ export function rangeOf(query: MetricsQuery, now: number): { from: number; to: n
 }
 
 /** The figures of a series. */
-export function figuresOf(series: Pick<Series, "requests" | "errors" | "clientErrors" | "sketch">): MetricsFigures {
+export function figuresOf(series: Pick<Series, "requests" | "errors" | "clientErrors" | "sketch" | "usage">): MetricsFigures {
   return {
     requests: series.requests,
     errors: series.errors,
@@ -61,6 +63,7 @@ export function figuresOf(series: Pick<Series, "requests" | "errors" | "clientEr
     p95: series.sketch.quantile(0.95),
     p99: series.sketch.quantile(0.99),
     max: series.sketch.max,
+    ...(series.usage ? { usage: { ...series.usage } } : {}),
   };
 }
 
@@ -100,6 +103,7 @@ export async function queryWindows(windows: readonly UsageWindow[], settings: Pi
     for (const dimension of DIMENSIONS) if (entry[dimension] !== undefined) dimensions[dimension] = entry[dimension];
     return { ...dimensions, ...figuresOf(entry) };
   });
-  series.sort((a, b) => b[sort] - a[sort]);
+  const valueOf = sort.startsWith("usage:") ? (entry: MetricsFigures) => entry.usage?.[sort.slice(6)] ?? 0 : (entry: MetricsFigures) => entry[sort as "requests"];
+  series.sort((a, b) => valueOf(b) - valueOf(a));
   return { from: new Date(from), to: new Date(to), totals: figuresOf(total), series: series.slice(0, limit) };
 }

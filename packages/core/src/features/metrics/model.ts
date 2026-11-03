@@ -18,6 +18,8 @@ export type MetricWindow = {
   clientErrors: number;
   /** The encoded latency sketch. */
   sketch: unknown;
+  /** The sums of the usage counters features registered, by name. */
+  usage?: Record<string, number> | null;
 };
 
 const column = (field: NestedFieldModel): FieldModel => ({ ...field, storage: "column" });
@@ -36,6 +38,7 @@ export function metricWindowEntity(): EntityModel {
     column({ name: "errors", type: "number", optional: false, min: 0 }),
     column({ name: "clientErrors", type: "number", optional: false, min: 0 }),
     { name: "sketch", type: "json", optional: false, storage: "json" } as FieldModel,
+    { name: "usage", type: "json", optional: true, storage: "json" } as FieldModel,
   ];
   const include = ["id", "createdAt", "updatedAt", ...fields.map((field) => field.name)];
   return {

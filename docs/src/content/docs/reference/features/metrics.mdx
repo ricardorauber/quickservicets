@@ -96,6 +96,15 @@ query(options?: MetricsQuery): Promise<MetricsResult>;
 The usage series of the windows in a range, merged and grouped by the chosen dimensions, with `requests`, `errors`,
 `clientErrors`, `p50`, `p95`, `p99` and `max` (milliseconds), plus totals.
 
+### `usage`
+
+```ts
+usage(name: string, options: { unit: string; description: string }): UsageRecorderHandle;
+```
+
+Registers a usage counter during setup, like `ai.tokens.input`, counted per route, tenant and user in the same
+windows as requests; throws `Usage metric <name> is registered twice`.
+
 ## The metrics route
 
 `GET /_metrics` (the `path` option) answers JSON for dashboards and people: `last` (default `15m`, at most `rollup.retention`) or `from` and `to` (ISO 8601), `by`, the exact filters `route`, `tenant` and `user`, `sort` (`requests`, `errors`, `p95` or `p99`) and `limit` (default 100, at most 1000); a bad parameter answers 400 `VALIDATION_ERROR` naming it. The body is `{ from, to, window, totals, series }`, with latencies in milliseconds and `errorRate` as errors divided by requests.

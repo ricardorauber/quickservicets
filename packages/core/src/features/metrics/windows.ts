@@ -17,6 +17,8 @@ export interface Series {
   /** The requests of each status class, by its first digit (index 1 for 1xx to 5 for 5xx). */
   classes: number[];
   sketch: LatencySketch;
+  /** The sums of the usage counters features registered, by name; absent until one is added. */
+  usage?: Record<string, number>;
 }
 
 /** The resolution of a stored window. */
@@ -69,6 +71,10 @@ export function mergeSeries(target: Series, source: Series): Series {
   target.clientErrors += source.clientErrors;
   for (let index = 0; index < 6; index++) target.classes[index]! += source.classes[index] ?? 0;
   target.sketch.merge(source.sketch);
+  if (source.usage) {
+    const usage = (target.usage ??= {});
+    for (const [name, value] of Object.entries(source.usage)) usage[name] = (usage[name] ?? 0) + value;
+  }
   return target;
 }
 
@@ -260,6 +266,29 @@ export class UsageRecorder {
       window.set(key, series);
     }
     return series;
+  }
+
+  /**
+   * Adds a usage value to the open window's series of these dimension values (`-` for a missing one), keyed like
+   * request series under the configured `by`; past `maxSeries` it goes to the `other` series.
+   */
+  addUsage(name: string, value: number, values: { route?: string; tenant?: string; user?: string }): void {
+    const by = this.settings.by;
+    const route = by.includes("route") ? (values.route ?? "-") : "";
+    const tenant = by.includes("tenant") ? (values.tenant ?? "-") : "";
+    const user = by.includes("user") ? (values.user ?? "-") : "";
+    const key = `${route}\n${tenant}\n${user}`;
+    const window = this.current.series;
+    let series = window.get(key);
+    if (!series) {
+      if (window.size >= this.settings.maxSeries) series = this.overflowSeries();
+      else {
+        series = emptySeries(this.dimensionsOf((dimension) => (dimension === "route" ? route : dimension === "tenant" ? tenant : user)));
+        window.set(key, series);
+      }
+    }
+    const usage = (series.usage ??= {});
+    usage[name] = (usage[name] ?? 0) + value;
   }
 
   /** The series whose dimensions are all `other`, counting the series past `maxSeries`; the overflow is logged once per window. */

@@ -50,7 +50,7 @@ describe("the MetricWindow entity and the startup check", () => {
     const [entity] = contribute({ models: [], options: { store: "database" } }) as ReturnType<typeof metricWindowEntity>[];
     expect(entity).toMatchObject({ key: "MetricWindow", name: "metric-windows", tableName: "metric_windows", internal: true, system: true });
     expect(entity!.indexes).toEqual([{ fields: ["instance", "resolution", "windowStart", "seriesKey"], unique: true }, { fields: ["resolution", "windowStart"] }]);
-    expect(entity!.fields.map((field) => field.name)).toEqual(["instance", "resolution", "windowStart", "seriesKey", "route", "tenant", "user", "requests", "errors", "clientErrors", "sketch"]);
+    expect(entity!.fields.map((field) => field.name)).toEqual(["instance", "resolution", "windowStart", "seriesKey", "route", "tenant", "user", "requests", "errors", "clientErrors", "sketch", "usage"]);
 
     const config = resolveConfig({ database: memoryAdapter(), logger: silent, metrics: {} } as ServiceConfig, { QS_METRICS_STORE: "database" });
     const lifecycle = createFeatureLifecycle({ features: config.features, config, models: [], worker: { index: 0, count: 1, runsScheduledWork: true } });

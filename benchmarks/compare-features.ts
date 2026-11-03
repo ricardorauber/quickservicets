@@ -4,6 +4,7 @@
  *
  *   bun benchmarks/compare-features.ts benchmarks/results/features/events-off.json
  *   bun benchmarks/compare-features.ts <result> --baseline benchmarks/results/quickservicets.json
+ *   bun benchmarks/compare-features.ts results/features/webhooks-on.json --baseline results/features/events-on+queues-on.json
  *
  * Prints the change of req/s, p50 and p99 per scenario, and exits 1 when a budget check fails (see features.ts).
  */

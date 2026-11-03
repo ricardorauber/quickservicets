@@ -11,7 +11,9 @@ COPY packages/core packages/core
 COPY packages/cli packages/cli
 COPY benchmarks/quickservicets benchmarks/quickservicets
 RUN bun install --frozen-lockfile --filter quickservicets-benchmark
-RUN cd benchmarks/quickservicets && bun run build
+# Runs with QS_BUILD_ENV, like QS_WEBHOOKS_ENABLED=true, for feature runs whose natives add entities.
+ARG QS_BUILD_ENV=""
+RUN cd benchmarks/quickservicets && env $QS_BUILD_ENV bun run build
 
 # 2. Production dependencies of the service only: the CLI is a build tool and stays out of the image.
 FROM oven/bun:1.4.2-alpine AS deps

@@ -4,10 +4,12 @@
  */
 import { join } from "node:path";
 
-/** What the runner needs of a native: its key and whether it is on without a config key. */
+/** What the runner needs of a native: its key, whether it is on without a config key and the natives it turns on. */
 export interface BenchNative {
   key: string;
   enabledByDefault: boolean;
+  /** The natives it turns on when it is on, like `webhooks` turning on `events` and `queues`. */
+  enables?: readonly string[];
 }
 
 /** The parsed `--features` option. */
@@ -18,10 +20,15 @@ export interface FeatureSwitches {
   defaults: Record<string, "on" | "off">;
   /** The `QS_<KEY>_ENABLED` variables the service starts with. */
   variables: Record<string, string>;
+  /** The natives a switch turned on through `enables`, by the switch that did, like `{ events: "webhooks" }`. */
+  enabledBy: Record<string, string>;
   /** The switches sorted and joined by `+`, like `events-on+security-off`: the result file's name. */
   label: string;
-  /** What the run does besides the variables: migrate every tenant before the load, and headers on every request. */
-  plan: { migrateAllTenants: boolean; headers: Record<string, string> };
+  /**
+   * What the run does besides the variables: migrate every tenant before the load, build the service with the switches
+   * and create the tables of the natives they turn on, and headers on every request.
+   */
+  plan: { migrateAllTenants: boolean; nativeTables: boolean; headers: Record<string, string> };
 }
 
 /** What a switch turned on needs besides `QS_<KEY>_ENABLED`: more variables, steps before the load and request headers. */
@@ -29,15 +36,22 @@ export interface SwitchExtras {
   variables?: Record<string, string>;
   /** Runs `quickservicets migrate --all-tenants` before the load. */
   migrateAllTenants?: boolean;
+  /**
+   * Builds the service image with the switches on and creates the tables of the natives' entities before the load:
+   * the benchmark service's own build has no feature on, so a native with entities would find none.
+   */
+  nativeTables?: boolean;
   headers?: Record<string, string>;
 }
 
 /**
  * The extras of the switches that need more than their variable: `tenancy=on` serves one config tenant, `bench`, with
- * the schema strategy, migrated before the load and named by every request.
+ * the schema strategy, migrated before the load and named by every request; `queues=on`, also when a switch like
+ * `webhooks=on` turns it on, needs its tables.
  */
 export const SWITCH_EXTRAS: Readonly<Record<string, SwitchExtras>> = {
   tenancy: { variables: { QS_TENANCY_SOURCE: "config", QS_TENANCY_TENANTS: '{"bench":{}}' }, migrateAllTenants: true, headers: { "x-tenant-id": "bench" } },
+  queues: { nativeTables: true },
 };
 
 /**
@@ -63,13 +77,19 @@ export function parseFeatures(text: string, natives: readonly BenchNative[]): Fe
     defaults[key] = native.enabledByDefault ? "on" : "off";
   }
   const keys = Object.keys(switches).sort();
-  const extras = keys.filter((key) => switches[key] === "on").map((key) => SWITCH_EXTRAS[key] ?? {});
+  const enabledBy: Record<string, string> = {};
+  for (const key of keys) {
+    if (switches[key] !== "on") continue;
+    for (const enabled of known.get(key)!.enables ?? []) if (switches[enabled] === undefined && enabledBy[enabled] === undefined) enabledBy[enabled] = key;
+  }
+  const extras = [...keys.filter((key) => switches[key] === "on"), ...Object.keys(enabledBy)].map((key) => SWITCH_EXTRAS[key] ?? {});
   return {
     switches,
     defaults,
     variables: Object.assign(Object.fromEntries(keys.map((key) => [envName(key), switches[key] === "on" ? "true" : "false"])), ...extras.map((extra) => extra.variables ?? {})),
     label: keys.map((key) => `${key}-${switches[key]}`).join("+"),
-    plan: { migrateAllTenants: extras.some((extra) => extra.migrateAllTenants === true), headers: Object.assign({}, ...extras.map((extra) => extra.headers ?? {})) },
+    enabledBy,
+    plan: { migrateAllTenants: extras.some((extra) => extra.migrateAllTenants === true), nativeTables: extras.some((extra) => extra.nativeTables === true), headers: Object.assign({}, ...extras.map((extra) => extra.headers ?? {})) },
   };
 }
 
@@ -107,8 +127,36 @@ interface ScenarioResult {
 
 /** The parts of a result file a comparison reads. */
 export interface BenchResult {
-  features?: { switches: Record<string, "on" | "off">; defaults: Record<string, "on" | "off"> };
+  features?: { switches: Record<string, "on" | "off">; defaults: Record<string, "on" | "off">; enabledBy?: Record<string, string> };
   scenarios?: Record<string, ScenarioResult>;
+}
+
+/**
+ * The natives that must cost nothing beyond the natives they turn on, compared with a run that switches those on: with
+ * no deliverable event, `webhooks` registers no listener and starts nothing of its own.
+ */
+export const OVER_ENABLED_BUDGETS: Readonly<Record<string, number>> = { webhooks: NOISE_BUDGET };
+
+/** `events and queues`: a list of keys as a sentence. */
+const listed = (keys: readonly string[]) => (keys.length <= 1 ? keys.join("") : `${keys.slice(0, -1).join(", ")} and ${keys.at(-1)}`);
+
+/**
+ * The native a run turns on alone and the natives it turns on, when the baseline is a run with exactly those natives
+ * switched on and the native has a budget over them.
+ */
+function overEnabled(run: BenchResult, baseline: BenchResult): { key: string; enabled: string[]; budget: number } | undefined {
+  const switches = run.features?.switches ?? {};
+  const on = Object.keys(switches).filter((key) => switches[key] === "on");
+  if (on.length !== 1 || Object.keys(switches).length !== 1) return undefined;
+  const key = on[0]!;
+  const budget = OVER_ENABLED_BUDGETS[key];
+  if (budget === undefined) return undefined;
+  const enabledBy = run.features?.enabledBy ?? {};
+  const enabled = Object.keys(enabledBy).filter((name) => enabledBy[name] === key).sort();
+  const base = baseline.features?.switches ?? {};
+  const baseOn = Object.keys(base).filter((name) => base[name] === "on").sort();
+  if (enabled.length === 0 || baseOn.length !== Object.keys(base).length || baseOn.join(",") !== enabled.join(",")) return undefined;
+  return { key, enabled, budget };
 }
 
 const percent = (value: number) => `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
@@ -117,7 +165,8 @@ const percent = (value: number) => `${value >= 0 ? "+" : ""}${value.toFixed(1)}%
  * Compares a run with the baseline, scenario by scenario: the change of requests per second and of p50 and p99
  * latency. A run that only switches off features that are off by default fails above the noise budget; a run with
  * `security=off` fails when the default security costs more than its budget on `crud`; a run turning on natives with
- * an on-budget fails when they cost more than it on `crud`.
+ * an on-budget fails when they cost more than it on `crud`; a run turning on `webhooks` alone, compared with a run that
+ * turns on the natives it enables, fails when it costs more than the noise budget over them on any scenario.
  */
 export function compareResults(run: BenchResult, baseline: BenchResult): { lines: string[]; failures: string[] } {
   const lines: string[] = [];
@@ -132,6 +181,7 @@ export function compareResults(run: BenchResult, baseline: BenchResult): { lines
   const budgeted = on.length > 0 && on.every((key) => ON_BUDGETS[key] !== undefined) && keys.every((key) => switches[key] === "on" || defaults[key] === "off");
   const onBudget = budgeted ? Math.max(...on.map((key) => ON_BUDGETS[key]!)) : undefined;
   const onP50Budget = budgeted ? Math.max(...on.map((key) => ON_P50_BUDGETS[key] ?? ON_BUDGETS[key]!)) : undefined;
+  const over = overEnabled(run, baseline);
   for (const [name, scenario] of Object.entries(run.scenarios ?? {})) {
     const base = baseline.scenarios?.[name];
     if (!base) continue;
@@ -142,6 +192,10 @@ export function compareResults(run: BenchResult, baseline: BenchResult): { lines
     if (noiseRun) {
       if (-throughput > NOISE_BUDGET) failures.push(`${name}: throughput is ${(-throughput).toFixed(1)}% lower than the baseline; the noise budget is ${NOISE_BUDGET}%`);
       if (p50 > NOISE_BUDGET) failures.push(`${name}: p50 latency is ${p50.toFixed(1)}% higher than the baseline; the noise budget is ${NOISE_BUDGET}%`);
+    }
+    if (over) {
+      const cost = Math.max(-throughput, p50);
+      if (cost > over.budget) failures.push(`${over.key} costs ${Math.round(cost * 10) / 10}% over ${listed(over.enabled)} on ${name}; the budget is ${over.budget}%`);
     }
     if (onBudget !== undefined && onP50Budget !== undefined && name === "crud") {
       const label = [...on].sort().join("+");

@@ -77,15 +77,15 @@ describe("runner plans for the infrastructure switches", () => {
   test("tenancy=on serves the config tenant bench, migrates every tenant first and names it on every request", () => {
     const parsed = parseFeatures("tenancy=on", infrastructure);
     expect(parsed.variables).toEqual({ QS_TENANCY_ENABLED: "true", QS_TENANCY_SOURCE: "config", QS_TENANCY_TENANTS: '{"bench":{}}' });
-    expect(parsed.plan).toEqual({ migrateAllTenants: true, headers: { "x-tenant-id": "bench" } });
-    expect(parseFeatures("tenancy=off", infrastructure).plan).toEqual({ migrateAllTenants: false, headers: {} });
+    expect(parsed.plan).toEqual({ migrateAllTenants: true, nativeTables: false, headers: { "x-tenant-id": "bench" } });
+    expect(parseFeatures("tenancy=off", infrastructure).plan).toEqual({ migrateAllTenants: false, nativeTables: false, headers: {} });
   });
 
   test("metrics, auth, proxy, secrets and realtime only set their variable", () => {
     const parsed = parseFeatures("metrics=on,auth=on", infrastructure);
     expect(parsed.variables).toEqual({ QS_AUTH_ENABLED: "true", QS_METRICS_ENABLED: "true" });
     expect(parsed.label).toBe("auth-on+metrics-on");
-    expect(parsed.plan).toEqual({ migrateAllTenants: false, headers: {} });
+    expect(parsed.plan).toEqual({ migrateAllTenants: false, nativeTables: false, headers: {} });
     for (const key of ["proxy", "secrets", "realtime"]) expect(parseFeatures(`${key}=on`, infrastructure).variables).toEqual({ [`QS_${key.toUpperCase()}_ENABLED`]: "true" });
   });
 });
@@ -111,5 +111,41 @@ describe("the all-off comparison", () => {
     expect(compareResults(onRun(allOff, scenario(985, 10.15)), baseline).failures).toEqual([]);
     expect(compareResults(onRun(allOff, scenario(960, 10)), baseline).failures).toEqual(["crud: throughput is 4.0% lower than the baseline; the noise budget is 3%"]);
     expect(compareResults(onRun(allOff, scenario(1000, 10.4)), baseline).failures).toEqual(["crud: p50 latency is 4.0% higher than the baseline; the noise budget is 3%"]);
+  });
+});
+
+describe("runner plans for the webhooks switch", () => {
+  const withWebhooks = [...natives, { key: "queues", enabledByDefault: false }, { key: "webhooks", enabledByDefault: false, enables: ["events", "queues"] }];
+  test("webhooks=on sets its variable and records events and queues as enabled by webhooks", () => {
+    const parsed = parseFeatures("webhooks=on", withWebhooks);
+    expect(parsed.variables).toEqual({ QS_WEBHOOKS_ENABLED: "true" });
+    expect(parsed.enabledBy).toEqual({ events: "webhooks", queues: "webhooks" });
+    expect(parsed.label).toBe("webhooks-on");
+    // The service is built with webhooks on, and the tables of queues and webhooks exist before the load.
+    expect(parsed.plan.nativeTables).toBe(true);
+    expect(parseFeatures("events=on,queues=on", withWebhooks).plan.nativeTables).toBe(true);
+    expect(parseFeatures("webhooks=off", withWebhooks).enabledBy).toEqual({});
+    expect(parseFeatures("events=on,queues=on", withWebhooks).enabledBy).toEqual({});
+  });
+});
+
+describe("comparisons between two feature runs", () => {
+  const eventsAndQueues: BenchResult = {
+    features: { switches: { events: "on", queues: "on" }, defaults: { events: "off", queues: "off" } },
+    scenarios: { crud: scenario(1000, 10), health: scenario(2000, 5) },
+  };
+  const webhooks = (crud: ReturnType<typeof scenario>, health = scenario(2000, 5)): BenchResult => ({
+    features: { switches: { webhooks: "on" }, defaults: { webhooks: "off" }, enabledBy: { events: "webhooks", queues: "webhooks" } },
+    scenarios: { crud, health },
+  });
+
+  test("webhooks=on 2% slower than events=on,queues=on passes; 5% slower fails naming the scenario", () => {
+    expect(compareResults(webhooks(scenario(980, 10.2)), eventsAndQueues).failures).toEqual([]);
+    expect(compareResults(webhooks(scenario(950, 10)), eventsAndQueues).failures).toEqual(["webhooks costs 5% over events and queues on crud; the budget is 3%"]);
+    expect(compareResults(webhooks(scenario(1000, 10), scenario(2000, 5.25)), eventsAndQueues).failures).toEqual(["webhooks costs 5% over events and queues on health; the budget is 3%"]);
+  });
+
+  test("against the default baseline, webhooks=on is only reported", () => {
+    expect(compareResults(webhooks(scenario(500, 30)), baseline).failures).toEqual([]);
   });
 });

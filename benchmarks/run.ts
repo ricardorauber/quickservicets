@@ -155,6 +155,13 @@ async function migrateAllTenants(variables: Record<string, string>) {
   await sh(["bun", "run", "quickservicets", "migrate", "--all-tenants", "--yes"], { cwd: join(BENCH, "quickservicets"), env: { ...process.env, ...variables, DATABASE_URL: HOST_DATABASE_URL } });
 }
 
+/** Creates the tables of the natives the switches turn on (like `queue_messages`), from a host build with the switches. */
+async function createNativeTables(variables: Record<string, string>) {
+  log("Creating the tables of the switched natives");
+  const { stdout } = await sh(["bun", join(BENCH, "native-tables.ts")], { env: { ...process.env, ...variables } });
+  if (stdout.trim()) await psql(stdout);
+}
+
 /**
  * Copies the seeded rows of every table of the public schema into the tenant's schema, column by column, with
  * foreign keys checked once every table is copied (they hold within the copy as they do in public).
@@ -188,7 +195,9 @@ async function buildImage(stack: string): Promise<{ image: string; buildSeconds:
   const context = isQuickService ? ROOT : join(BENCH, "stacks", stack);
   log(`Building ${image}`);
   const started = performance.now();
-  const proc = Bun.spawn(["docker", "build", "-f", dockerfile, "-t", image, context], { stdout: "inherit", stderr: "inherit" });
+  // Switches with native tables build the service with the switches on, so its models hold the natives' entities.
+  const buildEnv = isQuickService && features?.plan.nativeTables ? Object.entries(features.variables).map(([name, value]) => `${name}=${value}`).join(" ") : "";
+  const proc = Bun.spawn(["docker", "build", "-f", dockerfile, ...(buildEnv ? ["--build-arg", `QS_BUILD_ENV=${buildEnv}`] : []), "-t", image, context], { stdout: "inherit", stderr: "inherit" });
   if ((await proc.exited) !== 0) throw new Error(`docker build failed for ${stack}`);
   return { image, buildSeconds: (performance.now() - started) / 1000 };
 }
@@ -382,6 +391,7 @@ async function runStack(stack: string) {
   const variables = stack.startsWith("quickservicets") ? quickServiceVariables(features) : {};
   log("Resetting the schema and seeding");
   await resetSchema();
+  if (features?.plan.nativeTables) await createNativeTables(variables);
   if (features?.plan.migrateAllTenants) {
     await psql(`DROP SCHEMA IF EXISTS ${TENANT_SCHEMA} CASCADE;`);
     await migrateAllTenants(variables);
@@ -408,7 +418,7 @@ async function runStack(stack: string) {
     environment: await environment(),
     image: { name: image, sizeBytes, sizeMB: Math.round((sizeBytes / 1e6) * 10) / 10, buildSeconds: buildSeconds === null ? null : Math.round(buildSeconds * 10) / 10 },
     ...(Object.keys(variables).length > 0 ? { variables } : {}),
-    ...(features ? { features: { switches: features.switches, defaults: features.defaults, label: features.label, plan: features.plan } } : {}),
+    ...(features ? { features: { switches: features.switches, defaults: features.defaults, enabledBy: features.enabledBy, label: features.label, plan: features.plan } } : {}),
   };
 
   let sampler: ReturnType<typeof startSampler> | undefined;

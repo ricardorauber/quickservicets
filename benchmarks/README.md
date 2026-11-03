@@ -106,6 +106,20 @@ The files of `tenancy=on`, `auth=on`, `proxy=on`, `secrets=on` and `realtime=on`
 
 A cheaper recording path for `metrics` followed (no string, key or object built per counted request, about half its earlier share of the service's CPU), and `baseline.json`, `metrics-on.json` and the all-off file, with their rounds, come from a later run of three rounds on an idle machine: `metrics=on` costs nothing in throughput (+3.5%) and +3.4% p50 on `crud`, within its 4% p50 budget, and the run with every infrastructure native off stays within the noise budget (see `adrs/0088-the-cheaper-metrics-recording-path-does-not-yet-show-the-3-percent-budget-holding.md` and ADR 0089).
 
+### The webhooks native
+
+```bash
+bun benchmarks/run.ts quickservicets --features events=on,queues=on --scenarios crud,health --duration 15s --warmup 5s
+bun benchmarks/run.ts quickservicets --features webhooks=on --scenarios crud,health --duration 15s --warmup 5s
+bun benchmarks/compare-features.ts benchmarks/results/features/webhooks-on.json --baseline benchmarks/results/features/events-on+queues-on.json
+```
+
+`webhooks=on` sets only `QS_WEBHOOKS_ENABLED=true`; the service then turns on `events` and `queues` through `enables`, and the result records them under `features.enabledBy` (`{ "events": "webhooks", "queues": "webhooks" }`). The benchmark service's own build has no feature on, so a run that turns on `queues` (directly or through `webhooks`) builds the image with the run's variables (`--build-arg QS_BUILD_ENV`) and, after the schema reset, creates the tables of the models the natives own (`queue_messages`, `webhook_subscriptions`, `webhook_deliveries`) from a host build, with `benchmarks/native-tables.ts`; the result records the step as `features.plan.nativeTables` (see `adrs/0094-feature-runs-with-native-tables-build-the-service-with-the-switches.md`).
+
+`--baseline` takes any result file, a feature run included. Compared with a run that switches on exactly the natives it enables, `webhooks=on` is held to the 3% noise budget on every scenario, in throughput and p50 latency, failing with `webhooks costs <n>% over events and queues on <scenario>; the budget is 3%`: with no `webhooks.events` patterns and no `@webhooks` tags the native registers no listener, so it must cost nothing beyond `events` and `queues`.
+
+`results/features/webhooks-on.json` and `results/features/events-on+queues-on.json`, each with its date (`startedAt`) and machine (`environment`), come from one run of three rounds of `crud` and `health` (the second in reverse order, rounds in `results/features/round-1/` to `round-3/`, the best round per scenario kept): `webhooks=on` measured +1.1% req/s and -0.2% p50 on `crud`, and -0.1% req/s and +1.8% p50 on `health`, against `events=on,queues=on`, within the budget.
+
 ## Scenarios
 
 k6 (`grafana/k6:2.3.0`) runs in a container on the same network with 4 CPUs, 64 VUs, no think time, keep-alive connections. Each request is tagged, so the results have totals and per-endpoint numbers. An error is any status other than the expected one.

@@ -61,7 +61,7 @@ export type Member = {
 | `{ width: number; unit?: string }` | Inline objects, nested to any depth. |
 | Another entity, like `Organization` | A reference, stored as the record's id (top-level fields only). |
 | `User[]` | A reference array, stored as ids. |
-| `File`, `Media` from `@quickservicets/core` | Uploaded files, sent with multipart requests. |
+| `File`, `Media` from `@quickservicets/core` | Uploaded files, sent with multipart requests, or created from code with `createFile(entity, { body, filename })` (and read with `openFile`, linked with `fileUrl`; `ctx.files` in jobs and consumers). |
 
 A field without `?:` is required and never accepts `null`. An optional field accepts `null` to clear it.
 

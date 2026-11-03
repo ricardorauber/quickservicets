@@ -1,3 +1,4 @@
+import { filesContext } from "../file-records.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -85,7 +86,7 @@ function instance(jobs: Record<string, JobDefinition>, database: DatabaseAdapter
     jobs: registry,
     database,
     repos: {} as never,
-    files: config.storage,
+    files: filesContext(config.storage),
     config: config.jobs,
     production: config.production,
     logger,

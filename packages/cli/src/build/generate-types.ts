@@ -272,6 +272,13 @@ export function queuePayloadLines(queues: readonly QueueTypeEntry[], published: 
   ];
 }
 
+/** The `FileEntityNames` entries of the model's file entities, so `createFile` takes only their names. */
+export function fileEntityLines(models: readonly { entityName: string; file?: unknown }[]): string[] {
+  const names = models.filter((model) => model.file).map((model) => model.entityName);
+  if (names.length === 0) return [];
+  return ['declare module "@quickservicets/core" {', "  interface FileEntityNames {", ...names.map((name) => `    ${JSON.stringify(name)}: true;`), "  }", "}", ""];
+}
+
 /**
  * The `HttpServiceNames` entries of the config's `http.services`, so `http.service()` takes those names; nothing
  * without services.

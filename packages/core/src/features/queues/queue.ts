@@ -1,5 +1,5 @@
 import type { RunTenant } from "../public.ts";
-import type { Http, JobLogger, Repositories } from "../public.ts";
+import type { FileRecordFunctions, Http, JobLogger, Repositories } from "../public.ts";
 
 /**
  * The payload type of every queue of the project, by queue name; the build fills it in `.generated/types.ts` from the
@@ -79,6 +79,8 @@ export interface QueueContext<Payload = unknown> {
   http: Http;
   /** The tenant the message was added for; the consumer runs in its scope. */
   tenant?: RunTenant;
+  /** Creates, reads and links records of file entities: `createFile`, `openFile` and `fileUrl`. */
+  files: FileRecordFunctions;
 }
 
 /** Per-queue settings; each one overrides the matching `queues` option. */

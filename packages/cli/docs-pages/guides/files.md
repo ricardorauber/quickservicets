@@ -509,6 +509,23 @@ curl "localhost:3000/documents/01a146d2-2b32-757d-9f6d-a8620106da15/file?expires
 
 In `signed` mode the file route runs no hooks: the signature is the only check, so whoever can read the record can share its file until the URL expires.
 
+## Files from code
+
+Endpoints, jobs, queue consumers and features create file records from bytes they produced, like a generated image or an export, with `createFile`; `openFile` reads a stored file and `fileUrl` links to it. Jobs and queue consumers also get them as `ctx.files.createFile`, `ctx.files.openFile` and `ctx.files.fileUrl`:
+
+```ts
+import { createFile, fileUrl, openFile } from "@quickservicets/core";
+
+const record = await createFile("Media", { body: pngBytes, filename: "cat.png" });
+const { stream, size, mimeType } = await openFile({ entity: "Media", id: record.id });
+const link = await fileUrl(record, { expiresIn: "15m" });
+```
+
+- `createFile(entity, { body, filename, mimeType?, fields?, storage? })` takes a `Uint8Array`, `ArrayBuffer`, `Blob`, string or `ReadableStream` and an entity name of the generated `FileEntityName` union (only the file entities the model has, so `createFile("Post", …)` is a type error). It applies the rules of an upload in the same order: the size limit (`@maxSize` or `files.maxSize`, 413 `File too large`, a stream stopped as soon as it passes the limit), type detection with `mimeType` as the declared type (415 `File content does not match its type`; the detected type, else `application/octet-stream`, by default), `@accept` and the Media rule (400 `File type not allowed`), and the filename sanitizing. `fields` sets the entity's own fields, validated like a JSON create, and `storage` names a configured storage over the entity's.
+- The object is stored first and the record inserted after; a failed insert deletes the object before the error is thrown, and inside a transaction the object is deleted when the transaction rolls back. The record is returned as reads return it, with its `url`, its write events are those of an upload, and the service logs `files.stored` with the entity, id, size and type.
+- `openFile(record or { entity, id })` resolves `{ stream, size, mimeType, filename, record }`, or throws 404 `<Entity> not found`; it runs no hooks, so the caller decides who may read the file.
+- `fileUrl(record, { expiresIn? })` gives the URL of the entity's access mode: the storage's public URL (`direct`), the proxy route (`proxy`) or a signed URL valid for `expiresIn` (`signed`, default `files.signedUrlTtl`), absolute when `server.publicUrl` is set.
+
 ## Cleanup
 
 Stored objects are deleted when nothing uses them anymore. Three config flags, all `true` by default, control it:

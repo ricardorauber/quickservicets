@@ -1,3 +1,4 @@
+import { configureFileRecords, filesContext } from "./file-records.ts";
 import type { ResolvedConfig } from "./config.ts";
 import { configureTransactions } from "./transactions.ts";
 import { jsonLogger, maskedLogger, safeLog, type Logger } from "./logger.ts";
@@ -237,6 +238,8 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
   configureTenantRuns(settings.tenantRuns);
   const hooksByRoute = new Map(crudRoutes.map((entry) => [`${entry.method} ${entry.path}`, entry.hooks]));
   const uploads = { storage: config.storage, files: config.files };
+  // createFile, openFile and fileUrl reach this service's models, storages and access settings.
+  configureFileRecords({ models, adapter: config.database, uploads, access: fileAccess, logger });
   // The file route runs the entity's read hooks in proxy mode; a valid signature is the only check in signed mode.
   const hooksOf = (route: CrudRoute): HookCall[] =>
     route.fileAccess === "signed"
@@ -300,7 +303,7 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
     model: jobRunModel,
     repos: repos as unknown as Repositories,
     runRepositories: (run) => resolveRunRepositories(run) as unknown as Repositories,
-    files: config.storage,
+    files: filesContext(config.storage),
     config: config.jobs,
     production: config.production,
     logger,

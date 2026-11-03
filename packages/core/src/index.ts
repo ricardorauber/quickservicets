@@ -103,6 +103,8 @@ export type { CrudRoute } from "./http/crud.ts";
 export { createApp } from "./app.ts";
 export { startService } from "./service.ts";
 export { CORE_VERSION, generatedPath } from "./build-steps.ts";
+export { createFile, fileRecords, fileUrl, openFile } from "./file-records.ts";
+export type { CreateFileInput, FileBody, FileEntityName, FileEntityNames, FileRecordFunctions, OpenedFile } from "./file-records.ts";
 export type { BuildFolderFile, FeatureBuildContext } from "./build-steps.ts";
 export { defineCommand, isCommandDefinition, jsonShapeProblems } from "./commands.ts";
 export type { CommandArg, CommandContext, CommandDefinition, CommandInput, CommandOutput, JsonFields, JsonShape, PromptOptions } from "./commands.ts";

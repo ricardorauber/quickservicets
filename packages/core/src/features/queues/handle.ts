@@ -1,4 +1,4 @@
-import { coreInstruments, metricsEnabled, contextFlags, contextHttp, operationContextEnabled, parseTraceparent, spanAttributes, startSpan, tracingEnabled, withSpan, runForTenant, safeLog, systemClock, withOperation, type JobClock, type JobLogFields, type JobLogger, type Logger, type Repositories } from "../public.ts";
+import { fileRecords, coreInstruments, metricsEnabled, contextFlags, contextHttp, operationContextEnabled, parseTraceparent, spanAttributes, startSpan, tracingEnabled, withSpan, runForTenant, safeLog, systemClock, withOperation, type JobClock, type JobLogFields, type JobLogger, type Logger, type Repositories } from "../public.ts";
 import type { QueueBrokerContext, QueueReceivedMessage } from "./broker.ts";
 import { queueClient } from "./client.ts";
 import type { QueueContext, QueueDefinition } from "./queue.ts";
@@ -40,6 +40,7 @@ export function consumerHandler(options: ConsumerHandlerOptions): QueueBrokerCon
         signal,
         log,
         queue: queueClient(),
+        files: fileRecords,
         // `ctx.flags` exists while the `flags` native runs; its type comes from the generated flag types.
         ...(contextFlags() ? { flags: contextFlags() } : {}),
         ...httpOf(message.id),

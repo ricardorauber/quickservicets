@@ -1,3 +1,4 @@
+import type { FileRecordFunctions } from "../file-records.ts";
 import type { RunTenant } from "../tenant-runs.ts";
 import type { Repositories } from "../hooks.ts";
 import type { StorageAdapter } from "../storage/storage.ts";
@@ -61,8 +62,11 @@ export interface JobLogger {
 export interface JobContext {
   /** The typed repositories. */
   repos: Repositories;
-  /** The configured file storages. */
-  files: Record<string, StorageAdapter> & { default: StorageAdapter };
+  /**
+   * The configured file storages, by name, with `createFile`, `openFile` and `fileUrl` to create, read and link records
+   * of file entities.
+   */
+  files: Record<string, StorageAdapter> & { default: StorageAdapter } & FileRecordFunctions;
   /** Aborted when the run times out or the server shuts down. */
   signal: AbortSignal;
   log: JobLogger;

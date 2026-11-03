@@ -1,3 +1,4 @@
+import { filesContext } from "../file-records.ts";
 import type { DatabaseAdapter } from "../adapter.ts";
 import { memoryAdapter } from "../adapters/memory.ts";
 import { resolveConfig, type ServiceConfig } from "../config.ts";
@@ -83,7 +84,7 @@ export function jobInstance(jobs: Record<string, JobDefinition>, database: Datab
     jobs: registry,
     database,
     repos: {} as never,
-    files: config.storage,
+    files: filesContext(config.storage),
     config: config.jobs,
     production: config.production,
     logger,

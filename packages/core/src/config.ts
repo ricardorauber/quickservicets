@@ -1,3 +1,4 @@
+import { DEFAULT_MAX_SCAN } from "./vectors.ts";
 import { DEFAULT_CHECK_BUFFER, type UploadCheck } from "./upload-checks.ts";
 import { existsSync } from "node:fs";
 import type { ServerTlsConfig } from "./tls.ts";
@@ -109,6 +110,11 @@ export interface ServiceConfig extends NativeFeatures {
     /** Most records a fluent query's `toArray()` may return (default 10000). */
     toArrayMax?: number;
   };
+  /** Nearest-neighbor queries without pgvector. */
+  vectors?: {
+    /** The most candidates a nearest query scans on SQLite, MongoDB and memory (default 10000). */
+    maxScan?: number;
+  };
   /** Populate settings. */
   populate?: {
     /** Maximum number of segments in a populate path (default 2). */
@@ -163,7 +169,7 @@ export interface ServiceConfig extends NativeFeatures {
 export const DEFAULT_POPULATE_DEPTH = 2;
 
 export interface ResolvedConfig
-  extends Omit<ServiceConfig, "database" | "databases" | "server" | "production" | "schema" | "populate" | "storage" | "files" | "docs" | "jobs" | "lifecycle"> {
+  extends Omit<ServiceConfig, "database" | "databases" | "server" | "production" | "schema" | "populate" | "vectors" | "storage" | "files" | "docs" | "jobs" | "lifecycle"> {
   /**
    * The database adapter, `memoryAdapter()` when the config names none; with named databases, an adapter that routes
    * each entity to the adapter of its database (`databases` holds each one).
@@ -190,6 +196,7 @@ export interface ResolvedConfig
   };
   storage: Record<string, StorageAdapter> & { default: StorageAdapter };
   populate: { maxDepth: number };
+  vectors: { maxScan: number };
   /** Job defaults, validated and kept as written (durations like `5m`, sizes like `64KB`). */
   jobs: {
     enabled: boolean;
@@ -301,6 +308,13 @@ function checkBufferOf(value: number | string | undefined): number {
   const bytes = parseSize(value);
   if (bytes === undefined) throw new ConfigError(`Invalid files.checkBuffer: ${String(value)}`);
   return bytes;
+}
+
+/** `vectors.maxScan`, a whole number of at least 1. */
+function vectorsMaxScan(value: number | undefined): number {
+  if (value === undefined) return DEFAULT_MAX_SCAN;
+  if (!Number.isInteger(value) || value < 1) throw new ConfigError(`Invalid vectors.maxScan: expected an integer of at least 1, got ${String(value)}`);
+  return value;
 }
 
 /** File settings; `FILES_SIGNING_SECRET` and the `QS_FILES_*` variables are applied to the config before. */
@@ -444,6 +458,7 @@ export function resolveConfig(
     docs: { enabled: config.docs?.enabled ?? !production, ...(config.docs?.openapi ? { openapi: config.docs.openapi } : {}) },
     schema: resolveSchema(config, env),
     populate: { maxDepth: config.populate?.maxDepth ?? DEFAULT_POPULATE_DEPTH },
+    vectors: { maxScan: vectorsMaxScan(config.vectors?.maxScan) },
     storage: resolveStorage(config, projectRoot),
     files: resolveFiles(config),
     jobs: resolveJobs(config),

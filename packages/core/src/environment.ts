@@ -66,6 +66,7 @@ export const CONFIG_OVERRIDES: readonly ConfigOverride[] = [
   { path: "files.checkBuffer", schema: size() },
   { path: "repositories.toArrayMax", schema: integer().min(1) },
   { path: "populate.maxDepth", schema: integer().min(1) },
+  { path: "vectors.maxScan", schema: integer().min(1) },
   { path: "migrations.autoInDev", schema: boolean() },
   { path: "jobs.enabled", schema: boolean(), alias: { name: "JOBS_ENABLED" } },
   { path: "jobs.timeZone", schema: string() },

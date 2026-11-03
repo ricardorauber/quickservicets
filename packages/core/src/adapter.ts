@@ -109,6 +109,11 @@ export interface DatabaseAdapter {
   deleteAndPull?(entity: EntityModel, id: string, pulls: ReferencePull[], updatedAt: Date): Promise<boolean>;
   count(entity: EntityModel, where: Condition[]): Promise<number>;
   /**
+   * The `k` rows matching `where` closest to `vector` on a vector field, by ascending distance then id, each with its
+   * `distance`, in one statement (PostgreSQL with pgvector); adapters without it are scanned by the repository.
+   */
+  nearest?(entity: EntityModel, query: { where: Condition[]; field: string; vector: readonly number[]; metric: "cosine" | "l2" | "ip"; k: number }): Promise<(StoredRecord & { distance: number })[]>;
+  /**
    * Computes every aggregate over the records matching `where` in one statement (or pipeline). Counts are 0 and the
    * other aggregates null when no record has a value.
    */

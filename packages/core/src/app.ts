@@ -1,3 +1,4 @@
+import { configureVectors, DEFAULT_MAX_SCAN } from "./vectors.ts";
 import { configureFileRecords, filesContext } from "./file-records.ts";
 import { runUploadChecks } from "./upload-checks.ts";
 import { currentOperation } from "./operation-context.ts";
@@ -246,6 +247,7 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
   configureTenantRuns(settings.tenantRuns);
   const hooksByRoute = new Map(crudRoutes.map((entry) => [`${entry.method} ${entry.path}`, entry.hooks]));
   const uploads = { storage: config.storage, files: config.files };
+  configureVectors(config.vectors ?? { maxScan: DEFAULT_MAX_SCAN });
   // createFile, openFile and fileUrl reach this service's models, storages and access settings.
   configureFileRecords({ models, adapter: config.database, uploads, access: fileAccess, logger, check: (file, model) => runUploadChecks(file, { entity: model.entityName }, requestCheckContext()) });
   // The file route runs the entity's read hooks in proxy mode; a valid signature is the only check in signed mode.

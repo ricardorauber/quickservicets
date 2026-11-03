@@ -1,6 +1,6 @@
 import type { Aggregate, AggregateValues } from "./adapter.ts";
 import { HttpError, type FieldErrorDetail } from "./errors.ts";
-import { SYSTEM_FIELDS, type EntityModel, type FieldModel } from "./model.ts";
+import { SYSTEM_FIELDS, type EntityModel, type FieldModel, type VectorMetric } from "./model.ts";
 import { project } from "./projection.ts";
 import { MAX_LIMIT, type Condition, type FilterOperator, type ListQuery, type SortField } from "./query.ts";
 import type { PopulatePath, Populated } from "./repository.ts";
@@ -279,6 +279,22 @@ export type SortFields<T> = {
 
 export type SortLambda<T> = (fields: SortFields<T>) => SortKey;
 
+/** A field a nearest query ranks by. */
+export class VectorKey {
+  constructor(readonly field: string) {}
+}
+
+/** The fields a nearest query can rank by: the `number[]` fields, of which `@vector` ones are accepted. */
+export type VectorFields<T> = {
+  [K in keyof T as NonNullable<T[K]> extends readonly number[] ? K : never]-?: VectorKey;
+};
+
+/** The vector field of a nearest query: a lambda returning its handle, or its name. */
+export type VectorFieldChoice<T> = ((fields: VectorFields<T>) => VectorKey) | (keyof VectorFields<T> & string);
+
+/** The most results a nearest query returns. */
+export const MAX_NEAREST = 100;
+
 /**
  * A LINQ-like query on one entity; each `where` narrows it, and a terminal method runs it. `R` maps reference fields
  * for `include`; `M` is what `aggregate` resolves when the query has no source records at all (`null` for the records
@@ -299,6 +315,13 @@ export interface Query<T, R = Record<never, never>, M = never> {
   skip(count: number): Query<T, R, M>;
   /** Returns at most `count` results (not applied to `count()`, `any()`, `all()` and `none()`). */
   take(count: number): Query<T, R, M>;
+  /** The same as `take(count)`. */
+  limit(count: number): Query<T, R, M>;
+  /**
+   * Ranks the matches by their distance from `vector` on a `@vector` field (the field's metric unless `metric` is
+   * given), closest first, each result carrying its `distance`; needs `take(k)` with k from 1 to 100.
+   */
+  nearest(field: VectorFieldChoice<T>, vector: readonly number[], options?: { metric?: VectorMetric }): Query<T & { distance: number }, R, M>;
   /** Returns only these fields plus `id`. */
   select<K extends keyof T & string>(...fields: K[]): Query<Pick<T, K | ("id" & keyof T)>, R, M>;
   /** Replaces reference paths with the referenced records, e.g. `include("profiles.permissions.module")`. */
@@ -346,6 +369,17 @@ export interface QueryBackend {
   /** Every aggregate over the matches; null when the query has no source records (the owner of related records is missing). */
   aggregate(where: Condition[], aggregates: Record<string, Aggregate>): Promise<AggregateValues | null>;
   notFound(): Error;
+  /** The `k` matches closest to a vector, ranked, each with its `distance`. */
+  nearest?(input: NearestQuery, populate: string[]): Promise<Record<string, unknown>[]>;
+}
+
+/** What a backend ranks for a nearest query. */
+export interface NearestQuery {
+  where: Condition[];
+  field: string;
+  vector: readonly number[];
+  metric: VectorMetric;
+  k: number;
 }
 
 interface QueryState {
@@ -355,6 +389,7 @@ interface QueryState {
   take?: number;
   select?: string[];
   include?: string[];
+  nearest?: { field: string; vector: readonly number[]; metric: VectorMetric };
 }
 
 const DEFAULT_SORT: SortField[] = [
@@ -391,6 +426,15 @@ function nonNegative(method: string, count: number): number {
   return count;
 }
 
+const noOrder = (): never => {
+  throw new Error("nearest() cannot be combined with orderBy");
+};
+
+/** Handles for the vector fields of a model, by name. */
+function vectorKeys(model: EntityModel): Record<string, VectorKey> {
+  return new Proxy({} as Record<string, VectorKey>, { get: (_, name) => new VectorKey(String(name)) });
+}
+
 /** A query over the backend's records with the given state; every method returns a new query. */
 export function createQuery<T, R = Record<never, never>, M = never>(backend: QueryBackend, state: QueryState): Query<T, R, M> {
   const { model, toArrayMax } = backend;
@@ -412,19 +456,40 @@ export function createQuery<T, R = Record<never, never>, M = never>(backend: Que
     return { ...result, data: shape(result.data) };
   };
   const count = () => backend.count(state.where);
+  /** The ranked matches of a nearest query, shaped like other results. */
+  const ranked = async (k: number) => {
+    const nearest = state.nearest!;
+    if (state.take === undefined || state.take < 1 || state.take > MAX_NEAREST) throw new Error(`nearest() needs take(k) with k from 1 to ${MAX_NEAREST}`);
+    if (!backend.nearest) throw new Error(`${model.entityName} does not support nearest()`);
+    const records = await backend.nearest({ where: state.where, field: nearest.field, vector: nearest.vector, metric: nearest.metric, k: Math.min(k, state.take) }, state.include ?? []);
+    return (state.select ? records.map((record) => ({ ...(project(record, { include: ["id", ...state.select!] }) as Record<string, unknown>), distance: record.distance })) : records) as T[];
+  };
   const any = async (lambda?: QueryLambda<T>) =>
     (await (lambda === undefined ? count() : backend.count([...state.where, ...conditionsOf(model, lambda)]))) > 0;
   return {
     where: (lambda) => next({ where: [...state.where, ...conditionsOf(model, lambda)] }),
-    orderBy: (lambda) => next({ sort: [{ field: keyOf(lambda), direction: "asc" }] }),
-    orderByDescending: (lambda) => next({ sort: [{ field: keyOf(lambda), direction: "desc" }] }),
+    orderBy: (lambda) => (state.nearest ? noOrder() : next({ sort: [{ field: keyOf(lambda), direction: "asc" }] })),
+    orderByDescending: (lambda) => (state.nearest ? noOrder() : next({ sort: [{ field: keyOf(lambda), direction: "desc" }] })),
     thenBy: (lambda) => next({ sort: [...state.sort, { field: keyOf(lambda), direction: "asc" }] }),
     thenByDescending: (lambda) => next({ sort: [...state.sort, { field: keyOf(lambda), direction: "desc" }] }),
     skip: (value) => next({ skip: nonNegative("skip", value) }),
     take: (value) => next({ take: nonNegative("take", value) }),
+    limit: (value) => next({ take: nonNegative("take", value) }),
+    nearest(field, vector, options = {}) {
+      if (state.sort.length > 0) noOrder();
+      const name = typeof field === "function" ? (field(vectorKeys(model) as never) as unknown) : new VectorKey(String(field));
+      if (!(name instanceof VectorKey)) throw new Error(`A nearest lambda on ${model.entityName} must return a field`);
+      const definition = model.fields.find((candidate) => candidate.name === name.field);
+      if (!definition?.vector) throw new Error(`${model.entityName}.${name.field} is not a vector field`);
+      if (!Array.isArray(vector) || vector.length !== definition.vector.dimensions || !vector.every((value) => typeof value === "number" && Number.isFinite(value))) {
+        throw new Error(`nearest() needs a vector of ${definition.vector.dimensions} numbers for ${model.entityName}.${name.field}`);
+      }
+      return createQuery(backend, { ...state, nearest: { field: name.field, vector: [...vector], metric: options.metric ?? definition.vector.metric } }) as never;
+    },
     select: (...fields) => createQuery(backend, { ...state, select: fields }) as never,
     include: (...paths) => createQuery(backend, { ...state, include: [...new Set([...(state.include ?? []), ...paths])] }) as never,
     async toArray() {
+      if (state.nearest) return ranked(state.take ?? 0);
       // One record past the cap shows there are too many, without counting the matches.
       const limit = Math.min(state.take ?? Number.POSITIVE_INFINITY, toArrayMax + 1);
       if (limit === 0) return [];
@@ -435,11 +500,17 @@ export function createQuery<T, R = Record<never, never>, M = never>(backend: Que
       return data;
     },
     async first() {
+      if (state.nearest) {
+        const [found] = await ranked(1);
+        if (!found) throw backend.notFound();
+        return found;
+      }
       const record = state.take === 0 ? undefined : (await read(1, state.skip)).data[0];
       if (!record) throw backend.notFound();
       return record;
     },
     async firstOrDefault() {
+      if (state.nearest) return (await ranked(1))[0] ?? null;
       return state.take === 0 ? null : ((await read(1, state.skip)).data[0] ?? null);
     },
     count,

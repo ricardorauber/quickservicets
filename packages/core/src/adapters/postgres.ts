@@ -190,6 +190,13 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
       ]);
       return { data, total: total ?? data.length };
     },
+    async nearest(entity, { where, field, vector, metric, k }) {
+      const rows = await read(entity, statementsFor(entity).nearest(where, field, vector, metric, k));
+      return rows.map((row) => {
+        const { __distance, ...rest } = row as StoredRecord & { __distance: unknown };
+        return { ...(rest as StoredRecord), distance: Number(__distance) };
+      });
+    },
     async findRelated(scope, { where, sort, limit, offset, withTotal = true }) {
       const { junction, target } = relatedOf(scope);
       const [data, total] = await Promise.all([

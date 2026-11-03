@@ -1,3 +1,4 @@
+import { maxScan, nearestOf, vectorDistance } from "./vectors.ts";
 import { databaseOf, isDatabaseRouter } from "./named-databases.ts";
 import { assertWritable, publicTransaction, runInTransaction, transactionTarget, type TransactionOptions } from "./transactions.ts";
 import { tracingEnabled } from "./tracing.ts";
@@ -561,6 +562,37 @@ export function createRepository(
       return adapter.aggregate(model, await resolve(where), await resolveAggregates(aggregates));
     },
     notFound,
+    nearest: async (query, populate) => {
+      const distances = new Map<string, number>();
+      const field = query.field;
+      const ranked = await listRecords({ where: query.where, sort: [], limit: query.k, offset: 0 }, { populate }, false, async (where) => {
+        if (adapter.nearest) {
+          const rows = await adapter.nearest(model, { ...query, where });
+          for (const row of rows) distances.set(row.id, row.distance);
+          return { data: rows.map(({ distance: _distance, ...row }) => row as StoredRecord), total: rows.length };
+        }
+        // Without pgvector: the ids and vectors of at most vectors.maxScan candidates, ranked exactly with a bounded heap.
+        const limit = maxScan();
+        const omit = model.fields.filter((candidate) => candidate.name !== field && candidate.storage === "column").map((candidate) => candidate.name);
+        const { data } = await adapter.findMany(model, { where, sort: [{ field: "id", direction: "asc" }], limit: limit + 1, offset: 0, withTotal: false, omit });
+        if (data.length > limit) throw new Error(`nearest() scanned more than ${limit} rows; add filters or use PostgreSQL with pgvector`);
+        const best = nearestOf(
+          (function* () {
+            for (const row of data) {
+              const value = row[field];
+              if (Array.isArray(value) && value.length === query.vector.length) yield { id: row.id, distance: vectorDistance(query.metric, query.vector, value as number[]) };
+            }
+          })(),
+          query.k,
+        );
+        for (const entry of best) distances.set(entry.id, entry.distance);
+        if (best.length === 0) return { data: [], total: 0 };
+        const { data: records } = await adapter.findMany(model, { where: [{ field: "id", op: "in", value: best.map((entry) => entry.id) }], sort: [{ field: "id", direction: "asc" }], limit: best.length, offset: 0, withTotal: false });
+        const byId = new Map(records.map((record) => [record.id, record]));
+        return { data: best.flatMap((entry) => (byId.has(entry.id) ? [byId.get(entry.id)!] : [])), total: best.length };
+      });
+      return ranked.data.map((record) => ({ ...(record as Record<string, unknown>), distance: distances.get(record.id)! }));
+    },
   };
 
   /**

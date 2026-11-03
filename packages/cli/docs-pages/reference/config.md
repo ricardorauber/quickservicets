@@ -46,6 +46,8 @@ Every key that holds a value can also be set by an environment variable named af
 | `files.checkBuffer` | `number \| string` | 8 MB | `QS_FILES_CHECK_BUFFER` | How much of a checked file is held in memory, in bytes or as `8MB`; beyond it the file is spooled to disk (default 8 MB). |
 | `repositories` | `object` | — | — | Repository settings. |
 | `repositories.toArrayMax` | `number` | 10000 | `QS_REPOSITORIES_TO_ARRAY_MAX` | Most records a fluent query's `toArray()` may return (default 10000). |
+| `vectors` | `object` | — | — | Nearest-neighbor queries without pgvector. |
+| `vectors.maxScan` | `number` | 10000 | `QS_VECTORS_MAX_SCAN` | The most candidates a nearest query scans on SQLite, MongoDB and memory (default 10000). |
 | `populate` | `object` | — | — | Populate settings. |
 | `populate.maxDepth` | `number` | 2 | `QS_POPULATE_MAX_DEPTH` | Maximum number of segments in a populate path (default 2). |
 | `migrations` | `object` | — | — | Migration settings. |

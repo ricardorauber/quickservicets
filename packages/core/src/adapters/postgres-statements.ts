@@ -186,6 +186,22 @@ export class EntityStatements implements ConditionTarget {
     return { key, text, params: [...params, limit, offset] };
   }
 
+  /**
+   * The `k` rows matching `where` closest to `vector` on a pgvector column, ranked by the metric's operator so an HNSW
+   * index of the same metric is used, each with its distance as `__distance`.
+   */
+  nearest(where: readonly Condition[], field: string, vector: readonly number[], metric: "cosine" | "l2" | "ip", k: number): Statement {
+    const column = this.columns.get(field);
+    if (!column) throw new Error(`Unknown vector field ${field}`);
+    const operator = { cosine: "<=>", l2: "<->", ip: "<#>" }[metric];
+    const target = `${this.table}.${column.name}`;
+    const { text, params } = this.withConditions(`nearest:${field}:${metric}`, where, 2, (clause, at) => {
+      const filter = `${target} is not null${clause ? ` and ${clause}` : ""}`;
+      return `select ${this.selectList}, (${target} ${operator} $1::vector) as "__distance" from ${this.table} where ${filter} order by ${target} ${operator} $1::vector asc, ${this.table}."id" asc limit $${at + 2}`;
+    });
+    return { text, params: [`[${vector.join(",")}]`, ...params, k] };
+  }
+
   count(where: readonly Condition[]): Statement {
     const { text, params } = this.withConditions("count", where, 1, (clause) => `select count(*) as "total" from ${this.table}${clause ? ` where ${clause}` : ""}`);
     return { text, params };

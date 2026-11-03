@@ -67,7 +67,7 @@ const notDone = await repos.tasks.where((t) => t.done.eq(true).not()).toArray();
 ```
 
 - Records: `create`, `findById`, `findOne`, `list`, `update`, `replace`, `delete`.
-- Fluent queries: `where`, `orderBy`, `thenBy`, `skip`, `take`, `select`, `include`, then `toArray()`, `first()`, `firstOrDefault()`, `count()`, `page()`.
+- Fluent queries: `where`, `orderBy`, `thenBy`, `skip`, `take` (or `limit`), `select`, `include`, `nearest((c) => c.embedding, vector)` on a `@vector` field (needs `take(k)`, k ≤ 100; results carry `distance`), then `toArray()`, `first()`, `firstOrDefault()`, `count()`, `page()`.
 - `any(condition?)`, `all(condition)` and `none(condition?)` answer `true` or `false`, on a query or directly on a repository.
 - `.not()` negates any condition; `and` and `or` combine them.
 - `repos.transaction(async () => { ... })` runs every repository call inside it in one transaction. With named databases a transaction covers one database (the first entity it touches, or `{ database: "orders" }` as second argument); touching another database inside it throws `CROSS_DATABASE_TRANSACTION`.

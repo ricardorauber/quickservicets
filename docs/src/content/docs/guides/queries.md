@@ -505,6 +505,24 @@ export async function paged(repos: Repositories) {
 }
 ```
 
+## Nearest-neighbor queries: `nearest`
+
+On an entity with a [`@vector` field](/guides/entities/), `nearest(field, vector, { metric? })` ranks the matches by their distance from a vector, closest first, and each result carries its `distance`. It needs `take(k)` (or `limit(k)`) with k from 1 to 100, and works with `where`, `select` and `include`:
+
+```ts
+const chunks = await repos.chunks
+  .where((c) => c.document.eq(documentId))
+  .nearest((c) => c.embedding, queryEmbedding)
+  .take(5)
+  .toArray();
+// [{ id, text, document, embedding, distance: 0.08 }, …]
+```
+
+- The field is a lambda returning a `number[]` field or its name; a field without `@vector` throws `<Entity>.<field> is not a vector field`, and a vector of another length throws `nearest() needs a vector of <dimensions> numbers for <Entity>.<field>`.
+- The metric is the field's (`cosine`, `l2` or `ip`) unless `metric` is given: `distance` is the cosine distance (1 − cosine similarity), the Euclidean distance, or the negated inner product, so the largest product comes first. Records without a vector are skipped; ties are ordered by `id`.
+- Without `take(k)`, or with k above 100, it throws `nearest() needs take(k) with k from 1 to 100`; `orderBy` with `nearest` throws `nearest() cannot be combined with orderBy`, and `count()`, `any()`, `all()` and `page()` ignore `nearest`.
+- On PostgreSQL it is one statement ordering by pgvector's `<=>`, `<->` or `<#>` with a limit, so an HNSW index of the same metric is used. On SQLite, MongoDB and the memory database it reads the ids and vectors of the matches, at most `vectors.maxScan` (10000, `QS_VECTORS_MAX_SCAN`) of them, ranks them exactly and loads the best `k`; more matches throw `nearest() scanned more than <maxScan> rows; add filters or use PostgreSQL with pgvector`. Every adapter computes the same distances, so tests rank like production.
+
 ## Loading many records by id: `findByIds`
 
 `findByIds(ids, { include })` returns the records for `ids` in the same order, skipping ids without a record and never repeating one. It loads them in batches, so long lists are fine. `include` populates like the `include` of a query.

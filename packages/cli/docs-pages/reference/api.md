@@ -214,6 +214,23 @@ take(count: number): Query<T, R, M>;
 
 Returns at most `count` results (not applied to `count()`, `any()`, `all()` and `none()`).
 
+### `limit`
+
+```ts
+limit(count: number): Query<T, R, M>;
+```
+
+The same as `take(count)`.
+
+### `nearest`
+
+```ts
+nearest(field: VectorFieldChoice<T>, vector: readonly number[], options?: { metric?: VectorMetric }): Query<T & { distance: number }, R, M>;
+```
+
+Ranks the matches by their distance from `vector` on a `@vector` field (the field's metric unless `metric` is
+given), closest first, each result carrying its `distance`; needs `take(k)` with k from 1 to 100.
+
 ### `select`
 
 ```ts

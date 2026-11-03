@@ -330,6 +330,7 @@ export const BUILT_IN_CONFIG_KEYS = [
   "files",
   "repositories",
   "populate",
+  "vectors",
   "migrations",
   "jobs",
   "env",

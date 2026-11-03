@@ -35,7 +35,7 @@ import { databaseTenancyOf, builtInTagOwner, parseProjectModels } from "../entit
 import { BuildError } from "../errors.ts";
 import type { EndpointRoute } from "../endpoints/scan-endpoints.ts";
 import { parseEndpointTags, type EndpointMetadata } from "../hooks/endpoint-tags.ts";
-import { webhookCallOf } from "../endpoints/webhook-files.ts";
+import { isAsyncWebhook, webhookCallOf } from "../endpoints/webhook-files.ts";
 import type { HookEntry } from "../hooks/scan-hooks.ts";
 import type { JobEntry } from "../jobs/scan-jobs.ts";
 import { featureWatchPaths, scanFeatureFolders, scanProjectFiles, type FolderFile } from "./feature-files.ts";
@@ -500,6 +500,7 @@ async function buildProject(projectRoot: string, config: ResolvedConfig, options
     if (route.kind === "webhook") {
       if (!config.features.some((feature) => feature.key === "webhooks")) throw new BuildError(`${route.file} needs webhooks: {} in quickservicets.config.ts`);
       assertWebhookExport(source, route.file);
+      if (isAsyncWebhook(source, route.file) && !config.features.some((feature) => feature.key === "queues")) throw new BuildError(`${route.file}: async webhooks need queues: {}`);
       // Senders authenticate with their signature, not a cookie, so the CSRF item never applies to webhook routes.
       const parsed = parseEndpointTags(source, route.file);
       if (!config.features.some((feature) => feature.key === "security")) return { route, ...parsed };

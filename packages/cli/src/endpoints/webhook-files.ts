@@ -31,3 +31,10 @@ export function webhookVerifierName(source: string, file: string): string {
   return "custom";
 }
 
+
+/** Whether a `webhook.ts` file's `defineWebhook` options set `async: true`. */
+export function isAsyncWebhook(source: string, file: string): boolean {
+  const options = webhookCallOf(source, file)?.arguments[0];
+  if (!options || !ts.isObjectLiteralExpression(options)) return false;
+  return options.properties.some((property) => ts.isPropertyAssignment(property) && ts.isIdentifier(property.name) && property.name.text === "async" && property.initializer.kind === ts.SyntaxKind.TrueKeyword);
+}

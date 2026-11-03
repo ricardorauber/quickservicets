@@ -366,7 +366,7 @@ function withTenancyMarks(models: EntityModel[], features: readonly ResolvedFeat
 export function parseProjectModels(projectRoot: string, features: readonly ResolvedFeature[] = [], usage: ProjectModelOptions = {}): ProjectModels {
   const databases = usage.databases ?? [];
   const parsed = parseSources(projectRoot, features, databases);
-  const contributed = withContributedEntities(parsed.models, features);
+  const contributed = withContributedEntities(parsed.models, features, projectRoot);
   const built = withFileEntities(contributed.models, usedFileEntities(contributed.models, features, usage));
   const all = hasJobFiles(projectRoot, features) ? withJobRunEntity(built) : built;
   return {

@@ -209,3 +209,27 @@ verify: hmacSignature({ header: "x-signature", secret: ({ tenant }) => partnerSe
 ```
 
 `handle(event, ctx)` gets the parsed JSON body and `ctx` with `req`, `repos`, `rawBody`, `headers`, `deliveryId`, `eventType` and `log`. Webhook routes are exempt from the CSRF item (senders sign their requests instead of sending cookies) and keep the global rate limit unless tagged `@rateLimit off`; `/openapi.json` documents them as `POST` with an `x-webhook: { verifier }` entry.
+
+## Dedupe and asynchronous handling
+
+Senders retry, so the same delivery can arrive twice. While `incoming.dedupe` is on (the default) and the project has a `webhook.ts` file, the build adds the system entity `WebhookReceipt` (table `webhook_receipts`), and each route keeps one receipt per delivery id and tenant:
+
+- the first request inserts a `processing` receipt (locked for 60 seconds) before the hooks and `handle` run, and marks it `processed` when `handle` resolves or `failed` when it throws, so the sender's retry runs `handle` again;
+- a repeat of a `processed` delivery answers 200 `{ "received": true, "duplicate": true }` without running hooks or `handle`, logging `webhook.incoming.duplicate`;
+- a repeat while the first is still `processing` answers 409 `Webhook delivery is being processed` with `Retry-After: 5`; a receipt whose lock passed (its process stopped) is taken over.
+
+Verifiers that know no delivery id (an `hmacSignature` without `idHeader`) skip dedupe, and the route logs `webhook.incoming.no-delivery-id` once. Every worker that runs scheduled work deletes receipts older than `incoming.dedupe.retention` (`7d`) every hour, logging `webhooks.receipts.cleanup`. `QS_WEBHOOKS_INCOMING_DEDUPE_ENABLED=false` turns dedupe off: no receipt is read or written.
+
+A slow handler can run in the background, so the sender gets a fast answer:
+
+```ts
+export default defineWebhook({
+  async: true,
+  verify: stripeSignature({ secret: env.STRIPE_WEBHOOK_SECRET }),
+  handle: async (event, ctx) => {
+    await ctx.repos.payments.create({ stripeId: (event as { id: string }).id });
+  },
+});
+```
+
+The route verifies and deduplicates, then writes the receipt and a `webhooks/incoming` message in one transaction and answers 202 `{ "received": true }`; the consumer runs `handle` with the same context, except that `req` is undefined and `rawBody` is not kept, and marks the receipt `processed`, or `failed` while the queue retries it.

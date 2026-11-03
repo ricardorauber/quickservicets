@@ -7,6 +7,9 @@ import { webhookClock } from "./state.ts";
 /** The queue each delivery attempt runs in. */
 export const DELIVER_QUEUE = "webhooks/deliver";
 
+/** The queue asynchronous incoming webhooks run in. */
+export const INCOMING_QUEUE = "webhooks/incoming";
+
 /** What the matching listener needs. */
 export interface MatchingOptions {
   adapter: DatabaseAdapter;

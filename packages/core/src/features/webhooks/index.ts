@@ -1,11 +1,14 @@
-import { defineFeature, HttpError, queues, safeLog, systemTarget, type Condition } from "../public.ts";
+import { defineFeature, HttpError, queues, safeLog, systemTarget, type Condition, type JobLogger, type Repositories } from "../public.ts";
 import type { WebhooksApi } from "./api.ts";
 import { DeliverableEvents, entityDeliveries, patternProblem } from "./deliverable.ts";
 import { deliverer } from "./attempts.ts";
-import { incomingRunner } from "./incoming.ts";
+import { existsSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { incomingRunner, isWebhookDefinition, type IncomingMessage, type WebhookDefinition } from "./incoming.ts";
+import { hasWebhookFiles, receiptStore, webhookReceiptEntity } from "./receipts.ts";
 import { retryRule, RETRY_SCHEDULE_PROBLEM, validSchedule } from "./retries.ts";
 import { CLEANUP_INTERVAL, deliveryLog } from "./log.ts";
-import { DELIVER_QUEUE } from "./matching.ts";
+import { DELIVER_QUEUE, INCOMING_QUEUE } from "./matching.ts";
 import { webhooksCommands } from "./commands.ts";
 import { webhookClock } from "./state.ts";
 import { CACHE_REFRESH_MS, subscriptionCache } from "./cache.ts";
@@ -32,6 +35,7 @@ const webhooksFeature = defineFeature({
     entities: [
       { name: "WebhookSubscription", placement: "feature", description: "The subscriptions: a URL, the event patterns, the secret and the tenant." },
       { name: "WebhookDelivery", placement: "feature", description: "One delivery of an event to a subscription, created in the transaction of the write that caused it, with the outcome of its last attempt." },
+      { name: "WebhookReceipt", placement: "feature", description: "One received incoming delivery per route, id and tenant, while incoming.dedupe is on and the project has a webhook.ts file." },
     ],
   },
   requires: ["http"],
@@ -45,7 +49,12 @@ const webhooksFeature = defineFeature({
     if (!validSchedule(options.delivery.retrySchedule)) problems.push(RETRY_SCHEDULE_PROBLEM);
     return problems;
   },
-  entities: () => [webhookSubscriptionEntity(), webhookDeliveryEntity()],
+  // Receipts of incoming deliveries exist only while dedupe is on and the project has a webhook.ts file.
+  entities: ({ options, root }) => [
+    webhookSubscriptionEntity(),
+    webhookDeliveryEntity(),
+    ...(options.incoming.dedupe.enabled && root !== undefined && hasWebhookFiles(join(root, "endpoints")) ? [webhookReceiptEntity()] : []),
+  ],
   commands: webhooksCommands,
   tags: {
     webhooks: {
@@ -121,10 +130,13 @@ const webhooksFeature = defineFeature({
     // Every worker that runs scheduled work deletes old finished deliveries at startup and once an hour.
     if (ctx.worker.runsScheduledWork) {
       let cleanup: ReturnType<typeof setInterval> | undefined;
-      const clean = () =>
-        log.cleanup(ctx.options.delivery.retention).catch((error: unknown) => {
-          safeLog(ctx.logger, "error", { timestamp: new Date().toISOString(), message: "webhooks.cleanup.failed", error: { message: (error as Error)?.message ?? String(error) } });
-        });
+      const failed = (error: unknown) => {
+        safeLog(ctx.logger, "error", { timestamp: new Date().toISOString(), message: "webhooks.cleanup.failed", error: { message: (error as Error)?.message ?? String(error) } });
+      };
+      const clean = async () => {
+        await log.cleanup(ctx.options.delivery.retention).catch(failed);
+        if (receipts) await receipts.cleanup(ctx.options.incoming.dedupe.retention).catch(failed);
+      };
       ctx.app.onStart(() => {
         void clean();
         cleanup = setInterval(() => void clean(), CLEANUP_INTERVAL);
@@ -174,18 +186,49 @@ const webhooksFeature = defineFeature({
     };
     apis.set(ctx.options, api);
     // `webhook.ts` routes: the signature checked on the raw body before the hooks and `handle`.
+    const receiptModel = ctx.options.incoming.dedupe.enabled ? ctx.models.find((candidate) => candidate.key === "WebhookReceipt" && candidate.system) : undefined;
+    const receipts = receiptModel ? receiptStore({ adapter, model: receiptModel, logger: ctx.logger }) : undefined;
+    const queuesOn = ctx.config.features.some((feature) => feature.key === "queues");
     const incoming = incomingRunner({
       logger: ctx.logger,
       settings: () => ({ tolerance: ctx.options.incoming.tolerance, maxBodySize: ctx.options.incoming.maxBodySize }),
       verifierNamed: () => undefined,
+      receipts: () => receipts,
+      ...(queuesOn ? { enqueue: (message: IncomingMessage) => queues.add(INCOMING_QUEUE as never, message as never) } : {}),
     });
+    // The asynchronous routes' definitions, read from the build's routes when a consumer first needs one.
+    let definitions: Promise<Map<string, WebhookDefinition>> | undefined;
+    const definitionOf = async (route: string) => {
+      definitions ??= (async () => {
+        const file = resolve(ctx.generated("."), "..", "routes.ts");
+        const found = new Map<string, WebhookDefinition>();
+        if (!existsSync(file)) return found;
+        const { endpoints = [] } = (await import(file)) as { endpoints?: { path: string; kind?: string; handler: unknown }[] };
+        for (const endpoint of endpoints) if (endpoint.kind === "webhook" && isWebhookDefinition(endpoint.handler)) found.set(endpoint.path, endpoint.handler);
+        return found;
+      })();
+      const definition = (await definitions).get(route);
+      if (!definition) throw new Error(`No webhook.ts route POST ${route}`);
+      return definition;
+    };
     ctx.app.configureServer({ webhookRunner: incoming });
     // The management routes need authentication: without auth, subscriptions are managed from code only.
     if (ctx.options.routes.enabled) {
       if (authEnabled(ctx.config)) registerRoutes(ctx, ctx.options.routes, () => api, () => webhookClock.now());
       else warnRoutesNeedAuth(ctx.logger);
     }
-    const deliveries = { deliver: (id: string, context: { signal: AbortSignal }) => sender.deliver(id, context) };
+    const deliveries = {
+      deliver: (id: string, context: { signal: AbortSignal }) => sender.deliver(id, context),
+      async incoming(message: IncomingMessage, context: { repos: Repositories; log: JobLogger }) {
+        try {
+          await incoming.consume(await definitionOf(message.route), message, context);
+        } catch (error) {
+          if (message.receipt) await receipts?.finish(message.receipt, "failed");
+          throw error;
+        }
+        if (message.receipt) await receipts?.finish(message.receipt, "processed");
+      },
+    };
     running.current = api;
     running.deliveries = deliveries;
     ctx.app.onStop(() => {
@@ -216,6 +259,9 @@ export { CACHE_REFRESH_MS, subscriptionCache } from "./cache.ts";
 export type { WebhookDeliveryStatus, WebhookDelivery } from "./deliveries.ts";
 export { generateSecret, PREVIOUS_SECRET_MS } from "./subscriptions.ts";
 export { signWebhook, verifyWebhook } from "./signing.ts";
+export { RECEIPT_LOCK_MS, webhookReceiptEntity } from "./receipts.ts";
+export type { WebhookReceipt } from "./receipts.ts";
+export type { IncomingMessage } from "./incoming.ts";
 export { defineWebhook, githubSignature, hmacSignature, invalidSignature, isWebhookDefinition, standardWebhookSignature, stripeSignature } from "./incoming.ts";
 export type { HmacSignatureOptions, WebhookDefinition, WebhookHandleContext, WebhookOptions, WebhookRejection, WebhookSecret, WebhookSecretValue, WebhookVerification, WebhookVerifier, WebhookVerifyInput } from "./incoming.ts";
 export { GONE_REASON, PING_LIMIT } from "./attempts.ts";

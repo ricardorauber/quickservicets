@@ -8,6 +8,7 @@ import { generateSecret } from "./features/webhooks/subscriptions.ts";
 import { CACHE_REFRESH_MS, subscriptionCache } from "./features/webhooks/cache.ts";
 import { retryDelay } from "./features/webhooks/retries.ts";
 import { deliveryLog } from "./features/webhooks/log.ts";
+import { receiptStore, webhookReceiptEntity } from "./features/webhooks/receipts.ts";
 import { webhookDeliveryEntity } from "./features/webhooks/deliveries.ts";
 import { webhookSubscriptionEntity } from "./features/webhooks/models.ts";
 import webhooksFeature from "./features/webhooks/index.ts";
@@ -182,5 +183,27 @@ describe("delivery retention", () => {
     expect(logs).toContainEqual(expect.objectContaining({ message: "webhooks.cleanup", count: 2 }));
     expect(await log.cleanup("7d")).toBe(1);
     expect(optionsOf(resolve({}, { QS_WEBHOOKS_DELIVERY_RETENTION: "7d" })).delivery).toMatchObject({ retention: "7d" });
+  });
+});
+
+describe("incoming receipts", () => {
+  test("a claim inserts a receipt once; receipts older than the retention are deleted, newer ones kept (fake clock)", async () => {
+    const model = webhookReceiptEntity();
+    const adapter = memoryAdapter();
+    await adapter.connect([model]);
+    let now = Date.parse("2026-11-03T10:00:00Z");
+    const logs: { message: string; count?: number }[] = [];
+    const store = receiptStore({ adapter, model, logger: { info: (entry) => void logs.push(entry as never), warn() {}, error() {} }, now: () => now });
+    const old = await store.claim({ endpoint: "/stripe", deliveryId: "old" });
+    expect(old.kind).toBe("claimed");
+    expect((await store.claim({ endpoint: "/stripe", deliveryId: "old" })).kind).toBe("busy");
+    expect((await store.claim({ endpoint: "/stripe", deliveryId: "old", tenant: "acme" })).kind).toBe("claimed");
+    now += 2 * 86_400_000;
+    await store.claim({ endpoint: "/stripe", deliveryId: "recent" });
+    now += 6 * 86_400_000;
+    expect(await store.cleanup("7d")).toBe(2);
+    const left = (await adapter.findMany(model, { where: [], sort: [], limit: 10, offset: 0 })).data.map((row) => row.deliveryId);
+    expect(left).toEqual(["recent"]);
+    expect(logs).toContainEqual(expect.objectContaining({ message: "webhooks.receipts.cleanup", count: 2 }));
   });
 });

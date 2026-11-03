@@ -9,6 +9,7 @@ import {
   safeLog,
   secretValue,
   setBodyPolicy,
+  transaction,
   type Endpoint,
   type JobLogger,
   type Logger,
@@ -18,6 +19,7 @@ import {
   type ServiceResponse,
 } from "../public.ts";
 import { verifyWebhook } from "./signing.ts";
+import { deliveryBusy, type ReceiptStore } from "./receipts.ts";
 import { webhookClock } from "./state.ts";
 
 /** Why a signature was refused. */
@@ -251,6 +253,8 @@ export interface VerifiedWebhook {
   rawBody: Uint8Array;
   deliveryId?: string;
   eventType?: string;
+  /** For an asynchronous route that deduplicates: the receipt to claim with its queue message. */
+  claim?: { receipts: ReceiptStore; key: { endpoint: string; deliveryId: string; tenant?: string } };
 }
 
 /** The answer to a refused signature. */
@@ -263,9 +267,28 @@ export interface IncomingOptions {
   settings(route: { method: string; path: string }): { tolerance: string; maxBodySize: string | number };
   /** The verifier a name stands for. */
   verifierNamed(name: string): WebhookVerifier | undefined;
+  /** The receipts of the route, when it deduplicates deliveries. */
+  receipts?(route: { method: string; path: string }): ReceiptStore | undefined;
+  /** Adds the `webhooks/incoming` message of an asynchronous route. */
+  enqueue?(message: IncomingMessage): Promise<unknown>;
+}
+
+/** The message an asynchronous webhook route hands to the `webhooks/incoming` queue. */
+export interface IncomingMessage {
+  /** The route pattern, like `/stripe`. */
+  route: string;
+  event: unknown;
+  deliveryId?: string;
+  eventType?: string;
+  tenant?: string;
+  /** The receipt the consumer marks processed or failed. */
+  receipt?: string;
 }
 
 const verified = new WeakMap<ServiceRequest, VerifiedWebhook>();
+
+/** The routes whose verifier gave no delivery id, logged once each. */
+const noDeliveryId = new Set<string>();
 
 /** A logger for `handle`, writing with the route. */
 function routeLogger(logger: Logger, route: string): JobLogger {
@@ -275,6 +298,11 @@ function routeLogger(logger: Logger, route: string): JobLogger {
 
 /** The runner of `webhook.ts` routes: verification on the raw body, then the hooks, then `handle`. */
 export function incomingRunner(options: IncomingOptions) {
+  /** The answer to a delivery processed before: 200, without the hooks or `handle`. */
+  const duplicate = (path: string, deliveryId: string) => {
+    safeLog(options.logger, "info", { timestamp: new Date().toISOString(), message: "webhook.incoming.duplicate", route: `POST ${path}`, deliveryId });
+    return { received: true, duplicate: true };
+  };
   const verifierOf = (definition: WebhookDefinition, path: string): WebhookVerifier => {
     if (typeof definition.verify !== "string") return definition.verify;
     const found = options.verifierNamed(definition.verify);
@@ -307,8 +335,34 @@ export function incomingRunner(options: IncomingOptions) {
       } catch {
         throw new HttpError(400, "Invalid JSON body");
       }
-      verified.set(req, { event, rawBody, ...(result.deliveryId ? { deliveryId: result.deliveryId } : {}), ...(result.eventType ? { eventType: result.eventType } : {}) });
+      const found: VerifiedWebhook = { event, rawBody, ...(result.deliveryId ? { deliveryId: result.deliveryId } : {}), ...(result.eventType ? { eventType: result.eventType } : {}) };
+      verified.set(req, found);
       (req as { json: () => Promise<unknown> }).json = () => Promise.resolve(event);
+      const receipts = options.receipts?.({ method: input.method, path });
+      if (receipts && !found.deliveryId && !noDeliveryId.has(path)) {
+        noDeliveryId.add(path);
+        safeLog(options.logger, "warn", { timestamp: new Date().toISOString(), message: "webhook.incoming.no-delivery-id", route: `POST ${path}` });
+      }
+      if (receipts && found.deliveryId) {
+        const key = { endpoint: path, deliveryId: found.deliveryId, ...(tenant ? { tenant } : {}) };
+        if (definition.async) {
+          // The receipt is written with the queue message, after the hooks; a processed delivery skips them here.
+          if (await receipts.isProcessed(key)) return duplicate(path, found.deliveryId);
+          found.claim = { receipts, key };
+        } else {
+          const claim = await receipts.claim(key);
+          if (claim.kind === "processed") return duplicate(path, found.deliveryId);
+          if (claim.kind === "busy") throw deliveryBusy();
+          try {
+            const answer = await input.next(input.repos, req, input.res);
+            await receipts.finish(claim.receipt.id, "processed");
+            return answer;
+          } catch (error) {
+            await receipts.finish(claim.receipt.id, "failed");
+            throw error;
+          }
+        }
+      }
       return input.next(input.repos, req, input.res);
     },
     /** Runs `handle` for a verified request; the endpoint the hooks wrap. */
@@ -316,6 +370,25 @@ export function incomingRunner(options: IncomingOptions) {
       const definition = input.definition as WebhookDefinition;
       const found = verified.get(input.req);
       if (!found) throw invalidSignature();
+      if (definition.async) {
+        if (!options.enqueue) throw new Error(`POST ${input.path}: async webhooks need queues: {}`);
+        const tenant = (input.req.tenant as { id?: string } | undefined)?.id;
+        const message: IncomingMessage = { route: input.path, event: found.event, ...(found.deliveryId ? { deliveryId: found.deliveryId } : {}), ...(found.eventType ? { eventType: found.eventType } : {}), ...(tenant ? { tenant } : {}) };
+        const claim = found.claim;
+        if (!claim) await options.enqueue(message);
+        else {
+          // The receipt and the message are written in one transaction: both exist, or neither.
+          const outcome = await transaction(async () => {
+            const claimed = await claim.receipts.claim(claim.key);
+            if (claimed.kind === "claimed") await options.enqueue!({ ...message, receipt: claimed.receipt.id });
+            return claimed.kind;
+          });
+          if (outcome === "processed") return duplicate(input.path, found.deliveryId!);
+          if (outcome === "busy") throw deliveryBusy();
+        }
+        input.res.status(202);
+        return { received: true };
+      }
       await definition.handle(found.event, {
         req: input.req,
         repos: input.repos,
@@ -327,8 +400,10 @@ export function incomingRunner(options: IncomingOptions) {
       });
       return { received: true };
     },
-    /** The verified webhook of a request, for the native's dedupe. */
-    verifiedOf: (req: ServiceRequest) => verified.get(req),
+    /** Runs `handle` for a message of the `webhooks/incoming` queue: no request and no raw body. */
+    async consume(definition: WebhookDefinition, message: IncomingMessage, context: { repos: Repositories; log: JobLogger }): Promise<void> {
+      await definition.handle(message.event, { req: undefined, repos: context.repos, rawBody: undefined, headers: new Headers(), deliveryId: message.deliveryId, eventType: message.eventType, log: context.log });
+    },
   };
   return runner;
 }

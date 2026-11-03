@@ -1,4 +1,6 @@
+import type { JobLogger, Repositories } from "../public.ts";
 import type { WebhooksApi } from "./api.ts";
+import type { IncomingMessage } from "./incoming.ts";
 import type { WebhookSubscriptions } from "./subscriptions.ts";
 import { sharedState } from "./state.ts";
 
@@ -11,6 +13,8 @@ export const running = sharedState("running", () => ({ current: undefined as Web
 export interface RunningDeliveries {
   /** Runs one attempt of a delivery. */
   deliver(id: string, context: { signal: AbortSignal }): Promise<void>;
+  /** Runs the `handle` of an asynchronous incoming webhook. */
+  incoming(message: IncomingMessage, context: { repos: Repositories; log: JobLogger }): Promise<void>;
 }
 
 /** The running native's delivery code, for its queue consumers. */

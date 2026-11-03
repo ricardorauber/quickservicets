@@ -225,6 +225,8 @@ export interface FeatureEntitiesContext<O = Record<string, unknown>> {
   models: readonly EntityModel[];
   /** The feature's resolved options. */
   options: O;
+  /** The project's root folder, when the build knows it. */
+  root?: string;
 }
 
 /** The `entities` field of a feature definition. */

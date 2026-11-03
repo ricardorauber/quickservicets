@@ -78,7 +78,7 @@ function assertReferences(key: string, model: EntityModel, models: EntityModel[]
  * Adds the entities that features declare as `entityModel` lists or functions, in feature order: functions receive
  * the models parsed so far. A project entity with the same name replaces a contributed one.
  */
-export function withContributedEntities(parsed: EntityModel[], features: readonly ResolvedFeature[]): { models: EntityModel[]; overrides: string[] } {
+export function withContributedEntities(parsed: EntityModel[], features: readonly ResolvedFeature[], root?: string): { models: EntityModel[]; overrides: string[] } {
   const models = [...parsed];
   const overrides: string[] = [];
   for (const feature of features) {
@@ -86,7 +86,7 @@ export function withContributedEntities(parsed: EntityModel[], features: readonl
     if (entities === undefined || typeof entities === "string") continue;
     let contributed: unknown;
     try {
-      contributed = typeof entities === "function" ? entities({ models: [...models], options: feature.options as never }) : entities;
+      contributed = typeof entities === "function" ? entities({ models: [...models], options: feature.options as never, ...(root !== undefined ? { root } : {}) }) : entities;
     } catch (error) {
       throw new EntityParseError(`${feature.key}: entities: ${error instanceof Error ? error.message : String(error)}`);
     }

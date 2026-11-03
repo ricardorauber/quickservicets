@@ -48,6 +48,26 @@ const created = await webhooks.subscriptions.create({ url: "https://hooks.exampl
 
 The URL must be absolute, without credentials, and its address must pass the [SSRF protection](/guides/http-client/) of the HTTP client when the subscription is created or its URL changes; with `delivery.requireHttps` (on in production by default) it must use `https`. A refused URL answers 400 with `Must be an https URL`, `Must not contain credentials` or `Address is not allowed`.
 
+## Management routes
+
+With the [auth](/guides/authentication/) native enabled, users manage their subscriptions over HTTP under `routes.path` (default `/webhooks`):
+
+| Route | Answer |
+| --- | --- |
+| `GET /webhooks` | The subscriptions, newest first, with `limit` (default 20, at most 100), `offset` and `enabled=true\|false` |
+| `POST /webhooks` | `{ url, events, description?, headers? }` creates one and answers 201 with its `secret`, shown only here |
+| `GET /webhooks/[id]` | One subscription |
+| `PATCH /webhooks/[id]` | Changes `url`, `events`, `description`, `headers` or `enabled` |
+| `DELETE /webhooks/[id]` | Deletes it and answers 204 |
+| `POST /webhooks/[id]/rotate-secret` | `{ secret, previousSecretExpiresAt }`, the old secret valid for 24 more hours |
+
+```bash
+curl -X POST localhost:3000/webhooks -H "authorization: Bearer $TOKEN" -H "content-type: application/json" \
+  -d '{"url":"https://hooks.example/orders","events":["order.created"]}'
+```
+
+Every route needs a user holding one of `routes.roles` (default `["admin"]`): anonymous calls answer 401 `Authentication required`, other users 403 `Not allowed`, and `roles: []` lets any signed-in user. `createdBy` records who created each subscription. Without `auth`, no route is registered and startup logs `webhooks.routes need authentication; enable auth or manage subscriptions with webhooks.subscriptions`; `routes: false` (or `QS_WEBHOOKS_ROUTES_ENABLED=false`) removes them while `webhooks.subscriptions` keeps working. `/openapi.json` documents them under the `webhooks` tag.
+
 ## Tenants
 
-With [multi-tenancy](/guides/multi-tenancy/), `create` records the current tenant, and every other call made in a tenant's scope (a request, a job or a consumer of that tenant) only sees that tenant's subscriptions: another tenant's id answers `Webhook subscription <id> not found`.
+With [multi-tenancy](/guides/multi-tenancy/), `create` records the current tenant, and every other call made in a tenant's scope (a request, a job or a consumer of that tenant) only sees that tenant's subscriptions: another tenant's id answers `Webhook subscription <id> not found` from code and 404 `Webhook subscription not found` over HTTP.

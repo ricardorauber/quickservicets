@@ -3,6 +3,7 @@ import type { WebhooksApi } from "./api.ts";
 import { DeliverableEvents, entityDeliveries, patternProblem } from "./deliverable.ts";
 import { webhookSubscriptionEntity } from "./models.ts";
 import { webhooksOptions, type WebhookOperation } from "./options.ts";
+import { documentRoutes, registerRoutes, warnRoutesNeedAuth } from "./routes.ts";
 import { running } from "./running.ts";
 import { subscriptionStore, type SubscriptionStore } from "./subscriptions.ts";
 
@@ -53,13 +54,27 @@ const webhooksFeature = defineFeature({
     });
     stores.set(ctx.options, store);
     const api: WebhooksApi = { subscriptions: store.api };
+    // The management routes need authentication: without auth, subscriptions are managed from code only.
+    if (ctx.options.routes.enabled) {
+      if (authEnabled(ctx.config)) registerRoutes(ctx, ctx.options.routes, () => store.api);
+      else warnRoutesNeedAuth(ctx.logger);
+    }
     running.current = api;
     ctx.app.onStop(() => {
       if (running.current === api) running.current = undefined;
     });
   },
   api: (ctx): WebhooksApi => ({ subscriptions: stores.get(ctx.options)!.api }),
+  openapi(doc, { config, options }) {
+    if (!options.routes.enabled || !authEnabled(config)) return doc;
+    return documentRoutes(doc, options.routes);
+  },
 });
+
+/** Whether the project's config enables the `auth` native. */
+function authEnabled(config: { features: readonly { key: string }[] }): boolean {
+  return config.features.some((feature) => feature.key === "auth");
+}
 
 export default webhooksFeature;
 export { webhooksFeature };

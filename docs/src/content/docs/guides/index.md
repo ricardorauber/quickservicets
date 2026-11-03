@@ -19,6 +19,10 @@ Infrastructure:
 - [mTLS](/guides/mtls/)
 - [Secrets](/guides/secrets/)
 
+Integrations:
+
+- [Webhooks](/guides/webhooks/)
+
 The other natives:
 
 - [Security](/guides/security/)

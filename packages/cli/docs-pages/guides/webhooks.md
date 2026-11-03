@@ -2,7 +2,7 @@
 
 > Let other systems subscribe to the service's events with the webhooks native, choosing which events are deliverable and managing subscriptions with their secrets per tenant.
 
-A webhook tells another system that something happened, by calling a URL it registered. The `webhooks` native keeps those registrations as subscriptions: a URL, the event patterns it wants and a secret, scoped to its tenant. It also receives webhooks from other services through `webhook.ts` endpoint files. The options, variables, tags and setup API are listed on the [webhooks reference page](/reference/features/webhooks/).
+A webhook tells another system that something happened, by calling a URL it registered. The `webhooks` native keeps those registrations as subscriptions: a URL, the event patterns it wants and a secret, scoped to its tenant. It also receives webhooks from other services through `webhook.ts` endpoint files. The options, variables, tags and setup API are listed on the [webhooks reference page](/reference/features/webhooks/), and the project `examples/minimal/webhooks` shows every piece of this guide with an end-to-end test; the [Stripe recipe](/recipes/receive-stripe-webhooks/) receives Stripe events.
 
 ## Enable it
 

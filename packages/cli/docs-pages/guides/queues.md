@@ -226,3 +226,4 @@ Use a [job](/guides/jobs/) for work that happens on a schedule or as one named t
 - [Send an email in the background](/recipes/send-email-in-the-background/): a welcome email from a hook, with dedupe and retries.
 - [Events](/guides/events/): write events and listeners, which `@publish` builds on.
 - [Jobs](/guides/jobs/): scheduled and on-demand runs.
+- [Webhooks](/guides/webhooks/): deliveries and slow incoming handlers that run in the `webhooks/deliver` and `webhooks/incoming` queues.

@@ -81,6 +81,7 @@ const PAGES = [
   "recipes/scheduled-cleanup.md",
   "recipes/send-email-in-the-background.md",
   "recipes/safe-checkout.md",
+  "recipes/receive-stripe-webhooks.md",
 ];
 
 test("every page of the site exists, in English only", () => {

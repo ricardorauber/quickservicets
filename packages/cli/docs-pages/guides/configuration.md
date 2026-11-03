@@ -257,6 +257,7 @@ An error thrown by the logger never changes the response.
 - [Idempotency keys](/guides/idempotency/): the `idempotency` key, for safe retries of `POST` requests.
 - [Optimistic concurrency](/guides/optimistic-concurrency/): the `etag` key, for entity tags, 304 answers and `If-Match`.
 - [Entity history](/guides/history/): the `history` key, for every version of chosen records, its routes and its retention.
+- [Webhooks](/guides/webhooks/): the `webhooks` key, for signed outgoing webhooks per event and incoming `webhook.ts` endpoints.
 - [Server-Sent Events](/guides/server-sent-events/): the `realtime` key, for `sse.ts` endpoints and live change streams.
 - [WebSockets](/guides/websockets/): the `realtime` key, for `ws.ts` endpoints with typed messages, rooms and delivery across workers and replicas.
 - [Error reporting](/guides/error-reporting/): the `errors` key, for reporting every unexpected error to a reporter.

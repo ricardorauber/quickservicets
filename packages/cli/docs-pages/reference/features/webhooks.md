@@ -67,6 +67,50 @@ With named databases ([`databases`](/reference/config/)), each entity of the fea
 export type Order = { status: string; total: number };
 ```
 
+## Commands
+
+### `webhooks list`
+
+Prints each webhook subscription with its id, URL host, whether it is enabled, its tenant, failingSince and its deliveries per status over the last 24 hours.
+
+```bash
+quickservicets webhooks list
+```
+
+### `webhooks deliveries`
+
+Prints the deliveries of a subscription, newest first, with their type, status, attempt and last outcome.
+
+```bash
+quickservicets webhooks deliveries <subscription> [--status <status>] [--limit <n>]
+```
+
+**Arguments:**
+
+- `<subscription>` (required): The subscription's id.
+
+**Flags:**
+
+- `--status` (`string`): Only deliveries with this status: pending, delivering, succeeded or failed.
+- `--limit` (`integer`, default `20`): How many deliveries to print.
+
+### `webhooks resend`
+
+Sends a finished delivery again, or every failed delivery of a subscription, and prints how many were rescheduled.
+
+```bash
+quickservicets webhooks resend <delivery> | --subscription <id> --failed
+```
+
+**Arguments:**
+
+- `<delivery>`: The delivery's id.
+
+**Flags:**
+
+- `--subscription` (`string`): Resends deliveries of this subscription, with --failed.
+- `--failed` (`boolean`, default `false`): With --subscription, resends every failed delivery.
+
 ## Feature API
 
 Other features reach it with `ctx.feature("webhooks")` in their setup, listing `webhooks` in `requires` or `after`.
@@ -78,3 +122,28 @@ subscriptions: WebhookSubscriptions;
 ```
 
 Creates, lists, reads, changes, deletes and rotates the secret of subscriptions.
+
+### `resend`
+
+```ts
+resend(deliveryId: string): Promise<{ id: string; status: "pending" }>;
+```
+
+Sends a finished (`succeeded` or `failed`) delivery again at once, from attempt 0 and with the same `webhook-id`;
+throws 409 `Delivery is already scheduled` for a pending or delivering one and 409 `Subscription is disabled`.
+
+### `deliveries`
+
+```ts
+deliveries(subscriptionId: string, options?: DeliveryListOptions): Promise<DeliveryPage>;
+```
+
+The deliveries of a subscription, newest first, as the delivery log route lists them.
+
+### `delivery`
+
+```ts
+delivery(subscriptionId: string, deliveryId: string): Promise<WebhookDelivery>;
+```
+
+One delivery of a subscription, with its body and the response kept; throws `Webhook delivery <id> not found`.

@@ -110,6 +110,31 @@ Delivery is at least once. A worker that shuts down during an attempt gives the 
 
 `webhooks.subscriptions.ping(id)` (and `POST /webhooks/[id]/ping` with the management routes) sends a signed `webhook.ping` event with `data: { subscriptionId }` at once, without a delivery, and answers `{ status, ok, durationMs }`; at most 10 pings per minute per subscription, then 429 `Too many requests`.
 
+## Delivery log and resend
+
+With the management routes, each subscription's deliveries are readable and can be sent again:
+
+| Route | Answer |
+| --- | --- |
+| `GET /webhooks/[id]/deliveries` | The deliveries, newest first, with `limit`, `offset`, `status` and `type`: each one's `id`, `event`, `type`, `status`, `attempt`, `nextAttemptAt`, `lastStatus`, `lastError`, `durationMs`, `deliveredAt` and `createdAt` |
+| `GET /webhooks/[id]/deliveries/[deliveryId]` | One delivery, with the `payload` sent and the `lastResponse` kept |
+| `POST /webhooks/[id]/deliveries/[deliveryId]/resend` | Sends a `succeeded` or `failed` delivery again from attempt 0, with the same `webhook-id`, and answers 202 `{ id, status: "pending" }` |
+
+A `pending` or `delivering` delivery answers 409 `Delivery is already scheduled`, a disabled subscription 409 `Subscription is disabled`, and more than 30 resends per minute for one subscription answer 429 `Too many requests`. From code, `webhooks.resend(deliveryId)`, `webhooks.deliveries(subscriptionId, { status, type, limit, offset })` and `webhooks.delivery(subscriptionId, deliveryId)` do the same in the caller's tenant scope.
+
+The CLI reads and resends from the project's database:
+
+```bash
+quickservicets webhooks list
+quickservicets webhooks deliveries <subscription> --status failed --limit 50
+quickservicets webhooks resend <delivery>
+quickservicets webhooks resend --subscription <id> --failed
+```
+
+`webhooks list` prints each subscription's id, URL host (never its query string), whether it is enabled, its tenant, `failingSince` and its deliveries per status over the last 24 hours; `resend` prints `Rescheduled <n> deliveries` and exits 1 with the messages above on an error.
+
+Every worker that runs scheduled work deletes `succeeded` and `failed` deliveries older than `delivery.retention` (`30d`, `QS_WEBHOOKS_DELIVERY_RETENTION`) at startup and once an hour, in batches of 1000, logging `webhooks.cleanup` with the count; `pending` and `delivering` deliveries are never deleted by age.
+
 ## Subscriptions from code
 
 `webhooks.subscriptions` from `@quickservicets/core` (and `ctx.feature("webhooks").subscriptions` in features) creates, lists, reads, changes and deletes subscriptions:

@@ -45,4 +45,9 @@ const subscriptions: WebhookSubscriptions = {
 };
 
 /** The webhooks of the running service from any code: `webhooks.subscriptions.create(...)` and the rest. */
-export const webhooks: WebhooksApi = { subscriptions };
+export const webhooks: WebhooksApi = {
+  subscriptions,
+  resend: (id) => call(() => runningWebhooks().resend(id)),
+  deliveries: (subscriptionId, options) => call(() => runningWebhooks().deliveries(subscriptionId, options)),
+  delivery: (subscriptionId, deliveryId) => call(() => runningWebhooks().delivery(subscriptionId, deliveryId)),
+};

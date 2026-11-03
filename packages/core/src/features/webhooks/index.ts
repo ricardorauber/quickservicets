@@ -1,8 +1,12 @@
-import { defineFeature, HttpError, systemTarget, type Condition } from "../public.ts";
+import { defineFeature, HttpError, queues, safeLog, systemTarget, type Condition } from "../public.ts";
 import type { WebhooksApi } from "./api.ts";
 import { DeliverableEvents, entityDeliveries, patternProblem } from "./deliverable.ts";
 import { deliverer } from "./attempts.ts";
 import { retryRule, RETRY_SCHEDULE_PROBLEM, validSchedule } from "./retries.ts";
+import { CLEANUP_INTERVAL, deliveryLog } from "./log.ts";
+import { DELIVER_QUEUE } from "./matching.ts";
+import { webhooksCommands } from "./commands.ts";
+import { webhookClock } from "./state.ts";
 import { CACHE_REFRESH_MS, subscriptionCache } from "./cache.ts";
 import { webhookDeliveryEntity } from "./deliveries.ts";
 import { matchingListener } from "./matching.ts";
@@ -41,6 +45,7 @@ const webhooksFeature = defineFeature({
     return problems;
   },
   entities: () => [webhookSubscriptionEntity(), webhookDeliveryEntity()],
+  commands: webhooksCommands,
   tags: {
     webhooks: {
       on: ["entity"],
@@ -98,6 +103,34 @@ const webhooksFeature = defineFeature({
       logger: ctx.logger,
       emit: (type, payload) => ctx.events.emit(type as never, payload as never),
     });
+    const log = deliveryLog({ adapter, model: deliveryModel, logger: ctx.logger });
+    /** A delivery whose subscription the caller's tenant scope may see. */
+    const visibleDelivery = async (id: string) => {
+      const delivery = await log.get(id);
+      const notFound = () => new HttpError(404, `Webhook delivery ${id} not found`);
+      if (!delivery) throw notFound();
+      try {
+        await subscriptions.api.get(String(delivery.subscription));
+      } catch (error) {
+        if (error instanceof HttpError && error.status === 404) throw notFound();
+        throw error;
+      }
+      return delivery;
+    };
+    // Every worker that runs scheduled work deletes old finished deliveries at startup and once an hour.
+    if (ctx.worker.runsScheduledWork) {
+      let cleanup: ReturnType<typeof setInterval> | undefined;
+      const clean = () =>
+        log.cleanup(ctx.options.delivery.retention).catch((error: unknown) => {
+          safeLog(ctx.logger, "error", { timestamp: new Date().toISOString(), message: "webhooks.cleanup.failed", error: { message: (error as Error)?.message ?? String(error) } });
+        });
+      ctx.app.onStart(() => {
+        void clean();
+        cleanup = setInterval(() => void clean(), CLEANUP_INTERVAL);
+        cleanup.unref?.();
+      });
+      ctx.app.onStop(() => clearInterval(cleanup));
+    }
     const sender = deliverer({
       adapter,
       model: deliveryModel,
@@ -111,7 +144,7 @@ const webhooksFeature = defineFeature({
     const api: WebhooksApi = {
       subscriptions: {
         ...subscriptions.api,
-        async ping(id) {
+        async ping(id: string) {
           // Read in the caller's tenant scope first, so another tenant's id is not found.
           await subscriptions.api.get(id);
           const stored = await subscriptions.stored(id);
@@ -119,11 +152,29 @@ const webhooksFeature = defineFeature({
           return sender.ping(stored);
         },
       },
+      async resend(deliveryId) {
+        const delivery = await visibleDelivery(deliveryId);
+        const subscription = await subscriptions.stored(String(delivery.subscription));
+        if (!subscription?.enabled) throw new HttpError(409, "Subscription is disabled", { code: "CONFLICT" });
+        await log.reset(delivery);
+        await queues.add(DELIVER_QUEUE as never, delivery.id as never, { dedupeKey: `${delivery.id}:resend:${Bun.randomUUIDv7()}` });
+        return { id: delivery.id, status: "pending" };
+      },
+      async deliveries(subscriptionId, query) {
+        await subscriptions.api.get(subscriptionId);
+        return log.list(subscriptionId, query);
+      },
+      async delivery(subscriptionId, deliveryId) {
+        await subscriptions.api.get(subscriptionId);
+        const delivery = await log.get(deliveryId);
+        if (!delivery || String(delivery.subscription) !== subscriptionId) throw new HttpError(404, `Webhook delivery ${deliveryId} not found`);
+        return delivery;
+      },
     };
     apis.set(ctx.options, api);
     // The management routes need authentication: without auth, subscriptions are managed from code only.
     if (ctx.options.routes.enabled) {
-      if (authEnabled(ctx.config)) registerRoutes(ctx, ctx.options.routes, () => api.subscriptions);
+      if (authEnabled(ctx.config)) registerRoutes(ctx, ctx.options.routes, () => api, () => webhookClock.now());
       else warnRoutesNeedAuth(ctx.logger);
     }
     const deliveries = { deliver: (id: string, context: { signal: AbortSignal }) => sender.deliver(id, context) };
@@ -159,6 +210,8 @@ export { generateSecret, PREVIOUS_SECRET_MS } from "./subscriptions.ts";
 export { signWebhook, verifyWebhook } from "./signing.ts";
 export { GONE_REASON, PING_LIMIT } from "./attempts.ts";
 export { MAX_RETRY_DELAY_MS, retryDelay } from "./retries.ts";
+export { RESEND_LIMIT } from "./routes.ts";
+export type { DeliveryListOptions, DeliveryPage, DeliverySummary } from "./log.ts";
 export type { WebhookDeliveryEvent, WebhookSubscriptionDisabledEvent } from "./retries.ts";
 export type { SignInput, VerifyInput } from "./signing.ts";
 export type { WebhooksApi } from "./api.ts";

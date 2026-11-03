@@ -636,3 +636,47 @@ quickservicets secrets check [--tenant <id>]
   ]
 }
 ```
+
+### `webhooks`
+
+#### `webhooks list`
+
+Prints each webhook subscription with its id, URL host, whether it is enabled, its tenant, failingSince and its deliveries per status over the last 24 hours.
+
+```bash
+quickservicets webhooks list
+```
+
+#### `webhooks deliveries`
+
+Prints the deliveries of a subscription, newest first, with their type, status, attempt and last outcome.
+
+```bash
+quickservicets webhooks deliveries <subscription> [--status <status>] [--limit <n>]
+```
+
+**Arguments:**
+
+- `<subscription>` (required): The subscription's id.
+
+**Flags:**
+
+- `--status` (`string`): Only deliveries with this status: pending, delivering, succeeded or failed.
+- `--limit` (`integer`, default `20`): How many deliveries to print.
+
+#### `webhooks resend`
+
+Sends a finished delivery again, or every failed delivery of a subscription, and prints how many were rescheduled.
+
+```bash
+quickservicets webhooks resend <delivery> | --subscription <id> --failed
+```
+
+**Arguments:**
+
+- `<delivery>`: The delivery's id.
+
+**Flags:**
+
+- `--subscription` (`string`): Resends deliveries of this subscription, with --failed.
+- `--failed` (`boolean`, default `false`): With --subscription, resends every failed delivery.

@@ -1,5 +1,7 @@
 import { HttpError, requireRole, requireUser, safeLog, type FeatureSetupContext, type OpenApiDoc, type Repositories, type ServiceRequest, type ServiceResponse } from "../public.ts";
 import type { CreateSubscriptionInput, WebhookSubscriptions } from "./subscriptions.ts";
+import type { WebhooksApi } from "./api.ts";
+import { detailOf } from "./log.ts";
 
 /** The routes of subscriptions, as `routes` resolves. */
 export interface RouteSettings {
@@ -16,12 +18,16 @@ export function callerOf(req: ServiceRequest, roles: readonly string[]): { id: s
   return roles.length === 0 ? requireUser(req) : requireRole(req, ...roles);
 }
 
-/** A subscription id of another tenant, or of none, answers 404 without naming the id. */
+/** How many resends one subscription may ask for per minute over HTTP. */
+export const RESEND_LIMIT = 30;
+
+/** A subscription or delivery id of another tenant, or of none, answers 404 without naming the id. */
 async function scoped<T>(work: () => Promise<T>): Promise<T> {
   try {
     return await work();
   } catch (error) {
     if (error instanceof HttpError && error.status === 404 && error.message.startsWith("Webhook subscription ")) throw new HttpError(404, "Webhook subscription not found");
+    if (error instanceof HttpError && error.status === 404 && error.message.startsWith("Webhook delivery ")) throw new HttpError(404, "Webhook delivery not found");
     throw error;
   }
 }
@@ -49,7 +55,8 @@ const bodyOf = async (req: ServiceRequest): Promise<Record<string, unknown>> => 
 const pick = (body: Record<string, unknown>, keys: readonly string[]) => Object.fromEntries(keys.filter((key) => body[key] !== undefined).map((key) => [key, body[key]]));
 
 /** Registers the subscription routes under `settings.path`. */
-export function registerRoutes(ctx: Pick<FeatureSetupContext, "app">, settings: RouteSettings, subscriptions: () => WebhookSubscriptions): void {
+export function registerRoutes(ctx: Pick<FeatureSetupContext, "app">, settings: RouteSettings, webhooksApi: () => WebhooksApi, now: () => number = Date.now): void {
+  const subscriptions = (): WebhookSubscriptions => webhooksApi().subscriptions;
   const base = settings.path.replace(/\/+$/, "");
   const one = `${base}/[id]`;
   const route = (method: string, path: string, handler: (req: ServiceRequest, res: ServiceResponse) => unknown) =>
@@ -79,6 +86,33 @@ export function registerRoutes(ctx: Pick<FeatureSetupContext, "app">, settings: 
   });
   route("POST", `${one}/rotate-secret`, (req) => scoped(() => subscriptions().rotateSecret(req.params.id!)));
   route("POST", `${one}/ping`, (req) => scoped(() => subscriptions().ping(req.params.id!)));
+  // The delivery log of a subscription, and resending one of its deliveries.
+  route("GET", `${one}/deliveries`, (req) =>
+    scoped(async () => {
+      const limit = integerOf(req.query.get("limit") ?? undefined, 20, 1, 100, "limit");
+      const offset = integerOf(req.query.get("offset") ?? undefined, 0, 0, Number.MAX_SAFE_INTEGER, "offset");
+      const status = req.query.get("status") ?? undefined;
+      const type = req.query.get("type") ?? undefined;
+      return webhooksApi().deliveries(req.params.id!, { limit, offset, ...(status ? { status } : {}), ...(type ? { type } : {}) });
+    }),
+  );
+  route("GET", `${one}/deliveries/[deliveryId]`, (req) => scoped(async () => detailOf(await webhooksApi().delivery(req.params.id!, req.params.deliveryId!))));
+  const resends = new Map<string, number[]>();
+  route("POST", `${one}/deliveries/[deliveryId]/resend`, (req, res) =>
+    scoped(async () => {
+      const api = webhooksApi();
+      // The delivery must belong to the subscription the caller may see.
+      await api.delivery(req.params.id!, req.params.deliveryId!);
+      const at = now();
+      const recent = (resends.get(req.params.id!) ?? []).filter((time) => at - time < 60_000);
+      if (recent.length >= RESEND_LIMIT) throw new HttpError(429, "Too many requests", { headers: { "retry-after": String(Math.ceil((recent[0]! + 60_000 - at) / 1000)) } });
+      recent.push(at);
+      resends.set(req.params.id!, recent);
+      const result = await api.resend(req.params.deliveryId!);
+      res.status(202);
+      return result;
+    }),
+  );
 }
 
 /** Logs that the routes are on but cannot be served without `auth`; the setup calls it once. */
@@ -172,6 +206,52 @@ export function documentRoutes(doc: OpenApiDoc, settings: RouteSettings): OpenAp
       "200": json("The new secret", { type: "object", required: ["secret", "previousSecretExpiresAt"], properties: { secret: { type: "string" }, previousSecretExpiresAt: { type: "string", format: "date-time" } } }),
       "404": error("Webhook subscription not found"),
     }, { parameters: [id] }),
+  };
+  const delivery = {
+    type: "object",
+    properties: {
+      id: { type: "string" },
+      event: { type: "string" },
+      type: { type: "string" },
+      status: { type: "string", enum: ["pending", "delivering", "succeeded", "failed"] },
+      attempt: { type: "integer" },
+      nextAttemptAt: { type: "string", format: "date-time", nullable: true },
+      lastStatus: { type: "integer", nullable: true },
+      lastError: { type: "string", nullable: true },
+      durationMs: { type: "number", nullable: true },
+      deliveredAt: { type: "string", format: "date-time", nullable: true },
+      createdAt: { type: "string", format: "date-time" },
+    },
+  };
+  const deliveryId = { name: "deliveryId", in: "path", required: true, schema: { type: "string" } };
+  doc.paths[`${base}/{id}/deliveries`] = {
+    get: operation("The deliveries of a subscription, newest first", "listWebhookDeliveries", {
+      "200": json("A page of deliveries", { type: "object", required: ["data", "total", "limit", "offset"], properties: { data: { type: "array", items: delivery }, total: { type: "integer" }, limit: { type: "integer" }, offset: { type: "integer" } } }),
+      "400": error("Invalid query"),
+      "404": error("Webhook subscription not found"),
+    }, {
+      parameters: [
+        id,
+        { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100, default: 20 } },
+        { name: "offset", in: "query", schema: { type: "integer", minimum: 0, default: 0 } },
+        { name: "status", in: "query", schema: { type: "string", enum: ["pending", "delivering", "succeeded", "failed"] } },
+        { name: "type", in: "query", schema: { type: "string" } },
+      ],
+    }),
+  };
+  doc.paths[`${base}/{id}/deliveries/{deliveryId}`] = {
+    get: operation("One delivery with the body sent and the response kept", "readWebhookDelivery", {
+      "200": json("The delivery", { allOf: [delivery, { type: "object", properties: { payload: { type: "object" }, lastResponse: { type: "string", nullable: true } } }] }),
+      "404": error("Webhook delivery not found"),
+    }, { parameters: [id, deliveryId] }),
+  };
+  doc.paths[`${base}/{id}/deliveries/{deliveryId}/resend`] = {
+    post: operation("Sends a finished delivery again", "resendWebhookDelivery", {
+      "202": json("The delivery is pending again", { type: "object", required: ["id", "status"], properties: { id: { type: "string" }, status: { type: "string", enum: ["pending"] } } }),
+      "404": error("Webhook delivery not found"),
+      "409": error("Delivery is already scheduled, or Subscription is disabled"),
+      "429": error("Too many requests"),
+    }, { parameters: [id, deliveryId] }),
   };
   doc.paths[`${base}/{id}/ping`] = {
     post: operation("Sends a signed webhook.ping event to the subscription at once, without a delivery", "pingWebhookSubscription", {

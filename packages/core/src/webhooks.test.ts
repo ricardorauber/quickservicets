@@ -7,6 +7,9 @@ import { DeliverableEvents, entityDeliveries, patternsOverlap } from "./features
 import { generateSecret } from "./features/webhooks/subscriptions.ts";
 import { CACHE_REFRESH_MS, subscriptionCache } from "./features/webhooks/cache.ts";
 import { retryDelay } from "./features/webhooks/retries.ts";
+import { deliveryLog } from "./features/webhooks/log.ts";
+import { webhookDeliveryEntity } from "./features/webhooks/deliveries.ts";
+import { webhookSubscriptionEntity } from "./features/webhooks/models.ts";
 import webhooksFeature from "./features/webhooks/index.ts";
 import type { EntityModel, ParsedTags } from "./model.ts";
 
@@ -150,5 +153,34 @@ describe("the retry schedule", () => {
     expect(() => resolve({ delivery: { retrySchedule: ["8d"] } })).toThrow(message);
     expect(() => resolve({ delivery: { retrySchedule: Array.from({ length: 21 }, () => "1s") } })).toThrow(message);
     expect(optionsOf(resolve({ delivery: { retrySchedule: ["7d"] } })).delivery).toMatchObject({ retrySchedule: ["7d"] });
+  });
+});
+
+describe("delivery retention", () => {
+  test("finished deliveries past the retention are deleted in batches; pending ones are kept at any age", async () => {
+    const model = webhookDeliveryEntity();
+    const adapter = memoryAdapter();
+    await adapter.connect([webhookSubscriptionEntity(), model]);
+    const now = Date.parse("2026-11-03T10:00:00Z");
+    const DAY = 86_400_000;
+    const insert = (status: string, ageDays: number) => {
+      const at = new Date(now - ageDays * DAY);
+      return adapter.insert(model, { id: Bun.randomUUIDv7(), createdAt: at, updatedAt: at, subscription: "s", event: Bun.randomUUIDv7(), type: "order.created", payload: {}, status, attempt: 1 } as never);
+    };
+    const old = await insert("succeeded", 31);
+    const oldFailed = await insert("failed", 31);
+    const recent = await insert("failed", 29);
+    const pending = await insert("pending", 40);
+    const delivering = await insert("delivering", 40);
+    const logs: { message: string; count?: number }[] = [];
+    const log = deliveryLog({ adapter, model, logger: { info: (entry) => void logs.push(entry as never), warn() {}, error() {} }, now: () => now });
+    expect(await log.cleanup("30d")).toBe(2);
+    const left = (await adapter.findMany(model, { where: [], sort: [], limit: 10, offset: 0 })).data.map((row) => row.id).sort();
+    expect(left).toEqual([recent.id, pending.id, delivering.id].sort());
+    expect(left).not.toContain(old.id);
+    expect(left).not.toContain(oldFailed.id);
+    expect(logs).toContainEqual(expect.objectContaining({ message: "webhooks.cleanup", count: 2 }));
+    expect(await log.cleanup("7d")).toBe(1);
+    expect(optionsOf(resolve({}, { QS_WEBHOOKS_DELIVERY_RETENTION: "7d" })).delivery).toMatchObject({ retention: "7d" });
   });
 });

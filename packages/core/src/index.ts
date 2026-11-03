@@ -48,6 +48,7 @@ export type {
   ServiceResponse,
 } from "./hooks.ts";
 export { bunServerOf, createServer, deferRequestLog, endUpgradedRequest, noteRequestLog, peerAddress, requestSpanOf, toResponse, upgradeRequest } from "./http/server.ts";
+export { dispatchedFrom, dispatchRoute, type DispatchCall, type DispatchResult, type DispatchSource } from "./http/dispatch.ts";
 export { assertRoomName, defineSocket, isSocketDefinition, ROOM_NAME, setSocketHub, setSocketRunner, socketEndpoint, sockets, withMessageValidator } from "./http/socket.ts";
 export type { WebhookRunner } from "./http/server.ts";
 export type { AnySocketHandlers, DisconnectFilter, MessageValidator, PublishOptions, Sockets, Socket, SocketContext, SocketDefinition, SocketHandlers, SocketRunner, SocketTypes, TypedSocketHandlers } from "./http/socket.ts";

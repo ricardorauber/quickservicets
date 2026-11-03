@@ -13,6 +13,7 @@ import {
   setTenantRuns,
   inTransaction,
   currentTenant,
+  dispatchedFrom,
   safeLog,
   type LogEntry,
   type Logger,
@@ -581,6 +582,16 @@ const tenancyFeature = defineFeature({
       async run(req, _res, next) {
         const decision = decide(req);
         if (decision.exempt || exemptions.has(req.path)) return next();
+        if (dispatchedFrom(req)) {
+          // A dispatched request keeps the tenant of its caller instead of resolving one again.
+          const inherited = (req.tenant as { id?: unknown } | undefined)?.id;
+          if (inherited === undefined) {
+            if (decision.required) throw tenantRequired();
+            return next();
+          }
+          if (currentTenant()?.id === String(inherited)) return next();
+          return enter(await lookUp(directory, String(inherited), ctx.logger), () => next());
+        }
         const credential = (req.tenant as { id?: unknown } | undefined)?.id;
         const fromCredentials = credential === undefined ? undefined : String(credential);
         let id: string | undefined;

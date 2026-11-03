@@ -2,6 +2,7 @@ import {
   boolean,
   cookieValue,
   defineFeature,
+  dispatchedFrom,
   hook,
   HttpError,
   list,
@@ -290,8 +291,11 @@ const authFeature = defineFeature({
       // Before CSRF (150), tenancy (200) and the security limits keyed by user (1000).
       order: 100,
       async run(req, _res, next) {
+        // A dispatched request keeps the user and auth of its caller; its route's rules still apply.
+        const inherited = dispatchedFrom(req);
+        if (inherited?.auth !== undefined) authOf.set(req, inherited.auth as RequestAuth);
         index ??= credentialIndex(providers);
-        const present = presentProviders(req, index, providers);
+        const present = inherited ? [] : presentProviders(req, index, providers);
         for (const provider of present) {
           let result: AuthResult | null;
           try {

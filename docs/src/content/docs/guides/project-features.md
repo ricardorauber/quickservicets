@@ -290,7 +290,16 @@ export const shouting = defineFeature({
 
 ### Routes
 
-`ctx.app.route(method, path, handler)` adds a route at runtime, with `[param]` segments and a trailing `[...rest]` segment that receives the rest of the path. An endpoint file with the same method and path wins over it. `ctx.app.configureServer({ clientIp })` replaces how `req.ip` is computed from the request and its peer address; two features giving the same server setting fail at startup.
+`ctx.app.route(method, path, handler)` adds a route at runtime, with `[param]` segments and a trailing `[...rest]` segment that receives the rest of the path. An endpoint file with the same method and path wins over it.
+
+`dispatchRoute(from, { method, path, query?, body? })` runs a route of the service in process, for a queued request, a tool call or another protocol, and resolves `{ status, headers, body }` with the parsed JSON body. It runs the route's `handler` middleware, hooks, field selection, populate and handler as an HTTP request would, but not the `request` middleware, which already ran for the caller. The dispatched request inherits `user`, `tenant`, `auth`, `ip` and the request id of `from` (a request, or a plain object with those fields outside requests): `auth` and `tenancy` keep them instead of resolving them again, and still apply `@auth`, `@roles` and the tenant checks. Errors come back as their status and error body, never thrown; an unknown route answers 404 `NOT_FOUND`:
+
+```ts
+const answer = await dispatchRoute(req, { method: "GET", path: "/posts", query: { "where[status][eq]": "draft", limit: "5" } });
+if (answer.status === 200) console.log(answer.body);
+```
+
+`ctx.app.configureServer({ clientIp })` replaces how `req.ip` is computed from the request and its peer address; two features giving the same server setting fail at startup.
 
 ### Middleware
 

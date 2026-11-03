@@ -17,6 +17,7 @@ import { listenWithClientCertificates } from "./tls-server.ts";
 import { requestTlsRestart, TlsReloader, type ReloadedTls } from "../tls-reload.ts";
 import { clientCertificateOf } from "../client-certificates.ts";
 import { notifyRequestObservers, requestsObserved, type RequestObservation } from "../request-observers.ts";
+import { markDispatched, ownRequest, setLatestDispatcher, type DispatchCall, type DispatchResult, type DispatchSource, type Dispatcher } from "./dispatch.ts";
 import { coreInstruments, metricsEnabled, tenantAttributes, type MeterSetting, type MetricAttributes } from "../metering.ts";
 import { parseTraceparent, spanAttributes, startSpan, tracingEnabled, withSpan, type Span, type TracerSetting } from "../tracing.ts";
 
@@ -490,6 +491,53 @@ export function createServer({ routes, repos, config: serverConfig, jobs = noReq
     return toErrorResponse(error, config);
   };
 
+  /** Runs a route in process for `dispatchRoute`: the handler-stage pipeline of the route, without the request stage. */
+  const dispatch: Dispatcher = async (from: DispatchSource, call: DispatchCall): Promise<DispatchResult> => {
+    const method = call.method.toUpperCase();
+    const url = new URL(call.path, "http://localhost");
+    for (const [name, value] of Object.entries(call.query ?? {})) {
+      if (value === undefined) continue;
+      for (const item of Array.isArray(value) ? value : [value]) url.searchParams.append(name, String(item));
+    }
+    const hasBody = call.body !== undefined && method !== "GET" && method !== "HEAD";
+    const raw = new Request(url.href, { method, ...(hasBody ? { headers: { "content-type": "application/json" }, body: JSON.stringify(call.body) } : {}) });
+    const requestId = from.id ?? crypto.randomUUID();
+    const state: { req?: ServiceRequest } = {};
+    let response: Response;
+    try {
+      const match = router.match(method, url.pathname);
+      if (match.kind === "notFound") throw new HttpError(404, "Route not found");
+      if (match.kind === "methodNotAllowed") {
+        response = toErrorResponse(new HttpError(405, "Method not allowed"), config);
+        response.headers.set("allow", match.allow.join(", "));
+      } else {
+        const req = createRequest(raw, url, match.params, requestId, jobs, match.route.value.path, clientIp);
+        if (from.ip !== undefined) Object.defineProperty(req, "ip", { value: from.ip, configurable: true, enumerable: true, writable: true });
+        req.user = from.user;
+        req.tenant = from.tenant;
+        markDispatched(req, { ...(from.auth !== undefined ? { auth: from.auth } : {}), user: from.user, tenant: from.tenant });
+        state.req = properties ? withRequestProperties(req, properties) : req;
+        ownRequest(state.req, dispatch);
+        const res = new ResponseControls(raw, entityTags);
+        res.defaultStatus = match.route.value.status;
+        response = toResponse(await match.route.value.handler(repos, state.req, res), res, match.route.value.status);
+      }
+    } catch (error) {
+      response = errorStage.length === 0 && error instanceof HttpError ? toErrorResponse(error, config) : await errorResponse(error, raw, requestId, state);
+    }
+    const text = response.body ? await response.text() : "";
+    let body: unknown;
+    if (text !== "") {
+      try {
+        body = JSON.parse(text);
+      } catch {
+        body = undefined;
+      }
+    }
+    return { status: response.status, headers: Object.fromEntries(response.headers), body };
+  };
+  setLatestDispatcher(dispatch);
+
   const handle = async (request: Request, requestId: string, state: { route: string | null; req?: ServiceRequest; quiet?: boolean; span?: Span }, parsed?: URL) => {
     try {
       const url = parsed ?? new URL(request.url);
@@ -505,6 +553,7 @@ export function createServer({ routes, repos, config: serverConfig, jobs = noReq
       if (match.route.value.log === false) state.quiet = true;
       const req = createRequest(request, url, match.params, requestId, jobs, match.route.value.path, clientIp);
       state.req = properties ? withRequestProperties(req, properties) : req;
+      ownRequest(state.req, dispatch);
       const res = new ResponseControls(request, entityTags);
       res.defaultStatus = match.route.value.status;
       const result = await match.route.value.handler(repos, state.req, res);

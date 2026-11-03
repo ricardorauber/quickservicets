@@ -1,4 +1,12 @@
 import { configureFileRecords, filesContext } from "./file-records.ts";
+import { runUploadChecks } from "./upload-checks.ts";
+import { currentOperation } from "./operation-context.ts";
+
+/** Who a `createFile` inside a request uploads for; nobody outside requests. */
+const requestCheckContext = () => {
+  const req = currentOperation()?.req as { user?: unknown; tenant?: unknown } | undefined;
+  return req ? { req, user: req.user, tenant: req.tenant } : {};
+};
 import type { ResolvedConfig } from "./config.ts";
 import { configureTransactions } from "./transactions.ts";
 import { jsonLogger, maskedLogger, safeLog, type Logger } from "./logger.ts";
@@ -239,7 +247,7 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
   const hooksByRoute = new Map(crudRoutes.map((entry) => [`${entry.method} ${entry.path}`, entry.hooks]));
   const uploads = { storage: config.storage, files: config.files };
   // createFile, openFile and fileUrl reach this service's models, storages and access settings.
-  configureFileRecords({ models, adapter: config.database, uploads, access: fileAccess, logger });
+  configureFileRecords({ models, adapter: config.database, uploads, access: fileAccess, logger, check: (file, model) => runUploadChecks(file, { entity: model.entityName }, requestCheckContext()) });
   // The file route runs the entity's read hooks in proxy mode; a valid signature is the only check in signed mode.
   const hooksOf = (route: CrudRoute): HookCall[] =>
     route.fileAccess === "signed"

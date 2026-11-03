@@ -104,6 +104,8 @@ export { createApp } from "./app.ts";
 export { startService } from "./service.ts";
 export { CORE_VERSION, generatedPath } from "./build-steps.ts";
 export { createFile, fileRecords, fileUrl, openFile } from "./file-records.ts";
+export { addUploadCheck, UploadCheckUnavailableError, UploadRejectedError } from "./upload-checks.ts";
+export type { UploadCheck, UploadCheckContext, UploadFileView } from "./upload-checks.ts";
 export type { CreateFileInput, FileBody, FileEntityName, FileEntityNames, FileRecordFunctions, OpenedFile } from "./file-records.ts";
 export type { BuildFolderFile, FeatureBuildContext } from "./build-steps.ts";
 export { defineCommand, isCommandDefinition, jsonShapeProblems } from "./commands.ts";

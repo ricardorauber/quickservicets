@@ -63,6 +63,7 @@ export const CONFIG_OVERRIDES: readonly ConfigOverride[] = [
   { path: "files.deleteOnRemove", schema: boolean() },
   { path: "files.deleteReplaced", schema: boolean() },
   { path: "files.deleteWithOwner", schema: boolean() },
+  { path: "files.checkBuffer", schema: size() },
   { path: "repositories.toArrayMax", schema: integer().min(1) },
   { path: "populate.maxDepth", schema: integer().min(1) },
   { path: "migrations.autoInDev", schema: boolean() },
@@ -80,7 +81,7 @@ export const CONFIG_OVERRIDES: readonly ConfigOverride[] = [
 ];
 
 /** Keys that hold behavior (adapters, loggers, code), which no environment variable can express. */
-export const NOT_OVERRIDABLE: readonly string[] = ["database", "databases", "logger", "storage", "plugins", "middleware", "env", "docs.openapi"];
+export const NOT_OVERRIDABLE: readonly string[] = ["database", "databases", "logger", "storage", "plugins", "middleware", "env", "docs.openapi", "files.checks"];
 
 /** Variables the framework sets or reads itself, which are not config overrides but are not unknown either. */
 const INTERNAL_VARIABLES = [WORKER_INDEX_ENV];

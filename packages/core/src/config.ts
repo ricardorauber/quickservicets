@@ -1,3 +1,4 @@
+import { DEFAULT_CHECK_BUFFER, type UploadCheck } from "./upload-checks.ts";
 import { existsSync } from "node:fs";
 import type { ServerTlsConfig } from "./tls.ts";
 import { join } from "node:path";
@@ -98,6 +99,10 @@ export interface ServiceConfig extends NativeFeatures {
     deleteReplaced?: boolean;
     /** Delete the files a record references when the record is deleted (default true). */
     deleteWithOwner?: boolean;
+    /** Checks every incoming file passes before it is stored, before the checks features register. */
+    checks?: UploadCheck[];
+    /** How much of a checked file is held in memory, in bytes or as `8MB`; beyond it the file is spooled to disk (default 8 MB). */
+    checkBuffer?: number | string;
   };
   /** Repository settings. */
   repositories?: {
@@ -180,6 +185,8 @@ export interface ResolvedConfig
     deleteOnRemove: boolean;
     deleteReplaced: boolean;
     deleteWithOwner: boolean;
+    checks: UploadCheck[];
+    checkBuffer: number;
   };
   storage: Record<string, StorageAdapter> & { default: StorageAdapter };
   populate: { maxDepth: number };
@@ -288,6 +295,14 @@ function resolveStorage(config: ServiceConfig, projectRoot: string): ResolvedCon
 
 export const DEFAULT_SIGNED_URL_TTL = 900;
 
+/** The bytes of `files.checkBuffer`. */
+function checkBufferOf(value: number | string | undefined): number {
+  if (value === undefined) return DEFAULT_CHECK_BUFFER;
+  const bytes = parseSize(value);
+  if (bytes === undefined) throw new ConfigError(`Invalid files.checkBuffer: ${String(value)}`);
+  return bytes;
+}
+
 /** File settings; `FILES_SIGNING_SECRET` and the `QS_FILES_*` variables are applied to the config before. */
 function resolveFiles(config: ServiceConfig): ResolvedConfig["files"] {
   const maxSize = config.files?.maxSize === undefined ? DEFAULT_MAX_FILE_SIZE : parseSize(config.files.maxSize);
@@ -303,6 +318,8 @@ function resolveFiles(config: ServiceConfig): ResolvedConfig["files"] {
     deleteOnRemove: config.files?.deleteOnRemove ?? true,
     deleteReplaced: config.files?.deleteReplaced ?? true,
     deleteWithOwner: config.files?.deleteWithOwner ?? true,
+    checks: [...(config.files?.checks ?? [])],
+    checkBuffer: checkBufferOf(config.files?.checkBuffer),
   };
 }
 

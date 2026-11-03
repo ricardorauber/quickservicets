@@ -1,3 +1,4 @@
+import { configureUploadChecks, DEFAULT_CHECK_BUFFER } from "./upload-checks.ts";
 import type { ResolvedConfig } from "./config.ts";
 import type { FeatureApis, ResolvedFeature } from "./features.ts";
 import { events, type Events } from "./features/events/bus.ts";
@@ -297,6 +298,8 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
         endpoints.filter((endpoint) => endpoint.feature === undefined || enabledKeys.has(endpoint.feature)),
         crudRoutes,
       );
+      // The project's upload checks first; features add theirs during their setup.
+      configureUploadChecks({ checks: config.files.checks ?? [], buffer: config.files.checkBuffer ?? DEFAULT_CHECK_BUFFER, logger: config.logger });
       resetRuntimeTargets();
       // A service starts without the tracer of a service set up before it in this process.
       configureTracing(undefined);

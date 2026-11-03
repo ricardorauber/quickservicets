@@ -526,6 +526,36 @@ const link = await fileUrl(record, { expiresIn: "15m" });
 - `openFile(record or { entity, id })` resolves `{ stream, size, mimeType, filename, record }`, or throws 404 `<Entity> not found`; it runs no hooks, so the caller decides who may read the file.
 - `fileUrl(record, { expiresIn? })` gives the URL of the entity's access mode: the storage's public URL (`direct`), the proxy route (`proxy`) or a signed URL valid for `expiresIn` (`signed`, default `files.signedUrlTtl`), absolute when `server.publicUrl` is set.
 
+## Upload checks
+
+A feature or the project can inspect every incoming file before it is stored, like an antivirus scan, and refuse it. Features register checks during their setup with `addUploadCheck`; the project lists its own in `files.checks`, which run first:
+
+```ts
+import { addUploadCheck, defineFeature, UploadCheckUnavailableError, UploadRejectedError } from "@quickservicets/core";
+
+export default defineFeature({
+  key: "scanner",
+  setup() {
+    addUploadCheck({
+      name: "scanner",
+      async check(file) {
+        const verdict = await scan(file.stream()).catch(() => undefined);
+        if (verdict === undefined) throw new UploadCheckUnavailableError("scanner did not answer");
+        if (verdict.infected) throw new UploadRejectedError("Malware found");
+      },
+    });
+  },
+});
+```
+
+A check gets `{ entity, field?, filename, mimeType, size, stream(), bytes() }` and `{ req?, user?, tenant? }`, after the size, type and `@accept` checks and before the object is stored, for `POST` and `PUT` of file entities, file parts of entity uploads and `createFile`. `stream()` gives a new stream on every call: the content is held in memory up to `files.checkBuffer` (`8MB`, `QS_FILES_CHECK_BUFFER`) and spooled to a temporary file beyond it, deleted once the checks ran.
+
+- `UploadRejectedError(reason)` fails the upload with 400 `VALIDATION_ERROR` and `{ field, message: reason }` (the part's path, like `attachments[1]`, in an entity upload), stores nothing and logs `upload.rejected` with the entity, field, check, reason and size, never the filename.
+- `UploadCheckUnavailableError(reason)` fails it with 503 `SCANNER_UNAVAILABLE`, `Upload check <name> is unavailable` and `Retry-After: 30`, logging `upload.check.unavailable`.
+- Any other error answers 500 and logs `upload.check.failed` with the check's name.
+
+Checks can only be added during setup (`addUploadCheck must be called during setup` otherwise), each name once. Without any check, uploads keep their single pass, with no copy and no extra call.
+
 ## Cleanup
 
 Stored objects are deleted when nothing uses them anymore. Three config flags, all `true` by default, control it:

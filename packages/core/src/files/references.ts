@@ -1,3 +1,4 @@
+import { hasUploadChecks, runUploadChecks } from "../upload-checks.ts";
 import { HttpError } from "../errors.ts";
 import type { ServiceRequest } from "../hooks.ts";
 import type { EntityModel } from "../model.ts";
@@ -65,6 +66,14 @@ export async function parseEntityUpload(
       }
     }
     files.push({ field: field as FileReference, target, files: parts });
+  }
+  // Upload checks see every part before anything is stored, so a rejected part stores none of them.
+  if (hasUploadChecks()) {
+    const ctx = { req, user: req.user, tenant: req.tenant };
+    for (const entry of files) {
+      const many = entry.field.type === "refArray";
+      for (const [index, part] of entry.files.entries()) await runUploadChecks(part, { entity: entry.target.entityName, field: many ? `${entry.field.name}[${index}]` : entry.field.name }, ctx);
+    }
   }
   return { data, files };
 }

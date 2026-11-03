@@ -42,6 +42,8 @@ Every key that holds a value can also be set by an environment variable named af
 | `files.deleteOnRemove` | `boolean` | true | `QS_FILES_DELETE_ON_REMOVE` | Delete a file record's object when the record is deleted (default true). |
 | `files.deleteReplaced` | `boolean` | true | `QS_FILES_DELETE_REPLACED` | Delete replaced content and files no longer referenced after a reference changes (default true). |
 | `files.deleteWithOwner` | `boolean` | true | `QS_FILES_DELETE_WITH_OWNER` | Delete the files a record references when the record is deleted (default true). |
+| `files.checks` | `UploadCheck[]` | — | not overridable | Checks every incoming file passes before it is stored, before the checks features register. |
+| `files.checkBuffer` | `number \| string` | 8 MB | `QS_FILES_CHECK_BUFFER` | How much of a checked file is held in memory, in bytes or as `8MB`; beyond it the file is spooled to disk (default 8 MB). |
 | `repositories` | `object` | — | — | Repository settings. |
 | `repositories.toArrayMax` | `number` | 10000 | `QS_REPOSITORIES_TO_ARRAY_MAX` | Most records a fluent query's `toArray()` may return (default 10000). |
 | `populate` | `object` | — | — | Populate settings. |

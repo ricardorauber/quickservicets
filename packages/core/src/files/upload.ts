@@ -1,3 +1,4 @@
+import { runUploadChecks } from "../upload-checks.ts";
 import { HttpError } from "../errors.ts";
 import type { ServiceRequest } from "../hooks.ts";
 import { MEDIA_MIME_TYPES } from "../files.ts";
@@ -180,5 +181,6 @@ export async function parseUpload(req: ServiceRequest, model: EntityModel, setti
   if (!(file instanceof Blob)) throw invalid("file", "Is required");
   const resolved = await resolveUploadType(file, "file");
   assertFileAllowed(model, resolved, settings, "file");
+  await runUploadChecks(resolved, { entity: model.entityName }, { req, user: req.user, tenant: req.tenant });
   return { file: resolved, data: formFields(model, form, (name) => name === "file") };
 }

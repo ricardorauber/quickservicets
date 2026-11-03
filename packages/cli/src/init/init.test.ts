@@ -121,12 +121,12 @@ describe("the memory config", () => {
     expect(config).toContain("// events: {},");
   });
 
-  test("every database's config lists tenancy and auth among the commented examples", async () => {
+  test("every database's config lists tenancy, auth and webhooks among the commented examples", async () => {
     for (const db of ["memory", "sqlite", "postgres", "mongodb"] as const) {
       const root = emptyDir();
       await initProject(root, { db, agents: false });
       const config = read(root, "quickservicets.config.ts");
-      for (const line of ["// events: {},", "// history: {}, // needs events", "// tenancy: {},", "// auth: {},"]) expect(config).toContain(line);
+      for (const line of ["// events: {},", "// history: {}, // needs events", "// tenancy: {},", "// auth: {},", "// webhooks: {},"]) expect(config).toContain(line);
     }
   });
 

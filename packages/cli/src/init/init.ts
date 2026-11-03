@@ -80,6 +80,7 @@ export default defineConfig({
   // history: {}, // needs events
   // tenancy: {},
   // auth: {},
+  // webhooks: {}, // turns on events and queues
 });
 `,
   mongodb: `import { defineConfig, mongodbAdapter } from "@quickservicets/core";
@@ -92,6 +93,7 @@ export default defineConfig({
   // history: {}, // needs events
   // tenancy: {},
   // auth: {},
+  // webhooks: {}, // turns on events and queues
 });
 `,
   sqlite: `import { defineConfig, sqliteAdapter } from "@quickservicets/core";
@@ -104,6 +106,7 @@ export default defineConfig({
   // history: {}, // needs events
   // tenancy: {},
   // auth: {},
+  // webhooks: {}, // turns on events and queues
 });
 `,
   memory: `import { defineConfig } from "@quickservicets/core";
@@ -119,6 +122,7 @@ export default defineConfig({
   // history: {}, // needs events
   // tenancy: {},
   // auth: {},
+  // webhooks: {}, // turns on events and queues
 });
 `,
 };

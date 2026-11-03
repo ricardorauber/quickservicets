@@ -41,6 +41,14 @@ The infrastructure natives (`tenancy`, `auth`, `metrics`, `proxy`, `secrets` and
 
 A native that needs another fails the build until it is on, naming the fix, like `history requires events; add events: {} to quickservicets.config.ts`. Natives that store data (queues, history, the events outbox, idempotency keys, flags in the database) add tables, so they need a migration like any entity change.
 
+## Core additions
+
+Some additions live in the core rather than in a native, so they need no key:
+
+- [`createFile`, `openFile` and `fileUrl`](/guides/files/#files-from-code) store, read and link files from endpoints, jobs and queue handlers, and [upload checks](/guides/files/#upload-checks) inspect every upload before it is stored.
+- [`@vector` fields and `nearest()`](/guides/queries/#nearest-neighbor-queries-nearest) rank records by their distance from a vector, with pgvector on PostgreSQL.
+- [Usage counters](/guides/usage-metrics/#usage-counters) of `metrics` count what each tenant or user consumes, and features add [WebSocket routes at runtime](/guides/websockets/#socket-routes-from-features).
+
 ## The customization levels
 
 Every native can be changed at the same eight levels, from the lightest to the deepest; each example project in `examples/minimal/<key>` shows all of them for its feature:
@@ -55,3 +63,8 @@ Every native can be changed at the same eight levels, from the lightest to the d
 8. **Eject**: `quickservicets eject <key>` copies the native into `features/<key>/`, where the project owns it.
 
 To replace a native completely, write a project feature with its key in `features/<key>/index.ts`; the [Project features](/guides/project-features/) guide shows how.
+
+## Examples
+
+- [examples/identity](https://github.com/ricardorauber/quickservicets/blob/main/examples/identity/README.md): organizations, users, teams and permissions on PostgreSQL, with `events`, `history`, `health`, `idempotency` and `flags`.
+- [examples/saas-projects](https://github.com/ricardorauber/quickservicets/blob/main/examples/saas-projects/README.md): a multi-tenant project manager with `tenancy` per plan, `secrets`, and `queues` with the transactional outbox of `events`.

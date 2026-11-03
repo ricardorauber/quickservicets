@@ -160,8 +160,16 @@ The native features ship inside `@quickservicets/core`, each turned on by one co
 - On by default: `security` (headers, CORS, limits, rate limits, log masking) and `http` (the outgoing HTTP client with SSRF protection).
 - By their key: `events`, `queues`, `health`, `idempotency`, `etag`, `history`, `realtime` (Server-Sent Events and WebSockets), `errors` and `flags`.
 - Infrastructure, by their key: `tenancy` (multi-tenancy), `auth` (authentication), `metrics` (usage metrics), `proxy` (an API gateway) and `secrets` (references to vaults).
+- Integrations, by their key: `webhooks` (signed outgoing webhooks and incoming `webhook.ts` endpoints; it turns on `events` and `queues`).
 
 The [Native features](docs/src/content/docs/guides/features.md) guide lists what each one does, what it needs and how to customize it.
+
+## Examples
+
+Two complete projects in `examples/` show the framework at work:
+
+- [`examples/identity`](examples/identity/README.md): organizations, users, teams and permissions on PostgreSQL, with `events`, `history`, `health`, `idempotency` and `flags`.
+- [`examples/saas-projects`](examples/saas-projects/README.md): a multi-tenant project manager with `tenancy` per plan, `secrets`, and `queues` with the transactional outbox of `events`.
 
 ## Using PostgreSQL or MongoDB
 

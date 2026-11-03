@@ -104,4 +104,33 @@ describe("the native features guide", () => {
     expect(guides[0]).toBe("/guides/features/");
     expect(guides).toContain("/guides/http-client/");
   });
+
+  test("the core additions, the integrations group and the examples link to sections and files that exist", () => {
+    const slug = (heading: string) => heading.toLowerCase().replace(/[^a-z0-9 -]/g, "").trim().replace(/ /g, "-");
+    const additions = guide.split("## Core additions\n")[1]!.split("\n## ")[0]!.trim().split("\n");
+    expect(additions.length).toBeLessThanOrEqual(6);
+    const text = additions.join("\n");
+    for (const name of ["`createFile`", "`openFile`", "`fileUrl`", "upload checks", "`@vector`", "`nearest()`", "Usage counters", "WebSocket routes at runtime"]) expect(text).toContain(name);
+    const links = [...text.matchAll(/\]\(([^)#]+)#([^)]+)\)/g)];
+    expect(links).toHaveLength(5);
+    for (const [, page, anchor] of links) {
+      const headings = readFileSync(pageOf(page!)!, "utf8").match(/^#{2,3} .+$/gm)!.map((line) => slug(line.replace(/^#+ /, "")));
+      expect(headings).toContain(anchor!);
+    }
+    const index = readFileSync(join(content, "guides/index.md"), "utf8");
+    expect(index.split("Integrations:\n\n")[1]!.split("\n\n")[0]).toBe("- [Webhooks](/guides/webhooks/)");
+    expect(index.indexOf("Infrastructure:")).toBeLessThan(index.indexOf("Integrations:"));
+    expect(tableRows(guide).get("webhooks")![3]).toContain("`enables`");
+    const readme = readFileSync(join(root, "README.md"), "utf8");
+    const examples = readme.split("## Examples\n")[1]!.split("\n## ")[0]!.trim().split("\n");
+    expect(examples.length + 1).toBeLessThanOrEqual(8);
+    const readmeLinks = [...examples.join("\n").matchAll(/\]\(([^)]+)\)/g)].map((match) => match[1]!);
+    expect(readmeLinks).toEqual(["examples/identity/README.md", "examples/saas-projects/README.md"]);
+    for (const link of readmeLinks) expect(existsSync(join(root, link))).toBe(true);
+    const ending = guide.trim().split("\n## ").at(-1)!;
+    expect(ending.startsWith("Examples\n")).toBe(true);
+    const guideLinks = [...ending.matchAll(/\]\(https:\/\/github\.com\/ricardorauber\/quickservicets\/blob\/main\/([^)]+)\)/g)].map((match) => match[1]!);
+    expect(guideLinks).toEqual(readmeLinks);
+    expect(readme.split("## Native features\n")[1]!.split("\n## ")[0]).toContain("`webhooks`");
+  });
 });

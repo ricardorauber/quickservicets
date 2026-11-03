@@ -3,6 +3,9 @@ import type { SocketServer } from "./sockets.ts";
 import { join } from "node:path";
 import {
   activeSetup,
+  isSocketDefinition,
+  socketEndpoint,
+  withMessageValidator,
   type ServerSettings,
   currentMeter,
   metricsEnabled,
@@ -47,7 +50,7 @@ import {
   type EntityModel,
   type WriteEvent,
 } from "../public.ts";
-import type { ChangeDelivery, ChangeSend, RealtimeApi } from "./api.ts";
+import type { ChangeDelivery, ChangeSend, RealtimeApi, RuntimeSocketOptions } from "./api.ts";
 import { CHANGE_EVENTS, changeEntities, changesPath, documentChanges, parseChangeQuery, type ChangeCoverage, type ChangeEvent } from "./changes.ts";
 import { followChanges } from "./follow.ts";
 import { outboxSource, ringBufferSource, type ChangeSource } from "./source.ts";
@@ -215,6 +218,8 @@ function changeSource(ctx: FeatureSetupContext<{ sse: { pollInterval: string; bu
 
 /** The socket state of each running setup, for the feature API. */
 interface SocketState {
+  /** The options of the runtime socket routes features added, by path. */
+  runtime: Map<string, RuntimeSocketOptions & { owner: string }>;
   server: ReturnType<typeof socketServer> | undefined;
   /** The transport the config or a feature chose, and who chose it. */
   transport: SocketTransport | undefined;
@@ -254,11 +259,21 @@ type SocketOptions = {
  * The limits of each upgrade: its route's `@socket` options over the global ones, and the message rate of a function,
  * decided once per connection; a route's options are read once.
  */
-function socketLimits(options: SocketOptions["websockets"]): (req: ServiceRequest) => Promise<SocketLimits> {
+function socketLimits(options: SocketOptions["websockets"], runtime: ReadonlyMap<string, RuntimeSocketOptions> = new Map()): (req: ServiceRequest) => Promise<SocketLimits> {
   const routes = new Map<string, { maxMessageSize: number; messages: string | OptionFunction<string>; origins?: string[] | OptionFunction<string[]>; tagged: boolean }>();
   return async (req) => {
     const key = `${req.method} ${req.route}`;
     let route = routes.get(key);
+    const own = runtime.get(req.route ?? "");
+    if (!route && own) {
+      route = {
+        maxMessageSize: own.maxMessageSize !== undefined ? (parseSize(own.maxMessageSize) ?? 1_048_576) : (parseSize(options.maxMessageSize) ?? 1_048_576),
+        messages: (own.messages as string | OptionFunction<string> | undefined) ?? options.messages,
+        ...(own.origins !== undefined ? { origins: own.origins } : {}),
+        tagged: true,
+      };
+      routes.set(key, route);
+    }
     if (!route) {
       const target = realtimeFeature.optionsFor(req);
       const scoped = target.websockets as unknown as SocketOptions["websockets"];
@@ -283,7 +298,8 @@ function socketLimits(options: SocketOptions["websockets"]): (req: ServiceReques
  */
 function setUpSockets(ctx: FeatureSetupContext<SocketOptions>): SocketServer | undefined {
   const options = ctx.options.websockets;
-  const state: SocketState = { server: undefined, transport: undefined, owner: undefined, used: false, open: true, settings: activeSetup()?.server, passed: false, maxMessageSize: 0, idleTimeoutMs: 0 };
+  const runtimeSockets = new Map<string, RuntimeSocketOptions & { owner: string }>();
+  const state: SocketState = { runtime: runtimeSockets, server: undefined, transport: undefined, owner: undefined, used: false, open: true, settings: activeSetup()?.server, passed: false, maxMessageSize: 0, idleTimeoutMs: 0 };
   socketStates.set(ctx.options, state);
   if (!options.enabled) return;
   if (typeof options.transport === "object") {
@@ -317,7 +333,7 @@ function setUpSockets(ctx: FeatureSetupContext<SocketOptions>): SocketServer | u
     logger: ctx.logger,
     maxRooms: options.maxRooms,
     tenantRooms: ctx.config.features.some((feature) => feature.key === "tenancy"),
-    limitsFor: socketLimits(options),
+    limitsFor: socketLimits(options, runtimeSockets),
     hooks: options as unknown as Partial<SocketHooks>,
   });
   state.server = server;
@@ -580,6 +596,49 @@ const realtimeFeature = defineFeature({
       if (typeof fn !== "function") throw new Error(`Hook ${name} of realtime must be a function`);
       (ctx.options.websockets as unknown as Record<string, unknown[]>)[name]!.push(fn);
     },
+    socket(path, definition, options = {}) {
+      const caller = ctx.currentFeature() ?? activeSetup()?.feature ?? "a feature";
+      const state = socketStates.get(ctx.options);
+      const setup = activeSetup();
+      if (!state?.open || !setup?.route || !setup.server) throw new Error("socket() must be called during setup");
+      if (!state.server) throw new Error(`${caller} adds a WebSocket route but realtime.websockets is disabled`);
+      if (!isSocketDefinition(definition)) throw new Error(`socket(${path}) needs a defineSocket(...) definition`);
+      const global = parseSize((ctx.options.websockets as { maxMessageSize: string | number }).maxMessageSize) ?? 0;
+      const own = options.maxMessageSize === undefined ? undefined : parseSize(options.maxMessageSize);
+      if (own !== undefined && own > global) throw new Error(`maxMessageSize of ${path} is above realtime.websockets.maxMessageSize`);
+      const pattern = (route: string) => route.replace(/\[[^\]]+\]/g, ":");
+      const routes = taggedRoutes();
+      // A ws.ts file at the same path wins; other GET routes and another feature's socket conflict.
+      const file = routes.find((route) => route.kind === "websocket" && pattern(route.path) === pattern(path));
+      if (file) {
+        safeLog(ctx.logger, "info", { timestamp: new Date().toISOString(), message: `Override: the ws.ts file at ${file.path} replaces the WebSocket route of ${caller}` });
+        return;
+      }
+      const owner = [...state.runtime.entries()].find(([taken]) => pattern(taken) === pattern(path))?.[1].owner ?? (routes.some((route) => route.method === "GET" && pattern(route.path) === pattern(path)) ? `GET ${path}` : undefined);
+      if (owner !== undefined) throw new Error(`WebSocket route ${path} of ${caller} conflicts with ${owner}`);
+      state.runtime.set(path, { ...options, owner: caller });
+      const validated = options.validate
+        ? withMessageValidator(definition, {
+            validate(value) {
+              try {
+                options.validate!(value);
+                return undefined;
+              } catch (error) {
+                if (error instanceof HttpError) return [{ path: "", message: error.message }];
+                throw error;
+              }
+            },
+          })
+        : definition;
+      const server = state.server;
+      state.used = true;
+      if (!state.passed) {
+        setup.server.websocket = server.handler as never;
+        setup.server.socketRunner = server.run;
+        state.passed = true;
+      }
+      setup.route("GET", path, socketEndpoint(validated, () => setup.server.socketRunner), options.auth === undefined ? {} : { auth: options.auth });
+    },
     foreignSockets(pass) {
       const state = socketStates.get(ctx.options);
       const server = state?.server;
@@ -629,4 +688,4 @@ export type { ResetReason } from "./follow.ts";
 export { eventIdFloor, isEventId, outboxSource, POLL_OVERLAP_MS, ringBufferSource, timeOfEventId } from "./source.ts";
 export type { ChangeSource } from "./source.ts";
 export type { HeartbeatTimer, OpenStream } from "./stream.ts";
-export type { ChangeDelivery, ChangeSend, ForeignSockets, RealtimeApi } from "./api.ts";
+export type { ChangeDelivery, ChangeSend, ForeignSockets, RealtimeApi, RuntimeSocketOptions } from "./api.ts";

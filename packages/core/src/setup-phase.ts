@@ -1,5 +1,7 @@
 import type { ServerSettings } from "./http/server.ts";
 import type { Middleware } from "./middleware.ts";
+import type { Endpoint } from "./http/server.ts";
+import type { RuntimeRouteOptions } from "./lifecycle.ts";
 
 /** The feature whose setup runs now, with the server settings of its service; the lifecycle sets it around each setup. */
 export interface ActiveSetup {
@@ -12,6 +14,8 @@ export interface ActiveSetup {
    * middleware the call needs.
    */
   use?: (middleware: Middleware) => void;
+  /** Adds a runtime route for the feature whose setup runs now, as its own `ctx.app.route` would. */
+  route?: (method: string, path: string, handler: Endpoint, options?: RuntimeRouteOptions) => void;
 }
 
 let active: ActiveSetup | undefined;

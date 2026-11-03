@@ -13,6 +13,7 @@ export interface ForeignSockets {
   /** Upgrades the request to the connection, with response headers like the chosen subprotocol; false when it cannot. */
   upgrade(req: ServiceRequest, connection: ForeignConnection, headers?: Record<string, string>): boolean;
 }
+import type { SocketDefinition } from "../public.ts";
 import type { FeatureHook, RequestTenant, RequestUser, ServiceRequest, Sockets, SocketTransport, WriteEvent } from "../public.ts";
 
 /** What `sse.beforeDeliver` hooks receive for each change and stream: returning false skips it for that stream. */
@@ -52,6 +53,25 @@ export interface RealtimeApi {
    * `pass` (during setup) makes the server get Bun's WebSocket handler even without `ws.ts` routes.
    */
   foreignSockets(pass: boolean): ForeignSockets | undefined;
+  /**
+   * Adds a WebSocket route at a path of the calling feature's options, during its setup, served like a `ws.ts` file
+   * (the upgrade pipeline, limits, hooks and error frames); a `ws.ts` file at the same path wins.
+   */
+  socket(path: string, definition: SocketDefinition, options?: RuntimeSocketOptions): void;
   /** Replaces the local transport during setup; a second source (the config or another feature) fails startup naming both. */
   setTransport(transport: SocketTransport): void;
+}
+
+/** The options of a runtime WebSocket route, like those of `@socket` on a `ws.ts` file. */
+export interface RuntimeSocketOptions {
+  /** `false` keeps the route public when `auth.required` is true; `true` requires a signed-in user. */
+  auth?: boolean;
+  /** The largest message of the route, at most `realtime.websockets.maxMessageSize`. */
+  maxMessageSize?: string | number;
+  /** The message rate of each socket, like `2/s`, or a function of the request. */
+  messages?: string | ((ctx: { req: ServiceRequest }) => string | Promise<string>);
+  /** The origins allowed to open the socket. */
+  origins?: string[];
+  /** Checks each text frame (already JSON-parsed); an HttpError it throws is answered with an `INVALID_MESSAGE` frame. */
+  validate?(value: unknown): unknown;
 }

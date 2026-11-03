@@ -154,6 +154,15 @@ foreignSockets(pass: boolean): ForeignSockets | undefined;
 The shared WebSocket handler for connections of another feature, or undefined while `realtime.websockets` is off;
 `pass` (during setup) makes the server get Bun's WebSocket handler even without `ws.ts` routes.
 
+### `socket`
+
+```ts
+socket(path: string, definition: SocketDefinition, options?: RuntimeSocketOptions): void;
+```
+
+Adds a WebSocket route at a path of the calling feature's options, during its setup, served like a `ws.ts` file
+(the upgrade pipeline, limits, hooks and error frames); a `ws.ts` file at the same path wins.
+
 ### `setTransport`
 
 ```ts

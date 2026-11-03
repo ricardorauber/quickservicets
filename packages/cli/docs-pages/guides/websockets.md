@@ -153,3 +153,28 @@ socket.addEventListener("close", (event) => {
 });
 socket.addEventListener("open", () => socket.send(JSON.stringify({ id: 1, type: "say", text: "hello" })));
 ```
+
+## Socket routes from features
+
+A feature adds a WebSocket route at a path of its own options during its setup with `ctx.feature("realtime").socket(path, definition, options?)`; it is served like a `ws.ts` file, with the same upgrade pipeline (426 without an upgrade, authentication, tenancy, origin checks, connection and message limits, error frames, the hooks and the request log entry):
+
+```ts
+import { defineFeature, defineSocket } from "@quickservicets/core";
+
+export default defineFeature({
+  key: "live",
+  requires: ["realtime"],
+  setup(ctx) {
+    ctx.feature("realtime").socket(
+      "/live/[room]",
+      defineSocket({ open: (ws) => ws.subscribe(ws.params.room!), message: (ws, data) => ws.publish(ws.params.room!, String(data)) }),
+      { auth: false, messages: "2/s" },
+    );
+  },
+});
+```
+
+- `path` uses `[param]` segments; `auth: false` keeps the route public when `auth.required` is true; `maxMessageSize`, `messages` (a rate, or a function of the request) and `origins` act like the `@socket` options, and a `maxMessageSize` above `realtime.websockets.maxMessageSize` throws `maxMessageSize of <path> is above realtime.websockets.maxMessageSize`.
+- `validate(value)` checks each text frame, already JSON-parsed; an `HttpError` it throws is answered with an `INVALID_MESSAGE` error frame and the socket stays open.
+- It can only be called during setup (`socket() must be called during setup`), and with `realtime.websockets` off it throws `<key> adds a WebSocket route but realtime.websockets is disabled`. A `ws.ts` file at the same path wins, with an info line; two features on one path, or a socket path equal to a `GET` route, fail startup with `WebSocket route <path> of <key> conflicts with <owner>`.
+- The feature documents its route in its `openapi` contribution with `x-websocket: true`. Bun gets a WebSocket handler only when a `ws.ts` file or a runtime socket route exists.

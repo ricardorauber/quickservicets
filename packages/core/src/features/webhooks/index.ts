@@ -1,6 +1,7 @@
-import { defineFeature, systemTarget, type Condition } from "../public.ts";
+import { defineFeature, HttpError, systemTarget, type Condition } from "../public.ts";
 import type { WebhooksApi } from "./api.ts";
 import { DeliverableEvents, entityDeliveries, patternProblem } from "./deliverable.ts";
+import { deliverer } from "./attempts.ts";
 import { CACHE_REFRESH_MS, subscriptionCache } from "./cache.ts";
 import { webhookDeliveryEntity } from "./deliveries.ts";
 import { matchingListener } from "./matching.ts";
@@ -10,8 +11,8 @@ import { documentRoutes, registerRoutes, warnRoutesNeedAuth } from "./routes.ts"
 import { running } from "./running.ts";
 import { subscriptionStore, type SubscriptionStore } from "./subscriptions.ts";
 
-/** The subscription store of each running configuration, for its feature API. */
-const stores = new WeakMap<object, SubscriptionStore>();
+/** The API of each running configuration, for its feature API. */
+const apis = new WeakMap<object, WebhooksApi>();
 
 /**
  * The `webhooks` native: outgoing webhooks signed by the Standard Webhooks scheme for the events subscriptions choose,
@@ -85,15 +86,26 @@ const webhooksFeature = defineFeature({
       refresh.unref?.();
     });
     ctx.app.onStop(() => clearInterval(refresh));
-    stores.set(ctx.options, subscriptions);
-    const api: WebhooksApi = { subscriptions: subscriptions.api };
+    const sender = deliverer({ adapter, model: deliveryModel, store: subscriptions, delivery: ctx.options.delivery, logger: ctx.logger });
+    const api: WebhooksApi = {
+      subscriptions: {
+        ...subscriptions.api,
+        async ping(id) {
+          // Read in the caller's tenant scope first, so another tenant's id is not found.
+          await subscriptions.api.get(id);
+          const stored = await subscriptions.stored(id);
+          if (!stored) throw new HttpError(404, `Webhook subscription ${id} not found`);
+          return sender.ping(stored);
+        },
+      },
+    };
+    apis.set(ctx.options, api);
     // The management routes need authentication: without auth, subscriptions are managed from code only.
     if (ctx.options.routes.enabled) {
-      if (authEnabled(ctx.config)) registerRoutes(ctx, ctx.options.routes, () => subscriptions.api);
+      if (authEnabled(ctx.config)) registerRoutes(ctx, ctx.options.routes, () => api.subscriptions);
       else warnRoutesNeedAuth(ctx.logger);
     }
-    // Sending arrives with the signed delivery; until then attempts leave deliveries pending.
-    const deliveries = { deliver: async () => undefined };
+    const deliveries = { deliver: (id: string, context: { signal: AbortSignal }) => sender.deliver(id, context) };
     running.current = api;
     running.deliveries = deliveries;
     ctx.app.onStop(() => {
@@ -101,7 +113,7 @@ const webhooksFeature = defineFeature({
       if (running.deliveries === deliveries) running.deliveries = undefined;
     });
   },
-  api: (ctx): WebhooksApi => ({ subscriptions: stores.get(ctx.options)!.api }),
+  api: (ctx): WebhooksApi => apis.get(ctx.options)!,
   openapi(doc, { config, options }) {
     if (!options.routes.enabled || !authEnabled(config)) return doc;
     return documentRoutes(doc, options.routes);
@@ -122,5 +134,8 @@ export { bodyOf, WEBHOOK_DELIVERY_STATUSES, MAX_PAYLOAD_BYTES, webhookDeliveryEn
 export { CACHE_REFRESH_MS, subscriptionCache } from "./cache.ts";
 export type { WebhookDeliveryStatus, WebhookDelivery } from "./deliveries.ts";
 export { generateSecret, PREVIOUS_SECRET_MS } from "./subscriptions.ts";
+export { signWebhook, verifyWebhook } from "./signing.ts";
+export { GONE_REASON, PING_LIMIT } from "./attempts.ts";
+export type { SignInput, VerifyInput } from "./signing.ts";
 export type { WebhooksApi } from "./api.ts";
 export type { CreateSubscriptionInput, SubscriptionListOptions, UpdateSubscriptionInput, WebhookSubscription, WebhookSubscriptions } from "./subscriptions.ts";

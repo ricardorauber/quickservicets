@@ -65,6 +65,11 @@ export interface WebhookSubscriptions {
   delete(id: string): Promise<void>;
   /** Replaces the secret, keeping the old one valid for 24 hours, and resolves the new one. */
   rotateSecret(id: string): Promise<{ secret: string; previousSecretExpiresAt: Date }>;
+  /**
+   * Sends a signed `webhook.ping` event to the subscription at once, without a delivery record, and resolves the
+   * receiver's status; at most 10 per minute per subscription (429 `Too many requests` beyond).
+   */
+  ping(id: string): Promise<{ status: number; ok: boolean; durationMs: number }>;
 }
 
 /** How long a rotated secret keeps signing deliveries next to the new one. */
@@ -173,7 +178,7 @@ export function subscriptionStore(options: SubscriptionStoreOptions) {
       return updated;
     },
   };
-  const api: WebhookSubscriptions = {
+  const api: Omit<WebhookSubscriptions, "ping"> = {
     async create(input) {
       const urlReason = await urlProblem(input?.url, options.requireHttps);
       if (urlReason) throw invalid("url", urlReason);

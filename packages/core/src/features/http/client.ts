@@ -43,6 +43,8 @@ export interface HttpRequest {
   attempt: number;
   /** The named service the call goes through. */
   service?: string;
+  /** False answers a redirect as it is instead of following it (default true). */
+  followRedirects?: boolean;
 }
 
 /** A step around a call; `next` runs the rest of the chain and resolves its response. */
@@ -64,6 +66,8 @@ export interface CallSpec {
   modifiers: readonly HttpModifier[];
   /** The named service the call goes through. */
   service?: string;
+  /** False answers a redirect as it is instead of following it. */
+  followRedirects?: boolean;
 }
 
 /** Who a client calls for: the global client calls for nobody. */
@@ -195,6 +199,7 @@ export async function describeCall(spec: CallSpec, settings: HttpSettings, bindi
     signal: spec.signal,
     attempt: 1,
     ...(spec.service !== undefined ? { service: spec.service } : {}),
+    ...(spec.followRedirects === false ? { followRedirects: false } : {}),
   };
 }
 
@@ -554,6 +559,11 @@ export class HttpRequestBuilder {
   /** Aborts the call when `signal` aborts, rejecting with `ABORTED`. */
   signal(signal: AbortSignal): HttpRequestBuilder {
     return this.#with({ signal });
+  }
+
+  /** `false` answers a redirect (3xx with `location`) as it is, instead of following it (default `true`). */
+  followRedirects(follow: boolean): HttpRequestBuilder {
+    return this.#with({ followRedirects: follow });
   }
 
   /** Wraps the call in a modifier. */

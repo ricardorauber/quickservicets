@@ -9,7 +9,7 @@ import { startTestService, type TestService } from "../testing/service.ts";
 afterEach(() => registerProjectFeatures([]));
 
 const config = (keys: string, adapter = "memoryAdapter()") => `import { defineConfig, memoryAdapter, sqliteAdapter } from "@quickservicets/core";
-export default defineConfig({ database: ${adapter}, ${keys} });
+export default defineConfig({ database: ${adapter}, queues: { consume: false }, ${keys} });
 `;
 const ORDER = `/** @webhooks */
 export type Order = {

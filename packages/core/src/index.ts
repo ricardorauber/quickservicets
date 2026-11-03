@@ -355,8 +355,8 @@ registerShippedNative(metricsNative);
 registerShippedNative(proxyNative);
 registerShippedNative(secretsNative);
 registerShippedNative(webhooksNative);
-export { bodyOf, CACHE_REFRESH_MS, WEBHOOK_DELIVERY_STATUSES, MAX_PAYLOAD_BYTES, subscriptionCache, webhookDeliveryEntity, DeliverableEvents, entityDeliveries, generateSecret, patternMatchesType, patternProblem, patternsOverlap, PREVIOUS_SECRET_MS, webhooks, webhooksFeature, webhookSubscriptionEntity } from "./features/webhooks/index.ts";
-export type { WebhookDeliveryStatus, WebhookDelivery, CreateSubscriptionInput, SubscriptionListOptions, UpdateSubscriptionInput, WebhooksApi, WebhookSubscription, WebhookSubscriptions } from "./features/webhooks/index.ts";
+export { signWebhook, verifyWebhook, GONE_REASON, PING_LIMIT, bodyOf, CACHE_REFRESH_MS, WEBHOOK_DELIVERY_STATUSES, MAX_PAYLOAD_BYTES, subscriptionCache, webhookDeliveryEntity, DeliverableEvents, entityDeliveries, generateSecret, patternMatchesType, patternProblem, patternsOverlap, PREVIOUS_SECRET_MS, webhooks, webhooksFeature, webhookSubscriptionEntity } from "./features/webhooks/index.ts";
+export type { SignInput, VerifyInput, WebhookDeliveryStatus, WebhookDelivery, CreateSubscriptionInput, SubscriptionListOptions, UpdateSubscriptionInput, WebhooksApi, WebhookSubscription, WebhookSubscriptions } from "./features/webhooks/index.ts";
 export {
   addAuthScheme,
   AuthError,

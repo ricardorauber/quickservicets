@@ -78,6 +78,7 @@ export function registerRoutes(ctx: Pick<FeatureSetupContext, "app">, settings: 
     return undefined;
   });
   route("POST", `${one}/rotate-secret`, (req) => scoped(() => subscriptions().rotateSecret(req.params.id!)));
+  route("POST", `${one}/ping`, (req) => scoped(() => subscriptions().ping(req.params.id!)));
 }
 
 /** Logs that the routes are on but cannot be served without `auth`; the setup calls it once. */
@@ -170,6 +171,13 @@ export function documentRoutes(doc: OpenApiDoc, settings: RouteSettings): OpenAp
     post: operation("Replaces the secret, keeping the old one valid for 24 hours", "rotateWebhookSecret", {
       "200": json("The new secret", { type: "object", required: ["secret", "previousSecretExpiresAt"], properties: { secret: { type: "string" }, previousSecretExpiresAt: { type: "string", format: "date-time" } } }),
       "404": error("Webhook subscription not found"),
+    }, { parameters: [id] }),
+  };
+  doc.paths[`${base}/{id}/ping`] = {
+    post: operation("Sends a signed webhook.ping event to the subscription at once, without a delivery", "pingWebhookSubscription", {
+      "200": json("What the receiver answered", { type: "object", required: ["status", "ok", "durationMs"], properties: { status: { type: "integer" }, ok: { type: "boolean" }, durationMs: { type: "number" } } }),
+      "404": error("Webhook subscription not found"),
+      "429": error("Too many requests"),
     }, { parameters: [id] }),
   };
   return doc;

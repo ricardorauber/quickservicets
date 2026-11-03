@@ -23,7 +23,7 @@ const orders = await http
 
 - `.json(body)`, `.form(data)` (URL-encoded, or multipart for a `FormData`) and `.body(raw)` set the body.
 - `.header(name, value)`, `.headers(record)`, `.bearer(token)` and `.query(record)` add headers and query parameters; arrays repeat the name and `undefined` values are skipped.
-- `.timeout("2s")`, `.signal(signal)` and `.use(modifier)` change how the call runs.
+- `.timeout("2s")`, `.signal(signal)` and `.use(modifier)` change how the call runs; `.followRedirects(false)` answers a redirect as it is instead of following it.
 
 The terminals run the call. `.send<T>()` resolves the body of a 2xx response, parsed as JSON for `application/json` and `+json` types, `undefined` when it is empty and the text otherwise; `.text()` and `.bytes()` read it as text or bytes. `.response()` resolves `{ status, ok, headers, url, json(), text(), bytes() }` whatever the status.
 

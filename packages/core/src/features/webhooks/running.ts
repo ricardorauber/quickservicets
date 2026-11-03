@@ -41,6 +41,7 @@ const subscriptions: WebhookSubscriptions = {
   update: (id, changes) => call(() => runningWebhooks().subscriptions.update(id, changes)),
   delete: (id) => call(() => runningWebhooks().subscriptions.delete(id)),
   rotateSecret: (id) => call(() => runningWebhooks().subscriptions.rotateSecret(id)),
+  ping: (id) => call(() => runningWebhooks().subscriptions.ping(id)),
 };
 
 /** The webhooks of the running service from any code: `webhooks.subscriptions.create(...)` and the rest. */

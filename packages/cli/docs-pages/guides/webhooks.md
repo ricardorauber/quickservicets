@@ -49,6 +49,40 @@ The body is built once per event:
 
 Each worker keeps the enabled subscriptions in memory, reloaded every 30 seconds and right after it changes one, so matching reads no database; an event no subscription matches costs one lookup, and writes of entities neither tagged nor matched by `events` are not observed at all.
 
+## Sending and signatures
+
+Each delivery is sent by the `webhooks/deliver` queue as a `POST` of the stored body to the subscription's URL, signed by the [Standard Webhooks](https://www.standardwebhooks.com/) scheme:
+
+| Header | Value |
+| --- | --- |
+| `content-type` | `application/json` |
+| `user-agent` | `quickservicets-webhooks/<core version>` |
+| `webhook-id` | The event's id, the same on every attempt |
+| `webhook-timestamp` | The attempt's time in unix seconds |
+| `webhook-signature` | `v1,<base64 HMAC-SHA256 of "<id>.<timestamp>.<body>">`; while a rotated secret is still valid, the new and the old signatures separated by a space |
+
+The subscription's `headers` are added, and never replace these. Receivers check the signature with `verifyWebhook` (or any Standard Webhooks library):
+
+```ts
+import { verifyWebhook } from "@quickservicets/core";
+
+export async function receive(request: Request, secret: string): Promise<Response> {
+  const body = await request.text();
+  const valid = verifyWebhook({
+    id: request.headers.get("webhook-id") ?? "",
+    timestamp: request.headers.get("webhook-timestamp") ?? "",
+    body,
+    signature: request.headers.get("webhook-signature") ?? "",
+    secrets: [secret],
+  });
+  return new Response(null, { status: valid ? 204 : 401 });
+}
+```
+
+`signWebhook({ id, timestamp, body, secret })` produces the same `v1,` signature. Every attempt goes through the [HTTP client](/guides/http-client/) with SSRF protection checking the address again (a subscription's host is never trusted like a named service), with `delivery.timeout` (10 seconds), without following redirects (a 3xx fails with `Redirects are not followed`), and keeping at most `delivery.responseBodyLimit` (1 KB) of the answer in the delivery's `lastResponse`. A 2xx marks the delivery `succeeded`; any other status, a timeout, a network error or an SSRF block records `lastStatus` (0 without an answer), `lastError` and `durationMs`. A 410 also disables the subscription with `Receiver answered 410 Gone`, and deliveries of a disabled subscription end `failed` with `Subscription disabled` without a request. At most `delivery.concurrency` (10) attempts of one subscription run at once per worker, and each attempt logs `webhook.delivery.succeeded` or `webhook.delivery.failed` with the subscription, delivery, type, attempt, status and duration, never the body or headers.
+
+`webhooks.subscriptions.ping(id)` (and `POST /webhooks/[id]/ping` with the management routes) sends a signed `webhook.ping` event with `data: { subscriptionId }` at once, without a delivery, and answers `{ status, ok, durationMs }`; at most 10 pings per minute per subscription, then 429 `Too many requests`.
+
 ## Subscriptions from code
 
 `webhooks.subscriptions` from `@quickservicets/core` (and `ctx.feature("webhooks").subscriptions` in features) creates, lists, reads, changes and deletes subscriptions:

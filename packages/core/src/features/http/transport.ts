@@ -264,7 +264,7 @@ export async function transport(request: HttpRequest, settings: HttpSettings, tr
       const clientTls = !serviceTls || hop.url.origin === origin ? serviceTls : { rejectUnauthorized: serviceTls.rejectUnauthorized, ...(serviceTls.ca ? { ca: serviceTls.ca } : {}) };
       response = await sendHop(hop, destination, signal, settings.options.transport as HttpTransport | undefined, clientTls);
       const location = response.headers.get("location");
-      if (!REDIRECTS.has(response.status) || location === null) break;
+      if (!REDIRECTS.has(response.status) || location === null || request.followRedirects === false) break;
       await response.body?.cancel().catch(() => undefined);
       if (redirects >= settings.options.maxRedirects) throw fail("TOO_MANY_REDIRECTS", `Too many redirects from ${url}`);
       hop = redirected(hop, response.status, new URL(location, hop.url));

@@ -38,6 +38,7 @@ export default defineConfig({
 | `metrics` | Requests, errors and p50, p95 and p99 latency per route, tenant and optionally user, in time windows kept by the service | by its key | — | [Usage metrics](/guides/usage-metrics/) | [metrics](/reference/features/metrics/) |
 | `proxy` | An API gateway: proxy routes forwarding configured paths to an upstream URL or a named service, streaming both ways | by its key | `http`; WebSocket routes need `realtime` | [API gateway](/guides/api-gateway/) | [proxy](/reference/features/proxy/) |
 | `secrets` | Secret references like `secret("vault://kv/db#url")` in the configuration, resolved at startup, cached, rotated and per tenant, with built-in `env://` and `file://` providers | by its key | — (a feature that lists it in `enables` turns it on) | [Secrets](/guides/secrets/) | [secrets](/reference/features/secrets/) |
+| `webhooks` | Outgoing webhooks per event, managed as subscriptions with secrets, URL checks and tenant isolation | by its key | `events` and `queues`, which it turns on (`enables`) | [Webhooks](/guides/webhooks/) | [webhooks](/reference/features/webhooks/) |
 
 The infrastructure natives (`tenancy`, `auth`, `metrics`, `proxy`, `secrets` and the WebSocket part of `realtime`) shape how the service runs rather than what an entity does; mTLS is an item of `security` with its own [mTLS guide](/guides/mtls/).
 

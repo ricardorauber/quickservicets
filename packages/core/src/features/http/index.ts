@@ -182,6 +182,7 @@ export type { HttpApi } from "./api.ts";
 export type { ServiceOptions, ServiceOptionsInput } from "./options.ts";
 export type { Http, HttpBody, HttpMethods, HttpServiceMethods, HttpServiceNames, ServiceName, HttpModifier, HttpQueryValue, HttpRequest, HttpResponse } from "./client.ts";
 export { HttpClientError } from "./errors.ts";
+export { ssrfProblem } from "./transport.ts";
 export { blockedCategory, useTestResolver } from "./ssrf.ts";
 export { defineModifier } from "./modifiers.ts";
 export type { ModifierFunction } from "./modifiers.ts";

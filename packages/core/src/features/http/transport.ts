@@ -1,7 +1,7 @@
 import { isIP } from "node:net";
 import { checkServerIdentity, type PeerCertificate } from "node:tls";
 import { formatSize, maskUrl, parseSize, safeLog } from "../public.ts";
-import type { HttpBody, HttpRequest, HttpResponse, HttpSettings } from "./client.ts";
+import { currentSettings, type HttpBody, type HttpRequest, type HttpResponse, type HttpSettings } from "./client.ts";
 import { answerFromMock, mockActive, MOCK_TIMEOUT } from "./mock.ts";
 import { allowList, blockedCategory, isReservedName, RESERVED_NAME, resolveHost, type AllowList } from "./ssrf.ts";
 import { HttpClientError } from "./errors.ts";
@@ -127,6 +127,21 @@ export async function checkDestination(url: URL, settings: HttpSettings, trusted
     }
   }
   return { address: addresses[0]! };
+}
+
+/**
+ * Why SSRF protection would block a call to `url` now, as the message of the blocked call, or undefined when it would
+ * let it through (or is off); a host that does not resolve is not refused here, its calls fail when they are made.
+ */
+export async function ssrfProblem(url: string | URL): Promise<string | undefined> {
+  try {
+    await checkDestination(new URL(url), currentSettings(), undefined);
+    return undefined;
+  } catch (error) {
+    if (error instanceof HttpClientError && error.code === "SSRF_BLOCKED") return error.message;
+    if ((error as { code?: unknown })?.code === "ENOTFOUND") return undefined;
+    throw error;
+  }
 }
 
 /** The `allow` list compiled once per list. */

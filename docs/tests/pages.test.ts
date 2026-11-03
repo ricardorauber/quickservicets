@@ -62,6 +62,7 @@ const PAGES = [
   "guides/idempotency.md",
   "guides/optimistic-concurrency.md",
   "guides/coding-agents.md",
+  "guides/webhooks.md",
   "reference/index.md",
   "reference/tags.mdx",
   "reference/config.mdx",

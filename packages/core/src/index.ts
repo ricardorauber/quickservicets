@@ -335,6 +335,7 @@ import authNative, { type AuthApi, type RequestAuth, type SessionRevokedEvent } 
 import metricsNative, { type MetricsApi } from "./features/metrics/index.ts";
 import proxyNative from "./features/proxy/index.ts";
 import secretsNative, { type SecretRotation, type SecretsApi } from "./features/secrets/index.ts";
+import webhooksNative, { type WebhooksApi } from "./features/webhooks/index.ts";
 import type { SecretReference as RequestSecretReference } from "./secret-references.ts";
 import { registerNative as registerShippedNative, type FeatureConfig as NativeConfig } from "./features.ts";
 registerShippedNative(securityNative);
@@ -353,6 +354,9 @@ registerShippedNative(authNative);
 registerShippedNative(metricsNative);
 registerShippedNative(proxyNative);
 registerShippedNative(secretsNative);
+registerShippedNative(webhooksNative);
+export { DeliverableEvents, entityDeliveries, generateSecret, patternMatchesType, patternProblem, patternsOverlap, PREVIOUS_SECRET_MS, webhooks, webhooksFeature, webhookSubscriptionEntity } from "./features/webhooks/index.ts";
+export type { CreateSubscriptionInput, SubscriptionListOptions, UpdateSubscriptionInput, WebhooksApi, WebhookSubscription, WebhookSubscriptions } from "./features/webhooks/index.ts";
 export {
   addAuthScheme,
   AuthError,
@@ -450,7 +454,7 @@ export { realtimeFeature } from "./features/realtime/index.ts";
 export type { ChangeDelivery, ChangeSend, ChangeSource, ForeignConnection, ForeignSocket, ForeignSockets, RealtimeApi } from "./features/realtime/index.ts";
 export { consoleReporter, errorsFeature, setSamplingRandom } from "./features/errors/index.ts";
 export type { ErrorsApi } from "./features/errors/index.ts";
-export { defineModifier, http, HttpClientError, httpFeature, HttpRequestBuilder, joinPath, serviceUrl, streamCall, withBulkhead, withCache, withCircuitBreaker, withRetry } from "./features/http/index.ts";
+export { defineModifier, http, HttpClientError, httpFeature, HttpRequestBuilder, joinPath, serviceUrl, ssrfProblem, streamCall, withBulkhead, withCache, withCircuitBreaker, withRetry } from "./features/http/index.ts";
 export type { StreamCallSpec, HttpTransport, HttpMock, MockCall, MockHandler, MockReply, MockRequest, MockService, BulkheadOptions, CacheOptions, CircuitBreakerOptions, HttpState, ModifierFunction, RetryOptions, Http, HttpApi, HttpBody, HttpClientErrorCode, HttpClientErrorInit, HttpMethods, HttpServiceMethods, HttpServiceNames, ServiceName, ServiceOptions, ServiceOptionsInput, HttpModifier, HttpQueryValue, HttpRequest, HttpResponse } from "./features/http/index.ts";
 export { bucketOf, evaluateRule, flagsFeature } from "./features/flags/index.ts";
 export { appliedTenantMigrations, migrateTenant, migrateTenantDatabase, migrationFiles, MONGO_MIGRATIONS_COLLECTION, provisionTenant, strategyOf, tenancyOptionsOf, tenantOperations } from "./features/tenancy/index.ts";
@@ -550,6 +554,8 @@ declare module "./features.ts" {
     proxy?: NativeConfig<typeof proxyNative>;
     /** Secret references resolved at startup by pluggable providers; see the `secrets` reference page. */
     secrets?: NativeConfig<typeof secretsNative>;
+    /** Outgoing signed webhooks and incoming webhook routes; see the `webhooks` reference page. */
+    webhooks?: NativeConfig<typeof webhooksNative>;
   }
   interface FeatureApis {
     events: EventsApi;
@@ -566,6 +572,7 @@ declare module "./features.ts" {
     auth: AuthApi;
     metrics: MetricsApi;
     secrets: SecretsApi;
+    webhooks: WebhooksApi;
   }
 }
 

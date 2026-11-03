@@ -57,5 +57,5 @@ export const webhooksOptions = object({
   afterHandle: hook<AfterHandle, undefined>().describe("Runs after the handle of an incoming webhook with the event, its context, the duration and the error, when it threw."),
   sender: provider<WebhookSender>("WebhookSender", ["send"])
     .optional()
-    .describe("Replaces signing and sending: send({ subscription, delivery, body, headers, signal }) resolves { status, body?, durationMs }; scheduling, retries, disabling, the log and events stay."),
+    .describe("Replaces signing and sending: `send({ subscription, delivery, body, headers, signal })` resolves `{ status, body?, durationMs }`; scheduling, retries, disabling, the log and events stay."),
 });

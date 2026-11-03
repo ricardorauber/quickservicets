@@ -46,7 +46,7 @@ It is not enabled by default: turn it on with `webhooks: {}` or `QS_WEBHOOKS_ENA
 | `webhooks.onDisabled` | `hook` | — | not overridable | no | Runs after a subscription is disabled, with it and the reason. |
 | `webhooks.beforeHandle` | `hook` | — | not overridable | no | Runs before the handle of an incoming webhook with the event and its context; it may return a changed event, and an HttpError is answered. |
 | `webhooks.afterHandle` | `hook` | — | not overridable | no | Runs after the handle of an incoming webhook with the event, its context, the duration and the error, when it threw. |
-| `webhooks.sender` | `WebhookSender` | — | not overridable | no | Replaces signing and sending: send({ subscription, delivery, body, headers, signal }) resolves { status, body?, durationMs }; scheduling, retries, disabling, the log and events stay. |
+| `webhooks.sender` | `WebhookSender` | — | not overridable | no | Replaces signing and sending: `send({ subscription, delivery, body, headers, signal })` resolves `{ status, body?, durationMs }`; scheduling, retries, disabling, the log and events stay. |
 | `webhooks.enabled` | `boolean` | `true` | `QS_WEBHOOKS_ENABLED` | no | Turns the feature off when false. |
 | `webhooks.database` | `string` | — | `QS_WEBHOOKS_DATABASE` | no | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
 

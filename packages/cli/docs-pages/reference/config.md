@@ -628,6 +628,7 @@ Every option, tag, command and hook of `flags` is on [its reference page](/refer
 | `flags.refresh` | `duration` | `"30s"` | `QS_FLAGS_REFRESH` | How often each worker reloads the flags of the database source. |
 | `flags.gate` | `string` | — | `QS_FLAGS_GATE` | A flag every route needs: while it is off for a caller, every route answers 404; set per endpoint or entity with @flag. |
 | `flags.onEvaluate` | `hook` | — | not overridable | Runs after each new evaluation with the name, the value, the reason, the user, the tenant and the request; it observes and cannot change the value. |
+| `flags.prepareTimeout` | `duration` | `"250ms"` | `QS_FLAGS_PREPARE_TIMEOUT` | The longest a provider's prepare may take for one request; past it the request goes on with the provider's flags off. |
 | `flags.provider` | `FlagProvider` | — | not overridable | Replaces the evaluation of both sources: isOn(name, ctx) answers synchronously, all(ctx) lists every flag, and optional start() and stop() run with the server. |
 | `flags.enabled` | `boolean` | `true` | `QS_FLAGS_ENABLED` | Turns the feature off when false. |
 | `flags.database` | `string` | — | `QS_FLAGS_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
@@ -955,7 +956,7 @@ Every option, tag, command and hook of `webhooks` is on [its reference page](/re
 | `webhooks.onDisabled` | `hook` | — | not overridable | Runs after a subscription is disabled, with it and the reason. |
 | `webhooks.beforeHandle` | `hook` | — | not overridable | Runs before the handle of an incoming webhook with the event and its context; it may return a changed event, and an HttpError is answered. |
 | `webhooks.afterHandle` | `hook` | — | not overridable | Runs after the handle of an incoming webhook with the event, its context, the duration and the error, when it threw. |
-| `webhooks.sender` | `WebhookSender` | — | not overridable | Replaces signing and sending: send({ subscription, delivery, body, headers, signal }) resolves { status, body?, durationMs }; scheduling, retries, disabling, the log and events stay. |
+| `webhooks.sender` | `WebhookSender` | — | not overridable | Replaces signing and sending: `send({ subscription, delivery, body, headers, signal })` resolves `{ status, body?, durationMs }`; scheduling, retries, disabling, the log and events stay. |
 | `webhooks.enabled` | `boolean` | `true` | `QS_WEBHOOKS_ENABLED` | Turns the feature off when false. |
 | `webhooks.database` | `string` | — | `QS_WEBHOOKS_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
 

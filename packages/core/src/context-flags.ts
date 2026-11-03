@@ -9,6 +9,8 @@ export interface ContextFlagEvaluator<Name extends string = string> {
   on(name: Name, target?: FlagTarget): boolean;
   off(name: Name, target?: FlagTarget): boolean;
   all(target?: FlagTarget): Record<string, boolean>;
+  /** Resolves a flag for a user and a tenant, preparing a provider that needs it first; always correct outside requests. */
+  evaluate(name: Name, target?: FlagTarget): Promise<boolean>;
 }
 
 const SLOT = Symbol.for("quickservicets.flags.context");

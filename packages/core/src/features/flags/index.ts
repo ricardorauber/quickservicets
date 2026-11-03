@@ -52,6 +52,7 @@ const options = object({
     .optional()
     .describe("A flag every route needs: while it is off for a caller, every route answers 404; set per endpoint or entity with @flag."),
   onEvaluate: hook<FlagEvaluation, undefined>().describe("Runs after each new evaluation with the name, the value, the reason, the user, the tenant and the request; it observes and cannot change the value."),
+  prepareTimeout: duration().default("250ms").describe("The longest a provider's prepare may take for one request; past it the request goes on with the provider's flags off."),
   provider: provider<FlagProvider>("FlagProvider", ["isOn", "all"])
     .optional()
     .describe("Replaces the evaluation of both sources: isOn(name, ctx) answers synchronously, all(ctx) lists every flag, and optional start() and stop() run with the server."),
@@ -118,7 +119,12 @@ interface EvaluationTarget extends FlagSubject {
   user?: unknown;
   tenant?: unknown;
   req?: ServiceRequest;
+  /** Values a prepare resolved for an evaluation outside requests. */
+  prepared?: Record<string, boolean>;
 }
+
+/** What `prepare` resolved for each request. */
+const preparedOf = new WeakMap<ServiceRequest, Record<string, boolean>>();
 
 /**
  * Evaluates flags: through the provider when one is set, else against the rules (functions called synchronously),
@@ -126,9 +132,19 @@ interface EvaluationTarget extends FlagSubject {
  */
 export function flagEvaluator(rules: () => FlagRules, logger: Logger, settings: { provider?: () => FlagProvider | undefined; onEvaluate?: readonly FeatureHook<FlagEvaluation, undefined>[] } = {}) {
   const warned = new Set<string>();
+  const unprepared = new Set<string>();
+  /** The context a provider gets: what `prepare` resolved for the request, or for a call outside requests. */
+  const providerContext = (provider: FlagProvider, name: string | undefined, target: EvaluationTarget) => {
+    const prepared = target.req ? preparedOf.get(target.req) : target.prepared;
+    if (provider.prepare && prepared === undefined && !target.req && name !== undefined && !unprepared.has(name)) {
+      unprepared.add(name);
+      safeLog(logger, "warn", { timestamp: new Date().toISOString(), message: "flags.provider.unprepared", flag: name, hint: "use ctx.flags.evaluate(name, { user, tenant }) outside requests with a provider that prepares" });
+    }
+    return { user: target.user, tenant: target.tenant, req: target.req, prepared };
+  };
   const decide = (name: string, target: EvaluationTarget): FlagResult => {
     const provider = settings.provider?.();
-    if (provider) return { on: provider.isOn(name, { user: target.user, tenant: target.tenant, req: target.req }) === true, reason: "provider" };
+    if (provider) return { on: provider.isOn(name, providerContext(provider, name, target)) === true, reason: "provider" };
     const rule = rules().get(name);
     if (!rule) {
       if (!warned.has(name)) {
@@ -153,10 +169,19 @@ export function flagEvaluator(rules: () => FlagRules, logger: Logger, settings: 
   /** The names `all()` lists: the provider's, or the rules'. */
   const all = (target: EvaluationTarget, on: (name: string) => boolean = (name) => evaluate(name, target).on): Record<string, boolean> => {
     const provider = settings.provider?.();
-    if (provider) return { ...provider.all({ user: target.user, tenant: target.tenant, req: target.req }) };
+    if (provider) return { ...provider.all(providerContext(provider, undefined, target)) };
     return Object.fromEntries([...rules().keys()].map((name) => [name, on(name)]));
   };
-  return { evaluate, all };
+  /** Resolves a flag for a target outside requests: the provider's `prepare` first when it has one. */
+  const evaluateAsync = async (name: string, target: EvaluationTarget): Promise<boolean> => {
+    const provider = settings.provider?.();
+    if (provider?.prepare && target.prepared === undefined) {
+      const prepared = await provider.prepare({ user: target.user, tenant: target.tenant, req: target.req });
+      return evaluate(name, { ...target, prepared: prepared ?? {} }).on;
+    }
+    return evaluate(name, target).on;
+  };
+  return { evaluate, all, evaluateAsync };
 }
 
 /** Who a call outside a request reads flags for. */
@@ -202,7 +227,16 @@ export function configRules(rules: Readonly<Record<string, unknown>>): FlagRules
  */
 const flagsFeature = defineFeature({
   key: "flags",
-  docs: { summary: "Feature flags turned on per user, per tenant or for a percentage of users, read synchronously in any endpoint or hook.", entities: [{ name: "FeatureFlag", placement: "feature", description: "The flags of the database source." }] },
+  docs: {
+    summary: "Feature flags turned on per user, per tenant or for a percentage of users, read synchronously in any endpoint or hook.",
+    entities: [{ name: "FeatureFlag", placement: "feature", description: "The flags of the database source." }],
+    sections: [
+      {
+        title: "The FlagProvider contract",
+        text: "`isOn(name, ctx)` and `all(ctx)` answer synchronously, with `ctx` = `{ user, tenant, req, prepared }`; optional `start()` and `stop()` run with the server. A provider whose SDK answers asynchronously adds `prepare({ user, tenant, req })`, resolving a `Record<string, boolean>` once per request before the handler (bounded by `prepareTimeout`), which `isOn` and `all` read from `ctx.prepared`; outside requests `evaluate(name, { user, tenant })` prepares first.",
+      },
+    ],
+  },
   options,
   // The table of the database source; nothing with the config source.
   entities: ({ models, options }) => {
@@ -320,20 +354,67 @@ const flagsFeature = defineFeature({
       run(req, _res, next) {
         const flags = requestFlags(req, evaluator);
         (req as { flags: unknown }).flags = flags;
-        // A route behind a flag that is off for the caller answers like an unknown route, before any hook runs.
+        // A route behind a flag that is off for the caller answers like an unknown route, before any hook runs; with a
+        // provider that prepares, the order-300 middleware checks it once the values are prepared.
+        if (slot.current?.prepare) return next();
         const gate = gates(req.method, req.route);
         if (gate !== undefined && !flags.on(gate)) throw new HttpError(404, "Route not found");
         return next();
       },
     };
     ctx.app.use(middleware);
+    // A provider whose SDK answers asynchronously prepares each request's values once, after authentication (100) and
+    // tenancy (200), before any hook, gate or handler.
+    const prepareMs = parseDuration(ctx.options.prepareTimeout) ?? 250;
+    let lastFailure = 0;
+    const preparing: HandlerMiddleware = {
+      stage: "handler",
+      order: 300,
+      async run(req, _res, next) {
+        const provider = slot.current;
+        if (provider?.prepare) {
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          try {
+            const prepared = await Promise.race([
+              provider.prepare({ user: req.user, tenant: req.tenant, req }),
+              new Promise<never>((_resolve, reject) => {
+                timer = setTimeout(() => reject(new Error(`prepare took longer than ${ctx.options.prepareTimeout}`)), prepareMs);
+              }),
+            ]);
+            preparedOf.set(req, prepared ?? {});
+          } catch (error) {
+            preparedOf.set(req, {});
+            if (Date.now() - lastFailure >= 60_000) {
+              lastFailure = Date.now();
+              safeLog(ctx.logger, "warn", { timestamp: new Date().toISOString(), message: "flags.prepare.failed", reason: (error as Error)?.message ?? String(error) });
+            }
+          } finally {
+            clearTimeout(timer);
+          }
+          const gate = gates(req.method, req.route);
+          if (gate !== undefined && !(req as unknown as { flags: RequestFlagEvaluator }).flags.on(gate)) throw new HttpError(404, "Route not found");
+        }
+        return next();
+      },
+    };
+    // Registered when the configured provider prepares, or when a feature that may set a provider runs after this one;
+    // with the config or database source alone there is no such middleware.
+    const mayProvide = ctx.config.features.some(
+      (feature) => feature.key !== "flags" && (feature.definition.requires.some((entry) => entry.name === "flags") || feature.definition.after.includes("flags") || feature.definition.enables.includes("flags")),
+    );
+    if (slot.current?.prepare || mayProvide) ctx.app.use(preparing);
     // Jobs and queue consumers read flags for the user and tenant they pass, anonymous without them.
     setContextFlags({
       on: (name, target) => evaluator.evaluate(name, subjectOf(target)).on,
       off: (name, target) => !evaluator.evaluate(name, subjectOf(target)).on,
       all: (target) => evaluator.all(subjectOf(target)),
+      evaluate: (name, target) => evaluator.evaluateAsync(name, subjectOf(target)),
     });
-    ctx.app.onStop(() => setContextFlags(undefined));
+    running.evaluate = (name, target) => evaluator.evaluateAsync(name, subjectOf(target));
+    ctx.app.onStop(() => {
+      setContextFlags(undefined);
+      running.evaluate = undefined;
+    });
   },
   openapi(doc, { models, options, routes }) {
     return markGatedOperations(doc, models, routes, options.gate);
@@ -350,6 +431,7 @@ const flagsFeature = defineFeature({
         slot.owner = caller;
         slot.current = provider;
       },
+      evaluate: (name, context) => evaluator.evaluateAsync(name, subjectOf(context)),
       isOn: (name, context) => evaluator.evaluate(name, subjectOf(context)).on,
       all: (context) => evaluator.all(subjectOf(context)),
     };
@@ -398,6 +480,20 @@ function assertFlagFields(model: EntityModel): void {
     if (!field || !matches(field)) throw new Error(`entities/FeatureFlag.ts: FeatureFlag needs the field ${name} (${type}) used by flags`);
   }
 }
+
+/** The running native's asynchronous evaluation, for the core's `flags` export. */
+const running: { evaluate?: (name: string, target?: FlagContext) => Promise<boolean> } = ((globalThis as unknown as Record<symbol, unknown>)[Symbol.for("quickservicets.flags.running")] ??= {}) as never;
+
+/**
+ * Flags from any code: `flags.evaluate(name, { user, tenant })` resolves a flag's value, preparing a provider that needs
+ * it first; outside requests it is always correct, while `ctx.flags.on` stays synchronous.
+ */
+export const flags = {
+  evaluate(name: string, context: FlagContext = {}): Promise<boolean> {
+    if (!running.evaluate) return Promise.reject(new Error("flags is not enabled; add flags: {} to quickservicets.config.ts"));
+    return running.evaluate(name, context);
+  },
+};
 
 /** The evaluator of each running configuration, for its feature API. */
 const evaluators = new WeakMap<object, ReturnType<typeof flagEvaluator>>();

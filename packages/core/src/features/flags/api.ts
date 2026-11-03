@@ -22,6 +22,8 @@ export interface FlagProviderContext {
   user: unknown;
   tenant: unknown;
   req: ServiceRequest | undefined;
+  /** What `prepare` resolved for this request, or undefined without `prepare` or outside requests. */
+  prepared?: Record<string, boolean> | undefined;
 }
 
 /**
@@ -31,6 +33,11 @@ export interface FlagProviderContext {
 export interface FlagProvider {
   isOn(name: string, ctx: FlagProviderContext): boolean;
   all(ctx: FlagProviderContext): Record<string, boolean>;
+  /**
+   * Resolves the flag values of one request before its handler runs, for a provider whose SDK answers asynchronously;
+   * `isOn` and `all` then read them from `ctx.prepared`. Bounded by `flags.prepareTimeout`.
+   */
+  prepare?(ctx: { user: unknown; tenant: unknown; req: ServiceRequest | undefined }): Promise<Record<string, boolean>>;
   /** Runs when the server starts, like opening the provider's connection. */
   start?(): void | Promise<void>;
   /** Runs when the server stops. */
@@ -47,4 +54,6 @@ export interface FlagsApi {
   onEvaluate(fn: FeatureHook<FlagEvaluation, undefined>): void;
   /** Replaces the evaluation with a provider, during setup; a second provider fails startup. */
   setProvider(provider: FlagProvider): void;
+  /** Resolves a flag for a user and a tenant, calling the provider's `prepare` first when it has one. */
+  evaluate(name: string, context?: FlagContext): Promise<boolean>;
 }

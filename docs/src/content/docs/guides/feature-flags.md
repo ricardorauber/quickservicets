@@ -134,6 +134,22 @@ flags: { rules: { "pro-reports": ({ tenant }) => (tenant as { plan?: string } | 
 
 `provider` replaces the evaluation of both sources with an object that has `isOn(name, ctx)` and `all(ctx)`, answering synchronously from its own cache, and optional `start()` and `stop()` that run with the server, like a client of Unleash or OpenFeature. `req.flags`, the `@flag` gates and `ctx.flags` then use it. A feature can set one with `ctx.feature("flags").setProvider(provider)`; two providers fail startup.
 
+### Providers that answer asynchronously
+
+A provider whose SDK answers only asynchronously declares `prepare({ user, tenant, req })`, resolving the flag values of one request; `isOn(name, ctx)` and `all(ctx)` then read them from `ctx.prepared`, so `req.flags.on(...)` stays synchronous:
+
+```ts
+ctx.feature("flags").setProvider({
+  prepare: ({ user }) => client.evaluateAll({ userId: (user as { id?: string } | undefined)?.id }),
+  isOn: (name, { prepared }) => prepared?.[name] === true,
+  all: ({ prepared }) => ({ ...(prepared ?? {}) }),
+});
+```
+
+The native awaits `prepare` once per request in a handler middleware of order 300 (after authentication at 100 and tenancy at 200), before any hook, `@flag` gate or handler; the values stay memoized for the request. `prepareTimeout` (`250ms`, `QS_FLAGS_PREPARE_TIMEOUT`) bounds it: a `prepare` that times out or rejects leaves the request with no prepared values, so the provider's flags are off, and logs `flags.prepare.failed` at most once a minute per worker. With the config or database source, nothing prepares and no such middleware exists.
+
+Outside requests, `await ctx.flags.evaluate(name, { user, tenant })` in jobs and consumers, `flags.evaluate(name, { user, tenant })` from `@quickservicets/core` and `ctx.feature("flags").evaluate(name, …)` call `prepare` for that user and tenant first and fire `onEvaluate` as other evaluations do; with the built-in sources they resolve the synchronous result. A synchronous `ctx.flags.on(name)` with a preparing provider has nothing prepared and logs one `flags.provider.unprepared` warning per flag name.
+
 ## Eject
 
 `quickservicets eject flags` copies the native into `features/flags/` as a project feature that replaces it, with the same behavior.

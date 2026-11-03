@@ -31,6 +31,7 @@ It is not enabled by default: turn it on with `flags: {}` or `QS_FLAGS_ENABLED=t
 | `flags.refresh` | `duration` | `"30s"` | `QS_FLAGS_REFRESH` | no | How often each worker reloads the flags of the database source. |
 | `flags.gate` | `string` | — | `QS_FLAGS_GATE` | no | A flag every route needs: while it is off for a caller, every route answers 404; set per endpoint or entity with @flag. |
 | `flags.onEvaluate` | `hook` | — | not overridable | no | Runs after each new evaluation with the name, the value, the reason, the user, the tenant and the request; it observes and cannot change the value. |
+| `flags.prepareTimeout` | `duration` | `"250ms"` | `QS_FLAGS_PREPARE_TIMEOUT` | no | The longest a provider's prepare may take for one request; past it the request goes on with the provider's flags off. |
 | `flags.provider` | `FlagProvider` | — | not overridable | no | Replaces the evaluation of both sources: isOn(name, ctx) answers synchronously, all(ctx) lists every flag, and optional start() and stop() run with the server. |
 | `flags.enabled` | `boolean` | `true` | `QS_FLAGS_ENABLED` | no | Turns the feature off when false. |
 | `flags.database` | `string` | — | `QS_FLAGS_DATABASE` | no | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
@@ -146,3 +147,15 @@ setProvider(provider: FlagProvider): void;
 ```
 
 Replaces the evaluation with a provider, during setup; a second provider fails startup.
+
+### `evaluate`
+
+```ts
+evaluate(name: string, context?: FlagContext): Promise<boolean>;
+```
+
+Resolves a flag for a user and a tenant, calling the provider's `prepare` first when it has one.
+
+## The FlagProvider contract
+
+`isOn(name, ctx)` and `all(ctx)` answer synchronously, with `ctx` = `{ user, tenant, req, prepared }`; optional `start()` and `stop()` run with the server. A provider whose SDK answers asynchronously adds `prepare({ user, tenant, req })`, resolving a `Record<string, boolean>` once per request before the handler (bounded by `prepareTimeout`), which `isOn` and `all` read from `ctx.prepared`; outside requests `evaluate(name, { user, tenant })` prepares first.

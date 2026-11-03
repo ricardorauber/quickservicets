@@ -122,8 +122,10 @@ export interface SubscriptionStoreOptions {
   requireHttps: boolean;
   deliverable: DeliverableEvents;
   logger: Logger;
-  /** Called after each committed change, so caches of subscriptions refresh. */
-  changed?: () => void;
+  /** Called after each change, and awaited, so this worker's cache of subscriptions sees it at once. */
+  changed?: () => void | Promise<void>;
+  /** Called before a subscription is deleted, to delete what belongs to it. */
+  deleting?: (id: string) => Promise<void>;
   now?: () => number;
 }
 
@@ -143,9 +145,9 @@ export function subscriptionStore(options: SubscriptionStoreOptions) {
     if (!found || (tenant !== undefined && found.tenant !== tenant)) throw notFound(id);
     return found;
   };
-  const changed = () => {
+  const changed = async () => {
     try {
-      options.changed?.();
+      await options.changed?.();
     } catch (error) {
       safeLog(options.logger, "warn", { timestamp: new Date().toISOString(), message: "webhooks.cache.failed", error: { message: (error as Error)?.message ?? String(error) } });
     }
@@ -167,7 +169,7 @@ export function subscriptionStore(options: SubscriptionStoreOptions) {
     /** Changes stored fields of a subscription without checks; for the native's delivery code. */
     async patch(id: string, changes: Record<string, unknown>): Promise<StoredSubscription | null> {
       const updated = (await db().updateById(model, id, { ...changes, updatedAt: new Date(now()) })) as unknown as StoredSubscription | null;
-      changed();
+      await changed();
       return updated;
     },
   };
@@ -195,7 +197,7 @@ export function subscriptionStore(options: SubscriptionStoreOptions) {
         ...(input.createdBy !== undefined ? { createdBy: input.createdBy } : {}),
       };
       const created = (await db().insert(model, row)) as unknown as StoredSubscription;
-      changed();
+      await changed();
       return { ...publicSubscription(created), secret: created.secret };
     },
     async list(page = {}) {
@@ -237,20 +239,21 @@ export function subscriptionStore(options: SubscriptionStoreOptions) {
       }
       const updated = (await db().updateById(model, existing.id, { ...changes, updatedAt: new Date(now()) })) as unknown as StoredSubscription | null;
       if (!updated) throw notFound(id);
-      changed();
+      await changed();
       return publicSubscription(updated);
     },
     async delete(id) {
       const existing = await find(id);
+      await options.deleting?.(existing.id);
       await db().deleteById(model, existing.id);
-      changed();
+      await changed();
     },
     async rotateSecret(id) {
       const existing = await find(id);
       const secret = generateSecret();
       const previousSecretExpiresAt = new Date(now() + PREVIOUS_SECRET_MS);
       await db().updateById(model, existing.id, { secret, previousSecret: existing.secret, previousSecretExpiresAt, updatedAt: new Date(now()) });
-      changed();
+      await changed();
       return { secret, previousSecretExpiresAt };
     },
   };

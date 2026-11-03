@@ -48,6 +48,7 @@ With named databases ([`databases`](/reference/config/)), each entity of the fea
 | Entity | Database | Description |
 | --- | --- | --- |
 | `WebhookSubscription` | the feature's `database` (default: the default database) | The subscriptions: a URL, the event patterns, the secret and the tenant. |
+| `WebhookDelivery` | the feature's `database` (default: the default database) | One delivery of an event to a subscription, created in the transaction of the write that caused it, with the outcome of its last attempt. |
 
 ## Tags
 

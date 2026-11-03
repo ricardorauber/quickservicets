@@ -33,6 +33,25 @@ webhooks: { events: ["invoice.*"] }
 
 `@webhooks off` keeps an entity's events out even when a pattern matches them. The native's own `webhook.*` events are never deliverable. `webhooks.entity.events` sets which operations a bare `@webhooks` tag delivers.
 
+## Deliveries
+
+Every deliverable event becomes one delivery per enabled subscription whose patterns match it and whose tenant is the event's tenant (tenant-less subscriptions only get tenant-less events). The deliveries are rows of the system entity `WebhookDelivery` (table `webhook_deliveries`), each handed to the `webhooks/deliver` queue, both written inside the transaction of the write that caused the event: they exist exactly when the write commits, and a rolled-back write delivers nothing.
+
+The body is built once per event:
+
+```json
+{
+  "id": "01J...",
+  "type": "order.updated",
+  "timestamp": "2026-11-03T10:00:00.000Z",
+  "data": { "entity": "Order", "operation": "updated", "recordId": "01J...", "record": { "id": "01J...", "status": "paid" }, "changed": ["status"] }
+}
+```
+
+`record` is the record after the write (before it, for a delete) without its `@hidden` and `@sensitive` fields; writes made by a cascade, a set-null, a pull or a touch add `cause` to `data`. Custom events carry their payload as `data`. A body over 256 KB is not sent: its delivery is stored `failed` with `Payload too large` and the native logs `webhook.delivery.too-large`.
+
+Each worker keeps the enabled subscriptions in memory, reloaded every 30 seconds and right after it changes one, so matching reads no database; an event no subscription matches costs one lookup, and writes of entities neither tagged nor matched by `events` are not observed at all.
+
 ## Subscriptions from code
 
 `webhooks.subscriptions` from `@quickservicets/core` (and `ctx.feature("webhooks").subscriptions` in features) creates, lists, reads, changes and deletes subscriptions:

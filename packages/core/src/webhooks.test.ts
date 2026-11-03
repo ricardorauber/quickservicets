@@ -5,6 +5,7 @@ import { resolveConfig, type ServiceConfig } from "./config.ts";
 import { entityModel, field } from "./entity-model.ts";
 import { DeliverableEvents, entityDeliveries, patternsOverlap } from "./features/webhooks/deliverable.ts";
 import { generateSecret } from "./features/webhooks/subscriptions.ts";
+import { CACHE_REFRESH_MS, subscriptionCache } from "./features/webhooks/cache.ts";
 import webhooksFeature from "./features/webhooks/index.ts";
 import type { EntityModel, ParsedTags } from "./model.ts";
 
@@ -92,5 +93,39 @@ describe("secrets", () => {
       expect(secret).toMatch(/^whsec_[A-Za-z0-9+/]{32}$/);
       expect(Buffer.from(secret.slice(6), "base64")).toHaveLength(24);
     }
+  });
+});
+
+describe("the subscription cache", () => {
+  const subscription = (id: string, events: string[], tenant?: string, enabled = true) =>
+    ({ id, url: "https://hooks.example", events, enabled, secret: "whsec_x", ...(tenant ? { tenant } : {}), createdAt: new Date(), updatedAt: new Date() }) as never;
+  const logger = { info() {}, warn() {}, error() {} };
+
+  test("groups enabled subscriptions by tenant and matches their patterns", async () => {
+    const rows = [subscription("a", ["order.*"]), subscription("b", ["order.created"], "acme"), subscription("c", ["*"], "acme", false)];
+    const cache = subscriptionCache({ load: async () => rows, logger });
+    await cache.refresh();
+    expect(cache.matching("order.created", undefined).map((row: { id: string }) => row.id)).toEqual(["a"]);
+    expect(cache.matching("order.created", "acme").map((row: { id: string }) => row.id)).toEqual(["b"]);
+    expect(cache.matching("order.deleted", "acme")).toEqual([]);
+    expect(cache.matching("order.created", "globex")).toEqual([]);
+  });
+
+  test("another worker's subscription is seen once the 30-second refresh is due (fake clock)", async () => {
+    const rows: never[] = [];
+    let now = 1_000_000;
+    let loads = 0;
+    const cache = subscriptionCache({ load: async () => (loads++, [...rows]), logger, now: () => now });
+    await cache.refresh();
+    rows.push(subscription("a", ["order.created"]));
+    now += CACHE_REFRESH_MS - 1;
+    cache.refreshIfDue();
+    await Bun.sleep(0);
+    expect(cache.matching("order.created", undefined)).toEqual([]);
+    now += 1;
+    cache.refreshIfDue();
+    await cache.refresh();
+    expect(cache.matching("order.created", undefined)).toHaveLength(1);
+    expect(loads).toBeGreaterThanOrEqual(2);
   });
 });

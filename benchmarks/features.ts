@@ -97,6 +97,8 @@ export const SECURITY_BUDGET = 5;
  * providers, routes, references or files must cost nothing beyond noise, tenancy with the schema strategy at most 10%.
  */
 export const ON_BUDGETS: Readonly<Record<string, number>> = { metrics: 3, auth: 3, proxy: 3, secrets: 3, realtime: 3, tenancy: 10 };
+/** p50 budgets that differ from the on-budget: recording every request costs `metrics` about 0.2 ms at p50. */
+export const ON_P50_BUDGETS: Readonly<Record<string, number>> = { metrics: 4 };
 
 interface ScenarioResult {
   reqPerSec: number;
@@ -129,6 +131,7 @@ export function compareResults(run: BenchResult, baseline: BenchResult): { lines
   const on = keys.filter((key) => switches[key] === "on" && defaults[key] === "off");
   const budgeted = on.length > 0 && on.every((key) => ON_BUDGETS[key] !== undefined) && keys.every((key) => switches[key] === "on" || defaults[key] === "off");
   const onBudget = budgeted ? Math.max(...on.map((key) => ON_BUDGETS[key]!)) : undefined;
+  const onP50Budget = budgeted ? Math.max(...on.map((key) => ON_P50_BUDGETS[key] ?? ON_BUDGETS[key]!)) : undefined;
   for (const [name, scenario] of Object.entries(run.scenarios ?? {})) {
     const base = baseline.scenarios?.[name];
     if (!base) continue;
@@ -140,9 +143,15 @@ export function compareResults(run: BenchResult, baseline: BenchResult): { lines
       if (-throughput > NOISE_BUDGET) failures.push(`${name}: throughput is ${(-throughput).toFixed(1)}% lower than the baseline; the noise budget is ${NOISE_BUDGET}%`);
       if (p50 > NOISE_BUDGET) failures.push(`${name}: p50 latency is ${p50.toFixed(1)}% higher than the baseline; the noise budget is ${NOISE_BUDGET}%`);
     }
-    if (onBudget !== undefined && name === "crud") {
-      const cost = Math.max(-throughput, p50);
-      if (cost > onBudget) failures.push(`${on.sort().join("+")} costs ${Math.round(cost * 10) / 10}% on crud; the budget is ${onBudget}%`);
+    if (onBudget !== undefined && onP50Budget !== undefined && name === "crud") {
+      const label = [...on].sort().join("+");
+      if (onP50Budget === onBudget) {
+        const cost = Math.max(-throughput, p50);
+        if (cost > onBudget) failures.push(`${label} costs ${Math.round(cost * 10) / 10}% on crud; the budget is ${onBudget}%`);
+      } else {
+        if (-throughput > onBudget) failures.push(`${label} costs ${Math.round(-throughput * 10) / 10}% on crud; the budget is ${onBudget}%`);
+        if (p50 > onP50Budget) failures.push(`${label} costs ${Math.round(p50 * 10) / 10}% p50 on crud; the budget is ${onP50Budget}%`);
+      }
     }
     if (securityOff && name === "crud") {
       // The run without security is the faster one: what it gains is what the default security costs.

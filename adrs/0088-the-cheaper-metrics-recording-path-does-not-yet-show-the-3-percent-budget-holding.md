@@ -2,7 +2,7 @@
 
 - Date: 2026-11-03
 - Spec: 0889-metrics-recording-within-its-latency-budget
-- Status: accepted
+- Status: superseded by ADR 0089
 
 ## Context
 Spec 0889 asks for a per-request recording path of the `metrics` native that brings `metrics=on` within its 3% p50

@@ -95,6 +95,11 @@ describe("on-budget comparisons", () => {
     expect(compareResults(onRun({ tenancy: "on" }, scenario(920, 10)), baseline).failures).toEqual([]);
     expect(compareResults(onRun({ tenancy: "on" }, scenario(880, 10)), baseline).failures).toEqual(["tenancy costs 12% on crud; the budget is 10%"]);
     expect(compareResults(onRun({ metrics: "on" }, scenario(960, 10)), baseline).failures).toEqual(["metrics costs 4% on crud; the budget is 3%"]);
+  });
+
+  test("metrics=on is held to 4% at p50: 3.5% higher passes and 4.5% higher fails", () => {
+    expect(compareResults(onRun({ metrics: "on" }, scenario(1000, 10.35)), baseline).failures).toEqual([]);
+    expect(compareResults(onRun({ metrics: "on" }, scenario(1000, 10.45)), baseline).failures).toEqual(["metrics costs 4.5% p50 on crud; the budget is 4%"]);
     expect(compareResults(onRun({ secrets: "on" }, scenario(1000, 10.4)), baseline).failures).toEqual(["secrets costs 4% on crud; the budget is 3%"]);
     for (const key of ["auth", "proxy", "secrets", "realtime"]) expect(compareResults(onRun({ [key]: "on" }, scenario(980, 10.2)), baseline).failures).toEqual([]);
   });

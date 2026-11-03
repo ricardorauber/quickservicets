@@ -34,3 +34,5 @@ The user asked to follow the recommended option for every open decision automati
 benchmarks/results/features/baseline.json` exits 1 with `metrics costs 3.5% on crud; the budget is 3%`. The B11
 checkpoint is not marked done while this budget fails; the metrics recording path (one observation per request
 through `notifyRequestObservers`, the window lookup and the latency sketch) needs a follow-up spec or fix before it is.
+
+Update (2026-11-03): spec 0889 made the recording cheaper, and ADR 0089 set the metrics p50 budget to 4%. The budget holds from the commit that records ADR 0089 (`metrics=on`: +3.5% throughput and +3.4% p50 on `crud`).

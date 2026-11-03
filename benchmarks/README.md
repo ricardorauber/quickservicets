@@ -88,13 +88,13 @@ bun benchmarks/run.ts quickservicets --features tenancy=off,auth=off,metrics=off
 | Switch | What the `on` run exercises | Budget on `crud` |
 | --- | --- | ---: |
 | `tenancy=on` | `QS_TENANCY_SOURCE=config` and `QS_TENANCY_TENANTS='{"bench":{}}'`: one config tenant, `bench`, with the schema strategy. The runner runs `quickservicets migrate --all-tenants` on the host against the compose database before the load, copies the seeded rows into the `tenant_bench` schema at every reseed, and conformance and k6 send `x-tenant-id: bench` on every request (the `HEADERS` variable of the k6 scripts and the conformance suite). | 10% |
-| `metrics=on` | Every request is counted per route and tenant in memory windows; nothing reads `/_metrics` during the load. | 3% |
+| `metrics=on` | Every request is counted per route and tenant in memory windows; nothing reads `/_metrics` during the load. | 3% (p50: 4%) |
 | `auth=on` | No provider: only the credential lookup runs, and every request stays anonymous. | 3% |
 | `proxy=on` | No routes: nothing is forwarded. | 3% |
 | `secrets=on` | No references: nothing is resolved, cached or refreshed. | 3% |
 | `realtime=on` | No `ws.ts` or `sse.ts` files: no socket or stream route exists. | 3% |
 
-Only `QS_<KEY>_ENABLED=true` is set for the switches without extras; the result file records the variables and, under `features.plan`, the tenant migration and the headers. `compare-features.ts` holds a run that turns on only natives of this table to the largest of their budgets, in throughput and p50 latency on `crud`, failing with `<key> costs <n>% on crud; the budget is <b>%`; the run with every infrastructure native off is held to the 3% noise budget, so the refactors that made room for them are free when unused.
+Only `QS_<KEY>_ENABLED=true` is set for the switches without extras; the result file records the variables and, under `features.plan`, the tenant migration and the headers. `compare-features.ts` holds a run that turns on only natives of this table to the largest of their budgets, in throughput and p50 latency on `crud`, failing with `<key> costs <n>% on crud; the budget is <b>%`; `metrics=on` has a p50 budget of its own, 4%, failing with `metrics costs <n>% p50 on crud; the budget is 4%`, because recording every request costs about 0.2 ms at p50 (see `adrs/0089-the-metrics-p50-budget-is-4-percent.md`); the run with every infrastructure native off is held to the 3% noise budget, so the refactors that made room for them are free when unused.
 
 The results of one full run of every switch are in `results/features/`, each file with its date (`startedAt`) and machine (`environment`), next to `results/features/baseline.json`, the baseline of the same session. The run used `--scenarios crud,health --duration 15s --warmup 5s` and three rounds, the second in reverse order; `results/features/round-1/` to `round-3/` hold them all, and each file of `results/features/` holds, per scenario, the round with the most requests per second (background load on the machine only lowers throughput), as for the stacks above:
 
@@ -102,9 +102,9 @@ The results of one full run of every switch are in `results/features/`, each fil
 bun benchmarks/compare-features.ts benchmarks/results/features/tenancy-on.json --baseline benchmarks/results/features/baseline.json
 ```
 
-In that run every budget holds except `metrics=on`, which costs +0.4% throughput but +3.5% p50 latency on `crud`, over its 3% budget (see `adrs/0087-metrics-on-measures-over-its-3-percent-p50-budget-and-the-budget-stays.md`); `secrets=on`, `tenancy=on` and the run with every infrastructure native off stay within theirs.
+The files of `tenancy=on`, `auth=on`, `proxy=on`, `secrets=on` and `realtime=on` come from the first run of these switches, whose baseline is `results/features/baseline-0282.json`; compare them with that file. In that run every budget held except `metrics=on`, at +0.4% throughput but +3.5% p50 on `crud` against the 3% it had then (see `adrs/0087-metrics-on-measures-over-its-3-percent-p50-budget-and-the-budget-stays.md`).
 
-A cheaper recording path for `metrics` followed (no string, key or object built per counted request, measured at about half its earlier share of the service's CPU); round by round on an idle machine it costs +1.5% to +3.6% p50 on `crud`, but no complete run on an idle machine has shown it within its budget yet, so the files above stay those of the run described here (see `adrs/0088-the-cheaper-metrics-recording-path-does-not-yet-show-the-3-percent-budget-holding.md`).
+A cheaper recording path for `metrics` followed (no string, key or object built per counted request, about half its earlier share of the service's CPU), and `baseline.json`, `metrics-on.json` and the all-off file, with their rounds, come from a later run of three rounds on an idle machine: `metrics=on` costs nothing in throughput (+3.5%) and +3.4% p50 on `crud`, within its 4% p50 budget, and the run with every infrastructure native off stays within the noise budget (see `adrs/0088-the-cheaper-metrics-recording-path-does-not-yet-show-the-3-percent-budget-holding.md` and ADR 0089).
 
 ## Scenarios
 

@@ -6,11 +6,14 @@ import {
   parseDuration,
   parseSize,
   readBodyBytes,
+  runAfterHooks,
+  runBeforeHooks,
   safeLog,
   secretValue,
   setBodyPolicy,
   transaction,
   type Endpoint,
+  type FeatureHook,
   type JobLogger,
   type Logger,
   type Repositories,
@@ -264,7 +267,10 @@ export const invalidSignature = () => new HttpError(401, "Invalid webhook signat
 export interface IncomingOptions {
   logger: Logger;
   /** The route's timestamp tolerance and body limit, from the options and the route's own settings. */
-  settings(route: { method: string; path: string }): { tolerance: string; maxBodySize: string | number };
+  settings(route: { method: string; path: string }): { tolerance: string; maxBodySize: string | number; async?: boolean };
+  /** The `beforeHandle` and `afterHandle` hooks. */
+  beforeHandle?: readonly FeatureHook<{ event: unknown; ctx: WebhookHandleContext }, undefined>[];
+  afterHandle?: readonly FeatureHook<{ event: unknown; ctx: WebhookHandleContext; durationMs: number; error?: unknown }, undefined>[];
   /** The verifier a name stands for. */
   verifierNamed(name: string): WebhookVerifier | undefined;
   /** The receipts of the route, when it deduplicates deliveries. */
@@ -345,7 +351,7 @@ export function incomingRunner(options: IncomingOptions) {
       }
       if (receipts && found.deliveryId) {
         const key = { endpoint: path, deliveryId: found.deliveryId, ...(tenant ? { tenant } : {}) };
-        if (definition.async) {
+        if (definition.async || settings.async) {
           // The receipt is written with the queue message, after the hooks; a processed delivery skips them here.
           if (await receipts.isProcessed(key)) return duplicate(path, found.deliveryId);
           found.claim = { receipts, key };
@@ -370,7 +376,7 @@ export function incomingRunner(options: IncomingOptions) {
       const definition = input.definition as WebhookDefinition;
       const found = verified.get(input.req);
       if (!found) throw invalidSignature();
-      if (definition.async) {
+      if (definition.async || options.settings({ method: "POST", path: input.path }).async) {
         if (!options.enqueue) throw new Error(`POST ${input.path}: async webhooks need queues: {}`);
         const tenant = (input.req.tenant as { id?: string } | undefined)?.id;
         const message: IncomingMessage = { route: input.path, event: found.event, ...(found.deliveryId ? { deliveryId: found.deliveryId } : {}), ...(found.eventType ? { eventType: found.eventType } : {}), ...(tenant ? { tenant } : {}) };
@@ -389,7 +395,7 @@ export function incomingRunner(options: IncomingOptions) {
         input.res.status(202);
         return { received: true };
       }
-      await definition.handle(found.event, {
+      await runner.run(definition, found.event, {
         req: input.req,
         repos: input.repos,
         rawBody: found.rawBody,
@@ -400,9 +406,22 @@ export function incomingRunner(options: IncomingOptions) {
       });
       return { received: true };
     },
+    /** Runs `handle` between the `beforeHandle` and `afterHandle` hooks. */
+    async run(definition: WebhookDefinition, event: unknown, ctx: WebhookHandleContext): Promise<void> {
+      let current = event;
+      if (options.beforeHandle && options.beforeHandle.length > 0) current = (await runBeforeHooks(options.beforeHandle, { event, ctx }, undefined)).event;
+      const started = performance.now();
+      try {
+        await definition.handle(current, ctx);
+      } catch (error) {
+        if (options.afterHandle && options.afterHandle.length > 0) await runAfterHooks(options.afterHandle, { event: current, ctx, durationMs: performance.now() - started, error }, undefined);
+        throw error;
+      }
+      if (options.afterHandle && options.afterHandle.length > 0) await runAfterHooks(options.afterHandle, { event: current, ctx, durationMs: performance.now() - started }, undefined);
+    },
     /** Runs `handle` for a message of the `webhooks/incoming` queue: no request and no raw body. */
     async consume(definition: WebhookDefinition, message: IncomingMessage, context: { repos: Repositories; log: JobLogger }): Promise<void> {
-      await definition.handle(message.event, { req: undefined, repos: context.repos, rawBody: undefined, headers: new Headers(), deliveryId: message.deliveryId, eventType: message.eventType, log: context.log });
+      await runner.run(definition, message.event, { req: undefined, repos: context.repos, rawBody: undefined, headers: new Headers(), deliveryId: message.deliveryId, eventType: message.eventType, log: context.log });
     },
   };
   return runner;

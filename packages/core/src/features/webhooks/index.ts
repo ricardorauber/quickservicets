@@ -1,10 +1,11 @@
-import { defineFeature, HttpError, queues, safeLog, systemTarget, type Condition, type JobLogger, type Repositories } from "../public.ts";
-import type { WebhooksApi } from "./api.ts";
+import { defineFeature, HttpError, queues, runAfterHooks, safeLog, systemTarget, type Condition, type JobLogger, type Repositories } from "../public.ts";
+import type { WebhookSender, WebhooksApi, WebhooksSetupApi } from "./api.ts";
+import { buildProblems } from "./checks.ts";
 import { DeliverableEvents, entityDeliveries, patternProblem } from "./deliverable.ts";
 import { deliverer } from "./attempts.ts";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { incomingRunner, isWebhookDefinition, type IncomingMessage, type WebhookDefinition } from "./incoming.ts";
+import { incomingRunner, isWebhookDefinition, type IncomingMessage, type WebhookDefinition, type WebhookVerifier } from "./incoming.ts";
 import { hasWebhookFiles, receiptStore, webhookReceiptEntity } from "./receipts.ts";
 import { retryRule, RETRY_SCHEDULE_PROBLEM, validSchedule } from "./retries.ts";
 import { CLEANUP_INTERVAL, deliveryLog } from "./log.ts";
@@ -18,10 +19,11 @@ import { webhookSubscriptionEntity } from "./models.ts";
 import { webhooksOptions, type WebhookOperation } from "./options.ts";
 import { documentRoutes, registerRoutes, warnRoutesNeedAuth } from "./routes.ts";
 import { running } from "./running.ts";
-import { subscriptionStore, type SubscriptionStore } from "./subscriptions.ts";
+import { publicSubscription, subscriptionStore, type SubscriptionStore } from "./subscriptions.ts";
 
 /** The API of each running configuration, for its feature API. */
 const apis = new WeakMap<object, WebhooksApi>();
+const setupApis = new WeakMap<object, WebhooksSetupApi>();
 
 /**
  * The `webhooks` native: outgoing webhooks signed by the Standard Webhooks scheme for the events subscriptions choose,
@@ -36,6 +38,27 @@ const webhooksFeature = defineFeature({
       { name: "WebhookSubscription", placement: "feature", description: "The subscriptions: a URL, the event patterns, the secret and the tenant." },
       { name: "WebhookDelivery", placement: "feature", description: "One delivery of an event to a subscription, created in the transaction of the write that caused it, with the outcome of its last attempt." },
       { name: "WebhookReceipt", placement: "feature", description: "One received incoming delivery per route, id and tenant, while incoming.dedupe is on and the project has a webhook.ts file." },
+    ],
+    sections: [
+      {
+        title: "Routes",
+        text: [
+          "With the `auth` native and `routes` on, under `routes.path` (default `/webhooks`), for users holding one of `routes.roles` and scoped to the request's tenant:",
+          "",
+          "- `GET /webhooks`, `POST /webhooks` (201 with the `secret`), `GET`, `PATCH` and `DELETE /webhooks/[id]`, `POST /webhooks/[id]/rotate-secret` and `POST /webhooks/[id]/ping` (10 per minute);",
+          "- `GET /webhooks/[id]/deliveries`, `GET /webhooks/[id]/deliveries/[deliveryId]` and `POST /webhooks/[id]/deliveries/[deliveryId]/resend` (202; 30 per minute).",
+          "",
+          "A project endpoint file at one of these paths, like `endpoints/webhooks/get.ts`, replaces that route. Incoming webhooks are `webhook.ts` endpoint files that default-export `defineWebhook({ verify, handle, async? })`, served as `POST`.",
+        ].join("\n"),
+      },
+      {
+        title: "Hooks",
+        text: "`beforeDeliver` (`{ subscription, delivery, body, headers }`, may return a changed body or headers; a throw ends the delivery `failed` with `Canceled by beforeDeliver: <message>` without retries), `afterDeliver` (`{ subscription, delivery, status, ok, durationMs }`), `onDisabled` (`{ subscription, reason }`), `beforeHandle` (`{ event, ctx }` of an incoming webhook, may return a changed event; an `HttpError` is answered) and `afterHandle` (`{ event, ctx, durationMs, error? }`). Features add them with `ctx.feature(\"webhooks\").addHook(name, fn)`, and register verifiers that `webhook.ts` files name as `verify: \"<name>\"` with `ctx.feature(\"webhooks\").verifier(name, verifier)`.",
+      },
+      {
+        title: "The WebhookSender contract",
+        text: "`sender` replaces signing and sending: `send({ subscription, delivery, body, headers, signal })` gets each attempt's exact body text and headers (without `webhook-signature`) and resolves `{ status, body?, durationMs }`, or rejects to fail the attempt with the error's message. The native keeps scheduling, retries, disabling, the delivery log and the events.",
+      },
     ],
   },
   requires: ["http"],
@@ -60,18 +83,31 @@ const webhooksFeature = defineFeature({
     webhooks: {
       on: ["entity"],
       scope: "entity",
-      options: ["events"],
+      options: ["events", "fields"],
       shorthand: "events",
-      description: "`@webhooks` makes the entity's write events deliverable to subscriptions, `@webhooks created,updated` only those operations, and `@webhooks off` none of them.",
-      example: "/** @webhooks created,updated */\nexport type Order = { status: string; total: number };",
+      description:
+        "`@webhooks` makes the entity's write events deliverable to subscriptions, `@webhooks created,updated` only those operations, `@webhooks fields=status,total` limits delivered records to those fields and `id`, and `@webhooks off` keeps the entity's events out even when `events` matches them.",
+      example: "/** @webhooks created,updated fields=status,total */\nexport type Order = { status: string; total: number; notes: string };",
     },
+    webhook: {
+      on: ["endpoint"],
+      scope: "incoming",
+      options: ["tolerance", "maxBodySize", "dedupe", "async"],
+      description: "`@webhook` on a `webhook.ts` file sets that route's `tolerance`, `maxBodySize`, `dedupe` and `async`, like `@webhook dedupe=false tolerance=10m`.",
+      example: "/** @webhook dedupe=false tolerance=10m */\nexport default defineWebhook({ verify, handle });",
+    },
+  },
+  // Checks the build's entities against what the native reads: tag fields, and a project WebhookSubscription.
+  build(ctx) {
+    const [problem] = buildProblems(ctx.models);
+    if (problem) throw new Error(problem);
   },
   setup(ctx) {
     const model = ctx.models.find((candidate) => candidate.key === "WebhookSubscription");
     if (!model) throw new Error("The webhooks native needs the WebhookSubscription entity; run quickservicets build after enabling it");
     const deliveryModel = ctx.models.find((candidate) => candidate.key === "WebhookDelivery" && candidate.system);
     if (!deliveryModel) throw new Error("The webhooks native needs the WebhookDelivery entity; run quickservicets build after enabling it");
-    const deliverable = new DeliverableEvents(ctx.options.events, entityDeliveries(ctx.models, { events: ctx.options.entity.events as WebhookOperation[] }));
+    const deliverable = new DeliverableEvents(ctx.options.events, entityDeliveries(ctx.models, { events: ctx.options.entity.events as WebhookOperation[], ...(ctx.options.entity.fields ? { fields: ctx.options.entity.fields } : {}) }));
     const adapter = ctx.config.database;
     // The enabled subscriptions of this worker, so matching an event reads no database.
     let store: SubscriptionStore | undefined;
@@ -112,6 +148,9 @@ const webhooksFeature = defineFeature({
       disableAfter: ctx.options.delivery.disableAfter,
       logger: ctx.logger,
       emit: (type, payload) => ctx.events.emit(type as never, payload as never),
+      disabled: async (subscription, reason) => {
+        if (ctx.options.onDisabled.length > 0) await runAfterHooks(ctx.options.onDisabled, { subscription: publicSubscription(subscription), reason }, undefined);
+      },
     });
     const log = deliveryLog({ adapter, model: deliveryModel, logger: ctx.logger });
     /** A delivery whose subscription the caller's tenant scope may see. */
@@ -150,6 +189,10 @@ const webhooksFeature = defineFeature({
       store: subscriptions,
       delivery: ctx.options.delivery,
       logger: ctx.logger,
+      headers: ctx.options.delivery.headers,
+      ...(ctx.options.sender ? { sender: ctx.options.sender as WebhookSender } : {}),
+      beforeDeliver: ctx.options.beforeDeliver,
+      afterDeliver: ctx.options.afterDeliver,
       failed: retries.failed,
       succeeded: retries.succeeded,
       disable: retries.disable,
@@ -185,20 +228,46 @@ const webhooksFeature = defineFeature({
       },
     };
     apis.set(ctx.options, api);
+    setupApis.set(ctx.options, {
+      ...api,
+      addHook: ctx.addHook as WebhooksSetupApi["addHook"],
+      verifier(name, verifier) {
+        if (!setupOpen) throw new Error("verifier() must be called during setup");
+        if (typeof name !== "string" || name === "" || typeof verifier?.verify !== "function") throw new Error("verifier(name, verifier) needs a name and an object with verify()");
+        if (verifiers.has(name)) throw new Error(`Webhook verifier ${name} is registered twice`);
+        verifiers.set(name, verifier);
+      },
+    });
     // `webhook.ts` routes: the signature checked on the raw body before the hooks and `handle`.
+    // A route's @webhook tag sets its own tolerance, body limit, dedupe and async.
+    const routeSettingsCache = new Map<string, { tolerance: string; maxBodySize: string | number; dedupe: boolean; async: boolean }>();
+    const routeSettings = (route: { method: string; path: string }) => {
+      let found = routeSettingsCache.get(route.path);
+      if (!found) {
+        const own = webhooksFeature.optionsFor({ method: "POST", path: route.path }).incoming as { tolerance: string; maxBodySize: string | number; dedupe: { enabled: boolean } | boolean; async: boolean };
+        const dedupe = typeof own.dedupe === "boolean" ? own.dedupe : own.dedupe.enabled;
+        found = { tolerance: own.tolerance, maxBodySize: own.maxBodySize, dedupe: dedupe && ctx.options.incoming.dedupe.enabled, async: own.async };
+        routeSettingsCache.set(route.path, found);
+      }
+      return found;
+    };
+    const verifiers = new Map<string, WebhookVerifier>();
+    let setupOpen = true;
     const receiptModel = ctx.options.incoming.dedupe.enabled ? ctx.models.find((candidate) => candidate.key === "WebhookReceipt" && candidate.system) : undefined;
     const receipts = receiptModel ? receiptStore({ adapter, model: receiptModel, logger: ctx.logger }) : undefined;
     const queuesOn = ctx.config.features.some((feature) => feature.key === "queues");
     const incoming = incomingRunner({
       logger: ctx.logger,
-      settings: () => ({ tolerance: ctx.options.incoming.tolerance, maxBodySize: ctx.options.incoming.maxBodySize }),
-      verifierNamed: () => undefined,
-      receipts: () => receipts,
+      settings: routeSettings,
+      verifierNamed: (name) => verifiers.get(name),
+      receipts: (route) => (routeSettings(route).dedupe ? receipts : undefined),
+      beforeHandle: ctx.options.beforeHandle,
+      afterHandle: ctx.options.afterHandle,
       ...(queuesOn ? { enqueue: (message: IncomingMessage) => queues.add(INCOMING_QUEUE as never, message as never) } : {}),
     });
     // The asynchronous routes' definitions, read from the build's routes when a consumer first needs one.
     let definitions: Promise<Map<string, WebhookDefinition>> | undefined;
-    const definitionOf = async (route: string) => {
+    const definitionOf = async (route: string | undefined) => {
       definitions ??= (async () => {
         const file = resolve(ctx.generated("."), "..", "routes.ts");
         const found = new Map<string, WebhookDefinition>();
@@ -207,11 +276,22 @@ const webhooksFeature = defineFeature({
         for (const endpoint of endpoints) if (endpoint.kind === "webhook" && isWebhookDefinition(endpoint.handler)) found.set(endpoint.path, endpoint.handler);
         return found;
       })();
+      if (route === undefined) return undefined as never;
       const definition = (await definitions).get(route);
       if (!definition) throw new Error(`No webhook.ts route POST ${route}`);
       return definition;
     };
     ctx.app.configureServer({ webhookRunner: incoming });
+    // A webhook.ts file naming a verifier no feature registered fails startup.
+    ctx.app.onStart(async () => {
+      setupOpen = false;
+      await definitionOf(undefined);
+      for (const [path, definition] of await definitions!) {
+        if (typeof definition.verify === "string" && !verifiers.has(definition.verify)) {
+          throw new Error(`Unknown webhook verifier ${definition.verify} in endpoints${path}/webhook.ts (registered: ${[...verifiers.keys()].join(", ") || "none"})`);
+        }
+      }
+    });
     // The management routes need authentication: without auth, subscriptions are managed from code only.
     if (ctx.options.routes.enabled) {
       if (authEnabled(ctx.config)) registerRoutes(ctx, ctx.options.routes, () => api, () => webhookClock.now());
@@ -236,7 +316,7 @@ const webhooksFeature = defineFeature({
       if (running.deliveries === deliveries) running.deliveries = undefined;
     });
   },
-  api: (ctx): WebhooksApi => apis.get(ctx.options)!,
+  api: (ctx): WebhooksSetupApi => setupApis.get(ctx.options)!,
   openapi(doc, { config, options }) {
     if (!options.routes.enabled || !authEnabled(config)) return doc;
     return documentRoutes(doc, options.routes);
@@ -270,5 +350,5 @@ export { RESEND_LIMIT } from "./routes.ts";
 export type { DeliveryListOptions, DeliveryPage, DeliverySummary } from "./log.ts";
 export type { WebhookDeliveryEvent, WebhookSubscriptionDisabledEvent } from "./retries.ts";
 export type { SignInput, VerifyInput } from "./signing.ts";
-export type { WebhooksApi } from "./api.ts";
+export type { AfterDeliver, AfterHandle, BeforeDeliver, BeforeHandle, OnDisabled, WebhookHooks, WebhookSendInput, WebhookSender, WebhooksApi, WebhooksSetupApi } from "./api.ts";
 export type { CreateSubscriptionInput, SubscriptionListOptions, UpdateSubscriptionInput, WebhookSubscription, WebhookSubscriptions } from "./subscriptions.ts";

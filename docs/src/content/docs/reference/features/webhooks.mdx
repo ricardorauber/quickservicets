@@ -28,6 +28,7 @@ It is not enabled by default: turn it on with `webhooks: {}` or `QS_WEBHOOKS_ENA
 | --- | --- | --- | --- | --- | --- |
 | `webhooks.events` | `string[]` | `[]` | `QS_WEBHOOKS_EVENTS` | no | Event patterns subscriptions may receive besides the write events of entities tagged @webhooks, like invoice.* or *.created; custom events are deliverable only through them. |
 | `webhooks.entity.events` | `("created" \| "updated" \| "deleted")[]` | `["created","updated","deleted"]` | `QS_WEBHOOKS_ENTITY_EVENTS` | no | The write operations an entity tagged @webhooks delivers when its tag lists none: created, updated and deleted. |
+| `webhooks.entity.fields` | `string[]` | — | `QS_WEBHOOKS_ENTITY_FIELDS` | no | The only fields, with id, a delivered record of a tagged entity carries; all but hidden and sensitive fields without it. |
 | `webhooks.routes.enabled` | `boolean` | `true` | `QS_WEBHOOKS_ROUTES_ENABLED` | no | The HTTP routes that manage subscriptions, which need the auth native. Turns it off when false. |
 | `webhooks.routes.path` | `string` | `"/webhooks"` | `QS_WEBHOOKS_ROUTES_PATH` | no | Where the subscription management routes are served. |
 | `webhooks.routes.roles` | `string[]` | `["admin"]` | `QS_WEBHOOKS_ROUTES_ROLES` | no | The roles that may manage subscriptions over HTTP; an empty list lets any signed-in user. |
@@ -38,10 +39,18 @@ It is not enabled by default: turn it on with `webhooks: {}` or `QS_WEBHOOKS_ENA
 | `webhooks.delivery.retention` | `duration` | `"30d"` | `QS_WEBHOOKS_DELIVERY_RETENTION` | no | How long finished deliveries are kept. |
 | `webhooks.delivery.requireHttps` | `boolean` | — | `QS_WEBHOOKS_DELIVERY_REQUIRE_HTTPS` | no | Accepts only https subscription URLs; true in production and false otherwise by default. |
 | `webhooks.delivery.concurrency` | `integer` | `10` | `QS_WEBHOOKS_DELIVERY_CONCURRENCY` | no | How many attempts of one subscription run at once in one process. |
+| `webhooks.delivery.headers.<name>` | `record of string` | — | `QS_WEBHOOKS_DELIVERY_HEADERS_<NAME>` | no | A header value. |
 | `webhooks.incoming.tolerance` | `duration` | `"5m"` | `QS_WEBHOOKS_INCOMING_TOLERANCE` | no | How far a signed timestamp of an incoming webhook may be from now. |
 | `webhooks.incoming.maxBodySize` | `size` | `"1MB"` | `QS_WEBHOOKS_INCOMING_MAX_BODY_SIZE` | no | The largest body an incoming webhook route reads. |
 | `webhooks.incoming.dedupe.enabled` | `boolean` | `true` | `QS_WEBHOOKS_INCOMING_DEDUPE_ENABLED` | no | Processes each incoming delivery id once, keeping a receipt per delivery. Turns it off when false. |
 | `webhooks.incoming.dedupe.retention` | `duration` | `"7d"` | `QS_WEBHOOKS_INCOMING_DEDUPE_RETENTION` | no | How long receipts of processed deliveries are kept. |
+| `webhooks.incoming.async` | `boolean` | `false` | `QS_WEBHOOKS_INCOMING_ASYNC` | no | Runs the handle of every webhook route in the webhooks/incoming queue; defineWebhook's async and a route's @webhook async= win. |
+| `webhooks.beforeDeliver` | `hook` | — | not overridable | no | Runs before each attempt with the subscription, the delivery, the body and the headers; it may return a changed body or headers, and a throw ends the delivery failed without retries. |
+| `webhooks.afterDeliver` | `hook` | — | not overridable | no | Runs after each attempt with the subscription, the delivery, the status, whether it succeeded and the duration. |
+| `webhooks.onDisabled` | `hook` | — | not overridable | no | Runs after a subscription is disabled, with it and the reason. |
+| `webhooks.beforeHandle` | `hook` | — | not overridable | no | Runs before the handle of an incoming webhook with the event and its context; it may return a changed event, and an HttpError is answered. |
+| `webhooks.afterHandle` | `hook` | — | not overridable | no | Runs after the handle of an incoming webhook with the event, its context, the duration and the error, when it threw. |
+| `webhooks.sender` | `WebhookSender` | — | not overridable | no | Replaces signing and sending: send({ subscription, delivery, body, headers, signal }) resolves { status, body?, durationMs }; scheduling, retries, disabling, the log and events stay. |
 | `webhooks.enabled` | `boolean` | `true` | `QS_WEBHOOKS_ENABLED` | no | Turns the feature off when false. |
 | `webhooks.database` | `string` | — | `QS_WEBHOOKS_DATABASE` | no | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
 
@@ -59,17 +68,32 @@ With named databases ([`databases`](/reference/config/)), each entity of the fea
 
 ### `@webhooks`
 
-`@webhooks` makes the entity's write events deliverable to subscriptions, `@webhooks created,updated` only those operations, and `@webhooks off` none of them.
+`@webhooks` makes the entity's write events deliverable to subscriptions, `@webhooks created,updated` only those operations, `@webhooks fields=status,total` limits delivered records to those fields and `id`, and `@webhooks off` keeps the entity's events out even when `events` matches them.
 
 **Applies to:** entities
 
-**Syntax:** `@webhooks <events>` or `@webhooks off`
+**Syntax:** `@webhooks <events> [fields=…]` or `@webhooks off`
 
-**Options:** `webhooks.entity.events`
+**Options:** `webhooks.entity.events`, `webhooks.entity.fields`
 
 ```ts
-/** @webhooks created,updated */
-export type Order = { status: string; total: number };
+/** @webhooks created,updated fields=status,total */
+export type Order = { status: string; total: number; notes: string };
+```
+
+### `@webhook`
+
+`@webhook` on a `webhook.ts` file sets that route's `tolerance`, `maxBodySize`, `dedupe` and `async`, like `@webhook dedupe=false tolerance=10m`.
+
+**Applies to:** endpoints
+
+**Syntax:** `@webhook [tolerance=…] [maxBodySize=…] [dedupe=…] [async=…]` or `@webhook off`
+
+**Options:** `webhooks.incoming.tolerance`, `webhooks.incoming.maxBodySize`, `webhooks.incoming.dedupe`, `webhooks.incoming.async`
+
+```ts
+/** @webhook dedupe=false tolerance=10m */
+export default defineWebhook({ verify, handle });
 ```
 
 ## Commands
@@ -116,39 +140,51 @@ quickservicets webhooks resend <delivery> | --subscription <id> --failed
 - `--subscription` (`string`): Resends deliveries of this subscription, with --failed.
 - `--failed` (`boolean`, default `false`): With --subscription, resends every failed delivery.
 
+## Hooks
+
+Hooks are functions (or lists of functions) written in the config; `before` hooks may change the value or cancel the step by throwing, `after` and `on` hooks observe.
+
+| Hook | Kind | Description |
+| --- | --- | --- |
+| `webhooks.beforeDeliver` | before | Runs before each attempt with the subscription, the delivery, the body and the headers; it may return a changed body or headers, and a throw ends the delivery failed without retries. |
+| `webhooks.afterDeliver` | after | Runs after each attempt with the subscription, the delivery, the status, whether it succeeded and the duration. |
+| `webhooks.onDisabled` | on | Runs after a subscription is disabled, with it and the reason. |
+| `webhooks.beforeHandle` | before | Runs before the handle of an incoming webhook with the event and its context; it may return a changed event, and an HttpError is answered. |
+| `webhooks.afterHandle` | after | Runs after the handle of an incoming webhook with the event, its context, the duration and the error, when it threw. |
+
 ## Feature API
 
 Other features reach it with `ctx.feature("webhooks")` in their setup, listing `webhooks` in `requires` or `after`.
 
-### `subscriptions`
+### `addHook`
 
 ```ts
-subscriptions: WebhookSubscriptions;
+addHook<K extends keyof WebhookHooks>(name: K, fn: WebhookHooks[K]): void;
 ```
 
-Creates, lists, reads, changes, deletes and rotates the secret of subscriptions.
+Appends a hook after the config's: `beforeDeliver`, `afterDeliver`, `onDisabled`, `beforeHandle` or `afterHandle`.
 
-### `resend`
+### `verifier`
 
 ```ts
-resend(deliveryId: string): Promise<{ id: string; status: "pending" }>;
+verifier(name: string, verifier: WebhookVerifier): void;
 ```
 
-Sends a finished (`succeeded` or `failed`) delivery again at once, from attempt 0 and with the same `webhook-id`;
-throws 409 `Delivery is already scheduled` for a pending or delivering one and 409 `Subscription is disabled`.
+Registers a verifier `webhook.ts` files name with `verify: "<name>"`, during setup only.
 
-### `deliveries`
+## Routes
 
-```ts
-deliveries(subscriptionId: string, options?: DeliveryListOptions): Promise<DeliveryPage>;
-```
+With the `auth` native and `routes` on, under `routes.path` (default `/webhooks`), for users holding one of `routes.roles` and scoped to the request's tenant:
 
-The deliveries of a subscription, newest first, as the delivery log route lists them.
+- `GET /webhooks`, `POST /webhooks` (201 with the `secret`), `GET`, `PATCH` and `DELETE /webhooks/[id]`, `POST /webhooks/[id]/rotate-secret` and `POST /webhooks/[id]/ping` (10 per minute);
+- `GET /webhooks/[id]/deliveries`, `GET /webhooks/[id]/deliveries/[deliveryId]` and `POST /webhooks/[id]/deliveries/[deliveryId]/resend` (202; 30 per minute).
 
-### `delivery`
+A project endpoint file at one of these paths, like `endpoints/webhooks/get.ts`, replaces that route. Incoming webhooks are `webhook.ts` endpoint files that default-export `defineWebhook({ verify, handle, async? })`, served as `POST`.
 
-```ts
-delivery(subscriptionId: string, deliveryId: string): Promise<WebhookDelivery>;
-```
+## Hooks
 
-One delivery of a subscription, with its body and the response kept; throws `Webhook delivery <id> not found`.
+`beforeDeliver` (`{ subscription, delivery, body, headers }`, may return a changed body or headers; a throw ends the delivery `failed` with `Canceled by beforeDeliver: <message>` without retries), `afterDeliver` (`{ subscription, delivery, status, ok, durationMs }`), `onDisabled` (`{ subscription, reason }`), `beforeHandle` (`{ event, ctx }` of an incoming webhook, may return a changed event; an `HttpError` is answered) and `afterHandle` (`{ event, ctx, durationMs, error? }`). Features add them with `ctx.feature("webhooks").addHook(name, fn)`, and register verifiers that `webhook.ts` files name as `verify: "<name>"` with `ctx.feature("webhooks").verifier(name, verifier)`.
+
+## The WebhookSender contract
+
+`sender` replaces signing and sending: `send({ subscription, delivery, body, headers, signal })` gets each attempt's exact body text and headers (without `webhook-signature`) and resolves `{ status, body?, durationMs }`, or rejects to fail the attempt with the error's message. The native keeps scheduling, retries, disabling, the delivery log and the events.

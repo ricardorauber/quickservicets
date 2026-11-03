@@ -933,6 +933,7 @@ Every option, tag, command and hook of `webhooks` is on [its reference page](/re
 | --- | --- | --- | --- | --- |
 | `webhooks.events` | `string[]` | `[]` | `QS_WEBHOOKS_EVENTS` | Event patterns subscriptions may receive besides the write events of entities tagged @webhooks, like invoice.* or *.created; custom events are deliverable only through them. |
 | `webhooks.entity.events` | `("created" \| "updated" \| "deleted")[]` | `["created","updated","deleted"]` | `QS_WEBHOOKS_ENTITY_EVENTS` | The write operations an entity tagged @webhooks delivers when its tag lists none: created, updated and deleted. |
+| `webhooks.entity.fields` | `string[]` | — | `QS_WEBHOOKS_ENTITY_FIELDS` | The only fields, with id, a delivered record of a tagged entity carries; all but hidden and sensitive fields without it. |
 | `webhooks.routes.enabled` | `boolean` | `true` | `QS_WEBHOOKS_ROUTES_ENABLED` | The HTTP routes that manage subscriptions, which need the auth native. Turns it off when false. |
 | `webhooks.routes.path` | `string` | `"/webhooks"` | `QS_WEBHOOKS_ROUTES_PATH` | Where the subscription management routes are served. |
 | `webhooks.routes.roles` | `string[]` | `["admin"]` | `QS_WEBHOOKS_ROUTES_ROLES` | The roles that may manage subscriptions over HTTP; an empty list lets any signed-in user. |
@@ -943,24 +944,47 @@ Every option, tag, command and hook of `webhooks` is on [its reference page](/re
 | `webhooks.delivery.retention` | `duration` | `"30d"` | `QS_WEBHOOKS_DELIVERY_RETENTION` | How long finished deliveries are kept. |
 | `webhooks.delivery.requireHttps` | `boolean` | — | `QS_WEBHOOKS_DELIVERY_REQUIRE_HTTPS` | Accepts only https subscription URLs; true in production and false otherwise by default. |
 | `webhooks.delivery.concurrency` | `integer` | `10` | `QS_WEBHOOKS_DELIVERY_CONCURRENCY` | How many attempts of one subscription run at once in one process. |
+| `webhooks.delivery.headers.<name>` | `record of string` | — | `QS_WEBHOOKS_DELIVERY_HEADERS_<NAME>` | A header value. |
 | `webhooks.incoming.tolerance` | `duration` | `"5m"` | `QS_WEBHOOKS_INCOMING_TOLERANCE` | How far a signed timestamp of an incoming webhook may be from now. |
 | `webhooks.incoming.maxBodySize` | `size` | `"1MB"` | `QS_WEBHOOKS_INCOMING_MAX_BODY_SIZE` | The largest body an incoming webhook route reads. |
 | `webhooks.incoming.dedupe.enabled` | `boolean` | `true` | `QS_WEBHOOKS_INCOMING_DEDUPE_ENABLED` | Processes each incoming delivery id once, keeping a receipt per delivery. Turns it off when false. |
 | `webhooks.incoming.dedupe.retention` | `duration` | `"7d"` | `QS_WEBHOOKS_INCOMING_DEDUPE_RETENTION` | How long receipts of processed deliveries are kept. |
+| `webhooks.incoming.async` | `boolean` | `false` | `QS_WEBHOOKS_INCOMING_ASYNC` | Runs the handle of every webhook route in the webhooks/incoming queue; defineWebhook's async and a route's @webhook async= win. |
+| `webhooks.beforeDeliver` | `hook` | — | not overridable | Runs before each attempt with the subscription, the delivery, the body and the headers; it may return a changed body or headers, and a throw ends the delivery failed without retries. |
+| `webhooks.afterDeliver` | `hook` | — | not overridable | Runs after each attempt with the subscription, the delivery, the status, whether it succeeded and the duration. |
+| `webhooks.onDisabled` | `hook` | — | not overridable | Runs after a subscription is disabled, with it and the reason. |
+| `webhooks.beforeHandle` | `hook` | — | not overridable | Runs before the handle of an incoming webhook with the event and its context; it may return a changed event, and an HttpError is answered. |
+| `webhooks.afterHandle` | `hook` | — | not overridable | Runs after the handle of an incoming webhook with the event, its context, the duration and the error, when it threw. |
+| `webhooks.sender` | `WebhookSender` | — | not overridable | Replaces signing and sending: send({ subscription, delivery, body, headers, signal }) resolves { status, body?, durationMs }; scheduling, retries, disabling, the log and events stay. |
 | `webhooks.enabled` | `boolean` | `true` | `QS_WEBHOOKS_ENABLED` | Turns the feature off when false. |
 | `webhooks.database` | `string` | — | `QS_WEBHOOKS_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
 
 #### `@webhooks`
 
-`@webhooks` makes the entity's write events deliverable to subscriptions, `@webhooks created,updated` only those operations, and `@webhooks off` none of them.
+`@webhooks` makes the entity's write events deliverable to subscriptions, `@webhooks created,updated` only those operations, `@webhooks fields=status,total` limits delivered records to those fields and `id`, and `@webhooks off` keeps the entity's events out even when `events` matches them.
 
 **Applies to:** entities
 
-**Options:** `entity.events`
+**Options:** `entity.events`, `entity.fields`
 
-**Syntax:** `@webhooks <events>` or `@webhooks off`
+**Syntax:** `@webhooks <events> [fields=…]` or `@webhooks off`
 
 ```ts
-/** @webhooks created,updated */
-export type Order = { status: string; total: number };
+/** @webhooks created,updated fields=status,total */
+export type Order = { status: string; total: number; notes: string };
+```
+
+#### `@webhook`
+
+`@webhook` on a `webhook.ts` file sets that route's `tolerance`, `maxBodySize`, `dedupe` and `async`, like `@webhook dedupe=false tolerance=10m`.
+
+**Applies to:** endpoints
+
+**Options:** `incoming.tolerance`, `incoming.maxBodySize`, `incoming.dedupe`, `incoming.async`
+
+**Syntax:** `@webhook [tolerance=…] [maxBodySize=…] [dedupe=…] [async=…]` or `@webhook off`
+
+```ts
+/** @webhook dedupe=false tolerance=10m */
+export default defineWebhook({ verify, handle });
 ```

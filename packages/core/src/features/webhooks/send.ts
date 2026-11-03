@@ -13,6 +13,8 @@ export interface AttemptOutcome {
   error?: string;
   /** Up to `responseBodyLimit` of the response body. */
   response?: string;
+  /** Set when the delivery must end now, without retries. */
+  final?: boolean;
 }
 
 /** The headers of one attempt: the subscription's own first, then the ones the native sets, which they never replace. */

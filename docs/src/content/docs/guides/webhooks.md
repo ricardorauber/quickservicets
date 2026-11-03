@@ -233,3 +233,42 @@ export default defineWebhook({
 ```
 
 The route verifies and deduplicates, then writes the receipt and a `webhooks/incoming` message in one transaction and answers 202 `{ "received": true }`; the consumer runs `handle` with the same context, except that `req` is undefined and `rawBody` is not kept, and marks the receipt `processed`, or `failed` while the queue retries it.
+
+## Customization
+
+Every option has its variable, like `QS_WEBHOOKS_EVENTS=invoice.*,payment.*`, `QS_WEBHOOKS_ROUTES_ROLES=ops,admin`, `QS_WEBHOOKS_DELIVERY_TIMEOUT=2s`, `QS_WEBHOOKS_DELIVERY_RETRY_SCHEDULE=10s,1m,10m` or `QS_WEBHOOKS_INCOMING_DEDUPE_ENABLED=false`; the [reference page](/reference/features/webhooks/) lists them all.
+
+**Tags.** `@webhooks fields=status,total` limits an entity's delivered records to those fields and `id` (an unknown field fails the build with `<file>: invalid @webhooks: unknown field <name>`), and `@webhooks off` keeps its events out even when `events` matches them. On a `webhook.ts` file, `@webhook` sets that route's `tolerance`, `maxBodySize`, `dedupe` and `async`:
+
+```ts
+/** @webhook dedupe=false tolerance=10m */
+export default defineWebhook({ verify: githubSignature({ secret: "…" }), handle: async () => {} });
+```
+
+**Per attempt.** `delivery.headers` may be a function of `{ subscription, event, tenant }`, called for every attempt; its headers go under the subscription's own and never replace the signature headers, and a throw fails the attempt with `delivery.headers failed: <message>`:
+
+```ts
+webhooks: { delivery: { headers: ({ tenant }) => ({ "x-tenant": tenant ?? "none" }) } }
+```
+
+**Hooks.** `beforeDeliver` gets `{ subscription, delivery, body, headers }` before each attempt and may return a changed body (which is what gets signed and sent) or headers; a throw ends the delivery `failed` with `Canceled by beforeDeliver: <message>`, without retries. `afterDeliver` gets `{ subscription, delivery, status, ok, durationMs }`, `onDisabled` gets `{ subscription, reason }`, `beforeHandle` gets `{ event, ctx }` of an incoming webhook and may return a changed event (an `HttpError` it throws is answered, and the receipt is `failed`), and `afterHandle` gets `{ event, ctx, durationMs, error? }`. Features add them with `ctx.feature("webhooks").addHook(name, fn)`.
+
+**Named verifiers.** A feature registers a verifier during its setup with `ctx.feature("webhooks").verifier("acme", { name: "acme", verify })`, and files use it as `verify: "acme"`; a name no feature registered fails startup with `Unknown webhook verifier <name> in <file> (registered: <names>)`.
+
+**Override files.** A project endpoint file at the path of a management route, like `endpoints/webhooks/get.ts`, replaces that route. A project `entities/WebhookSubscription.ts` replaces the native's entity and may add fields; one missing a field the native uses, or changing its type, fails the build with `entities/WebhookSubscription.ts: WebhookSubscription needs the field <field> (<type>) used by webhooks` (it may leave `headers` out).
+
+**Replace the sender.** `sender` takes over signing and sending, for example to hand deliveries to a hosted service; the native keeps scheduling, retries, disabling, the delivery log and the events:
+
+```ts
+webhooks: {
+  sender: {
+    async send({ subscription, body, headers }) {
+      const started = Date.now();
+      const response = await fetch(subscription.url, { method: "POST", body, headers });
+      return { status: response.status, body: await response.text(), durationMs: Date.now() - started };
+    },
+  },
+}
+```
+
+**Eject.** `quickservicets eject webhooks` copies the native into `features/webhooks/`, a project feature that replaces it with the same behavior.

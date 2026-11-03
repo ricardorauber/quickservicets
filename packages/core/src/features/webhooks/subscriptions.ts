@@ -108,9 +108,10 @@ export function eventsProblem(value: unknown, deliverable: DeliverableEvents): s
   return undefined;
 }
 
-/** Why a headers record is refused, or undefined. */
-function headersProblem(value: unknown): string | undefined {
+/** Why a headers record is refused, or undefined; a project subscription entity without `headers` takes none. */
+function headersProblem(value: unknown, model?: EntityModel): string | undefined {
   if (value === undefined) return undefined;
+  if (model && !model.fields.some((field) => field.name === "headers")) return "Is not supported by this WebhookSubscription entity";
   if (typeof value !== "object" || value === null || Array.isArray(value) || !Object.values(value).every((item) => typeof item === "string")) return "Must be an object of texts";
   return undefined;
 }
@@ -185,7 +186,7 @@ export function subscriptionStore(options: SubscriptionStoreOptions) {
       if (urlReason) throw invalid("url", urlReason);
       const eventsReason = eventsProblem(input.events, deliverable);
       if (eventsReason) throw invalid("events", eventsReason);
-      const headersReason = headersProblem(input.headers);
+      const headersReason = headersProblem(input.headers, model);
       if (headersReason) throw invalid("headers", headersReason);
       const at = new Date(now());
       const tenant = input.tenant ?? currentTenant()?.id;
@@ -231,7 +232,7 @@ export function subscriptionStore(options: SubscriptionStoreOptions) {
       }
       if (input.description !== undefined) changes.description = input.description;
       if (input.headers !== undefined) {
-        const reason = headersProblem(input.headers);
+        const reason = headersProblem(input.headers, model);
         if (reason) throw invalid("headers", reason);
         changes.headers = { ...input.headers };
       }

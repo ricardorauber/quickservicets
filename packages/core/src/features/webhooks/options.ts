@@ -1,4 +1,5 @@
-import { boolean, duration, integer, list, object, oneOf, size, string, toggle } from "../public.ts";
+import { boolean, duration, hook, integer, list, object, oneOf, provider, record, size, string, toggle } from "../public.ts";
+import type { AfterDeliver, AfterHandle, BeforeDeliver, BeforeHandle, OnDisabled, WebhookSender } from "./api.ts";
 
 /** The write operations an entity tagged `@webhooks` may deliver. */
 export const WEBHOOK_OPERATIONS = ["created", "updated", "deleted"] as const;
@@ -13,6 +14,7 @@ export const webhooksOptions = object({
     events: list(oneOf(WEBHOOK_OPERATIONS))
       .default([...WEBHOOK_OPERATIONS])
       .describe("The write operations an entity tagged @webhooks delivers when its tag lists none: created, updated and deleted."),
+    fields: list(string()).optional().describe("The only fields, with id, a delivered record of a tagged entity carries; all but hidden and sensitive fields without it."),
   })
     .default({})
     .describe("The defaults of entities tagged @webhooks, which the tag's options change per entity."),
@@ -30,6 +32,9 @@ export const webhooksOptions = object({
     retention: duration().default("30d").describe("How long finished deliveries are kept."),
     requireHttps: boolean().optional().describe("Accepts only https subscription URLs; true in production and false otherwise by default."),
     concurrency: integer().min(1).default(10).describe("How many attempts of one subscription run at once in one process."),
+    headers: record(string().describe("A header value."))
+      .perRequest()
+      .describe("More headers of every attempt, under the subscription's own; a function of the subscription, the event and the tenant computes them per attempt."),
   })
     .default({})
     .describe("How deliveries are sent, retried and kept."),
@@ -39,7 +44,18 @@ export const webhooksOptions = object({
     dedupe: toggle({
       retention: duration().default("7d").describe("How long receipts of processed deliveries are kept."),
     }).describe("Processes each incoming delivery id once, keeping a receipt per delivery."),
+    async: boolean().default(false).describe("Runs the handle of every webhook route in the webhooks/incoming queue; defineWebhook's async and a route's @webhook async= win."),
   })
     .default({})
     .describe("How incoming webhook routes (webhook.ts files) verify and process deliveries."),
+  beforeDeliver: hook<BeforeDeliver, undefined>().describe(
+    "Runs before each attempt with the subscription, the delivery, the body and the headers; it may return a changed body or headers, and a throw ends the delivery failed without retries.",
+  ),
+  afterDeliver: hook<AfterDeliver, undefined>().describe("Runs after each attempt with the subscription, the delivery, the status, whether it succeeded and the duration."),
+  onDisabled: hook<OnDisabled, undefined>().describe("Runs after a subscription is disabled, with it and the reason."),
+  beforeHandle: hook<BeforeHandle, undefined>().describe("Runs before the handle of an incoming webhook with the event and its context; it may return a changed event, and an HttpError is answered."),
+  afterHandle: hook<AfterHandle, undefined>().describe("Runs after the handle of an incoming webhook with the event, its context, the duration and the error, when it threw."),
+  sender: provider<WebhookSender>("WebhookSender", ["send"])
+    .optional()
+    .describe("Replaces signing and sending: send({ subscription, delivery, body, headers, signal }) resolves { status, body?, durationMs }; scheduling, retries, disabling, the log and events stay."),
 });

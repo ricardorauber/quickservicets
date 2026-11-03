@@ -57,19 +57,20 @@ export interface EntityDelivery {
 }
 
 /** The settings of every entity whose events may be delivered, from the tag options the build parsed. */
-export function entityDeliveries(models: readonly EntityModel[], defaults: { events: readonly WebhookOperation[] }): EntityDelivery[] {
+export function entityDeliveries(models: readonly EntityModel[], defaults: { events: readonly WebhookOperation[]; fields?: readonly string[] }): EntityDelivery[] {
   return models
     .filter((entity) => !entity.system && !entity.link && entity.feature !== "webhooks")
     .map((entity) => {
       const tag = entity.tags?.webhooks;
       const options = (tag?.options ?? {}) as { events?: readonly WebhookOperation[]; fields?: readonly string[] };
       const operations = options.events ?? defaults.events;
+      const fields = options.fields ?? defaults.fields;
       return {
         entity,
         prefix: lowerFirst(entity.entityName),
         tag: tag === undefined ? "untagged" : tag.on ? "on" : "off",
         operations,
-        ...(options.fields ? { fields: options.fields } : {}),
+        ...(fields ? { fields } : {}),
       } as EntityDelivery;
     });
 }

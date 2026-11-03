@@ -507,7 +507,9 @@ async function buildProject(projectRoot: string, config: ResolvedConfig, options
       const tags = { ...(parsed.metadata.tags ?? {}), csrf: { on: false, options: {} } };
       return { route, ...parsed, metadata: { ...parsed.metadata, tags } };
     }
-    return { route, ...parseEndpointTags(source, route.file) };
+    const parsed = parseEndpointTags(source, route.file);
+    if (parsed.metadata.tags?.webhook) throw new BuildError(`${route.file}: invalid @webhook: only webhook.ts files take @webhook`);
+    return { route, ...parsed };
   });
   validateHookReferences(
     models,

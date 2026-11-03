@@ -336,7 +336,7 @@ import authNative, { type AuthApi, type RequestAuth, type SessionRevokedEvent } 
 import metricsNative, { type MetricsApi } from "./features/metrics/index.ts";
 import proxyNative from "./features/proxy/index.ts";
 import secretsNative, { type SecretRotation, type SecretsApi } from "./features/secrets/index.ts";
-import webhooksNative, { type WebhookDeliveryEvent, type WebhookSubscriptionDisabledEvent, type WebhooksApi } from "./features/webhooks/index.ts";
+import webhooksNative, { type WebhookDeliveryEvent, type WebhookSubscriptionDisabledEvent, type WebhooksSetupApi } from "./features/webhooks/index.ts";
 import type { SecretReference as RequestSecretReference } from "./secret-references.ts";
 import { registerNative as registerShippedNative, type FeatureConfig as NativeConfig } from "./features.ts";
 registerShippedNative(securityNative);
@@ -357,7 +357,7 @@ registerShippedNative(proxyNative);
 registerShippedNative(secretsNative);
 registerShippedNative(webhooksNative);
 export { RECEIPT_LOCK_MS, webhookReceiptEntity, defineWebhook, githubSignature, hmacSignature, invalidSignature, isWebhookDefinition, standardWebhookSignature, stripeSignature, RESEND_LIMIT, webhookClock, signWebhook, verifyWebhook, GONE_REASON, PING_LIMIT, MAX_RETRY_DELAY_MS, retryDelay, bodyOf, CACHE_REFRESH_MS, WEBHOOK_DELIVERY_STATUSES, MAX_PAYLOAD_BYTES, subscriptionCache, webhookDeliveryEntity, DeliverableEvents, entityDeliveries, generateSecret, patternMatchesType, patternProblem, patternsOverlap, PREVIOUS_SECRET_MS, webhooks, webhooksFeature, webhookSubscriptionEntity } from "./features/webhooks/index.ts";
-export type { IncomingMessage, WebhookReceipt, HmacSignatureOptions, WebhookDefinition, WebhookHandleContext, WebhookOptions, WebhookRejection, WebhookSecret, WebhookSecretValue, WebhookVerification, WebhookVerifier, WebhookVerifyInput, DeliveryListOptions, DeliveryPage, DeliverySummary, WebhookDeliveryEvent, WebhookSubscriptionDisabledEvent, SignInput, VerifyInput, WebhookDeliveryStatus, WebhookDelivery, CreateSubscriptionInput, SubscriptionListOptions, UpdateSubscriptionInput, WebhooksApi, WebhookSubscription, WebhookSubscriptions } from "./features/webhooks/index.ts";
+export type { AfterDeliver, AfterHandle, BeforeDeliver, BeforeHandle, OnDisabled, WebhookHooks, WebhookSendInput, WebhookSender, WebhooksSetupApi, IncomingMessage, WebhookReceipt, HmacSignatureOptions, WebhookDefinition, WebhookHandleContext, WebhookOptions, WebhookRejection, WebhookSecret, WebhookSecretValue, WebhookVerification, WebhookVerifier, WebhookVerifyInput, DeliveryListOptions, DeliveryPage, DeliverySummary, WebhookDeliveryEvent, WebhookSubscriptionDisabledEvent, SignInput, VerifyInput, WebhookDeliveryStatus, WebhookDelivery, CreateSubscriptionInput, SubscriptionListOptions, UpdateSubscriptionInput, WebhooksApi, WebhookSubscription, WebhookSubscriptions } from "./features/webhooks/index.ts";
 export {
   addAuthScheme,
   AuthError,
@@ -579,7 +579,7 @@ declare module "./features.ts" {
     auth: AuthApi;
     metrics: MetricsApi;
     secrets: SecretsApi;
-    webhooks: WebhooksApi;
+    webhooks: WebhooksSetupApi;
   }
 }
 

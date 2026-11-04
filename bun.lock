@@ -50,6 +50,13 @@
         "@quickservicets/core": "workspace:*",
       },
     },
+    "examples/minimal/dev": {
+      "name": "minimal-dev",
+      "dependencies": {
+        "@quickservicets/cli": "workspace:*",
+        "@quickservicets/core": "workspace:*",
+      },
+    },
     "examples/minimal/errors": {
       "name": "minimal-errors",
       "dependencies": {
@@ -849,6 +856,8 @@
     "micromark-util-types": ["micromark-util-types@2.0.3", "", {}, "sha512-oxB2Ik03hI0gv+VNn9tnh1t1YEe9MDPptViAEgfdf3YQHsn0pzGTgCdlSCJXcwhqm8phaEuM7zeEu3QQzVBrPg=="],
 
     "minimal-auth": ["minimal-auth@workspace:examples/minimal/auth"],
+
+    "minimal-dev": ["minimal-dev@workspace:examples/minimal/dev"],
 
     "minimal-errors": ["minimal-errors@workspace:examples/minimal/errors"],
 

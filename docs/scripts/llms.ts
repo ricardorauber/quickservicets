@@ -231,10 +231,29 @@ export function llmsFull(topics: readonly AgentTopic[] = readTopics(), pages: re
 /** The reference pages `llms-small.txt` keeps besides getting started. */
 export const SMALL_REFERENCE = ["reference/cli.mdx", "reference/config.mdx", "reference/tags.mdx"];
 
-/** `llms-small.txt`: the agent topics, the getting started pages and the CLI, config and tags reference. */
+/**
+ * The config reference as `llms-small.txt` keeps it: every core key, and for the native features one line each with
+ * its summary and a link to its reference page, which lists its options, instead of every option table.
+ */
+export function smallConfigReference(markdown: string): string {
+  const marker = "\n## Native features\n";
+  const at = markdown.indexOf(marker);
+  if (at < 0) return markdown;
+  const sections = markdown.slice(at + marker.length).split(/\n(?=### `)/);
+  const intro = sections[0]!.startsWith("### `") ? "" : sections.shift()!.trim();
+  const lines = sections.map((section) => {
+    const key = /^### `([^`]+)`/.exec(section)?.[1] ?? "";
+    const summary = section.split("\n\n")[1]?.trim().replaceAll("\n", " ") ?? "";
+    return `- [\`${key}\`](/reference/features/${key}.md): ${summary}`;
+  });
+  return [markdown.slice(0, at).trimEnd(), "", "## Native features", "", ...(intro ? [intro, ""] : []), "The options of each native, with their variables and defaults, are on its reference page:", "", ...lines, ""].join("\n");
+}
+
+/** `llms-small.txt`: the agent topics, the getting started pages and the CLI, config (natives as links) and tags reference. */
 export function llmsSmall(topics: readonly AgentTopic[] = readTopics(), pages: readonly DocsPage[] = readPages()): string {
   const kept = pages.filter((page) => page.file.startsWith("getting-started/") || SMALL_REFERENCE.includes(page.file));
-  return [...topics.map((topic) => combined(topic.title, topicPath(topic), topicBody(topic))), ...kept.map((page) => combined(page.title, page.markdownPath, pageBody(page)))].join("\n");
+  const bodyOf = (page: DocsPage) => (page.file === "reference/config.mdx" ? smallConfigReference(pageBody(page)) : pageBody(page));
+  return [...topics.map((topic) => combined(topic.title, topicPath(topic), topicBody(topic))), ...kept.map((page) => combined(page.title, page.markdownPath, bodyOf(page)))].join("\n");
 }
 
 /** Every file the docs build adds to the site root, keyed by its path in the built site. */

@@ -55,12 +55,20 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
   }),
   defineCommand({
     name: "dev",
-    usage: "quickservicets dev",
+    usage: "quickservicets dev [--services]",
     description:
-      "Builds and serves the project, rebuilding and restarting when entities, endpoints, hooks, jobs, features, the config, the `.env` files, or a folder or `watch` path of an enabled feature change.",
-    async run({ cwd, output }) {
+      "Builds and serves the project, rebuilding and restarting when entities, endpoints, hooks, jobs, features, the config, the `.env` files, or a folder or `watch` path of an enabled feature change; `--services` first starts the services the project needs with Docker Compose and connects the server to them.",
+    flags: object({ services: boolean().default(false).describe("Starts the project's local services (its database and what its features need) with Docker Compose first.") }),
+    async run({ cwd, flags, output }) {
       const { handleSignals, startDev } = await import("./dev/dev.ts");
-      const session = await startDev(cwd, { log: output.log, error: output.error });
+      let extraEnv: Record<string, string> = {};
+      if (flags.services) {
+        const { startDevServices } = await import("./dev/services.ts");
+        const started = await startDevServices(cwd, output);
+        if (typeof started === "number") return started;
+        extraEnv = started;
+      }
+      const session = await startDev(cwd, { log: output.log, error: output.error, extraEnv });
       handleSignals(session);
       await new Promise(() => {});
     },

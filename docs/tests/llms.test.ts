@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readTopics, TOPIC_NAMES } from "../../packages/cli/src/agents/topics.ts";
 import { pagesUnder } from "../scripts/checks.ts";
-import { CONTENT_DIR, llmsFiles, llmsFull, llmsSmall, llmsTxt, markdownPathOf, pagePath, readPages, toPlainMarkdown, unrenderedLines } from "../scripts/llms.ts";
+import { CONTENT_DIR, llmsFiles, llmsFull, llmsSmall, llmsTxt, markdownPathOf, pagePath, readPages, smallConfigReference, toPlainMarkdown, unrenderedLines } from "../scripts/llms.ts";
 
 const topics = readTopics();
 const pages = readPages();
@@ -99,6 +99,17 @@ describe("llms-full.txt and llms-small.txt", () => {
       "/reference/tags.md",
     ]);
     expect(new TextEncoder().encode(small).length).toBeLessThan(200 * 1024);
+  });
+
+  test("its config reference keeps the core keys and lists each native with its summary and a link to its page", () => {
+    const small = llmsSmall(topics, pages);
+    const config = small.split("URL: /reference/config.md")[1]!.split("\nURL: ")[0]!;
+    expect(config).toContain("`database`");
+    expect(config).toContain("- [`security`](/reference/features/security.md): ");
+    expect(config).not.toContain("### `security`");
+    expect(smallConfigReference("# Config\n\n## Native features\n\nIntro.\n\n### `audit`\n\nRecords changes.\n\n| Key |\n")).toBe(
+      "# Config\n\n## Native features\n\nIntro.\n\nThe options of each native, with their variables and defaults, are on its reference page:\n\n- [`audit`](/reference/features/audit.md): Records changes.\n",
+    );
   });
 });
 

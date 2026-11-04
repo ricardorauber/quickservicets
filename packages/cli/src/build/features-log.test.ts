@@ -38,5 +38,5 @@ test("the generated server logs the enabled features at startup", async () => {
     .split("\n")
     .filter((line) => line.startsWith("{"))
     .map((line) => JSON.parse(line) as { message?: string; features?: unknown });
-  expect(entries.filter((entry) => entry.message === "features.enabled")).toEqual([expect.objectContaining({ message: "features.enabled", features: [{ key: "security" }, { key: "http" }] })]);
+  expect(entries.filter((entry) => entry.message === "features.enabled")).toEqual([expect.objectContaining({ message: "features.enabled", features: [{ key: "security" }, { key: "http" }, { key: "dev" }] })]);
 }, 30_000);

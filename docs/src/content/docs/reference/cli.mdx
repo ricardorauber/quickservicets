@@ -33,10 +33,10 @@ quickservicets init [directory] [--db postgres|mongodb|sqlite|memory] [--no-agen
 
 ## `dev`
 
-Builds and serves the project, rebuilding and restarting when entities, endpoints, hooks, jobs, features, the config, the `.env` files, or a folder or `watch` path of an enabled feature change.
+Builds and serves the project, rebuilding and restarting when entities, endpoints, hooks, jobs, features, the config, the `.env` files, or a folder or `watch` path of an enabled feature change; `--services` first starts the services the project needs with Docker Compose and connects the server to them.
 
 ```bash
-quickservicets dev
+quickservicets dev [--services]
 ```
 
 ## `build`
@@ -684,3 +684,57 @@ quickservicets webhooks resend <delivery> | --subscription <id> --failed
 
 - `--subscription` (`string`): Resends deliveries of this subscription, with --failed.
 - `--failed` (`boolean`, default `false`): With --subscription, resends every failed delivery.
+
+### `dev`
+
+#### `services up`
+
+Writes the Docker Compose file of the services the project needs (its database, Redis, a broker and what its features ask for) and starts them, waiting for their health checks.
+
+```bash
+quickservicets services up
+```
+
+#### `services down`
+
+Stops and removes the local services' containers; `--volumes` also removes their data.
+
+```bash
+quickservicets services down [--volumes]
+```
+
+**Flags:**
+
+- `--volumes` (`boolean`, default `false`): Also removes the services' named volumes.
+
+#### `services status`
+
+Prints each local service with its container's state, health and host port.
+
+```bash
+quickservicets services status
+```
+
+#### `services logs`
+
+Prints the logs of the local services, or of one.
+
+```bash
+quickservicets services logs [name]
+```
+
+**Arguments:**
+
+- `<name>`: The service, like `database` or `redis`.
+
+#### `services env`
+
+Prints the connection variables of the local services, with passwords as `[secret]` unless `--show` is given.
+
+```bash
+quickservicets services env [--show]
+```
+
+**Flags:**
+
+- `--show` (`boolean`, default `false`): Prints the passwords.

@@ -19,6 +19,10 @@ Infrastructure:
 - [mTLS](/guides/mtls/)
 - [Secrets](/guides/secrets/)
 
+Local environment and deployment:
+
+- [Local environment](/guides/local-environment/)
+
 Integrations:
 
 - [Webhooks](/guides/webhooks/)

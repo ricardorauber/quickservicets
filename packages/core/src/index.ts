@@ -346,6 +346,7 @@ import authNative, { type AuthApi, type RequestAuth, type SessionRevokedEvent } 
 import metricsNative, { type MetricsApi } from "./features/metrics/index.ts";
 import proxyNative from "./features/proxy/index.ts";
 import secretsNative, { type SecretRotation, type SecretsApi } from "./features/secrets/index.ts";
+import devNative from "./features/dev/index.ts";
 import webhooksNative, { type WebhookDeliveryEvent, type WebhookSubscriptionDisabledEvent, type WebhooksSetupApi } from "./features/webhooks/index.ts";
 import type { SecretReference as RequestSecretReference } from "./secret-references.ts";
 import { registerNative as registerShippedNative, type FeatureConfig as NativeConfig } from "./features.ts";
@@ -366,6 +367,35 @@ registerShippedNative(metricsNative);
 registerShippedNative(proxyNative);
 registerShippedNative(secretsNative);
 registerShippedNative(webhooksNative);
+registerShippedNative(devNative);
+export {
+  COMPOSE_HEADER,
+  COMPOSE_OVERRIDE_FILE,
+  composeCall,
+  composeDocument,
+  composeProjectName,
+  composeYaml,
+  DEVELOPMENT_ONLY,
+  devFeature,
+  DOCKER_MISSING,
+  dockerAvailable,
+  dockerComposeRunner,
+  envFileValues,
+  LocalServicesError,
+  localServicesEnv,
+  localServicesLogs,
+  localServicesPlan,
+  localServicesStatus,
+  parseComposeStatus,
+  planLocalServices,
+  portFree,
+  portInUse,
+  spawnExec,
+  startLocalServices,
+  stopLocalServices,
+  writeWhenChanged,
+} from "./features/dev/index.ts";
+export type { ComposeCall, ComposeDocument, ContainerRunner, ContainerStatus, DevOptions, Exec, ExecResult, LocalService, LocalServicesContext, LocalServicesPlan, StartedServices } from "./features/dev/index.ts";
 export { RECEIPT_LOCK_MS, webhookReceiptEntity, defineWebhook, githubSignature, hmacSignature, invalidSignature, isWebhookDefinition, standardWebhookSignature, stripeSignature, RESEND_LIMIT, webhookClock, signWebhook, verifyWebhook, GONE_REASON, PING_LIMIT, MAX_RETRY_DELAY_MS, retryDelay, bodyOf, CACHE_REFRESH_MS, WEBHOOK_DELIVERY_STATUSES, MAX_PAYLOAD_BYTES, subscriptionCache, webhookDeliveryEntity, DeliverableEvents, entityDeliveries, generateSecret, patternMatchesType, patternProblem, patternsOverlap, PREVIOUS_SECRET_MS, webhooks, webhooksFeature, webhookSubscriptionEntity } from "./features/webhooks/index.ts";
 export type { AfterDeliver, AfterHandle, BeforeDeliver, BeforeHandle, OnDisabled, WebhookHooks, WebhookSendInput, WebhookSender, WebhooksSetupApi, IncomingMessage, WebhookReceipt, HmacSignatureOptions, WebhookDefinition, WebhookHandleContext, WebhookOptions, WebhookRejection, WebhookSecret, WebhookSecretValue, WebhookVerification, WebhookVerifier, WebhookVerifyInput, DeliveryListOptions, DeliveryPage, DeliverySummary, WebhookDeliveryEvent, WebhookSubscriptionDisabledEvent, SignInput, VerifyInput, WebhookDeliveryStatus, WebhookDelivery, CreateSubscriptionInput, SubscriptionListOptions, UpdateSubscriptionInput, WebhooksApi, WebhookSubscription, WebhookSubscriptions } from "./features/webhooks/index.ts";
 export {
@@ -574,6 +604,8 @@ declare module "./features.ts" {
     secrets?: NativeConfig<typeof secretsNative>;
     /** Outgoing signed webhooks and incoming webhook routes; see the `webhooks` reference page. */
     webhooks?: NativeConfig<typeof webhooksNative>;
+    /** Local services for `quickservicets dev --services`, enabled by default; see the `dev` reference page. */
+    dev?: NativeConfig<typeof devNative>;
   }
   interface FeatureApis {
     events: EventsApi;

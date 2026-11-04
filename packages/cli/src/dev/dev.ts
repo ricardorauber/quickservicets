@@ -50,6 +50,8 @@ export interface DevDependencies {
   /** Watches the paths, calling `onChange` with the project path that changed when it is known. */
   watch(projectRoot: string, paths: string[], onChange: (changed?: string) => void): Watcher;
   scheduler: Scheduler;
+  /** Variables the server and the builds get beneath the environment and the `.env` files, like the local services'. */
+  extraEnv?: Env;
   log(line: string): void;
   error(line: string): void;
 }
@@ -205,7 +207,7 @@ export async function startDev(projectRoot: string, overrides: Partial<DevDepend
   };
 
   async function rebuild(changed?: ReadonlySet<string>): Promise<void> {
-    const env = projectEnvironment(projectRoot, baseEnv);
+    const env = { ...deps.extraEnv, ...projectEnvironment(projectRoot, baseEnv) };
     const summary = await buildOnce(projectRoot, deps, env, { steps: stepsFor(changed, buildInputs) });
     if (!summary) return;
     buildInputs = summary.buildInputs ?? {};

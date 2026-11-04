@@ -63,6 +63,7 @@ const PAGES = [
   "guides/optimistic-concurrency.md",
   "guides/coding-agents.md",
   "guides/webhooks.md",
+  "guides/local-environment.md",
   "reference/index.md",
   "reference/tags.mdx",
   "reference/config.mdx",

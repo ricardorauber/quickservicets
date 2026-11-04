@@ -133,8 +133,10 @@ describe("no middleware", () => {
     let stack = "";
     const server = createServer({ routes: [{ method: "GET", path: "/plain", handler: () => ((stack = new Error().stack ?? ""), { ok: true }) }], repos: {}, config: { production: false, logger } });
     expect((await server.fetch(new Request("http://localhost/plain"))).status).toBe(200);
-    expect(stack).not.toContain("middleware.ts");
-    expect(stack).not.toContain("compose");
+    // Only the frames' function names and files count, not the folders the repository is checked out in.
+    const frames = stack.split("\n").map((line) => line.replace(/\(.*\/([^/]+)\)$/, "($1)"));
+    expect(frames.join("\n")).not.toContain("middleware.ts");
+    expect(frames.join("\n")).not.toContain("compose");
   });
 });
 

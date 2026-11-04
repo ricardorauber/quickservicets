@@ -993,3 +993,21 @@ export type Order = { status: string; total: number; notes: string };
 /** @webhook dedupe=false tolerance=10m */
 export default defineWebhook({ verify, handle });
 ```
+
+### `dev`
+
+Local services for development: `quickservicets dev --services` starts the database and every service the project's features need with Docker Compose.
+
+Every option, tag, command and hook of `dev` is on [its reference page](/reference/features/dev/).
+
+| Key | Type | Default | Environment variable | Description |
+| --- | --- | --- | --- | --- |
+| `dev.services.<name>.enabled` | `record of boolean` | `true` | `QS_DEV_SERVICES_<NAME>_ENABLED` | Starts this service; false leaves it to you. |
+| `dev.services.<name>.image` | `record of string` | — | `QS_DEV_SERVICES_<NAME>_IMAGE` | Replaces the catalog's image of this service. |
+| `dev.services.<name>.port` | `record of integer` | — | `QS_DEV_SERVICES_<NAME>_PORT` | The host port of the service's first container port (default: the catalog's). |
+| `dev.services.<name>.env.<name>` | `record of record of string` | — | `QS_DEV_SERVICES_<NAME>_ENV_<NAME>` | The value of one container variable. |
+| `dev.composeFile` | `string` | `".generated/dev/compose.yml"` | `QS_DEV_COMPOSE_FILE` | Where the generated Docker Compose file is written, relative to the project. |
+| `dev.project` | `string` | — | `QS_DEV_PROJECT` | The Docker Compose project name (default: the package name, without its scope). |
+| `dev.wait` | `duration` | `"60s"` | `QS_DEV_WAIT` | How long `services up` waits for every health check before failing. |
+| `dev.enabled` | `boolean` | `true` | `QS_DEV_ENABLED` | Turns the feature off when false. |
+| `dev.database` | `string` | — | `QS_DEV_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |

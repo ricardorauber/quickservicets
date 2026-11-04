@@ -133,6 +133,33 @@ k6 (`grafana/k6:2.3.0`) runs in a container on the same network with 4 CPUs, 64 
 | `health` | `GET /health` (the framework's floor) |
 | `get_user`, `list_users`, `create_user`, `filter_users`, `populate_orgs` | one request of the above, alone |
 
+## Cold start
+
+How long the service takes from process start to its first answer on each deploy target, without Docker or a database server:
+
+```bash
+bun benchmarks/run.ts cold-start              # 20 starts per target
+bun benchmarks/run.ts cold-start --runs 5 --out /tmp/cold-start.json
+bun benchmarks/compare-cold-start.ts /tmp/cold-start.json
+```
+
+The scenario writes a small project (a `Post` entity on SQLite, so no database server affects the numbers), migrates it and builds it for the `server`, `binary` and `lambda` targets for this machine, in `benchmarks/.cache/cold-start/` (starting processes from the system's temporary folder is slower on some machines). Each target then starts 20 times, one after the other, from a folder holding only its artifact and the database:
+
+- `server`: `bun server/server.js`, from spawn to the first 200 of `GET /posts?limit=1`;
+- `binary`: the compiled executable, measured the same way;
+- `lambda`: the `bootstrap`, from spawn to the posted result of a 2.0 `GET /posts?limit=1` event, against a local fake Runtime API.
+
+`results/cold-start.json` keeps, per target, p50 and p90 in milliseconds, every run, and the artifact's size in bytes (the bundle with its assets, the executable, `function.zip`), with the Bun version, the machine, its load and the date; for `server` it also keeps the median phases of the `service.started` entry (`config`, `setup`, `connect`, `start`), so a regression can be traced to one of them.
+
+`compare-cold-start.ts <result>` compares a result with the committed `results/cold-start.json` (or `--baseline <file>`) and exits 1 when a target's p50 grows more than 10% (`<target> cold start <n>% slower (<a> ms → <b> ms); the budget is 10%`) or its size more than 10% (`<target> size <n>% larger …`). After an accepted change, refresh the baseline on a quiet machine and commit it:
+
+```bash
+bun benchmarks/run.ts cold-start --out /tmp/cold-start.json
+bun benchmarks/compare-cold-start.ts /tmp/cold-start.json --update
+```
+
+Measuring a real Lambda function is a manual step: deploy `dist/lambda/function.zip` (see the deploy targets guide), invoke it after a configuration change so it starts cold, and read `Init Duration` in the `REPORT` line of its CloudWatch log; run it a few times and compare the median with the `lambda` p50 here.
+
 ## Latest results
 
 Requests per second (2 CPUs per service, 64 VUs, PostgreSQL with 2 CPUs), the better of two full rounds per stack and scenario: background load on the benchmark machine only lowers throughput. Raw numbers for both rounds are in `results/` and `results/round-1/`; the profile of the QuickService.ts service and the prioritized optimizations are in [`analysis/quickservicets-profile.md`](analysis/quickservicets-profile.md).

@@ -6,6 +6,7 @@
  *   bun benchmarks/run.ts quickservicets
  *   bun benchmarks/run.ts quickservicets express --scenarios crud,query
  *   bun benchmarks/run.ts all
+ *   bun benchmarks/run.ts cold-start [--runs 20]   (see cold-start.ts)
  *
  * Options:
  *   --scenarios a,b     scenarios to run (default: all, see SCENARIOS)
@@ -62,6 +63,11 @@ const SCENARIOS: Record<string, Scenario> = {
 // ----------------------------------------------------------------------------------------------- arguments
 
 const argv = process.argv.slice(2);
+// The cold-start scenario measures process starts on the deploy targets, without Docker or a database server.
+if (argv[0] === "cold-start") {
+  const { main } = await import("./cold-start.ts");
+  process.exit(await main(argv.slice(1)));
+}
 const flags = new Map<string, string | true>();
 const positional: string[] = [];
 for (let i = 0; i < argv.length; i++) {

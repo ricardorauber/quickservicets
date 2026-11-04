@@ -5,7 +5,9 @@ import {
   createApp,
   createFeatureLifecycle,
   defineFeature,
+  describeInfrastructure,
   importConfigFile,
+  isInfraKind,
   LifecycleError,
   memoryAdapter,
   notifyShutdownSignal,
@@ -20,6 +22,7 @@ import {
   type Repositories,
 } from "@quickservicets/core";
 import { build } from "../build/build.ts";
+import { startServices, type TestServices } from "./services.ts";
 
 /** What `startTestService` takes: the project's files and the environment it starts with. */
 export interface TestServiceOptions {
@@ -37,6 +40,13 @@ export interface TestServiceOptions {
    * keeps the project's own adapters (default: every named database in memory).
    */
   databases?: Record<string, DatabaseAdapter> | "config";
+  /**
+   * Services to start in throwaway containers first (catalog kinds like `postgres`, or requirement names of the
+   * project's infrastructure description): the project then runs on its own configured adapter, connected with their
+   * variables, its migrations are created and applied, and `stop()` removes the containers. `TEST_<KIND>_URL` points a
+   * kind at an existing service instead.
+   */
+  services?: readonly string[];
 }
 
 /** The project's named databases with each adapter replaced: by `chosen[name]`, or by a memory adapter. */
@@ -50,6 +60,17 @@ function testDatabases(configured: unknown, chosen: Record<string, DatabaseAdapt
       return [name, settings ? { ...settings, adapter } : adapter];
     }),
   );
+}
+
+/**
+ * The services of the project's infrastructure description, when a requested name is not a catalog kind: the config
+ * is read through a fresh import, so the later import still sees the services' variables.
+ */
+async function projectServices(root: string, names: readonly string[]) {
+  if (names.every((name) => isInfraKind(name))) return [];
+  const file = join(root, "quickservicets.config.ts");
+  const { default: projectConfig } = (await import(`${file}?describe=${crypto.randomUUID()}`)) as { default: Record<string, unknown> };
+  return describeInfrastructure(resolveConfig(projectConfig as never, { ...process.env }, root) as never).services;
 }
 
 /** The key of the project feature that registers the providers of the `auth` option. */
@@ -82,6 +103,8 @@ export interface TestService {
   listen(port?: number): Promise<{ url: string; port: number }>;
   /** The temporary project folder. */
   root: string;
+  /** The connection variables of the started `services` (empty without them). */
+  env: Record<string, string>;
   /**
    * Runs the shutdown sequence and removes the folder; fails naming the feature and phase whose code created a timer
    * that is still active after `onStop`.
@@ -156,11 +179,29 @@ function writeProject(files: Record<string, string>): string {
  * features' setups and `onStart` callbacks run, but no port is opened. Rejects with the build output or the startup
  * error, removing the folder.
  */
-export async function startTestService({ files, env = {}, auth, databases }: TestServiceOptions): Promise<TestService> {
+export async function startTestService({ files, env: givenEnv = {}, auth, databases, services: serviceNames }: TestServiceOptions): Promise<TestService> {
   const root = writeProject(files);
   const tracker = new Map<unknown, TimerOwner>();
   let started: { app: App; stop(): Promise<void> } | undefined;
+  let services: TestServices | undefined;
+  let env: Record<string, string> = givenEnv;
+  // The config file reads process.env when it is imported, so the services' variables are set while it loads.
+  const restoreEnv: Record<string, string | undefined> = {};
+  const releaseEnv = () => {
+    for (const [name, value] of Object.entries(restoreEnv)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  };
   try {
+    if (serviceNames && serviceNames.length > 0) {
+      services = await startServices(serviceNames, { env: { ...process.env, ...givenEnv }, services: await projectServices(root, serviceNames) });
+      env = { ...services.env, ...givenEnv };
+      for (const [name, value] of Object.entries(services.env)) {
+        restoreEnv[name] = process.env[name];
+        process.env[name] = value;
+      }
+    }
     try {
       await build(root, { ...env });
     } catch (error) {
@@ -177,7 +218,14 @@ export async function startTestService({ files, env = {}, auth, databases }: Tes
     registerProjectFeatures(providers.length > 0 ? [...features, { folder: TEST_AUTH_FEATURE, definition: testAuthFeature(providers) }] : features);
     // Named databases run in memory too, unless the test gives adapters or keeps the project's.
     const named = databases === "config" ? projectConfig.databases : testDatabases(projectConfig.databases, databases);
-    const config = resolveConfig({ ...projectConfig, database: memoryAdapter(), ...(named ? { databases: named as never } : {}) }, { ...env }, root);
+    if (services) {
+      // The project's own adapter, on the started services, with its migrations created and applied.
+      const { addAutomaticMigration } = await import("../migrations/add.ts");
+      const { migrate } = await import("../migrations/migrate.ts");
+      await addAutomaticMigration(root);
+      await migrate(root);
+    }
+    const config = resolveConfig({ ...projectConfig, ...(services ? {} : { database: memoryAdapter() }), ...(named ? { databases: named as never } : {}) }, { ...env }, root);
     const models = placeFeatureEntities(generatedModels, config.features);
     installTimerTracking(tracker);
     const lifecycle = createFeatureLifecycle({
@@ -225,12 +273,16 @@ export async function startTestService({ files, env = {}, auth, databases }: Tes
   } catch (error) {
     uninstallTimerTracking(tracker);
     rmSync(root, { recursive: true, force: true });
+    await services?.stop();
     throw error;
+  } finally {
+    releaseEnv();
   }
   const { app } = started;
   let listening: ReturnType<typeof app.server.listen> | undefined;
   return {
     root,
+    env: { ...services?.env },
     repos: app.repos as unknown as Repositories,
     async listen(port = 0) {
       listening ??= app.server.listen(port);
@@ -249,6 +301,7 @@ export async function startTestService({ files, env = {}, auth, databases }: Tes
         for (const [handle] of leaked) originals?.clearInterval(handle as never);
         uninstallTimerTracking(tracker);
         rmSync(root, { recursive: true, force: true });
+        await services?.stop();
         const [first] = leaked;
         if (first) throw new Error(`A timer created by ${first[1].feature} in ${first[1].phase} is still active after onStop`);
       }

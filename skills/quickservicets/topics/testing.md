@@ -54,7 +54,7 @@ test("reads records through the repositories", async () => {
 
 - `startTestService({ files, env })` takes the files by project-relative path and the environment, like `{ STRIPE_KEY: "sk_test", QS_QUEUES_ENABLED: "true" }`. The service sees only the variables in `env`, not `.env`, so pass every variable the config requires.
 - With the `auth` native on, `startTestService({ files, auth: testAuth() })` (`testAuth` from `@quickservicets/core/testing`) signs requests in from the `x-test-user: <id>;roles=a,b;tenant=<id>` header, so tests reach protected routes without a real provider.
-- It always uses the memory database, whatever the config says, so tests need no migrations and no database server. Named databases (`databases` in the config) run in memory too; pass `databases: { orders: sqliteAdapter({ path: ":memory:" }) }` to use another adapter for one, or `databases: "config"` to keep the project's.
+- It uses the memory database, whatever the config says, so tests need no migrations and no database server; `services: ["postgres"]` instead starts PostgreSQL in a throwaway container (Docker, or `TEST_POSTGRES_URL`), runs the project on its own adapter and applies its migrations, and `describeWithServices(["postgres"], (services) => { ... })` skips by name without Docker. Named databases (`databases` in the config) run in memory too; pass `databases: { orders: sqliteAdapter({ path: ":memory:" }) }` to use another adapter for one, or `databases: "config"` to keep the project's.
 - Each call starts a fresh service with an empty database; start one per test file, or per test when tests must not share records.
 - `service.fetch("/tasks?limit=5", init)` takes a path, not a full URL.
 - `stop()` runs the shutdown sequence, removes the temporary folder and fails when a feature left a timer running.
@@ -66,7 +66,7 @@ Full docs: [Testing your API in-process](/recipes/testing/) and [Project feature
 ## Do not
 
 - Do not start `bun run dev` or open a port to test routes; use `startTestService`.
-- Do not point tests at a real database; `startTestService` uses the memory database.
+- Do not point tests at a shared database; use the memory database, or `services` for throwaway containers.
 - Do not forget `service.stop()`; the temporary folder and timers would stay.
 - Do not pass `.generated/` files; the service builds them itself.
 - Do not assert on full error messages when the code and field are enough.

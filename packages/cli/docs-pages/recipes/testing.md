@@ -266,6 +266,30 @@ export async function call(method: string, path: string, body?: unknown, headers
 
 Nothing changes: `endpoints` and `hooks` from `.generated/routes.ts` already contain them, so `call` reaches a custom endpoint, and the hooks of every route run, exactly as in the dev server. Test a hook through the routes it guards, sending the headers it reads.
 
+### Real services in throwaway containers
+
+When a test needs the real database or another service, `startServices` from `@quickservicets/cli/testing` starts it in a container on a random port and resolves its variables; `stop()` removes the containers and their volumes, and the containers a test process leaves are removed once it exits. Names are catalog kinds (`postgres`, `mongodb`, `redis`, `minio`, `rabbitmq`…) or the requirement names of the project's services:
+
+```ts
+import { describeWithServices, startTestService } from "@quickservicets/cli/testing";
+
+describeWithServices(["postgres"], (services) => {
+  test("posts are stored in PostgreSQL", async () => {
+    const service = await startTestService({ files, services: ["postgres"] });
+    try {
+      expect((await service.fetch("/posts")).status).toBe(200);
+    } finally {
+      await service.stop();
+    }
+  });
+  test("the variables are filled before the tests run", () => {
+    expect(services.env.DATABASE_URL).toStartWith("postgres://");
+  });
+});
+```
+
+`describeWithServices` starts the services once for its tests and registers one skipped test named `postgres: Docker is not available (set TEST_POSTGRES_URL to use an existing service)` where Docker is missing, so the file still passes. `startTestService({ files, services })` runs the project on its own configured adapter, connected with the services' variables, and creates and applies its migrations. A set `TEST_<KIND>_URL` (like `TEST_POSTGRES_URL` in CI) is used instead of a container; `reuse: true` shares one set of containers between calls in a test process, and `timeout` (90 seconds) bounds the health checks. Containers carry the label `quickservicets.test=true`.
+
 ## Related
 
 - [Repository API](/reference/api/), for the `repos` your endpoints and hooks receive

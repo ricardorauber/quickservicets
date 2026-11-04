@@ -14,6 +14,7 @@ import type { MigrationContext, MigrationSqlOptions } from "./migrations.ts";
 import { MIGRATIONS_TABLE, renameLegacyMigrationTables, type RenamedTable } from "./legacy-names.ts";
 import { databaseAdapters, DEFAULT_DATABASE, placeFeatureEntities } from "./named-databases.ts";
 import { createRepositories } from "./repository.ts";
+import { secretValue, type SecretReference } from "./secret-references.ts";
 import { schemaIdentifier, SQLITE_DEFAULT_SCHEMA_TOKEN, sqliteDefaultPrefix, type SqlDialect } from "./sql/schema.ts";
 import { registerProjectFeatures, type ProjectFeatureModule } from "./features.ts";
 import { resolveConfig, type ServiceConfig } from "./config.ts";
@@ -428,11 +429,24 @@ export interface MigrationSource {
 }
 
 /**
+ * The config migrations run with: when `connections.direct` is set and the database is a PostgreSQL adapter, the
+ * database is the direct connection, since migrations hold locks and run DDL across statements that a connection
+ * proxy in transaction mode would split.
+ */
+export function migrationConfig(config: ResolvedConfig): ResolvedConfig {
+  const direct = (config.features.find((feature) => feature.key === "connections")?.options as { direct?: string | SecretReference } | undefined)?.direct;
+  const adapter = config.database;
+  if (direct === undefined || adapter.kind !== "postgres" || typeof adapter.forConnection !== "function") return config;
+  return { ...config, database: adapter.forConnection(secretValue(direct)) };
+}
+
+/**
  * Connects the configured databases and runs `work` with one driver per database that keeps a schema, default first
  * then by name (only `database` when given); memory databases are left out.
  */
 export async function withSourceDrivers<T>(source: MigrationSource, work: (drivers: DatabaseDriver[], config: ResolvedConfig, named: boolean) => Promise<T>, database?: string): Promise<T> {
-  const { config, models } = source;
+  const { models } = source;
+  const config = migrationConfig(source.config);
   const all = databaseAdapters(config.database);
   if (database !== undefined && !all.some(([name]) => name === database)) {
     throw new MigrationFailure(`Unknown database ${database} (configured: ${all.map(([name]) => name).join(", ")})`);

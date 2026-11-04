@@ -90,6 +90,11 @@ export interface FeatureInput<S extends AnyOptionSchema> {
    */
   infra?: FeatureInfra<FeatureOptions<S>>;
   /**
+   * Whether the feature keeps a database session of its own (LISTEN/NOTIFY, advisory locks, session settings), as a
+   * flag or a function of the resolved options; behind a connection proxy such a feature needs `connections.direct`.
+   */
+  needsSession?: boolean | Bivariant<(options: FeatureOptions<S>) => boolean>;
+  /**
    * Checks the resolved options beyond what their schema says, like two options that cannot be used together, or an
    * option against the rest of the project's config (with its environment applied); each returned line is a
    * configuration problem `resolveConfig` reports with the others.
@@ -273,6 +278,8 @@ export interface FeatureDefinition<S extends AnyOptionSchema = AnyOptionSchema> 
   readonly env?: Readonly<Record<string, AnyOptionSchema>>;
   /** The external services the feature needs. */
   readonly infra?: FeatureInfra<FeatureOptions<S>>;
+  /** Whether the feature keeps a database session of its own, for its resolved options. */
+  readonly needsSession?: boolean | Bivariant<(options: FeatureOptions<S>) => boolean>;
   /** Checks the resolved options beyond their schema, and against the rest of the config. */
   readonly validate?: Bivariant<(options: FeatureOptions<S>, config: Readonly<Record<string, unknown>>) => readonly string[]>;
   /** The entities the feature contributes. */
@@ -399,6 +406,7 @@ export function defineFeature<S extends AnyOptionSchema = ObjectOptionSchema<{}>
     after: keyList("after", input.after),
     enables: keyList("enables", input.enables),
     ...(input.env ? { env: Object.freeze({ ...input.env }) } : {}),
+    ...(input.needsSession !== undefined ? { needsSession: input.needsSession } : {}),
     ...(input.infra !== undefined ? { infra: typeof input.infra === "function" ? input.infra : Object.freeze([...assertInfraRequirements(key, input.infra)]) } : {}),
     ...(input.validate !== undefined ? { validate: functionField(input.validate, "validate", invalid) } : {}),
     ...(input.entities !== undefined ? { entities: entitiesField(input.entities, invalid) } : {}),

@@ -370,6 +370,8 @@ infra: [{ name: "redis", kind: "redis", description: "Cache", env: { REDIS_URL: 
 
 Templates use `{host}`, `{port}` (the first container port), `{port:<container port>}`, `{user}`, `{password}` and `{database}`; `optional: true` lets tools skip the service, and a function `({ options, config }) => [...]` decides from the options. `describeInfrastructure(config)` returns every service the project needs: its PostgreSQL or MongoDB databases, MinIO for an S3 storage without an endpoint, and the enabled features' requirements, merged by kind and name. The feature's reference page shows a `Needs:` line per requirement.
 
+A feature that keeps a database session of its own (a `LISTEN`, an advisory lock, a session setting) sets `needsSession: true`, or a function of its options like `(options) => options.transport === "postgres"`; behind a [connection proxy](/guides/serverless-connections/#connection-proxies) it then needs `connections.direct`, and startup fails without it.
+
 ## Replacing a native
 
 A project feature with the key of a native replaces it: the config keeps `<key>: {…}`, and the build prints `Override: features/<key> replaces the <key> native`. To start from the native's code instead of a blank file, eject it:

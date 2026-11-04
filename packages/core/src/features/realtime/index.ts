@@ -422,6 +422,8 @@ const realtimeFeature = defineFeature({
     ],
   },
   options,
+  // The PostgreSQL socket transport holds a LISTEN on a session of its own.
+  needsSession: (resolved) => resolved.websockets.enabled && resolved.websockets.transport === "postgres",
   validate(resolved) {
     const idle = resolved.websockets.enabled ? parseDuration(resolved.websockets.idleTimeout) : undefined;
     return idle !== undefined && idle > MAX_SOCKET_IDLE_SECONDS * 1000

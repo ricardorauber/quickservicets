@@ -30,6 +30,8 @@ It is enabled by default; turn it off with `connections: false` or `QS_CONNECTIO
 | `connections.maxLifetime` | `duration` | — | `QS_CONNECTIONS_MAX_LIFETIME` | no | How long a connection lives before it is replaced (default: the adapter's, 15m in serverless mode). |
 | `connections.connectTimeout` | `duration` | — | `QS_CONNECTIONS_CONNECT_TIMEOUT` | no | How long opening a connection may take (default: the adapter's, 5s in serverless mode). |
 | `connections.lazy` | `boolean` | — | `QS_CONNECTIONS_LAZY` | no | Opens the first connection on the first query instead of at startup (default false, true in serverless mode). |
+| `connections.proxy` | `"none" \| "pgbouncer" \| "rds-proxy"` | `"none"` | `QS_CONNECTIONS_PROXY` | no | The connection proxy between the service and PostgreSQL: pgbouncer (in transaction mode) and rds-proxy turn server-side prepared statements off, and rds-proxy requires TLS. |
+| `connections.direct` | `string` | — | `QS_CONNECTIONS_DIRECT` | no | A PostgreSQL connection URL that bypasses the proxy, used by migrations and by features that keep a session of their own (LISTEN). |
 | `connections.budget` | `integer` | — | `QS_CONNECTIONS_BUDGET` | no | The connections the database grants this service; startup warns when max × workers × instances may exceed it. |
 | `connections.instances` | `integer` | `1` | `QS_CONNECTIONS_INSTANCES` | no | The most instances (servers, containers or function instances) expected at once, for the budget. |
 | `connections.databases.<name>.max` | `record of integer` | — | `QS_CONNECTIONS_DATABASES_<NAME>_MAX` | no | The most connections each worker opens to the database (default: the adapter's, 2 in serverless mode). |
@@ -39,3 +41,13 @@ It is enabled by default; turn it off with `connections: false` or `QS_CONNECTIO
 | `connections.databases.<name>.lazy` | `record of boolean` | — | `QS_CONNECTIONS_DATABASES_<NAME>_LAZY` | no | Opens the first connection on the first query instead of at startup (default false, true in serverless mode). |
 | `connections.enabled` | `boolean` | `true` | `QS_CONNECTIONS_ENABLED` | no | Turns the feature off when false. |
 | `connections.database` | `string` | — | `QS_CONNECTIONS_DATABASE` | no | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
+
+## Commands
+
+### `db check`
+
+Connects with the project's config and prints each database's kind and version, the pool settings in effect, max_connections and the open connections on PostgreSQL, whether connections.direct works, and one line per feature the connection proxy cannot carry; exits 1 when a check fails. Passwords are never printed.
+
+```bash
+quickservicets db check
+```

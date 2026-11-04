@@ -32,6 +32,42 @@ Each option has its variable (`QS_CONNECTIONS_MAX`, `QS_CONNECTIONS_MODE`…). T
 
 With `lazy`, an adapter opens its first connection on its first query instead of at startup, so an invocation that touches no database opens none. A function instance frozen between invocations may find its idle connection closed by the database; a statement that fails before it was sent is retried once on a new connection and logged as `connections.reconnected`, while a statement that may have reached the database is never retried.
 
+## Connection proxies
+
+A connection proxy (PgBouncer in transaction mode, Amazon RDS Proxy) lets many instances share a few database connections: each transaction borrows a server connection and returns it. What lives on a session does not survive that, so `proxy` tells the service which one is in front of PostgreSQL:
+
+```ts
+export default defineConfig({
+  database: postgresAdapter({ url: process.env.DATABASE_URL! }),
+  connections: { proxy: "pgbouncer", direct: secret("env://DATABASE_DIRECT_URL") },
+});
+```
+
+- With `proxy: "pgbouncer"` or `"rds-proxy"`, the PostgreSQL adapter uses no server-side prepared statements and sends no session `SET`, so a statement never pins or breaks a pooled connection.
+- `rds-proxy` also requires TLS; a database URL with `sslmode=disable` fails startup with `RDS Proxy needs TLS; add sslmode=require to the database URL`.
+- `direct` is a connection that bypasses the proxy. `quickservicets migrate` uses it, since migrations hold locks and run DDL across statements, and so do the features that keep a session of their own, like the PostgreSQL transport of `realtime.websockets`, whose `LISTEN` does not work through a proxy. Without `direct`, such a feature fails startup:
+
+```text
+realtime needs a direct connection because LISTEN does not work through PgBouncer; set connections.direct
+```
+
+A feature of the project that keeps a session declares `needsSession: true` (or a function of its options) in `defineFeature`, and gets the same check.
+
+## Checking a database
+
+`quickservicets db check` connects with the project's config and prints what the database and the pools look like, without any password:
+
+```text
+database: PostgreSQL 17.11
+max_connections: 100
+connections: 7 open
+pool: prepare false
+proxy: pgbouncer (prepared statements off)
+direct: works
+```
+
+It prints one `problem:` line per feature the proxy cannot carry, with its fix, and exits 1 when a check fails, so it can run before a deploy.
+
 ## See also
 
 - [Deploy targets](/guides/deploy-targets/): the platforms and their function mode.

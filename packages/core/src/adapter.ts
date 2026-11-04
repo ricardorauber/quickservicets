@@ -85,6 +85,12 @@ export interface ConnectionPoolSettings {
   lazy?: boolean;
   /** Called when a statement is retried on a new connection, after its connection closed before it was sent. */
   onReconnect?: (error: unknown) => void;
+  /** `false` turns server-side prepared statements off, for connection proxies in transaction mode. */
+  prepare?: boolean;
+  /** Requires TLS on every connection, as Amazon RDS Proxy does. */
+  tls?: boolean;
+  /** A connection that bypasses the proxy, for what needs a session of its own (LISTEN) and for migrations. */
+  direct?: string | SecretReference;
 }
 
 /** Connection errors raised before a statement reached the database: its socket was gone, so it never ran. */

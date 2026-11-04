@@ -1079,6 +1079,8 @@ Every option, tag, command and hook of `connections` is on [its reference page](
 | `connections.maxLifetime` | `duration` | — | `QS_CONNECTIONS_MAX_LIFETIME` | How long a connection lives before it is replaced (default: the adapter's, 15m in serverless mode). |
 | `connections.connectTimeout` | `duration` | — | `QS_CONNECTIONS_CONNECT_TIMEOUT` | How long opening a connection may take (default: the adapter's, 5s in serverless mode). |
 | `connections.lazy` | `boolean` | — | `QS_CONNECTIONS_LAZY` | Opens the first connection on the first query instead of at startup (default false, true in serverless mode). |
+| `connections.proxy` | `"none" \| "pgbouncer" \| "rds-proxy"` | `"none"` | `QS_CONNECTIONS_PROXY` | The connection proxy between the service and PostgreSQL: pgbouncer (in transaction mode) and rds-proxy turn server-side prepared statements off, and rds-proxy requires TLS. |
+| `connections.direct` | `string` | — | `QS_CONNECTIONS_DIRECT` | A PostgreSQL connection URL that bypasses the proxy, used by migrations and by features that keep a session of their own (LISTEN). |
 | `connections.budget` | `integer` | — | `QS_CONNECTIONS_BUDGET` | The connections the database grants this service; startup warns when max × workers × instances may exceed it. |
 | `connections.instances` | `integer` | `1` | `QS_CONNECTIONS_INSTANCES` | The most instances (servers, containers or function instances) expected at once, for the budget. |
 | `connections.databases.<name>.max` | `record of integer` | — | `QS_CONNECTIONS_DATABASES_<NAME>_MAX` | The most connections each worker opens to the database (default: the adapter's, 2 in serverless mode). |

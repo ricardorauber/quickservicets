@@ -25,6 +25,8 @@ export interface PostgresAdapter extends DatabaseAdapter {
   readonly client: SQL | undefined;
   /** The pool settings of the `connections` native, when it gave any. */
   readonly poolSettings: ConnectionPoolSettings | undefined;
+  /** The connection URL, its secret resolved. */
+  readonly url: string;
   /** A view in which the default-schema entities live in `schema`, sharing this adapter's connection. */
   withSchema(schema: string): PostgresAdapter;
   sharesConnectionWith(other: DatabaseAdapter): boolean;
@@ -298,6 +300,9 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
     configurePool(settings) {
       pool = settings;
     },
+    get url() {
+      return secretValue(options.url);
+    },
     /** The pool settings the `connections` native gave, for diagnostics. */
     get poolSettings() {
       return pool;
@@ -314,6 +319,8 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
       const max = connectOptions.poolSize ?? pool?.max ?? poolSizePerWorker(options.max ?? DEFAULT_POSTGRES_POOL_SIZE, connectOptions.workers);
       const seconds = (value: string | undefined) => (value === undefined ? undefined : Math.max(1, Math.round((parseDuration(value) ?? 0) / 1000)));
       const limits = {
+        ...(pool?.prepare === false ? { prepare: false } : {}),
+        ...(pool?.tls ? { tls: true } : {}),
         ...(pool?.idleTimeout !== undefined ? { idleTimeout: seconds(pool.idleTimeout) } : {}),
         ...(pool?.maxLifetime !== undefined ? { maxLifetime: seconds(pool.maxLifetime) } : {}),
         ...(pool?.connectTimeout !== undefined ? { connectionTimeout: seconds(pool.connectTimeout) } : {}),
@@ -366,8 +373,9 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
     secretReferences: () => (isSecretReference(options.url) ? [options.url] : []),
     async listen(channel, onPayload, onListen) {
       assertChannelName(channel);
-      // A client of its own, so the listening connection never takes one of the pool's.
-      const listener = new SQL({ url: secretValue(options.url), max: 1 });
+      // A client of its own, so the listening connection never takes one of the pool's; behind a connection proxy it
+      // uses the direct connection, since a session's LISTEN does not survive transaction pooling.
+      const listener = new SQL({ url: secretValue(pool?.direct ?? options.url), max: 1, ...(pool?.tls ? { tls: true } : {}) } as never);
       try {
         const subscription = await listener.listen(channel, onPayload, onListen);
         return async () => {

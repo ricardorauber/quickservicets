@@ -743,3 +743,13 @@ quickservicets services env [--show]
 **Flags:**
 
 - `--show` (`boolean`, default `false`): Prints the passwords.
+
+### `connections`
+
+#### `db check`
+
+Connects with the project's config and prints each database's kind and version, the pool settings in effect, max_connections and the open connections on PostgreSQL, whether connections.direct works, and one line per feature the connection proxy cannot carry; exits 1 when a check fails. Passwords are never printed.
+
+```bash
+quickservicets db check
+```

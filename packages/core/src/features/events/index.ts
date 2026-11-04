@@ -122,7 +122,8 @@ const eventsFeature = defineFeature({
     const stopObserving = observeWrites({
       entities: (entity) => !entity.system && settingsOf(entity).observed,
       needsBefore: true,
-      write: (change) => publish(toEvent(change), settingsOf(change.entity).outbox),
+      // Replayed writes rewrite records without side effects: no event, outbox row or history version.
+      write: (change) => (change.cause === "replay" ? undefined : publish(toEvent(change), settingsOf(change.entity).outbox)),
     });
     const stop = () => {
       lifecycle.teardown = undefined;

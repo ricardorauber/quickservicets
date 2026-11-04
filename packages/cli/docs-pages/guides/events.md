@@ -48,6 +48,8 @@ export default publish;
 
 Records a write changes indirectly get their own events, with a `cause` other than `write`: `cascade` for records deleted with it (`@onDelete cascade`), `setNull` and `pull` for references cleared or removed from reference arrays, and `touch` for records whose relation side changed through relation sync. A create or update reports its own record first and then the others in the order they changed; a delete reports the deepest cascades first and its own record last. Deleting a post of the example emits `comment.deleted` with `cause: "cascade"` for each comment, then `post.deleted`.
 
+Tools that rewrite records, like rebuilding a table or restoring a backup, run their writes inside `withWriteCause("replay", fn)` from `@quickservicets/core`: every write inside `fn`, cascades and touches included, reports `cause: "replay"` to write observers, and the `events` native emits no event and stores no outbox row for it, so `history` writes no version either. Only CLI commands (`defineCommand`) and feature setup code, `onStart` callbacks included, may call it; while a service serves requests it throws `withWriteCause is not allowed during requests`.
+
 Each event reads `before` inside the write's transaction, so writes of observed entities always run in one; without the native, writes keep their single statements.
 
 ## Listeners

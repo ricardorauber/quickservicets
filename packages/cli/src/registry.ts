@@ -9,6 +9,7 @@ import {
   loadConfig,
   parseOptionString,
   resolveOptions,
+  runAsCommand,
   type AnyOptionSchema,
   type CommandContext,
   type CommandDefinition,
@@ -328,7 +329,7 @@ export async function runCommand(resolved: ResolvedCommand, rest: readonly strin
   };
   const execute = async () => {
     try {
-      const code = await command.run(context as never);
+      const code = await runAsCommand(() => command.run(context as never));
       return typeof code === "number" ? code : EXIT_CODES.success;
     } finally {
       if (connected) await connected.database.disconnect();

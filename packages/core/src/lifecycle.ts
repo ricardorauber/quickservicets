@@ -1,3 +1,4 @@
+import { markServing, runAsCommand } from "./write-cause.ts";
 import { configureUploadChecks, DEFAULT_CHECK_BUFFER } from "./upload-checks.ts";
 import type { ResolvedConfig } from "./config.ts";
 import type { FeatureApis, ResolvedFeature } from "./features.ts";
@@ -265,6 +266,7 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
   const startTimeout = parseDuration(config.lifecycle.startTimeout) ?? 30_000;
   const stopTimeout = parseDuration(config.lifecycle.stopTimeout) ?? 10_000;
   const registered: Registered[] = features.map((feature) => ({ feature, onStart: [], onShutdown: [], onStop: [] }));
+  let serving = false;
   const routes: RuntimeRoute[] = [];
   const middleware: OwnedMiddleware[] = [];
   const server: ServerSettings = {};
@@ -401,7 +403,7 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
       for (const entry of registered) {
         for (const callback of entry.onStart) {
           try {
-            await around(entry.feature.key, "onStart", () => withTimeout(() => callback(context), startTimeout, `${entry.feature.key} onStart`));
+            await runAsCommand(() => around(entry.feature.key, "onStart", () => withTimeout(() => callback(context), startTimeout, `${entry.feature.key} onStart`)));
           } catch (error) {
             throw new LifecycleError(entry.feature.key, "onStart", error);
           }
@@ -409,9 +411,16 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
         started.push(entry);
       }
       for (const fn of [...startedListeners]) fn();
+      // From here the service serves requests, where withWriteCause is refused.
+      if (!serving) markServing(1);
+      serving = true;
     },
     shutdown: () => runStopping("onShutdown", started),
-    stop: () => runStopping("onStop", started.splice(0)),
+    stop: () => {
+      if (serving) markServing(-1);
+      serving = false;
+      return runStopping("onStop", started.splice(0));
+    },
   };
 }
 

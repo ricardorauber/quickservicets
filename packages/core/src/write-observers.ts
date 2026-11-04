@@ -1,12 +1,13 @@
 import type { StoredRecord } from "./adapter.ts";
 import type { EntityModel } from "./model.ts";
+import { currentWriteCause } from "./write-cause.ts";
 
 /**
  * Why a record changed: `write` for the repository call that named it; `cascade` for a record deleted with it,
  * `setNull` and `pull` for references to a deleted record cleared or removed, and `touch` for a record whose relation
- * side or `updatedAt` changed through relation sync.
+ * side or `updatedAt` changed through relation sync; `replay` for every write inside `withWriteCause("replay", fn)`.
  */
-export type WriteCause = "write" | "cascade" | "setNull" | "pull" | "touch";
+export type WriteCause = "write" | "cascade" | "setNull" | "pull" | "touch" | "replay";
 
 /** One record a repository write created, updated or deleted. */
 export interface WriteChange {
@@ -103,6 +104,6 @@ export function changedFields(before: StoredRecord | null, after: StoredRecord |
 
 /** Reports one change to every observer of its entity, in registration order, awaiting each. */
 export async function reportChange(observed: EntityObservers, change: Omit<WriteChange, "changed"> & { changed?: string[] }): Promise<void> {
-  const full: WriteChange = { ...change, changed: change.changed ?? changedFields(change.before, change.after) };
+  const full: WriteChange = { ...change, changed: change.changed ?? changedFields(change.before, change.after), ...(currentWriteCause() ? { cause: currentWriteCause()! } : {}) };
   for (const observer of observed.observers) await observer.write(full);
 }

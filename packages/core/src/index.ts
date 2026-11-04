@@ -325,6 +325,10 @@ export { normalizeOrigin, OriginMatcher, ownOriginReader } from "./origins.ts";
 export type { SessionCookieOptions } from "./cookies.ts";
 export { declaredVariables, env, readVariables, replaceEnvValue, secretVariables, secretVariableValues, variableType } from "./env-vars.ts";
 export type { DeclaredVariable, EnvVars } from "./env-vars.ts";
+export { catalogProblems, INFRA_CATALOG, INFRA_KINDS, isInfraKind } from "./infra/catalog.ts";
+export type { InfraCatalogEntry, InfraKind } from "./infra/catalog.ts";
+export { assertInfraRequirements, describeInfrastructure, infraRequirementProblem, resolveInfraEnv, resolveInfraTemplate } from "./infra/describe.ts";
+export type { FeatureInfra, InfraContext, InfraDescription, InfraEndpoint, InfraRequirement, InfraService } from "./infra/describe.ts";
 // The natives the core ships, registered when the core loads; they come last, after every export they use.
 import eventsNative, { type EventsApi } from "./features/events/index.ts";
 import securityNative, { type SecurityApi } from "./features/security/index.ts";

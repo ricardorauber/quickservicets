@@ -357,6 +357,16 @@ export const greeterFor = (req: ServiceRequest): Greeter => ({ greet: (name) => 
 
 `build(ctx)` writes files into `.generated/greeting/` during `quickservicets build`; `ctx.cached` skips the work when its inputs did not change, and `ctx.generated(...)` in setup reads the result.
 
+### Infrastructure
+
+`infra` lists the external services the feature needs, so local environments, test containers and deploy generators start them from one description; the running service never reads it. Each requirement has a `name`, a catalog `kind` (`postgres`, `mongodb`, `redis`, `rabbitmq`, `kafka`, `minio`, `mailpit` and more) or `custom` with an `image` and `ports`, a `description`, and the connection variables it gives the project as templates:
+
+```ts
+infra: [{ name: "redis", kind: "redis", description: "Cache", env: { REDIS_URL: "redis://{host}:{port}" } }],
+```
+
+Templates use `{host}`, `{port}` (the first container port), `{port:<container port>}`, `{user}`, `{password}` and `{database}`; `optional: true` lets tools skip the service, and a function `({ options, config }) => [...]` decides from the options. `describeInfrastructure(config)` returns every service the project needs: its PostgreSQL or MongoDB databases, MinIO for an S3 storage without an endpoint, and the enabled features' requirements, merged by kind and name. The feature's reference page shows a `Needs:` line per requirement.
+
 ## Replacing a native
 
 A project feature with the key of a native replaces it: the config keeps `<key>: {…}`, and the build prints `Override: features/<key> replaces the <key> native`. To start from the native's code instead of a blank file, eject it:

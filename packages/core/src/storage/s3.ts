@@ -39,6 +39,7 @@ export function s3Storage(options: S3StorageOptions): StorageAdapter {
       assertSafeKey(key);
       await client.delete(key);
     },
+    describe: () => ({ kind: "s3", bucket: explicit.bucket, ...(explicit.endpoint ? { endpoint: explicit.endpoint } : {}) }),
     signedUrl(key, ttlSeconds) {
       assertSafeKey(key);
       return client.presign(key, { method: "GET", expiresIn: ttlSeconds });

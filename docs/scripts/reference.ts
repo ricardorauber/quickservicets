@@ -13,7 +13,8 @@ import { configVariable, envNameFor, NOT_OVERRIDABLE } from "../../packages/core
 import { NATIVE_FEATURES_DIR, registeredNatives, scopedOptionSchema, type FeatureDefinition, type FeatureTag } from "../../packages/core/src/features.ts";
 // Loading the core registers the natives it ships, which the pages document.
 import "../../packages/core/src/index.ts";
-import { describeOptions, type AnyOptionSchema } from "../../packages/core/src/options.ts";
+import { describeOptions, resolveOptions, type AnyOptionSchema } from "../../packages/core/src/options.ts";
+import type { InfraRequirement } from "../../packages/core/src/infra/describe.ts";
 import type { CommandDefinition, JsonFields } from "../../packages/core/src/commands.ts";
 
 export const REPO = join(import.meta.dir, "../..");
@@ -515,6 +516,22 @@ const ENTITY_PLACEMENTS: Record<"source" | "perDatabase" | "feature", string> = 
   feature: "the feature's `database` (default: the default database)",
 };
 
+/**
+ * The external services a native needs, one `Needs:` line each: its list of requirements, or what its function form
+ * returns for the default options.
+ */
+export function needsLines(native: FeatureDefinition): string[] {
+  let requirements: readonly InfraRequirement[] = [];
+  if (typeof native.infra === "function") {
+    try {
+      requirements = native.infra({ options: resolveOptions(native.schema, {}, native.key) as never, config: {} });
+    } catch {
+      requirements = [];
+    }
+  } else requirements = native.infra ?? [];
+  return requirements.flatMap((requirement) => [`Needs: ${requirement.name} (${requirement.kind}${requirement.optional ? ", optional" : ""})`, ""]);
+}
+
 export function featurePage(native: FeatureDefinition): string {
   const options = documentedOptions(native);
   const key = native.key;
@@ -546,6 +563,7 @@ export function featurePage(native: FeatureDefinition): string {
       : []),
     ...(native.after.length > 0 ? [`**Runs after:** ${keys(native.after)}`, ""] : []),
     ...(native.enables.length > 0 ? [`**Enables:** ${keys(native.enables)}`, ""] : []),
+    ...needsLines(native),
     "## Options",
     "",
     "| Key | Type | Default | Environment variable | Per request | Description |",

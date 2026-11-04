@@ -15,6 +15,7 @@ import type { FeatureOpenApiContext, OpenApiDoc } from "./openapi.ts";
 import { isCommandDefinition, type CommandDefinition } from "./commands.ts";
 import type { FeatureBuildContext } from "./build-steps.ts";
 import { HOOK_NAME } from "./feature-hooks.ts";
+import { assertInfraRequirements, type FeatureInfra } from "./infra/describe.ts";
 import { boolean, object, resolveOptions, string, type AnyOptionSchema, type ObjectOptionSchema, type Options, type OptionsInput } from "./options.ts";
 
 /**
@@ -82,6 +83,12 @@ export interface FeatureInput<S extends AnyOptionSchema> {
   enables?: readonly string[];
   /** Environment variables the feature needs, read and checked at startup with the project's (see `env`). */
   env?: Readonly<Record<string, AnyOptionSchema>>;
+  /**
+   * The external services the feature needs (a database, Redis, a broker), as a list of requirements or a function of
+   * the resolved options and config returning one; local services, test containers and deploy generators read them
+   * through `describeInfrastructure`, and the running service never does.
+   */
+  infra?: FeatureInfra<FeatureOptions<S>>;
   /**
    * Checks the resolved options beyond what their schema says, like two options that cannot be used together, or an
    * option against the rest of the project's config (with its environment applied); each returned line is a
@@ -259,6 +266,8 @@ export interface FeatureDefinition<S extends AnyOptionSchema = AnyOptionSchema> 
   readonly enables: readonly string[];
   /** The environment variables the feature declares. */
   readonly env?: Readonly<Record<string, AnyOptionSchema>>;
+  /** The external services the feature needs. */
+  readonly infra?: FeatureInfra<FeatureOptions<S>>;
   /** Checks the resolved options beyond their schema, and against the rest of the config. */
   readonly validate?: Bivariant<(options: FeatureOptions<S>, config: Readonly<Record<string, unknown>>) => readonly string[]>;
   /** The entities the feature contributes. */
@@ -383,6 +392,7 @@ export function defineFeature<S extends AnyOptionSchema = ObjectOptionSchema<{}>
     after: keyList("after", input.after),
     enables: keyList("enables", input.enables),
     ...(input.env ? { env: Object.freeze({ ...input.env }) } : {}),
+    ...(input.infra !== undefined ? { infra: typeof input.infra === "function" ? input.infra : Object.freeze([...assertInfraRequirements(key, input.infra)]) } : {}),
     ...(input.validate !== undefined ? { validate: functionField(input.validate, "validate", invalid) } : {}),
     ...(input.entities !== undefined ? { entities: entitiesField(input.entities, invalid) } : {}),
     ...(input.fileEntities !== undefined ? { fileEntities: fileEntitiesField(input.fileEntities, invalid) } : {}),

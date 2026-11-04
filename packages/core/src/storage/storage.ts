@@ -12,6 +12,11 @@ export interface StorageAdapter {
   delete(key: string): Promise<void>;
   publicUrl?(key: string): string;
   signedUrl?(key: string, ttlSeconds: number): string | Promise<string>;
+  /**
+   * What the storage is, for tools that describe the project's infrastructure: its adapter kind, and for S3 the bucket
+   * and the endpoint given in its options (none when the endpoint comes from the environment).
+   */
+  describe?(): { kind: string; bucket?: string; endpoint?: string };
 }
 
 export class StorageKeyError extends Error {

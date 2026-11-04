@@ -59,6 +59,21 @@ describe("feature pages", () => {
     expect(page).toContain("**Enables:** `store`");
   });
 
+  test("each external service the native needs has a Needs line, with optional when it applies", () => {
+    const page = featurePage(
+      audit(1, {
+        infra: [
+          { name: "redis", kind: "redis", description: "Cache", env: { REDIS_URL: "redis://{host}:{port}" } },
+          { name: "mail", kind: "mailpit", description: "Mail", env: {}, optional: true },
+        ],
+      }),
+    );
+    expect(page).toContain("Needs: redis (redis)\n");
+    expect(page).toContain("Needs: mail (mailpit, optional)\n");
+    expect(page.indexOf("Needs: redis")).toBeLessThan(page.indexOf("## Options"));
+    expect(featurePage(audit())).not.toContain("Needs:");
+  });
+
   test("tags with their shorthand syntax, commands with their usage, and hooks with their kind", () => {
     const page = featurePage(audit());
     expect(page).toContain("### `@audit`");

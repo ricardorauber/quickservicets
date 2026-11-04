@@ -1,4 +1,4 @@
-import { defineFeature, list, object, oneOf, platformOf, string } from "../public.ts";
+import { boolean, defineFeature, list, object, oneOf, platformOf, string } from "../public.ts";
 
 /** The deploy targets a project builds for. */
 export const DEPLOY_TARGETS = ["server", "binary", "lambda", "azure-functions", "cloud-run"] as const;
@@ -45,7 +45,15 @@ export interface DeployOptions {
   name?: string;
   platform?: DeployPlatform;
   external: string[];
+  lazyRoutes: "auto" | "on" | "off";
+  startupTrace: boolean;
 }
+
+/** The targets whose route tables import endpoint modules on first use when `lazyRoutes` is `auto`. */
+export const LAZY_ROUTE_TARGETS: readonly string[] = ["lambda", "azure-functions", "cloud-run"];
+
+/** Whether a target's generated route table imports endpoint modules on their first request. */
+export const lazyRoutesFor = (mode: "auto" | "on" | "off", target: string): boolean => mode === "on" || (mode === "auto" && LAZY_ROUTE_TARGETS.includes(target));
 
 const options = object({
   target: oneOf(DEPLOY_TARGETS).default("server").describe("The platform `quickservicets build` writes the deployable output for: server, binary, lambda, azure-functions or cloud-run; `--target` wins over it."),
@@ -57,6 +65,10 @@ const options = object({
   external: list(string().describe("A package name, like better-sqlite3."))
     .default([])
     .describe("Packages left out of the bundle, to ship next to it in node_modules (server target only); a package with a native addon must be listed."),
+  lazyRoutes: oneOf(["auto", "on", "off"] as const)
+    .default("auto")
+    .describe("Makes the generated route table import each endpoint module on the first request matching it: on, off, or auto (on for lambda, azure-functions and cloud-run, off otherwise)."),
+  startupTrace: boolean().default(false).describe("Adds each feature's setup and onStart time, in milliseconds, to the service.started log entry."),
 });
 
 /**

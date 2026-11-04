@@ -27,6 +27,7 @@ import {
   crossDatabaseWarning,
   databaseVariables,
   DEFAULT_DATABASE,
+  lazyRoutesFor,
 } from "@quickservicets/core";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
@@ -51,7 +52,13 @@ import { describeEndpoints } from "../openapi/endpoint-docs.ts";
 import { generateOpenApi } from "../openapi/generate-openapi.ts";
 import { writeEnvExample } from "../env/env-example.ts";
 import { assertFeatureImports, featureTypeLines, generateFeaturesFile, overrideLine } from "./project-features.ts";
-import { deployTargetOf, functionModeWarnings, writeDeployOutput, type DeployOutput } from "./deploy.ts";
+import { deployOptionsOf, deployTargetOf, functionModeWarnings, writeDeployOutput, type DeployOutput } from "./deploy.ts";
+
+/** Whether the generated route table loads endpoint modules lazily: `deploy.lazyRoutes` for the build's target. */
+function lazyRoutesOf(config: ResolvedConfig, target: string | undefined): boolean {
+  const options = deployOptionsOf(config);
+  return options ? lazyRoutesFor(options.lazyRoutes, target ?? options.target) : false;
+}
 
 export const GENERATED_DIR = ".generated";
 
@@ -341,20 +348,25 @@ function assertEntityPopulateDepth(models: EntityModel[], maxDepth: number): voi
   }
 }
 
+/** Whether an endpoint's module loads on its first request: plain endpoints of lazy route tables. */
+const loadsLazily = (endpoint: ResolvedEndpoint, lazy: boolean) => lazy && endpoint.route.kind === undefined;
+
 function generateRoutesFile(
   models: EntityModel[],
   endpoints: ResolvedEndpoint[],
   hooks: Map<string, HookEntry>,
+  lazy = false,
 ): string {
   const hookNames = [...hooks.keys()].sort();
+  const anyLazy = endpoints.some((endpoint) => loadsLazily(endpoint, lazy));
   const imports = [
-    `import type { AppEndpoint, CrudRouteEntry, Endpoint, HookDefinition, SocketDefinition, SseDefinition${endpoints.some((endpoint) => endpoint.route.kind === "webhook") ? ", WebhookDefinition" : ""} } from "@quickservicets/core";`,
-    ...endpoints.map((endpoint, index) => `import endpoint${index} from ${JSON.stringify(importPath(endpoint.route.file))};`),
+    `import ${anyLazy ? "{ lazyEndpoint, " : "{ "}type AppEndpoint, type CrudRouteEntry, type Endpoint, type HookDefinition, type SocketDefinition, type SseDefinition${endpoints.some((endpoint) => endpoint.route.kind === "webhook") ? ", type WebhookDefinition" : ""} } from "@quickservicets/core";`,
+    ...endpoints.flatMap((endpoint, index) => (loadsLazily(endpoint, lazy) ? [] : [`import endpoint${index} from ${JSON.stringify(importPath(endpoint.route.file))};`])),
     ...hookNames.map((name) => `import hook_${name} from ${JSON.stringify(importPath(hooks.get(name)!.file))};`),
   ];
   const endpointEntries = endpoints.map(
     (endpoint, index) =>
-      `  { method: ${JSON.stringify(endpoint.route.method)}, path: ${JSON.stringify(endpoint.route.path)}, hooks: ${JSON.stringify(endpoint.hooks)}, ${endpoint.projection ? `projection: ${JSON.stringify(endpoint.projection)}, ` : ""}${endpoint.populate ? `populate: ${JSON.stringify(endpoint.populate)}, ` : ""}${endpoint.query ? `query: ${JSON.stringify(endpoint.query)}, ` : ""}${endpoint.status !== undefined ? `status: ${endpoint.status}, ` : ""}${endpoint.route.feature ? `feature: ${JSON.stringify(endpoint.route.feature)}, ` : ""}${endpoint.route.kind ? `kind: ${JSON.stringify(endpoint.route.kind)}, ` : ""}${endpoint.tags ? `tags: ${JSON.stringify(endpoint.tags)}, ` : ""}${endpoint.messages ? `messages: ${JSON.stringify(endpoint.messages)}, ` : ""}handler: endpoint${index} as ${endpoint.route.kind === "sse" ? "SseDefinition" : endpoint.route.kind === "websocket" ? "SocketDefinition" : endpoint.route.kind === "webhook" ? "WebhookDefinition" : "Endpoint"} },`,
+      `  { method: ${JSON.stringify(endpoint.route.method)}, path: ${JSON.stringify(endpoint.route.path)}, hooks: ${JSON.stringify(endpoint.hooks)}, ${endpoint.projection ? `projection: ${JSON.stringify(endpoint.projection)}, ` : ""}${endpoint.populate ? `populate: ${JSON.stringify(endpoint.populate)}, ` : ""}${endpoint.query ? `query: ${JSON.stringify(endpoint.query)}, ` : ""}${endpoint.status !== undefined ? `status: ${endpoint.status}, ` : ""}${endpoint.route.feature ? `feature: ${JSON.stringify(endpoint.route.feature)}, ` : ""}${endpoint.route.kind ? `kind: ${JSON.stringify(endpoint.route.kind)}, ` : ""}${endpoint.tags ? `tags: ${JSON.stringify(endpoint.tags)}, ` : ""}${endpoint.messages ? `messages: ${JSON.stringify(endpoint.messages)}, ` : ""}handler: ${loadsLazily(endpoint, lazy) ? `lazyEndpoint(${JSON.stringify(endpoint.route.file)}, () => import(${JSON.stringify(importPath(endpoint.route.file))}))` : `endpoint${index} as ${endpoint.route.kind === "sse" ? "SseDefinition" : endpoint.route.kind === "websocket" ? "SocketDefinition" : endpoint.route.kind === "webhook" ? "WebhookDefinition" : "Endpoint"}`} },`,
   );
   return [
     HEADER,
@@ -406,7 +418,9 @@ import { models } from "./models.ts";
 import { crudRoutes, endpoints, hooks } from "./routes.ts";
 import { jobs } from "./jobs.ts";
 import { migrations } from "./migrations.ts";
-import openApi from "./openapi.json";
+
+// The OpenAPI document is read on the first request for it, not at startup.
+const openApi = () => Bun.file(bundledAssets() ? assetPath(".generated/openapi.json") : \`\${import.meta.dir}/openapi.json\`).json();
 
 const command = process.argv.slice(2).find((arg) => arg === "serve" || arg === "migrate") ?? "serve";
 if (command === "migrate") {
@@ -612,7 +626,7 @@ async function buildProject(projectRoot: string, config: ResolvedConfig, options
     "models.ts": `${HEADER}\nimport type { EntityModel } from "@quickservicets/core";\n\nexport const models: EntityModel[] = ${JSON.stringify(models, null, 2)};\n`,
     "types.ts": [generateTypesFile(models, envVarsLines(variables)), ...featureTypeLines(featureKeys), ...queuePayloadLines(queueTypes(folderFiles), publishedQueues(publishing)), ...serviceNameLines(Object.keys((config.features.find((feature) => feature.key === "http")?.options.services as Record<string, unknown> | undefined) ?? {})), ...fileEntityLines(models)].join("\n"),
     "features.ts": generateFeaturesFile(HEADER, featureKeys, folderFiles.map((entry) => ({ ...entry, specifier: importPath(entry.file) }))),
-    "routes.ts": generateRoutesFile(models, resolved, hooks),
+    "routes.ts": generateRoutesFile(models, resolved, hooks, lazyRoutesOf(config, target)),
     "jobs.ts": generateJobsFile(jobs),
     "server.ts": generateServerFile(existsSync(join(projectRoot, CONFIG_FILE))),
     "migrations.ts": generateMigrationsFile(projectRoot, [DEFAULT_DATABASE, ...Object.keys(config.databases)]),

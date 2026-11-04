@@ -14,7 +14,8 @@ import { jsonLogger, maskedLogger, safeLog, type Logger } from "./logger.ts";
 import type { HookCall, HookDefinition, Repositories } from "./hooks.ts";
 import { createCrudRoutes, mergeRoutes, type CrudRoute } from "./http/crud.ts";
 import { withHooks } from "./http/pipeline.ts";
-import { docsRoutes } from "./http/docs.ts";
+import { docsRoutes, type OpenApiInput } from "./http/docs.ts";
+import { setRouteLoadLogger } from "./http/lazy-endpoint.ts";
 import { isSseDefinition, sseEndpoint, type SseDefinition } from "./http/sse.ts";
 import { isSocketDefinition, socketEndpoint, withMessageValidator, type SocketDefinition } from "./http/socket.ts";
 import { compileMessageValidator, type MessageSchema } from "./http/socket-messages.ts";
@@ -101,8 +102,11 @@ export interface AppOptions {
   endpoints: AppEndpoint[];
   hooks: ReadonlyMap<string, HookDefinition>;
   config: ResolvedConfig;
-  /** The OpenAPI document served at `/openapi.json` and `/docs` when `config.docs.enabled`. */
-  openApi?: { info?: { title?: string } };
+  /**
+   * The OpenAPI document served at `/openapi.json` and `/docs` when `config.docs.enabled`, or a function that reads it,
+   * called on the first request to either route.
+   */
+  openApi?: OpenApiInput;
   /** The job registry; its jobs run at their scheduled times once `scheduler.start()` is called. */
   jobs?: ReadonlyMap<string, JobDefinition>;
   /** The time source of the job scheduler (default: the system clock). */
@@ -218,6 +222,7 @@ export function createApp({ models, crudRoutes, endpoints: allEndpoints, hooks, 
   configureTracing(settings.tracer, settings.mask);
   configureMetrics(settings.meter);
   const logger = settings.tracer ? tracedLogger(wrappedLogger) : wrappedLogger;
+  setRouteLoadLogger(logger);
   const fileAccess = { storage: config.storage, files: config.files, publicUrl: config.server.publicUrl, ...(settings.fileHeaders ? { fileHeaders: settings.fileHeaders } : {}) };
   const fileCleanup = {
     storage: config.storage,

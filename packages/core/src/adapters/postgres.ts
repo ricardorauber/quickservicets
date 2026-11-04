@@ -69,9 +69,8 @@ interface Session {
 type Row = Record<string, unknown>;
 
 export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapter {
-  // The driver loads when an adapter is created, so services on other databases never load it.
-  const driver = import("drizzle-orm/bun-sql");
-  driver.catch(() => {});
+  // The driver loads when the adapter connects, so importing the core or creating an adapter never loads it.
+  const driver = () => import("drizzle-orm/bun-sql");
   let client: SQL | undefined;
   let db: BunSQLDatabase | undefined;
   let drizzleFor: ((client: SQL) => BunSQLDatabase) | undefined;
@@ -293,7 +292,7 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
       // The search path is a connection parameter, so every pooled connection uses the default schema.
       const pool = () => new SQL({ url: secretValue(options.url), max, ...(defaultSchema ? { connection: { search_path: defaultSchema } } : {}) } as never);
       client = pool();
-      const { drizzle } = await driver;
+      const { drizzle } = await driver();
       drizzleFor = (sqlClient) => drizzle({ client: sqlClient });
       db = drizzleFor(client);
       // A rotated credential is used by every new connection: a new pool takes over, and the old one closes once its

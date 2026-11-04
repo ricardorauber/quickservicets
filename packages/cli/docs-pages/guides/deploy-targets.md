@@ -71,6 +71,22 @@ const migrations = readdirSync(assetPath("migrations"));
 
 The build prints the output's size and its five largest modules; `quickservicets build --analyze` also writes `dist/<target>/bundle-report.json` with the size of every bundled module.
 
+## Lazy loading and startup time
+
+Cold starts stay short because little is loaded before the first request:
+
+- Importing `@quickservicets/core` loads no database driver; each adapter imports its driver when it connects.
+- With `deploy.lazyRoutes` on, the generated route table holds a loader per endpoint file and imports the module on the first request matching it, keeping it afterward; methods, paths, tags and hook names stay in the table. `auto` (the default) turns it on for `lambda`, `azure-functions` and `cloud-run` and off otherwise; `on` and `off` force it (`QS_DEPLOY_LAZY_ROUTES`). An endpoint whose module fails to import answers 500 for its route only, logs `routes.load.failed` with the file, and is imported again on the next request.
+- The OpenAPI document and the `/docs` page are read and built on their first request, on every target.
+
+Once the `onStart` callbacks finish, the service logs `service.started` with `durationMs` and the time of each phase:
+
+```json
+{"message":"service.started","durationMs":41.2,"phases":{"config":3.1,"setup":12.4,"connect":8.9,"start":15.6}}
+```
+
+`QS_DEPLOY_STARTUP_TRACE=true` (`deploy.startupTrace`) adds `features`, with each feature's `setup` and `onStart` time, to find what makes a start slow.
+
 ## Function mode
 
 On `lambda` and `azure-functions` the service runs as a function: one process per instance (`server.workers` is ignored), no job scheduler and no queue consumer loops of its own, and no WebSocket routes. The build says what the platform must drive instead:

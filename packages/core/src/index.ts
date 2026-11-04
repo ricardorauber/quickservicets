@@ -104,6 +104,7 @@ export type { CrudRoute } from "./http/crud.ts";
 export { createApp } from "./app.ts";
 export { initializeService, startService } from "./service.ts";
 export { assetPath, bundledAssets, setAssetsRoot, setEmbeddedAssets } from "./assets.ts";
+export { isLazyEndpoint, lazyEndpoint } from "./http/lazy-endpoint.ts";
 export { applyMigrations, HISTORY_TABLE, MigrationError, MONGO_HISTORY_COLLECTION, MONGO_NO_TRANSACTION_WARNING, runMigrations, schemaHistoryTable, splitSqlOptions, withSourceDrivers } from "./migration-runner.ts";
 export type { AppliedMigration, BundledMigration, BundledMigrationInputs, DatabaseDriver, MigrateOptions, MigrateResult, MigrationDriver, MigrationFile, MigrationModule, MigrationSource } from "./migration-runner.ts";
 export { createServiceHandler, DEADLINE_EXCEEDED, DEADLINE_MARGIN_MS, platformOf } from "./service-handler.ts";
@@ -376,7 +377,7 @@ registerShippedNative(secretsNative);
 registerShippedNative(webhooksNative);
 registerShippedNative(devNative);
 registerShippedNative(deployNative);
-export { buildMachinePlatform, defaultPlatform, DEPLOY_DISABLED, DEPLOY_PLATFORMS, DEPLOY_TARGETS, deployFeature, FUNCTION_TARGETS, isFunctionTarget, unknownTarget } from "./features/deploy/index.ts";
+export { buildMachinePlatform, defaultPlatform, LAZY_ROUTE_TARGETS, lazyRoutesFor, DEPLOY_DISABLED, DEPLOY_PLATFORMS, DEPLOY_TARGETS, deployFeature, FUNCTION_TARGETS, isFunctionTarget, unknownTarget } from "./features/deploy/index.ts";
 export type { DeployOptions, DeployPlatform, DeployTargetName } from "./features/deploy/index.ts";
 export {
   COMPOSE_HEADER,

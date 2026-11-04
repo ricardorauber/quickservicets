@@ -27,20 +27,33 @@ export function docsPage(title: string): string {
 `;
 }
 
-/** `GET /openapi.json` and `GET /docs`; they run no hooks. */
-export function docsRoutes(document: { info?: { title?: string } }): Route[] {
-  const json = JSON.stringify(document);
-  const html = docsPage(document.info?.title ?? "QuickService.ts API");
+/** An OpenAPI document, or a function reading it on first use. */
+export type OpenApiInput = { info?: { title?: string } } | (() => { info?: { title?: string } } | Promise<{ info?: { title?: string } }>);
+
+/**
+ * `GET /openapi.json` and `GET /docs`; they run no hooks. The document is read, and the page built, on the first
+ * request to either route, so starting the service never reads it.
+ */
+export function docsRoutes(document: OpenApiInput): Route[] {
+  let built: Promise<{ json: string; html: string }> | undefined;
+  const contents = () =>
+    (built ??= Promise.resolve(typeof document === "function" ? document() : document).then(
+      (value) => ({ json: JSON.stringify(value), html: docsPage(value.info?.title ?? "QuickService.ts API") }),
+      (error: unknown) => {
+        built = undefined;
+        throw error;
+      },
+    ));
   return [
     {
       method: "GET",
       path: OPENAPI_PATH,
-      handler: () => new Response(json, { headers: { "content-type": "application/json" } }),
+      handler: async () => new Response((await contents()).json, { headers: { "content-type": "application/json" } }),
     },
     {
       method: "GET",
       path: DOCS_PATH,
-      handler: () => new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } }),
+      handler: async () => new Response((await contents()).html, { headers: { "content-type": "text/html; charset=utf-8" } }),
     },
   ];
 }

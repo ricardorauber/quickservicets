@@ -1,4 +1,5 @@
 import { createApp, type App, type AppEndpoint, type CrudRouteEntry, type FeatureFolderRegistry } from "./app.ts";
+import type { OpenApiInput } from "./http/docs.ts";
 import { MEMORY_IN_PRODUCTION, resolveConfig, type ResolvedConfig, type ServiceConfig } from "./config.ts";
 import { logConfigWarnings } from "./environment.ts";
 import { logEnabledFeatures, registerProjectFeatures, type ProjectFeatureModule } from "./features.ts";
@@ -29,7 +30,7 @@ export interface StartServiceOptions {
   endpoints: AppEndpoint[];
   hooks: ReadonlyMap<string, HookDefinition>;
   jobs?: ReadonlyMap<string, JobDefinition>;
-  openApi?: { info?: { title?: string } };
+  openApi?: OpenApiInput;
   /** The project's features of `features/`, registered before the config is resolved. */
   features?: readonly ProjectFeatureModule[];
   featureFolders?: FeatureFolderRegistry;
@@ -74,14 +75,20 @@ export interface InitializedService {
   stop(): Promise<void>;
 }
 
-/** The config and models of a service, resolved from the generated inputs. */
+/** The config and models of a service, resolved from the generated inputs, with when the preparation started. */
 interface PreparedService {
   config: ResolvedConfig;
   options: StartServiceOptions;
+  startedAt: number;
+  configMs: number;
 }
+
+/** Milliseconds since a start, rounded to a tenth. */
+const since = (start: number) => Math.round((performance.now() - start) * 10) / 10;
 
 /** Registers the project's features, resolves the config and places the feature entities. */
 function prepareService(options: StartServiceOptions): PreparedService {
+  const startedAt = performance.now();
   const env = options.env ?? process.env;
   registerProjectFeatures(options.features ?? []);
   const config = resolveConfig(options.projectConfig, env);
@@ -89,7 +96,7 @@ function prepareService(options: StartServiceOptions): PreparedService {
   const placed = { ...options, models: placeFeatureEntities(options.models, config.features) };
   logConfigWarnings(config);
   if (config.production && config.database.kind === "memory") safeLog(config.logger ?? jsonLogger, "warn", { timestamp: new Date().toISOString(), message: MEMORY_IN_PRODUCTION });
-  return { config, options: placed };
+  return { config, options: placed, startedAt, configMs: since(startedAt) };
 }
 
 /**
@@ -103,6 +110,22 @@ export type ServiceFailureHandler = (error: unknown, phase: string | undefined, 
 async function bootService(prepared: PreparedService, worker: ServiceWorker, onFailure: ServiceFailureHandler): Promise<InitializedService> {
   const { config, options } = prepared;
   const logger = config.logger ?? jsonLogger;
+  // With deploy.startupTrace (QS_DEPLOY_STARTUP_TRACE=true), each feature's setup and onStart are timed too.
+  const trace = (config.features.find((feature) => feature.key === "deploy")?.options as { startupTrace?: boolean } | undefined)?.startupTrace === true;
+  const featureTimes: Record<string, { setup?: number; onStart?: number }> = {};
+  const around = async <T>(feature: string, phase: "setup" | "onStart" | "onShutdown" | "onStop", run: () => Promise<T>): Promise<T> => {
+    const start = performance.now();
+    try {
+      return await run();
+    } finally {
+      if (phase === "setup" || phase === "onStart") {
+        const entry = (featureTimes[feature] ??= {});
+        entry[phase] = Math.round(((entry[phase] ?? 0) + performance.now() - start) * 10) / 10;
+      }
+    }
+  };
+  const phases = { config: prepared.configMs, setup: 0, connect: 0, start: 0 };
+  let phaseStart = performance.now();
   const lifecycle = createFeatureLifecycle({
     features: config.features,
     config,
@@ -113,6 +136,7 @@ async function bootService(prepared: PreparedService, worker: ServiceWorker, onF
     extendContext: options.extendSetupContext,
     endpoints: options.endpoints,
     crudRoutes: options.crudRoutes,
+    ...(trace ? { around } : {}),
   });
   const fail = async (error: unknown, connected: boolean, phase?: string): Promise<never> => {
     await onFailure(error, phase, logger);
@@ -145,6 +169,8 @@ async function bootService(prepared: PreparedService, worker: ServiceWorker, onF
     const checked = checkTls();
     if (checked !== true) return fail(checked, false, "tls");
   }
+  phases.setup = since(phaseStart);
+  phaseStart = performance.now();
   try {
     await config.database.connect(options.models, { defaultSchema: config.schema, workers: config.server.workers });
   } catch (error) {
@@ -163,6 +189,8 @@ async function bootService(prepared: PreparedService, worker: ServiceWorker, onF
   } catch (error) {
     return fail(error, true, "connect");
   }
+  phases.connect = since(phaseStart);
+  phaseStart = performance.now();
   let app: App;
   try {
     app = createApp({
@@ -182,6 +210,8 @@ async function bootService(prepared: PreparedService, worker: ServiceWorker, onF
   } catch (error) {
     return fail(error, true);
   }
+  phases.start = since(phaseStart);
+  safeLog(logger, "info", { timestamp: new Date().toISOString(), message: "service.started", durationMs: since(prepared.startedAt), phases, ...(trace ? { features: featureTimes } : {}) });
   const jobs = options.jobs ?? new Map<string, JobDefinition>();
   return { config, app, lifecycle, jobs, stop: () => stopService(config, app, lifecycle) };
 }

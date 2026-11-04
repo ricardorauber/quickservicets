@@ -252,9 +252,8 @@ export function duplicateKeyField(error: unknown): string | undefined {
 }
 
 export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
-  // The driver loads when an adapter is created, so services on other databases never load it.
-  const driver = import("mongodb");
-  driver.catch(() => {});
+  // The driver loads when the adapter connects, so importing the core or creating an adapter never loads it.
+  const driver = () => import("mongodb");
   let client: MongoClient | undefined;
   let stopRotation: (() => void) | undefined;
   let db: Db | undefined;
@@ -346,7 +345,7 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
     databaseFor,
     secretReferences: () => (isSecretReference(options.url) ? [options.url] : []),
     async connect(_, connectOptions = {}) {
-      const { MongoClient } = await driver;
+      const { MongoClient } = await driver();
       client = new MongoClient(secretValue(options.url));
       await client.connect();
       const name = connectOptions.defaultSchema ? schemaIdentifier(connectOptions.defaultSchema) : options.database;

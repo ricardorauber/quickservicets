@@ -34,7 +34,7 @@ describe("build output", () => {
     expect(document.openapi).toBe("3.1.0");
     expect(document.info).toEqual({ title: "acme-api", version: "2.0.0" });
     expect(document.paths).toHaveProperty("/users");
-    expect(readFileSync(join(root, ".generated/server.ts"), "utf8")).toContain('import openApi from "./openapi.json"');
+    expect(readFileSync(join(root, ".generated/server.ts"), "utf8")).toContain('assetPath(".generated/openapi.json") : `${import.meta.dir}/openapi.json`');
   });
 });
 

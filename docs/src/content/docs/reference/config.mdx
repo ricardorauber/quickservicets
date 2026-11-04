@@ -1034,5 +1034,7 @@ Every option, tag, command and hook of `deploy` is on [its reference page](/refe
 | `deploy.external` | `string[]` | `[]` | `QS_DEPLOY_EXTERNAL` | Packages left out of the bundle, to ship next to it in node_modules (server target only); a package with a native addon must be listed. |
 | `deploy.lazyRoutes` | `"auto" \| "on" \| "off"` | `"auto"` | `QS_DEPLOY_LAZY_ROUTES` | Makes the generated route table import each endpoint module on the first request matching it: on, off, or auto (on for lambda, azure-functions and cloud-run, off otherwise). |
 | `deploy.startupTrace` | `boolean` | `false` | `QS_DEPLOY_STARTUP_TRACE` | Adds each feature's setup and onStart time, in milliseconds, to the service.started log entry. |
+| `deploy.lambda.architecture` | `"arm64" \| "x86_64"` | `"arm64"` | `QS_DEPLOY_LAMBDA_ARCHITECTURE` | The CPU of the Lambda function the bootstrap is compiled for (deploy.platform, when set, wins). |
+| `deploy.lambda.streaming` | `boolean` | `false` | `QS_DEPLOY_LAMBDA_STREAMING` | Sends responses with the streaming response mode, so sse.ts routes work behind function URLs with RESPONSE_STREAM. |
 | `deploy.enabled` | `boolean` | `true` | `QS_DEPLOY_ENABLED` | Turns the feature off when false. |
 | `deploy.database` | `string` | — | `QS_DEPLOY_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |

@@ -120,6 +120,17 @@ await handler.runJob("reports/daily");
 - `runJob(name, { tenant })` runs one job and records its `JobRun`, so a platform schedule drives jobs; an undeclared name rejects with `Unknown job <name>`.
 - `stop()` runs the `onShutdown` and `onStop` callbacks and disconnects within `lifecycle.stopTimeout`; the handler calls it on `SIGTERM`.
 
+## AWS Lambda
+
+`--target lambda` compiles the service into an executable named `bootstrap` for `deploy.lambda.architecture` (`arm64` by default, or `x86_64`; `QS_DEPLOY_LAMBDA_ARCHITECTURE`) and packages it as `dist/lambda/function.zip`, for the `provided.al2023` runtime with no layer. The bootstrap implements the Lambda Runtime API: it initializes the service once (reporting a failure to the init error endpoint), then takes each invocation and answers it through the platform handler, with the AWS request id and the invocation's deadline.
+
+- API Gateway REST APIs and Application Load Balancers send payload 1.0 events, HTTP APIs and function URLs payload 2.0; both become a standard `Request` (`multiValueHeaders`, multi-value query parameters and base64 bodies included) and the response goes back in the event's format, with `cookies` for 2.0 and `multiValueHeaders` for 1.0 events that sent them. Bodies other than text, JSON, XML and form data are base64 with `isBase64Encoded: true`. The client address comes from `requestContext.identity.sourceIp`, `requestContext.http.sourceIp`, or the right-most `x-forwarded-for` entry behind an ALB.
+- `{ "quickservicets": { "job": "reports/daily" } }` runs that job and returns `{ "status": "completed" }`, so an EventBridge schedule drives each job. Any other event fails with `Unsupported Lambda event`.
+- Buffered responses are limited to 6 MB: a larger one becomes 500 `INTERNAL_ERROR` `Response is larger than the 6 MB Lambda limit`, logged as `lambda.response.too-large` with the route.
+- `deploy.lambda.streaming: true` sends responses with the streaming response mode, so `sse.ts` routes work behind a function URL with `InvokeMode: RESPONSE_STREAM`; without it the build warns `sse.ts routes need deploy.lambda.streaming: true on lambda`.
+
+Deploy `function.zip` as a function on `provided.al2023` with the handler `bootstrap`, behind a function URL or API Gateway. Setting `deploy.platform` (like `darwin-arm64`) compiles the bootstrap for another machine, so it runs against a local Runtime API.
+
 ## See also
 
 - [Local environment](/guides/local-environment/): the services the project needs, on your machine.

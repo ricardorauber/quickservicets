@@ -565,6 +565,8 @@ async function buildProject(projectRoot: string, config: ResolvedConfig, options
         jobs: jobs.map((entry) => entry.name),
         queues: queuesFeature && queuesFeature.options.broker === undefined ? queueTypes(folderFiles).map((entry) => entry.name) : [],
         sockets: endpoints.filter((endpoint) => endpoint.route.kind === "websocket").map((endpoint) => endpoint.route.file),
+        streams: endpoints.filter((endpoint) => endpoint.route.kind === "sse").map((endpoint) => endpoint.route.file),
+        lambdaStreaming: deployOptionsOf(config)?.lambda.streaming === true,
       })
     : [];
   validateHookReferences(

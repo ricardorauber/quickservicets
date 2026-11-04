@@ -47,6 +47,7 @@ export interface DeployOptions {
   external: string[];
   lazyRoutes: "auto" | "on" | "off";
   startupTrace: boolean;
+  lambda: { architecture: "arm64" | "x86_64"; streaming: boolean };
 }
 
 /** The targets whose route tables import endpoint modules on first use when `lazyRoutes` is `auto`. */
@@ -69,6 +70,10 @@ const options = object({
     .default("auto")
     .describe("Makes the generated route table import each endpoint module on the first request matching it: on, off, or auto (on for lambda, azure-functions and cloud-run, off otherwise)."),
   startupTrace: boolean().default(false).describe("Adds each feature's setup and onStart time, in milliseconds, to the service.started log entry."),
+  lambda: object({
+    architecture: oneOf(["arm64", "x86_64"] as const).default("arm64").describe("The CPU of the Lambda function the bootstrap is compiled for (deploy.platform, when set, wins)."),
+    streaming: boolean().default(false).describe("Sends responses with the streaming response mode, so sse.ts routes work behind function URLs with RESPONSE_STREAM."),
+  }).describe("Settings of the lambda target."),
 });
 
 /**

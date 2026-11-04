@@ -61,6 +61,8 @@ Gives one ws.ts route its own limits: `@socket messages=10/s` its message rate, 
 
 **Options:** `realtime.websockets.maxMessageSize`, `realtime.websockets.messages`, `realtime.websockets.origins`
 
+**Forms:** `@socket maxMessageSize=1MB` or `@socket.maxMessageSize 1MB` set the same option; a dotted line sets one option, and several merge with one plain `@socket` line.
+
 ```ts
 /** @socket messages=10/s origins=https://game.example */
 export default defineSocket({ message: (ws, data) => ws.send(data) });
@@ -75,6 +77,8 @@ export default defineSocket({ message: (ws, data) => ws.send(data) });
 **Syntax:** `@changes [events=…]` or `@changes off`
 
 **Options:** `realtime.sse.events`
+
+**Forms:** `@changes events=created,updated,deleted` or `@changes.events created,updated,deleted` set the same option; a dotted line sets one option, and several merge with one plain `@changes` line.
 
 ```ts
 /** @changes events=created,deleted */

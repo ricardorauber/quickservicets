@@ -52,6 +52,8 @@ With named databases ([`databases`](/reference/config/)), each entity of the fea
 
 **Options:** `history.retention`
 
+**Forms:** `@history retention=7d` or `@history.retention 7d` set the same option; a dotted line sets one option, and several merge with one plain `@history` line.
+
 ```ts
 /** @history retention=90d */
 export type Contract = {

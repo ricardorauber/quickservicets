@@ -199,6 +199,18 @@ The feature reads the options of a target with `greeting.optionsFor(...)`: an en
 
 Two fields of a tag definition make tags shorter. `shorthand: "text"` lets the first value be written bare, so `@greeting "Good day" style=loud` equals `@greeting text="Good day" style=loud`; giving the shorthand option twice fails the build. `scope: "<path>"` points the tag at a nested `object()` of the options: with `scope: "rateLimit"`, `@limit by=user` sets `rateLimit.by`, and `optionsFor` merges the tag's values into that object only, keeping its other keys and every other option as the config and the environment set them. `@limit off` on a scope with an `enabled` option also sets its `enabled` to false for that target.
 
+Any option of a feature tag can also be written on its own line, `@<tag>.<option> <value>`, which means exactly `@<tag> <option>=<value>`: the value is the rest of the line, spaces kept and no quotes needed, and a boolean option without a value is `true`. Several dotted lines and at most one plain line of the same tag on one target merge into one tag, so tags with many options stay readable:
+
+```ts
+/**
+ * @greeting.text Good day to you
+ * @greeting style=loud
+ */
+export type Comment = { body: string };
+```
+
+The build fails with `@greeting off cannot be combined with @greeting.text` for an `off` tag next to dotted lines, `@greeting.text is set twice` for an option given twice in any mix of the forms, `@greeting.<option> needs a value` for a dotted line without a value on an option that is not a boolean, the unknown-option message (with its suggestion) for an option the tag does not take, and `unknown tag @<tag>` for a tag no feature defines. Each tag on the reference pages shows both forms.
+
 ### Folders
 
 `folders` gives the project a convention folder. The build scans `greetings/**/*.ts` in the project and in the feature's folder, checks each default export, and hands them to the feature as `ctx.folders.greetings`, a map by file name:

@@ -6,6 +6,14 @@ export interface DocTag {
 }
 
 const INLINE_TAG = /@([A-Za-z_$][\w$]*)([^@]*)/g;
+/** The option of a dotted tag, `@history.retention 7d`: parsers split the name at the dot, leaving `.retention 7d`. */
+const DOTTED = /^\.([A-Za-z_$][\w$]*)(?:\s+([\s\S]*))?$/;
+
+/** A tag as the build reads it: `@<tag>.<option> <value>` keeps its option in the name, `history.retention`. */
+function docTag(name: string, text: string): DocTag {
+  const dotted = DOTTED.exec(text);
+  return dotted ? { name: `${name}.${dotted[1]}`, text: (dotted[2] ?? "").trim() } : { name, text };
+}
 
 function parseDocComment(comment: string): DocTag[] {
   const body = comment
@@ -14,7 +22,7 @@ function parseDocComment(comment: string): DocTag[] {
     .split("\n")
     .map((line) => line.replace(/^\s*\*\s?/, ""))
     .join("\n");
-  return [...body.matchAll(INLINE_TAG)].map(([, name, text]) => ({ name: name!, text: (text ?? "").trim() }));
+  return [...body.matchAll(INLINE_TAG)].map(([, name, text]) => docTag(name!, (text ?? "").trim()));
 }
 
 /**
@@ -24,7 +32,7 @@ function parseDocComment(comment: string): DocTag[] {
 export function readTags(node: ts.Node): DocTag[] {
   const tags = ts.getJSDocTags(node);
   if (tags.length > 0) {
-    return tags.map((tag) => ({ name: tag.tagName.text, text: (ts.getTextOfJSDocComment(tag.comment) ?? "").trim() }));
+    return tags.map((tag) => docTag(tag.tagName.text, (ts.getTextOfJSDocComment(tag.comment) ?? "").trim()));
   }
   const sourceFile = node.getSourceFile();
   const start = node.getFullStart();

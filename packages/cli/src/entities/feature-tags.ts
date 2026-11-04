@@ -79,6 +79,20 @@ const BARE = /^(?:"((?:[^"\\]|\\.)*)"|([^\s"=]+))(?:\s+|$)/;
 
 const unquote = (quoted: string) => quoted.replace(/\\(.)/g, "$1");
 
+/** How a target wrote each of its feature tags: whether a plain `@<tag>` line was read, and the options set on dotted lines. */
+const written = new WeakMap<ParsedTag, { plain: boolean; dotted: string[] }>();
+
+/** Parses one option value of a tag the way `key=value` does, or throws the reason. */
+function parseOption(entry: FeatureTagEntry, key: string, raw: string): unknown {
+  const shape = scopedOptionSchema(entry.feature.definition.schema, entry.tag.scope)!.settings.shape!;
+  try {
+    return parseOptionString(shape[key]!, raw, key);
+  } catch (error) {
+    if (error instanceof ConfigError) throw new Error(error.message.replace(/^Invalid /, ""));
+    throw error;
+  }
+}
+
 /**
  * Parses `@name`, `@name on`, `@name off`, `@name <shorthand value>` or `@name key=value key2="a quoted value"` written on a
  * target, or throws the reason. Keys are relative to the tag's scope and parsed with the scoped object's schema.
@@ -88,16 +102,10 @@ function parseTagText(entry: FeatureTagEntry, text: string, target: FeatureTagTa
   if (text === "" || text === "on") return { on: true, options: {} };
   if (text === "off") return { on: false, options: {} };
   const allowed = (target === "field" ? entry.tag.fieldOptions : undefined) ?? entry.tag.options ?? [];
-  const shape = scopedOptionSchema(entry.feature.definition.schema, entry.tag.scope)!.settings.shape!;
   const options: Record<string, unknown> = {};
   const parse = (key: string, raw: string) => {
     if (key === entry.tag.shorthand && Object.hasOwn(options, key)) throw new Error(`${key} is given twice`);
-    try {
-      options[key] = parseOptionString(shape[key]!, raw, key);
-    } catch (error) {
-      if (error instanceof ConfigError) throw new Error(error.message.replace(/^Invalid /, ""));
-      throw error;
-    }
+    options[key] = parseOption(entry, key, raw);
   };
   let rest = text;
   const bare = entry.tag.shorthand !== undefined && allowed.includes(entry.tag.shorthand) ? BARE.exec(rest) : null;
@@ -121,21 +129,59 @@ function parseTagText(entry: FeatureTagEntry, text: string, target: FeatureTagTa
 
 /**
  * Reads a feature tag written on a target into `tags`, or returns false when no enabled feature defines the tag. Fails
- * with `<file>: invalid @<name>: <reason>` when the tag does not apply to the target or its options are invalid.
+ * with `<file>: invalid @<name>: <reason>` when the tag does not apply to the target or its options are invalid. A
+ * dotted line, `@<tag>.<option> <value>`, sets one option of `@<tag>`, and merges with the target's other lines of it.
  */
 export function applyFeatureTag(tags: ParsedTags | undefined, tag: DocTag, target: FeatureTagTarget, file: string): ParsedTags | false {
-  const entry = active.tags.get(tag.name);
-  if (!entry) return false;
-  const fail = (reason: string) => new BuildError(`${file}: invalid @${tag.name}: ${reason}`);
+  const dot = tag.name.indexOf(".");
+  const name = dot < 0 ? tag.name : tag.name.slice(0, dot);
+  const option = dot < 0 ? undefined : tag.name.slice(dot + 1);
+  const entry = active.tags.get(name);
+  if (!entry) {
+    if (option !== undefined) throw new BuildError(unknownTagMessage(file, name));
+    return false;
+  }
+  const fail = (reason: string) => new BuildError(`${file}: invalid @${name}: ${reason}`);
   if (!entry.tag.on.includes(target)) throw fail(`applies only to ${entry.tag.on.map((on) => TARGET_NAMES[on]).join(" and ")}, not to ${TARGET_NAMES[target]}`);
   const result = { ...tags };
-  if (Object.hasOwn(result, tag.name)) throw fail("is written more than once");
-  try {
-    result[tag.name] = parseTagText(entry, tag.text, target);
-  } catch (error) {
-    throw fail((error as Error).message);
+  const existing = Object.hasOwn(result, name) ? result[name]! : undefined;
+  const history = existing ? (written.get(existing) ?? { plain: true, dotted: [] }) : { plain: false, dotted: [] as string[] };
+  let parsed: ParsedTag;
+  if (option === undefined) {
+    if (history.plain) throw fail("is written more than once");
+    let plain: ParsedTag;
+    try {
+      plain = parseTagText(entry, tag.text, target);
+    } catch (error) {
+      throw fail((error as Error).message);
+    }
+    if (existing) {
+      if (!plain.on) throw new BuildError(`${file}: @${name} off cannot be combined with @${name}.${history.dotted[0]}`);
+      for (const key of Object.keys(plain.options)) if (Object.hasOwn(existing.options, key)) throw new BuildError(`${file}: @${name}.${key} is set twice`);
+    }
+    parsed = existing ? { on: true, options: { ...existing.options, ...plain.options } } : plain;
+    written.set(parsed, { plain: true, dotted: history.dotted });
+  } else {
+    if (existing && !existing.on) throw new BuildError(`${file}: @${name} off cannot be combined with @${name}.${option}`);
+    const allowed = (target === "field" ? entry.tag.fieldOptions : undefined) ?? entry.tag.options ?? [];
+    if (!allowed.includes(option)) throw fail(allowed.length === 0 ? `takes no options, got ${option}` : `unknown option ${option}${suggestion(option, allowed)}`);
+    if (existing && Object.hasOwn(existing.options, option)) throw new BuildError(`${file}: @${name}.${option} is set twice`);
+    const shape = scopedOptionSchema(entry.feature.definition.schema, entry.tag.scope)!.settings.shape!;
+    let value: unknown;
+    if (tag.text === "") {
+      if (shape[option]?.kind !== "boolean") throw new BuildError(`${file}: @${name}.${option} needs a value`);
+      value = true;
+    } else {
+      try {
+        value = parseOption(entry, option, tag.text);
+      } catch (error) {
+        throw fail((error as Error).message);
+      }
+    }
+    parsed = { on: true, options: { ...existing?.options, [option]: value } };
+    written.set(parsed, { plain: history.plain, dotted: [...history.dotted, option] });
   }
-  const parsed = result[tag.name]!;
+  result[name] = parsed;
   const problem = parsed.on && entry.tag.check ? entry.tag.check(parsed.options, entry.feature.options, target) : undefined;
   if (problem) throw fail(problem);
   return result;

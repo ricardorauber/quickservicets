@@ -52,6 +52,8 @@ With named databases ([`databases`](/reference/config/)), each entity of the fea
 
 **Options:** `flags.gate`
 
+**Forms:** `@flag gate=value` or `@flag.gate value` set the same option; a dotted line sets one option, and several merge with one plain `@flag` line.
+
 ```ts
 /** @flag checkout-v2 */
 export default () => ({ ok: true });

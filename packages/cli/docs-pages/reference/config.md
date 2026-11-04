@@ -172,7 +172,7 @@ Raises or lowers the body limit of one route, or of each route of an entity, lik
 
 **Options:** `limits.body`
 
-**Syntax:** `@limits [body=…]` or `@limits off`
+**Syntax:** `@limits [body=…]`, `@limits.body 1MB` or `@limits off`
 
 ```ts
 /** @limits body=20MB */
@@ -204,7 +204,7 @@ Serves one route, or each route of an entity, only to the listed addresses, on t
 
 **Options:** `ip.allow`
 
-**Syntax:** `@ipAllow <allow>` or `@ipAllow off`
+**Syntax:** `@ipAllow <allow>`, `@ipAllow.allow value` or `@ipAllow off`
 
 ```ts
 /** @ipAllow private,loopback */
@@ -219,7 +219,7 @@ Refuses the listed addresses on one route, or on each route of an entity, on top
 
 **Options:** `ip.deny`
 
-**Syntax:** `@ipDeny <deny>` or `@ipDeny off`
+**Syntax:** `@ipDeny <deny>`, `@ipDeny.deny value` or `@ipDeny off`
 
 ```ts
 /** @ipDeny 203.0.113.0/24 */
@@ -234,7 +234,7 @@ Gives one route, or each route of an entity, its own rate limit on top of the gl
 
 **Options:** `rateLimit.limit`, `rateLimit.by`
 
-**Syntax:** `@rateLimit <limit> [by=…]` or `@rateLimit off`
+**Syntax:** `@rateLimit <limit> [by=…]`, `@rateLimit.limit 1000/min` or `@rateLimit off`
 
 ```ts
 /** @rateLimit 10/min by=user */
@@ -249,7 +249,7 @@ Replaces the CORS options for the preflights and requests of one route or of an 
 
 **Options:** `cors.origins`, `cors.credentials`, `cors.methods`, `cors.headers`
 
-**Syntax:** `@cors [origins=…] [credentials=…] [methods=…] [headers=…]` or `@cors off`
+**Syntax:** `@cors [origins=…] [credentials=…] [methods=…] [headers=…]`, `@cors.origins value` or `@cors off`
 
 ```ts
 /** @cors origins=https://partner.example credentials=true */
@@ -279,7 +279,7 @@ export default handler;
 
 **Options:** `mtls.allow`
 
-**Syntax:** `@mtls [allow=…]` or `@mtls off`
+**Syntax:** `@mtls [allow=…]`, `@mtls.allow value` or `@mtls off`
 
 ```ts
 /** @mtls allow=CN=billing */
@@ -294,7 +294,7 @@ Changes the security headers of one route or of an entity's routes; `@securityHe
 
 **Options:** `headers.csp`, `headers.frameOptions`, `headers.referrerPolicy`
 
-**Syntax:** `@securityHeaders [csp=…] [frameOptions=…] [referrerPolicy=…]` or `@securityHeaders off`
+**Syntax:** `@securityHeaders [csp=…] [frameOptions=…] [referrerPolicy=…]`, `@securityHeaders.csp default-src 'none'; frame-ancestors 'none'` or `@securityHeaders off`
 
 ```ts
 /** @securityHeaders csp="default-src 'self'" */
@@ -333,7 +333,7 @@ Every option, tag, command and hook of `events` is on [its reference page](/refe
 
 **Options:** `outbox`
 
-**Syntax:** `@events [outbox=…]` or `@events off`
+**Syntax:** `@events [outbox=…]`, `@events.outbox true` or `@events off`
 
 ```ts
 /** @events off */
@@ -384,7 +384,7 @@ Every option, tag, command and hook of `queues` is on [its reference page](/refe
 
 **Options:** `publish.events`, `publish.queue`, `publish.fields`
 
-**Syntax:** `@publish <events> [queue=…] [fields=…]` or `@publish off`
+**Syntax:** `@publish <events> [queue=…] [fields=…]`, `@publish.events created,updated,deleted` or `@publish off`
 
 ```ts
 /** @publish created,updated queue=crm-sync */
@@ -443,7 +443,7 @@ Every option, tag, command and hook of `idempotency` is on [its reference page](
 
 **Options:** `required`, `ttl`
 
-**Syntax:** `@idempotent [required=…] [ttl=…]` or `@idempotent off`
+**Syntax:** `@idempotent [required=…] [ttl=…]`, `@idempotent.required` or `@idempotent off`
 
 ```ts
 /** @idempotent required=true ttl=7d */
@@ -473,7 +473,7 @@ Every option, tag, command and hook of `etag` is on [its reference page](/refere
 
 **Options:** `required`
 
-**Syntax:** `@etag [required=…]` or `@etag off`
+**Syntax:** `@etag [required=…]`, `@etag.required` or `@etag off`
 
 ```ts
 /** @etag required=true */
@@ -504,7 +504,7 @@ Every option, tag, command and hook of `history` is on [its reference page](/ref
 
 **Options:** `retention`
 
-**Syntax:** `@history [retention=…]` or `@history off`
+**Syntax:** `@history [retention=…]`, `@history.retention 7d` or `@history off`
 
 ```ts
 /** @history retention=90d */
@@ -560,7 +560,7 @@ Gives one ws.ts route its own limits: `@socket messages=10/s` its message rate, 
 
 **Options:** `websockets.maxMessageSize`, `websockets.messages`, `websockets.origins`
 
-**Syntax:** `@socket [maxMessageSize=…] [messages=…] [origins=…]` or `@socket off`
+**Syntax:** `@socket [maxMessageSize=…] [messages=…] [origins=…]`, `@socket.maxMessageSize 1MB` or `@socket off`
 
 ```ts
 /** @socket messages=10/s origins=https://game.example */
@@ -575,7 +575,7 @@ export default defineSocket({ message: (ws, data) => ws.send(data) });
 
 **Options:** `sse.events`
 
-**Syntax:** `@changes [events=…]` or `@changes off`
+**Syntax:** `@changes [events=…]`, `@changes.events created,updated,deleted` or `@changes off`
 
 ```ts
 /** @changes events=created,deleted */
@@ -608,7 +608,7 @@ Every option, tag, command and hook of `errors` is on [its reference page](/refe
 
 **Options:** `sampleRate`
 
-**Syntax:** `@report [sampleRate=…]` or `@report off`
+**Syntax:** `@report [sampleRate=…]`, `@report.sampleRate 1` or `@report off`
 
 ```ts
 /** @report sampleRate=0.1 */
@@ -645,7 +645,7 @@ Every option, tag, command and hook of `flags` is on [its reference page](/refer
 
 **Options:** `gate`
 
-**Syntax:** `@flag <gate>` or `@flag off`
+**Syntax:** `@flag <gate>`, `@flag.gate value` or `@flag off`
 
 ```ts
 /** @flag checkout-v2 */
@@ -768,7 +768,7 @@ Every option, tag, command and hook of `tenancy` is on [its reference page](/ref
 
 **Options:** `scope`, `required`
 
-**Syntax:** `@tenancy <scope> [required=…]` or `@tenancy off`
+**Syntax:** `@tenancy <scope> [required=…]`, `@tenancy.scope tenant` or `@tenancy off`
 
 ```ts
 /** @tenancy shared */
@@ -802,7 +802,7 @@ Every option, tag, command and hook of `auth` is on [its reference page](/refere
 
 **Options:** `scopes`
 
-**Syntax:** `@auth [scopes=…]` or `@auth off`
+**Syntax:** `@auth [scopes=…]`, `@auth.scopes value` or `@auth off`
 
 ```ts
 /** @auth */
@@ -817,7 +817,7 @@ export type Post = { title: string };
 
 **Options:** `roles`
 
-**Syntax:** `@roles <roles>` or `@roles off`
+**Syntax:** `@roles <roles>`, `@roles.roles value` or `@roles off`
 
 ```ts
 /** @roles editor:write,admin:delete */
@@ -857,7 +857,7 @@ Every option, tag, command and hook of `metrics` is on [its reference page](/ref
 
 **Options:** `by`
 
-**Syntax:** `@metrics [by=…]` or `@metrics off`
+**Syntax:** `@metrics [by=…]`, `@metrics.by route,tenant` or `@metrics off`
 
 ```ts
 /** @metrics by=route */
@@ -972,7 +972,7 @@ Every option, tag, command and hook of `webhooks` is on [its reference page](/re
 
 **Options:** `entity.events`, `entity.fields`
 
-**Syntax:** `@webhooks <events> [fields=…]` or `@webhooks off`
+**Syntax:** `@webhooks <events> [fields=…]`, `@webhooks.events created,updated,deleted` or `@webhooks off`
 
 ```ts
 /** @webhooks created,updated fields=status,total */
@@ -987,7 +987,7 @@ export type Order = { status: string; total: number; notes: string };
 
 **Options:** `incoming.tolerance`, `incoming.maxBodySize`, `incoming.dedupe`, `incoming.async`
 
-**Syntax:** `@webhook [tolerance=…] [maxBodySize=…] [dedupe=…] [async=…]` or `@webhook off`
+**Syntax:** `@webhook [tolerance=…] [maxBodySize=…] [dedupe=…] [async=…]`, `@webhook.tolerance 5m` or `@webhook off`
 
 ```ts
 /** @webhook dedupe=false tolerance=10m */

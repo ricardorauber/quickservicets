@@ -83,6 +83,8 @@ With named databases ([`databases`](/reference/config/)), each entity of the fea
 
 **Options:** `tenancy.scope`, `tenancy.required`
 
+**Forms:** `@tenancy scope=tenant` or `@tenancy.scope tenant` set the same option; a dotted line sets one option, and several merge with one plain `@tenancy` line.
+
 ```ts
 /** @tenancy shared */
 export type Plan = { name: string };

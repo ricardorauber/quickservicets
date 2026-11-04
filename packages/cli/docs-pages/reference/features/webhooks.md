@@ -72,6 +72,8 @@ With named databases ([`databases`](/reference/config/)), each entity of the fea
 
 **Options:** `webhooks.entity.events`, `webhooks.entity.fields`
 
+**Forms:** `@webhooks events=created,updated,deleted` or `@webhooks.events created,updated,deleted` set the same option; a dotted line sets one option, and several merge with one plain `@webhooks` line.
+
 ```ts
 /** @webhooks created,updated fields=status,total */
 export type Order = { status: string; total: number; notes: string };
@@ -86,6 +88,8 @@ export type Order = { status: string; total: number; notes: string };
 **Syntax:** `@webhook [tolerance=…] [maxBodySize=…] [dedupe=…] [async=…]` or `@webhook off`
 
 **Options:** `webhooks.incoming.tolerance`, `webhooks.incoming.maxBodySize`, `webhooks.incoming.dedupe`, `webhooks.incoming.async`
+
+**Forms:** `@webhook tolerance=5m` or `@webhook.tolerance 5m` set the same option; a dotted line sets one option, and several merge with one plain `@webhook` line.
 
 ```ts
 /** @webhook dedupe=false tolerance=10m */

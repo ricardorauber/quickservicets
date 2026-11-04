@@ -10,7 +10,7 @@ import type { DocumentedTag } from "../../packages/cli/src/tag-docs.ts";
 import { CODES_BY_STATUS } from "../../packages/core/src/errors.ts";
 import { DEFAULT_LIMIT, MAX_LIMIT, MAX_LIST_VALUES, OPERATORS_BY_TYPE } from "../../packages/core/src/query.ts";
 import { configVariable, envNameFor, NOT_OVERRIDABLE } from "../../packages/core/src/environment.ts";
-import { NATIVE_FEATURES_DIR, registeredNatives, type FeatureDefinition, type FeatureTag } from "../../packages/core/src/features.ts";
+import { NATIVE_FEATURES_DIR, registeredNatives, scopedOptionSchema, type FeatureDefinition, type FeatureTag } from "../../packages/core/src/features.ts";
 // Loading the core registers the natives it ships, which the pages document.
 import "../../packages/core/src/index.ts";
 import { describeOptions, type AnyOptionSchema } from "../../packages/core/src/options.ts";
@@ -113,9 +113,53 @@ export function tagSyntax(name: string, tag: FeatureTag): string {
   return [`@${name}`, ...(tag.shorthand ? [`<${tag.shorthand}>`] : []), ...keyed].join(" ");
 }
 
+/** A sample value of an option for the tag forms: its default when it has a plain one, otherwise one of its kind. */
+function sampleValue(schema: AnyOptionSchema | undefined): string {
+  const settings = (schema?.settings ?? {}) as { default?: unknown; values?: readonly unknown[] };
+  const fallback = settings.default;
+  if (typeof fallback === "string" && fallback !== "") return fallback;
+  if (typeof fallback === "number") return String(fallback);
+  if (Array.isArray(fallback) && fallback.length > 0 && fallback.every((item) => typeof item === "string")) return fallback.join(",");
+  if (settings.values && settings.values.length > 0) return String(settings.values[0]);
+  const samples: Record<string, string> = { duration: "7d", size: "1MB", rate: "10/min", integer: "10", number: "1", toggle: "true" };
+  return samples[schema?.kind ?? ""] ?? "value";
+}
+
+/**
+ * The two forms of one option of a tag, `@history retention=7d` and `@history.retention 7d`, or undefined for a tag
+ * without options; a boolean option shows the dotted form without a value.
+ */
+export function tagForms(name: string, tag: FeatureTag, schema: AnyOptionSchema): string | undefined {
+  const forms = tagFormTexts(name, tag, schema);
+  return forms ? `${code(forms.plain)} or ${code(forms.dotted)}` : undefined;
+}
+
+/** The texts of the two forms of a tag's first option, or undefined for a tag without options. */
+function tagFormTexts(name: string, tag: FeatureTag, schema: AnyOptionSchema): { plain: string; dotted: string } | undefined {
+  const option = tag.options?.[0];
+  if (option === undefined) return undefined;
+  const node = scopedOptionSchema(schema, tag.scope)?.settings.shape?.[option];
+  if (node?.kind === "boolean") return { plain: `@${name} ${option}=true`, dotted: `@${name}.${option}` };
+  const value = sampleValue(node);
+  const plain = /[\s"]/.test(value) ? `"${value.replace(/["\\]/g, "\\$&")}"` : value;
+  return { plain: `@${name} ${option}=${plain}`, dotted: `@${name}.${option} ${value}` };
+}
+
+/** The syntax of a tag on the config page, with its dotted form when it has options. */
+function syntaxLine(name: string, tag: FeatureTag, schema: AnyOptionSchema): string {
+  const forms = tagFormTexts(name, tag, schema);
+  return `**Syntax:** ${code(tagSyntax(name, tag))}${forms ? `, ${code(forms.dotted)}` : ""} or ${code(`@${name} off`)}`;
+}
+
 /** The option paths a tag sets, relative to the feature: `rateLimit.limit` for a tag scoped to `rateLimit`. */
 export function tagOptionPaths(tag: FeatureTag): string[] {
   return (tag.options ?? []).map((option) => (tag.scope ? `${tag.scope}.${option}` : option));
+}
+
+/** The line showing a tag option in both forms, `key=value` and dotted, when the tag has options. */
+function formLines(name: string, tag: FeatureTag, schema: AnyOptionSchema): string[] {
+  const forms = tagForms(name, tag, schema);
+  return forms ? [`**Forms:** ${forms} set the same option; a dotted line sets one option, and several merge with one plain \`@${name}\` line.`, ""] : [];
 }
 
 /** The tags of a native, listed under its options. */
@@ -129,7 +173,7 @@ function nativeTagLines(native: ReturnType<typeof registeredNatives>[number]): s
     "",
     `**Options:** ${tag.options && tag.options.length > 0 ? tagOptionPaths(tag).map((option) => code(option)).join(", ") : "none (a flag: \`@" + name + "\` or \`@" + name + " off\`)"}`,
     "",
-    `**Syntax:** ${code(tagSyntax(name, tag))} or ${code(`@${name} off`)}`,
+    syntaxLine(name, tag, native.schema),
     "",
     "```ts",
     tag.example,
@@ -538,6 +582,7 @@ export function featurePage(native: FeatureDefinition): string {
             "",
             `**Options:** ${tag.options && tag.options.length > 0 ? tagOptionPaths(tag).map((option) => code(`${key}.${option}`)).join(", ") : "none"}`,
             "",
+            ...formLines(name, tag, native.schema),
             "```ts",
             tag.example,
             "```",

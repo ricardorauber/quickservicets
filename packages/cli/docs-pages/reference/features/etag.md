@@ -37,6 +37,8 @@ It is not enabled by default: turn it on with `etag: {}` or `QS_ETAG_ENABLED=tru
 
 **Options:** `etag.required`
 
+**Forms:** `@etag required=true` or `@etag.required` set the same option; a dotted line sets one option, and several merge with one plain `@etag` line.
+
 ```ts
 /** @etag required=true */
 export type Invoice = { total: number };

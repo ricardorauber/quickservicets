@@ -94,7 +94,7 @@ describe("tag syntax", () => {
     try {
       const section = configPage().slice(configPage().indexOf("#### `@limit`"));
       expect(section).toContain("**Options:** `rateLimit.rate`, `rateLimit.by`");
-      expect(section).toContain("**Syntax:** `@limit <rate> [by=…]` or `@limit off`");
+      expect(section).toContain("**Syntax:** `@limit <rate> [by=…]`, `@limit.rate 100/min` or `@limit off`");
     } finally {
       unregisterNative("guard");
     }

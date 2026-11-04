@@ -47,6 +47,8 @@ It is not enabled by default: turn it on with `auth: {}` or `QS_AUTH_ENABLED=tru
 
 **Options:** `auth.scopes`
 
+**Forms:** `@auth scopes=value` or `@auth.scopes value` set the same option; a dotted line sets one option, and several merge with one plain `@auth` line.
+
 ```ts
 /** @auth */
 export type Post = { title: string };
@@ -61,6 +63,8 @@ export type Post = { title: string };
 **Syntax:** `@roles <roles>` or `@roles off`
 
 **Options:** `auth.roles`
+
+**Forms:** `@roles roles=value` or `@roles.roles value` set the same option; a dotted line sets one option, and several merge with one plain `@roles` line.
 
 ```ts
 /** @roles editor:write,admin:delete */

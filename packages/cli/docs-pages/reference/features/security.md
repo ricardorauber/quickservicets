@@ -121,6 +121,8 @@ Raises or lowers the body limit of one route, or of each route of an entity, lik
 
 **Options:** `security.limits.body`
 
+**Forms:** `@limits body=1MB` or `@limits.body 1MB` set the same option; a dotted line sets one option, and several merge with one plain `@limits` line.
+
 ```ts
 /** @limits body=20MB */
 export default handler;
@@ -153,6 +155,8 @@ Serves one route, or each route of an entity, only to the listed addresses, on t
 
 **Options:** `security.ip.allow`
 
+**Forms:** `@ipAllow allow=value` or `@ipAllow.allow value` set the same option; a dotted line sets one option, and several merge with one plain `@ipAllow` line.
+
 ```ts
 /** @ipAllow private,loopback */
 export default handler;
@@ -167,6 +171,8 @@ Refuses the listed addresses on one route, or on each route of an entity, on top
 **Syntax:** `@ipDeny <deny>` or `@ipDeny off`
 
 **Options:** `security.ip.deny`
+
+**Forms:** `@ipDeny deny=value` or `@ipDeny.deny value` set the same option; a dotted line sets one option, and several merge with one plain `@ipDeny` line.
 
 ```ts
 /** @ipDeny 203.0.113.0/24 */
@@ -183,6 +189,8 @@ Gives one route, or each route of an entity, its own rate limit on top of the gl
 
 **Options:** `security.rateLimit.limit`, `security.rateLimit.by`
 
+**Forms:** `@rateLimit limit=1000/min` or `@rateLimit.limit 1000/min` set the same option; a dotted line sets one option, and several merge with one plain `@rateLimit` line.
+
 ```ts
 /** @rateLimit 10/min by=user */
 export default handler;
@@ -197,6 +205,8 @@ Replaces the CORS options for the preflights and requests of one route or of an 
 **Syntax:** `@cors [origins=…] [credentials=…] [methods=…] [headers=…]` or `@cors off`
 
 **Options:** `security.cors.origins`, `security.cors.credentials`, `security.cors.methods`, `security.cors.headers`
+
+**Forms:** `@cors origins=value` or `@cors.origins value` set the same option; a dotted line sets one option, and several merge with one plain `@cors` line.
 
 ```ts
 /** @cors origins=https://partner.example credentials=true */
@@ -228,6 +238,8 @@ export default handler;
 
 **Options:** `security.mtls.allow`
 
+**Forms:** `@mtls allow=value` or `@mtls.allow value` set the same option; a dotted line sets one option, and several merge with one plain `@mtls` line.
+
 ```ts
 /** @mtls allow=CN=billing */
 export default handler;
@@ -242,6 +254,8 @@ Changes the security headers of one route or of an entity's routes; `@securityHe
 **Syntax:** `@securityHeaders [csp=…] [frameOptions=…] [referrerPolicy=…]` or `@securityHeaders off`
 
 **Options:** `security.headers.csp`, `security.headers.frameOptions`, `security.headers.referrerPolicy`
+
+**Forms:** `@securityHeaders csp="default-src 'none'; frame-ancestors 'none'"` or `@securityHeaders.csp default-src 'none'; frame-ancestors 'none'` set the same option; a dotted line sets one option, and several merge with one plain `@securityHeaders` line.
 
 ```ts
 /** @securityHeaders csp="default-src 'self'" */

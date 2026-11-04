@@ -42,6 +42,8 @@ It is not enabled by default: turn it on with `errors: {}` or `QS_ERRORS_ENABLED
 
 **Options:** `errors.sampleRate`
 
+**Forms:** `@report sampleRate=1` or `@report.sampleRate 1` set the same option; a dotted line sets one option, and several merge with one plain `@report` line.
+
 ```ts
 /** @report sampleRate=0.1 */
 export default () => ({ ok: true });

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { defineCommand } from "../../packages/core/src/commands.ts";
 import { defineFeature, registerNative, unregisterNative } from "../../packages/core/src/features.ts";
-import { hook, integer, object, string, toggle } from "../../packages/core/src/options.ts";
+import { boolean, hook, integer, object, string, toggle } from "../../packages/core/src/options.ts";
 import { configPage, featureApiMembers, featurePage, featuresIndex, referencePages, stalePages } from "../scripts/reference.ts";
 
 const audit = (level = 1, extra: Record<string, unknown> = {}) =>
@@ -132,5 +132,22 @@ describe("documentation rules", () => {
     expect(() => registerNative(defineFeature({ key: "audit" }))).toThrow("Native audit needs docs.summary for its reference page");
     const undocumented = register(defineFeature({ key: "audit", docs: { summary: "S." }, options: object({ level: integer().default(1) }) }) as never);
     expect(() => featurePage(undocumented)).toThrow("Native audit: audit.level has no description; add .describe(...)");
+  });
+});
+
+describe("tag forms", () => {
+  test("a tag's page shows one option in both forms, and a boolean option without a value", () => {
+    const example = defineFeature({
+      key: "example",
+      docs: { summary: "Labels entities." },
+      options: object({ label: string().default("Customer accounts").describe("The label."), hidden: boolean().default(false).describe("Hides the entity.") }),
+      tags: {
+        example: { on: ["entity"], options: ["label", "hidden"], description: "Labels one entity.", example: "/** @example.label Accounts */" },
+        hide: { on: ["entity"], options: ["hidden"], scope: undefined, description: "Hides one entity.", example: "/** @hide.hidden */" },
+      },
+    });
+    const page = featurePage(register(example as never));
+    expect(page).toContain('**Forms:** `@example label="Customer accounts"` or `@example.label Customer accounts` set the same option');
+    expect(page).toContain("**Forms:** `@hide hidden=true` or `@hide.hidden` set the same option");
   });
 });

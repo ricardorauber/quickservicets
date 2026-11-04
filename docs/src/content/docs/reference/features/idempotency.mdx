@@ -55,6 +55,8 @@ With named databases ([`databases`](/reference/config/)), each entity of the fea
 
 **Options:** `idempotency.required`, `idempotency.ttl`
 
+**Forms:** `@idempotent required=true` or `@idempotent.required` set the same option; a dotted line sets one option, and several merge with one plain `@idempotent` line.
+
 ```ts
 /** @idempotent required=true ttl=7d */
 export type Order = { total: number };

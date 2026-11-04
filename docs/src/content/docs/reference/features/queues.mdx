@@ -72,6 +72,8 @@ With named databases ([`databases`](/reference/config/)), each entity of the fea
 
 **Options:** `queues.publish.events`, `queues.publish.queue`, `queues.publish.fields`
 
+**Forms:** `@publish events=created,updated,deleted` or `@publish.events created,updated,deleted` set the same option; a dotted line sets one option, and several merge with one plain `@publish` line.
+
 ```ts
 /** @publish created,updated queue=crm-sync */
 export type User = { email: string };

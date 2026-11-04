@@ -59,6 +59,8 @@ With named databases ([`databases`](/reference/config/)), each entity of the fea
 
 **Options:** `events.outbox`
 
+**Forms:** `@events outbox=true` or `@events.outbox true` set the same option; a dotted line sets one option, and several merge with one plain `@events` line.
+
 ```ts
 /** @events off */
 export type Session = { token: string };

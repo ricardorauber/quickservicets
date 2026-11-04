@@ -23,3 +23,5 @@ export { testSecretProvider } from "../features/secrets/test-provider.ts";
 export type { TestSecretProvider, TestSecretValue } from "../features/secrets/test-provider.ts";
 export { checkSecretProvider, runSecretProviderContract, SECRET_PROVIDER_CHECKS } from "./secret-provider-contract.ts";
 export type { SecretProviderCheck, SecretProviderContractOptions, SecretProviderFixtures } from "./secret-provider-contract.ts";
+export { runSqlExecutorContract } from "./sql-executor-contract.ts";
+export type { SqlExecutorContractOptions } from "./sql-executor-contract.ts";

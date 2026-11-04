@@ -71,6 +71,39 @@ direct: works
 
 It prints one `problem:` line per feature the proxy cannot carry, with its fix, and exits 1 when a check fails, so it can run before a deploy.
 
+## SQL executors
+
+The PostgreSQL adapter builds its statements once and sends each one through a `SqlExecutor`, so an HTTP driver or a managed data API can carry every query, aggregate, migration and `ping` of the adapter. Without `executor`, the built-in one sends them over `Bun.SQL`, as before:
+
+```ts
+interface SqlExecutor {
+  readonly name: string;
+  readonly capabilities: { interactiveTransactions: boolean; listen: boolean; preparedStatements: boolean };
+  query(text: string, params: readonly unknown[], options?: { signal?: AbortSignal }): Promise<Record<string, unknown>[]>;
+  transaction<T>(fn: (executor: SqlExecutor) => Promise<T>): Promise<T>;
+  close(): Promise<void>;
+}
+```
+
+```ts
+export default defineConfig({
+  database: postgresAdapter({ url: process.env.DATABASE_URL!, executor: myHttpExecutor(process.env.DATABASE_URL!) }),
+});
+```
+
+- `query` runs one statement with `$1`-style parameters and resolves its rows as objects; an aborted `signal` rejects it with an `AbortError`.
+- Errors carry the PostgreSQL error code (SQLSTATE) as `code` and the constraint as `constraint`, so a `23505` becomes a `UniqueViolationError` on the right field, as with the built-in executor.
+- A feature that needs a capability the executor lacks fails startup, like `realtime needs listen, which the http executor does not support` for the PostgreSQL socket transport; `transaction(fn)` on an executor without `interactiveTransactions` fails with `transaction needs interactiveTransactions, which the http executor does not support`. A project feature declares what it needs with `sqlCapabilities: ["listen"]` in `defineFeature`.
+- `bunSqlExecutor(new Bun.SQL(url))` is the built-in executor, for wrapping it (to record or time statements).
+
+`runSqlExecutorContract(create, { name, variable })` from `@quickservicets/core/testing` registers the tests every executor must pass: the adapter contract on `postgresAdapter({ executor: create(url) })`, type round trips (dates, JSON, UUIDs, numerics, arrays, nulls), transactions with rollback, unique violations and abort signals. They run when the variable (default `TEST_POSTGRES_URL`) is set, and are one named skipped test otherwise; they drop and recreate the `public` schema of that database, so point the variable at a test database:
+
+```ts
+import { runSqlExecutorContract } from "@quickservicets/core/testing";
+
+runSqlExecutorContract((url) => myHttpExecutor(url), { name: "http", variable: "TEST_HTTP_SQL_URL" });
+```
+
 ## See also
 
 - [Deploy targets](/guides/deploy-targets/): the platforms and their function mode.

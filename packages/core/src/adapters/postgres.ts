@@ -10,10 +10,19 @@ import { schemaViews } from "./schema-views.ts";
 import { relationFields, splitRelations, writeRelations } from "../sql/relations.ts";
 import { EntityStatements, type Statement } from "./postgres-statements.ts";
 import { isSecretReference, onSecretValue, secretValue, type SecretReference } from "../secret-references.ts";
+import { bunSqlExecutor, bunSqlOf, executorClient, missingCapability, type SqlExecutor } from "../sql-executor.ts";
 
 export interface PostgresAdapterOptions {
-  /** The connection URL, or a secret reference to it (read when the adapter connects). */
-  url: string | SecretReference;
+  /**
+   * The connection URL, or a secret reference to it (read when the adapter connects); optional with an `executor`,
+   * which then also needs it for `LISTEN` and a direct connection.
+   */
+  url?: string | SecretReference;
+  /**
+   * Sends every statement (CRUD, aggregates, migrations, `ping`) through this executor instead of the built-in one
+   * over `Bun.SQL`, like an HTTP driver or a managed data API.
+   */
+  executor?: SqlExecutor;
   /** Most connections the pool opens (default 10); with `server.workers` above 1 it is divided across the workers. */
   max?: number;
 }
@@ -21,12 +30,14 @@ export interface PostgresAdapterOptions {
 export const DEFAULT_POSTGRES_POOL_SIZE = 10;
 
 export interface PostgresAdapter extends DatabaseAdapter {
-  /** The underlying `Bun.SQL` client while connected. */
+  /** The underlying `Bun.SQL` client while connected; with an `executor`, a client of the same shape over it. */
   readonly client: SQL | undefined;
+  /** The executor statements go through while connected: the given one, or the built-in one over `Bun.SQL`. */
+  readonly executor: SqlExecutor | undefined;
   /** The pool settings of the `connections` native, when it gave any. */
   readonly poolSettings: ConnectionPoolSettings | undefined;
-  /** The connection URL, its secret resolved. */
-  readonly url: string;
+  /** The connection URL, its secret resolved; undefined for an executor given without one. */
+  readonly url: string | undefined;
   /** A view in which the default-schema entities live in `schema`, sharing this adapter's connection. */
   withSchema(schema: string): PostgresAdapter;
   sharesConnectionWith(other: DatabaseAdapter): boolean;
@@ -65,8 +76,9 @@ export function uniqueViolationField(error: unknown, models: EntityModel[]): str
   return undefined;
 }
 
-/** What statements run on: a transaction's connection while one is open, the pool otherwise. */
+/** What statements run on: a transaction's session while one is open, the pool otherwise. */
 interface Session {
+  executor: SqlExecutor;
   sql: SQL;
   db: Executor;
 }
@@ -77,6 +89,8 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
   // The driver loads when the adapter connects, so importing the core or creating an adapter never loads it.
   const driver = () => import("drizzle-orm/bun-sql");
   let client: SQL | undefined;
+  /** The executor of the pool, over `client`. */
+  let pooled: SqlExecutor | undefined;
   let db: BunSQLDatabase | undefined;
   let drizzleFor: ((client: SQL) => BunSQLDatabase) | undefined;
   let schema: DrizzleSchema | undefined;
@@ -96,12 +110,13 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
     if (!current) throw new Error("The PostgreSQL adapter is not connected");
     return current;
   };
-  /** Runs SQL text with its parameters on the current transaction, or on the pool. */
+  /** Runs SQL text with its parameters on the current transaction, or on the pool, through the executor. */
   const run = async (statement: Statement): Promise<Row[]> => {
-    const session = transactions.getStore()?.sql;
-    const target = session ?? ensure();
+    const session = transactions.getStore()?.executor;
+    if (!session) ensure();
+    const target = session ?? pooled;
     if (!target) throw new Error("The PostgreSQL adapter is not connected");
-    const send = async () => (await target.unsafe(statement.text, statement.params)) as Row[];
+    const send = () => target.query(statement.text, statement.params);
     // A connection closed while the instance was frozen fails before the statement is sent: once more, on a new
     // connection of the pool; inside a transaction the session is gone, so nothing is retried.
     return session ? send() : withReconnect(send, send, statement.text, pool?.onReconnect);
@@ -119,19 +134,22 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
   const transaction = async <T>(fn: () => Promise<T>): Promise<T> => {
     if (transactions.getStore()) return fn();
     ensure();
-    if (!client || !drizzleFor) throw new Error("The PostgreSQL adapter is not connected");
+    if (!pooled || !drizzleFor) throw new Error("The PostgreSQL adapter is not connected");
+    if (!pooled.capabilities.interactiveTransactions) throw new Error(missingCapability("transaction", "interactiveTransactions", pooled.name));
     const makeDrizzle = drizzleFor;
-    return client.begin((tx) => {
+    return pooled.transaction((tx) => {
       let txDb: BunSQLDatabase | undefined;
+      const sql = bunSqlOf(tx) ?? executorClient(tx);
       // Drizzle is only set up on the transaction's connection when a statement needs it.
       const session: Session = {
-        sql: tx as unknown as SQL,
+        executor: tx,
+        sql,
         get db() {
-          return (txDb ??= makeDrizzle(tx as unknown as SQL));
+          return (txDb ??= makeDrizzle(sql));
         },
       };
       return transactions.run(session, fn);
-    }) as Promise<T>;
+    });
   };
   /** Writes of an entity with reference arrays also write junction rows, so only they need a transaction. */
   const atomicallyWithRelations = <T>(entity: EntityModel, fn: () => Promise<T>): Promise<T> =>
@@ -301,7 +319,10 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
       pool = settings;
     },
     get url() {
-      return secretValue(options.url);
+      return options.url === undefined ? undefined : secretValue(options.url);
+    },
+    get executor() {
+      return pooled ?? options.executor;
     },
     /** The pool settings the `connections` native gave, for diagnostics. */
     get poolSettings() {
@@ -311,8 +332,11 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
       models = entityModels;
       statements.clear();
       const defaultSchema = connectOptions.defaultSchema ? schemaIdentifier(connectOptions.defaultSchema) : undefined;
+      if (options.url === undefined && !options.executor) throw invalidConnection("postgres", "expected a url or an executor");
+      // The search path is a connection parameter, which an executor's statements cannot carry.
+      if (defaultSchema && options.executor) throw new Error(`The ${options.executor.name} executor cannot use a default schema (config.schema); qualify the entities with @schema instead`);
       if (defaultSchema) {
-        const admin = new SQL(secretValue(options.url));
+        const admin = new SQL(secretValue(options.url!));
         await admin.unsafe(`create schema if not exists "${defaultSchema}"`);
         await admin.close();
       }
@@ -327,26 +351,35 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
       };
       // The search path is a connection parameter, so every pooled connection uses the default schema. Bun's pool opens
       // a connection on the first query, so it is lazy by itself.
-      const newPool = () => new SQL({ url: secretValue(options.url), max, ...limits, ...(defaultSchema ? { connection: { search_path: defaultSchema } } : {}) } as never);
+      const newPool = () => new SQL({ url: secretValue(options.url!), max, ...limits, ...(defaultSchema ? { connection: { search_path: defaultSchema } } : {}) } as never);
+      /** The pool and its executor: the given executor with a client of the same shape, or the built-in one. */
+      const usePool = () => {
+        if (options.executor) {
+          pooled = options.executor;
+          client = executorClient(options.executor);
+        } else {
+          client = newPool();
+          pooled = bunSqlExecutor(client, pool?.prepare === false ? { prepare: false } : {});
+        }
+        db = drizzleFor!(client);
+      };
       const { drizzle } = await driver();
       drizzleFor = (sqlClient) => drizzle({ client: sqlClient });
       // Bun.SQL opens a connection as soon as a pool is created, so a lazy adapter creates it on its first query.
       const open = () => {
         openLazily = undefined;
-        client = newPool();
-        db = drizzleFor!(client);
+        usePool();
       };
       if (pool?.lazy) openLazily = open;
       else open();
       // A rotated credential is used by every new connection: a new pool takes over, and the old one closes once its
       // open connections finished their queries.
       stopRotation?.();
-      stopRotation = isSecretReference(options.url)
+      stopRotation = isSecretReference(options.url) && !options.executor
         ? onSecretValue(options.url, () => {
             const previous = client;
             if (!previous) return;
-            client = newPool();
-            db = drizzleFor!(client);
+            usePool();
             void previous.close({ timeout: 30 }).catch(() => {});
           })
         : undefined;
@@ -359,6 +392,7 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
       openLazily = undefined;
       await client?.close();
       client = undefined;
+      pooled = undefined;
       db = undefined;
     },
     ...operations(() => schema, statements),
@@ -367,15 +401,20 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
       const url = typeof connection === "string" ? connection : (connection as { url?: unknown } | null)?.url;
       if (typeof url !== "string" || url === "") throw invalidConnection("postgres", "expected a URL text or { url }");
       if (!/^postgres(ql)?:\/\//i.test(url)) throw invalidConnection("postgres", "expected a postgres:// URL");
-      return postgresAdapter({ ...options, url });
+      // Another database is reached over its own URL, without this adapter's executor.
+      const { executor: _, ...rest } = options;
+      return postgresAdapter({ ...rest, url });
     },
     sharesConnectionWith: (other) => other === adapter || views.owns(other),
     secretReferences: () => (isSecretReference(options.url) ? [options.url] : []),
     async listen(channel, onPayload, onListen) {
       assertChannelName(channel);
+      if (options.executor && !options.executor.capabilities.listen) throw new Error(missingCapability("LISTEN", "listen", options.executor.name));
+      const url = pool?.direct ?? options.url;
+      if (url === undefined) throw new Error(`LISTEN needs a url or connections.direct besides the ${options.executor?.name ?? "given"} executor`);
       // A client of its own, so the listening connection never takes one of the pool's; behind a connection proxy it
       // uses the direct connection, since a session's LISTEN does not survive transaction pooling.
-      const listener = new SQL({ url: secretValue(pool?.direct ?? options.url), max: 1, ...(pool?.tls ? { tls: true } : {}) } as never);
+      const listener = new SQL({ url: secretValue(url), max: 1, ...(pool?.tls ? { tls: true } : {}) } as never);
       try {
         const subscription = await listener.listen(channel, onPayload, onListen);
         return async () => {

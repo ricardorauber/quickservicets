@@ -388,6 +388,8 @@ registerShippedNative(deployNative);
 registerShippedNative(connectionsNative);
 export { budgetWarning, connectionsFeature, directConnectionNeeded, poolSettingsFor, proxyProblems, proxySettings, RDS_PROXY_TLS, resolveConnectionMode, SERVERLESS_DEFAULTS, SERVERLESS_TARGETS, sessionFeatures } from "./features/connections/index.ts";
 export { checkDatabases, redactCredentials, type DatabaseCheckResult } from "./features/connections/check.ts";
+export { bunSqlExecutor, executorClient, missingCapability, withSignal } from "./sql-executor.ts";
+export type { SqlExecutor, SqlExecutorCapabilities, SqlExecutorCapability, SqlQueryOptions } from "./sql-executor.ts";
 export type { ConnectionsOptions } from "./features/connections/index.ts";
 export { dockerfile, RUNTIME_IMAGES } from "./features/deploy/dockerfile.ts";
 export type { DockerfileOptions } from "./features/deploy/dockerfile.ts";

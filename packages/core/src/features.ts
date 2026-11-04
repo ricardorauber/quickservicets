@@ -5,6 +5,7 @@ import { ConfigError } from "./config-error.ts";
 import { featureVariables, optionLeaves } from "./environment.ts";
 import { maskSecrets } from "./secrets.ts";
 import { jsonLogger, safeLog, type Logger } from "./logger.ts";
+import type { SqlExecutorCapability } from "./sql-executor.ts";
 import type { EntityModel } from "./model.ts";
 import type { FileBase } from "./files.ts";
 import { tagsOf, type OptionsTarget } from "./feature-targets.ts";
@@ -94,6 +95,11 @@ export interface FeatureInput<S extends AnyOptionSchema> {
    * flag or a function of the resolved options; behind a connection proxy such a feature needs `connections.direct`.
    */
   needsSession?: boolean | Bivariant<(options: FeatureOptions<S>) => boolean>;
+  /**
+   * The SQL executor capabilities the feature needs (`listen`, `interactiveTransactions`, `preparedStatements`), as a
+   * list or a function of the resolved options; startup fails when the PostgreSQL adapter's executor lacks one.
+   */
+  sqlCapabilities?: readonly SqlExecutorCapability[] | Bivariant<(options: FeatureOptions<S>) => readonly SqlExecutorCapability[]>;
   /**
    * Checks the resolved options beyond what their schema says, like two options that cannot be used together, or an
    * option against the rest of the project's config (with its environment applied); each returned line is a
@@ -280,6 +286,8 @@ export interface FeatureDefinition<S extends AnyOptionSchema = AnyOptionSchema> 
   readonly infra?: FeatureInfra<FeatureOptions<S>>;
   /** Whether the feature keeps a database session of its own, for its resolved options. */
   readonly needsSession?: boolean | Bivariant<(options: FeatureOptions<S>) => boolean>;
+  /** The SQL executor capabilities the feature needs, for its resolved options. */
+  readonly sqlCapabilities?: readonly SqlExecutorCapability[] | Bivariant<(options: FeatureOptions<S>) => readonly SqlExecutorCapability[]>;
   /** Checks the resolved options beyond their schema, and against the rest of the config. */
   readonly validate?: Bivariant<(options: FeatureOptions<S>, config: Readonly<Record<string, unknown>>) => readonly string[]>;
   /** The entities the feature contributes. */
@@ -407,6 +415,7 @@ export function defineFeature<S extends AnyOptionSchema = ObjectOptionSchema<{}>
     enables: keyList("enables", input.enables),
     ...(input.env ? { env: Object.freeze({ ...input.env }) } : {}),
     ...(input.needsSession !== undefined ? { needsSession: input.needsSession } : {}),
+    ...(input.sqlCapabilities !== undefined ? { sqlCapabilities: typeof input.sqlCapabilities === "function" ? input.sqlCapabilities : Object.freeze([...input.sqlCapabilities]) } : {}),
     ...(input.infra !== undefined ? { infra: typeof input.infra === "function" ? input.infra : Object.freeze([...assertInfraRequirements(key, input.infra)]) } : {}),
     ...(input.validate !== undefined ? { validate: functionField(input.validate, "validate", invalid) } : {}),
     ...(input.entities !== undefined ? { entities: entitiesField(input.entities, invalid) } : {}),

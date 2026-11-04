@@ -16,6 +16,7 @@ import type { CrudOperation, ParsedTags } from "./model.ts";
 import { setActiveSetup } from "./setup-phase.ts";
 import { configureTracing, tracedLogger } from "./tracing.ts";
 import { configureMetrics } from "./metering.ts";
+import { assertSqlCapabilities } from "./sql-executor.ts";
 import { RESOLVE_STARTUP_SECRETS, usesSecrets } from "./secret-references.ts";
 
 /** Which worker process runs a feature's setup. */
@@ -306,6 +307,8 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
       // A service starts without the tracer of a service set up before it in this process.
       configureTracing(undefined);
       configureMetrics(undefined);
+      // A feature needing what the database's SQL executor cannot do fails before anything is set up.
+      assertSqlCapabilities(config.features, config.database);
       // Secret references resolve once the secrets native and the features registering providers are set up, before
       // every other setup, so the others only see values.
       const lastSecretsFeature = registered.findLastIndex((entry) => usesSecrets(entry.feature.definition));

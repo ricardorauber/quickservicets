@@ -22,6 +22,7 @@ Local environment and deployment:
 
 - [Local environment](/guides/local-environment/)
 - [Deploy targets](/guides/deploy-targets/)
+- [Serverless connections](/guides/serverless-connections/)
 
 Integrations:
 

@@ -53,7 +53,7 @@ describe("the native features guide", () => {
   test("security and http are on by default, the requirements are shown, and every row links to a guide and a reference page that exist", () => {
     const rows = tableRows(guide);
     for (const [key, cells] of rows) {
-      expect(cells[2]).toBe(["security", "http", "dev", "deploy"].includes(key) ? "by default" : "by its key");
+      expect(cells[2]).toBe(["security", "http", "dev", "deploy", "connections"].includes(key) ? "by default" : "by its key");
       const links = [...cells.join(" ").matchAll(/\]\(([^)]+)\)/g)].map((match) => match[1]!);
       // realtime links both of its guides, Server-Sent Events and WebSockets.
       expect(links).toHaveLength(key === "realtime" ? 3 : 2);

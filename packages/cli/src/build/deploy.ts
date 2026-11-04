@@ -215,6 +215,8 @@ function writePlatformEntry(root: string, assets: readonly RuntimeAsset[], call:
     ...assets.map((asset, index) => `import asset${index} from ${JSON.stringify(`./assets/${asset.name}`)} with { type: "file" };`),
     "",
     `setEmbeddedAssets({ ${assets.map((asset, index) => `${JSON.stringify(asset.name)}: asset${index}`).join(", ")} });`,
+    // The service knows the target it runs on, so options like connections.mode "auto" follow it.
+    `process.env.QS_DEPLOY_TARGET ??= ${JSON.stringify({ runLambda: "lambda", runAzureFunctions: "azure-functions", runCloudRun: "cloud-run" }[runner] ?? "server")};`,
     'const openApi = () => Bun.file(assetPath(".generated/openapi.json")).json();',
     'const inputs = { projectConfig, models, crudRoutes, endpoints, hooks, jobs, openApi, features, featureFolders, generatedDir: assetPath(".generated") };',
     `await ${call};`,

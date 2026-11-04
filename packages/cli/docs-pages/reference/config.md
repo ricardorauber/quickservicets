@@ -1064,3 +1064,27 @@ Imports the routes' modules at startup even with lazy routes (deploy.lazyRoutes)
 /** @preload */
 export type Post = { title: string };
 ```
+
+### `connections`
+
+Connection pool sizes for servers and functions: small, lazy pools on function targets, the adapters' pools on servers, with a budget warning.
+
+Every option, tag, command and hook of `connections` is on [its reference page](/reference/features/connections/).
+
+| Key | Type | Default | Environment variable | Description |
+| --- | --- | --- | --- | --- |
+| `connections.mode` | `"auto" \| "server" \| "serverless"` | `"auto"` | `QS_CONNECTIONS_MODE` | How connections are sized: server keeps the adapter's pools, serverless uses small pools that open lazily; auto is serverless on the lambda and azure-functions deploy targets and server otherwise. |
+| `connections.max` | `integer` | — | `QS_CONNECTIONS_MAX` | The most connections each worker opens to the database (default: the adapter's, 2 in serverless mode). |
+| `connections.idleTimeout` | `duration` | — | `QS_CONNECTIONS_IDLE_TIMEOUT` | How long an idle connection stays open (default: the adapter's, 30s in serverless mode). |
+| `connections.maxLifetime` | `duration` | — | `QS_CONNECTIONS_MAX_LIFETIME` | How long a connection lives before it is replaced (default: the adapter's, 15m in serverless mode). |
+| `connections.connectTimeout` | `duration` | — | `QS_CONNECTIONS_CONNECT_TIMEOUT` | How long opening a connection may take (default: the adapter's, 5s in serverless mode). |
+| `connections.lazy` | `boolean` | — | `QS_CONNECTIONS_LAZY` | Opens the first connection on the first query instead of at startup (default false, true in serverless mode). |
+| `connections.budget` | `integer` | — | `QS_CONNECTIONS_BUDGET` | The connections the database grants this service; startup warns when max × workers × instances may exceed it. |
+| `connections.instances` | `integer` | `1` | `QS_CONNECTIONS_INSTANCES` | The most instances (servers, containers or function instances) expected at once, for the budget. |
+| `connections.databases.<name>.max` | `record of integer` | — | `QS_CONNECTIONS_DATABASES_<NAME>_MAX` | The most connections each worker opens to the database (default: the adapter's, 2 in serverless mode). |
+| `connections.databases.<name>.idleTimeout` | `record of duration` | — | `QS_CONNECTIONS_DATABASES_<NAME>_IDLE_TIMEOUT` | How long an idle connection stays open (default: the adapter's, 30s in serverless mode). |
+| `connections.databases.<name>.maxLifetime` | `record of duration` | — | `QS_CONNECTIONS_DATABASES_<NAME>_MAX_LIFETIME` | How long a connection lives before it is replaced (default: the adapter's, 15m in serverless mode). |
+| `connections.databases.<name>.connectTimeout` | `record of duration` | — | `QS_CONNECTIONS_DATABASES_<NAME>_CONNECT_TIMEOUT` | How long opening a connection may take (default: the adapter's, 5s in serverless mode). |
+| `connections.databases.<name>.lazy` | `record of boolean` | — | `QS_CONNECTIONS_DATABASES_<NAME>_LAZY` | Opens the first connection on the first query instead of at startup (default false, true in serverless mode). |
+| `connections.enabled` | `boolean` | `true` | `QS_CONNECTIONS_ENABLED` | Turns the feature off when false. |
+| `connections.database` | `string` | — | `QS_CONNECTIONS_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |

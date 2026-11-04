@@ -65,6 +65,7 @@ const PAGES = [
   "guides/webhooks.md",
   "guides/local-environment.md",
   "guides/deploy-targets.md",
+  "guides/serverless-connections.md",
   "reference/index.md",
   "reference/tags.mdx",
   "reference/config.mdx",

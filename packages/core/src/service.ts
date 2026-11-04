@@ -182,6 +182,8 @@ async function bootService(prepared: PreparedService, worker: ServiceWorker, onF
   try {
     // Every database keeps its own migrations table.
     for (const [, adapter] of databaseAdapters(config.database)) {
+      // A lazy pool opens no connection at startup; `migrate` renames old tables instead.
+      if ((adapter as { poolSettings?: { lazy?: boolean } }).poolSettings?.lazy) continue;
       for (const table of await renameLegacyMigrationTables(adapter as { kind?: string; client?: unknown })) {
         safeLog(logger, "info", { timestamp: new Date().toISOString(), message: MIGRATIONS_TABLE_RENAMED, from: table.from, to: table.to });
       }

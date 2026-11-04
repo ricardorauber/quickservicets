@@ -9,8 +9,8 @@ export { ReferenceArrayChange, validateBody } from "./validation.ts";
 export type { ValidationMode, ValidationResult } from "./validation.ts";
 export { DEFAULT_LIMIT, FILTER_OPERATORS, MAX_LIMIT, MAX_LIST_VALUES, convertQueryValue, listQueryFields, OPERATORS_BY_TYPE, parseListQuery, queryableFields, SIZE_COMPARISONS } from "./query.ts";
 export type { Condition, FilterOperator, ListQuery, SizeComparison, SizeFilter, SortDirection, SortField } from "./query.ts";
-export { assertChannelName, CHANNEL_NAME, invalidConnection, UniqueViolationError } from "./adapter.ts";
-export type { AdapterKind, Aggregate, AggregateValues, ConnectOptions, ReadColumns, DatabaseAdapter, FindManyOptions, FindManyResult, ReferencePull, RelatedScope, StoredRecord } from "./adapter.ts";
+export { failedBeforeSend, withReconnect, assertChannelName, CHANNEL_NAME, invalidConnection, UniqueViolationError } from "./adapter.ts";
+export type { AdapterKind, Aggregate, AggregateValues, ConnectionPoolSettings, ConnectOptions, ReadColumns, DatabaseAdapter, FindManyOptions, FindManyResult, ReferencePull, RelatedScope, StoredRecord } from "./adapter.ts";
 export { memoryAdapter } from "./adapters/memory.ts";
 export { LEGACY_CONFIG_FILE, LEGACY_CONFIG_MESSAGE, LEGACY_MIGRATIONS_TABLE, MIGRATIONS_TABLE, MIGRATIONS_TABLE_RENAMED, renameLegacyMigrationTables } from "./legacy-names.ts";
 export type { RenamedTable } from "./legacy-names.ts";
@@ -361,6 +361,7 @@ import proxyNative from "./features/proxy/index.ts";
 import secretsNative, { type SecretRotation, type SecretsApi } from "./features/secrets/index.ts";
 import devNative, { type DevApi } from "./features/dev/index.ts";
 import deployNative, { type DeployApi } from "./features/deploy/index.ts";
+import connectionsNative from "./features/connections/index.ts";
 import webhooksNative, { type WebhookDeliveryEvent, type WebhookSubscriptionDisabledEvent, type WebhooksSetupApi } from "./features/webhooks/index.ts";
 import type { SecretReference as RequestSecretReference } from "./secret-references.ts";
 import type { RequestPlatform } from "./service-handler.ts";
@@ -384,6 +385,9 @@ registerShippedNative(secretsNative);
 registerShippedNative(webhooksNative);
 registerShippedNative(devNative);
 registerShippedNative(deployNative);
+registerShippedNative(connectionsNative);
+export { budgetWarning, connectionsFeature, poolSettingsFor, resolveConnectionMode, SERVERLESS_DEFAULTS, SERVERLESS_TARGETS } from "./features/connections/index.ts";
+export type { ConnectionsOptions } from "./features/connections/index.ts";
 export { dockerfile, RUNTIME_IMAGES } from "./features/deploy/dockerfile.ts";
 export type { DockerfileOptions } from "./features/deploy/dockerfile.ts";
 export { buildMachinePlatform, defaultPlatform, LAZY_ROUTE_TARGETS, lazyRoutesFor, DEPLOY_DISABLED, DEPLOY_PLATFORMS, DEPLOY_TARGETS, deployFeature, FUNCTION_TARGETS, isFunctionTarget, unknownTarget } from "./features/deploy/index.ts";
@@ -638,6 +642,8 @@ declare module "./features.ts" {
     dev?: NativeConfig<typeof devNative>;
     /** Deploy targets for `quickservicets build --target`, enabled by default; see the `deploy` reference page. */
     deploy?: NativeConfig<typeof deployNative>;
+    /** Connection pool sizes for servers and functions, enabled by default; see the `connections` reference page. */
+    connections?: NativeConfig<typeof connectionsNative>;
   }
   interface FeatureApis {
     events: EventsApi;

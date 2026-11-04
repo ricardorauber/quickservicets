@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { ClientSession, Db, Document, Filter, MongoClient, Sort } from "mongodb";
 import {
+  type ConnectionPoolSettings,
   invalidConnection,
   UniqueViolationError,
   type Aggregate,
@@ -12,6 +13,7 @@ import {
   type StoredRecord,
 } from "../adapter.ts";
 import type { EntityModel, FieldModel } from "../model.ts";
+import { parseDuration } from "../jobs/job.ts";
 import { schemaIdentifier } from "../sql/schema.ts";
 import { placedView, schemaViews } from "./schema-views.ts";
 import { isSecretReference, onSecretValue, secretValue, type SecretReference } from "../secret-references.ts";
@@ -25,6 +27,10 @@ export interface MongodbAdapterOptions {
 
 export interface MongodbAdapter extends DatabaseAdapter {
   readonly client: MongoClient | undefined;
+  /** The pool settings of the `connections` native, when it gave any. */
+  readonly poolSettings: ConnectionPoolSettings | undefined;
+  /** The driver options the pool settings of the `connections` native give. */
+  readonly clientOptions: { maxPoolSize?: number; maxIdleTimeMS?: number; connectTimeoutMS?: number };
   /** The default database: the resolved default schema's database, or the configured one. */
   readonly db: Db | undefined;
   /** The database of an explicit schema, or the default database. */
@@ -252,12 +258,21 @@ export function duplicateKeyField(error: unknown): string | undefined {
 }
 
 export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
+  /** The driver options of the pool settings: maxPoolSize, maxIdleTimeMS and connectTimeoutMS. */
+  const clientOptions = () => ({
+    ...(pool?.max !== undefined ? { maxPoolSize: pool.max } : {}),
+    ...(pool?.idleTimeout !== undefined ? { maxIdleTimeMS: parseDuration(pool.idleTimeout) } : {}),
+    ...(pool?.connectTimeout !== undefined ? { connectTimeoutMS: parseDuration(pool.connectTimeout) } : {}),
+  });
   // The driver loads when the adapter connects, so importing the core or creating an adapter never loads it.
   const driver = () => import("mongodb");
   let client: MongoClient | undefined;
   let stopRotation: (() => void) | undefined;
   let db: Db | undefined;
   let supportsTransactions = false;
+  let probe: (() => Promise<void>) | undefined;
+  let pool: ConnectionPoolSettings | undefined;
+  let recycle: ReturnType<typeof setInterval> | undefined;
   const sessions = new AsyncLocalStorage<ClientSession>();
 
   const databaseFor = (schema?: string | null): Db => {
@@ -344,14 +359,46 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
     },
     databaseFor,
     secretReferences: () => (isSecretReference(options.url) ? [options.url] : []),
+    configurePool(settings) {
+      pool = settings;
+    },
+    /** The pool settings of the `connections` native, when it gave any. */
+    get poolSettings() {
+      return pool;
+    },
+    /** The client options the `connections` native's settings give, for diagnostics. */
+    get clientOptions() {
+      return clientOptions();
+    },
     async connect(_, connectOptions = {}) {
       const { MongoClient } = await driver();
-      client = new MongoClient(secretValue(options.url));
-      await client.connect();
       const name = connectOptions.defaultSchema ? schemaIdentifier(connectOptions.defaultSchema) : options.database;
+      client = new MongoClient(secretValue(options.url), clientOptions());
       db = client.db(name);
-      const hello = await db.admin().command({ hello: 1 });
-      supportsTransactions = Boolean(hello.setName) || hello.msg === "isdbgrid";
+      // A lazy adapter lets the driver open its first connection on the first operation, and asks the server whether
+      // it supports transactions before the first transaction.
+      probe = async () => {
+        const hello = await db!.admin().command({ hello: 1 });
+        supportsTransactions = Boolean(hello.setName) || hello.msg === "isdbgrid";
+        probe = undefined;
+      };
+      if (!pool?.lazy) {
+        await client.connect();
+        await probe();
+      }
+      // A connection lifetime replaces the client on that period: a new one takes over and the old one closes.
+      if (recycle) clearInterval(recycle);
+      const lifetime = pool?.maxLifetime ? parseDuration(pool.maxLifetime) : undefined;
+      if (lifetime) {
+        recycle = setInterval(() => {
+          const previous = client;
+          client = new MongoClient(secretValue(options.url), clientOptions());
+          db = client.db(name);
+          const timer = setTimeout(() => void previous?.close().catch(() => {}), 30_000);
+          (timer as { unref?: () => void }).unref?.();
+        }, lifetime);
+        (recycle as { unref?: () => void }).unref?.();
+      }
       // A rotated credential is used by every new connection: a new client takes over once it connected, and the old
       // one closes after its operations had time to finish.
       stopRotation?.();
@@ -373,6 +420,8 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
         : undefined;
     },
     async disconnect() {
+      if (recycle) clearInterval(recycle);
+      recycle = undefined;
       stopRotation?.();
       stopRotation = undefined;
       await client?.close();
@@ -468,6 +517,7 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
       await db.command({ ping: 1 });
     },
     async transaction(fn) {
+          if (!sessions.getStore() && probe) await probe();
       if (sessions.getStore() || !supportsTransactions || !client) return fn();
       const current = client.startSession();
       try {

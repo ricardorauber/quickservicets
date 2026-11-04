@@ -1,0 +1,14 @@
+{
+  "name": "minimal-connections",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "quickservicets build",
+    "build:lambda": "quickservicets build --target lambda",
+    "test": "bun test tests"
+  },
+  "dependencies": {
+    "@quickservicets/core": "workspace:*",
+    "@quickservicets/cli": "workspace:*"
+  }
+}

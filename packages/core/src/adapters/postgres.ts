@@ -1,7 +1,8 @@
 import { SQL } from "bun";
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
-import { assertChannelName, invalidConnection, UniqueViolationError, type DatabaseAdapter, type RelatedScope, type StoredRecord } from "../adapter.ts";
+import { assertChannelName, invalidConnection, withReconnect, UniqueViolationError, type ConnectionPoolSettings, type DatabaseAdapter, type RelatedScope, type StoredRecord } from "../adapter.ts";
+import { parseDuration } from "../jobs/job.ts";
 import type { EntityModel } from "../model.ts";
 import { poolSizePerWorker } from "../workers.ts";
 import { buildDrizzleSchema, columnName, lazyDrizzleSchema, schemaIdentifier, type DrizzleSchema } from "../sql/schema.ts";
@@ -22,6 +23,8 @@ export const DEFAULT_POSTGRES_POOL_SIZE = 10;
 export interface PostgresAdapter extends DatabaseAdapter {
   /** The underlying `Bun.SQL` client while connected. */
   readonly client: SQL | undefined;
+  /** The pool settings of the `connections` native, when it gave any. */
+  readonly poolSettings: ConnectionPoolSettings | undefined;
   /** A view in which the default-schema entities live in `schema`, sharing this adapter's connection. */
   withSchema(schema: string): PostgresAdapter;
   sharesConnectionWith(other: DatabaseAdapter): boolean;
@@ -76,18 +79,30 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
   let drizzleFor: ((client: SQL) => BunSQLDatabase) | undefined;
   let schema: DrizzleSchema | undefined;
   let models: EntityModel[] = [];
+  let pool: ConnectionPoolSettings | undefined;
+  /** With lazy pool settings, opens the pool on its first use instead of while connecting. */
+  let openLazily: (() => void) | undefined;
+  const ensure = (): SQL | undefined => {
+    if (!client && openLazily) openLazily();
+    return client;
+  };
   const transactions = new AsyncLocalStorage<Session>();
 
   const executor = (): Executor => {
+    if (!transactions.getStore()) ensure();
     const current = transactions.getStore()?.db ?? db;
     if (!current) throw new Error("The PostgreSQL adapter is not connected");
     return current;
   };
   /** Runs SQL text with its parameters on the current transaction, or on the pool. */
   const run = async (statement: Statement): Promise<Row[]> => {
-    const target = transactions.getStore()?.sql ?? client;
+    const session = transactions.getStore()?.sql;
+    const target = session ?? ensure();
     if (!target) throw new Error("The PostgreSQL adapter is not connected");
-    return (await target.unsafe(statement.text, statement.params)) as Row[];
+    const send = async () => (await target.unsafe(statement.text, statement.params)) as Row[];
+    // A connection closed while the instance was frozen fails before the statement is sent: once more, on a new
+    // connection of the pool; inside a transaction the session is gone, so nothing is retried.
+    return session ? send() : withReconnect(send, send, statement.text, pool?.onReconnect);
   };
 
   const translateErrors = async <T>(operation: () => Promise<T>): Promise<T> => {
@@ -101,6 +116,7 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
   };
   const transaction = async <T>(fn: () => Promise<T>): Promise<T> => {
     if (transactions.getStore()) return fn();
+    ensure();
     if (!client || !drizzleFor) throw new Error("The PostgreSQL adapter is not connected");
     const makeDrizzle = drizzleFor;
     return client.begin((tx) => {
@@ -266,7 +282,7 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
       kind: "postgres" as const,
       supportsRollback: true,
       get client() {
-        return client;
+        return ensure();
       },
       ...operations(() => (viewSchema ??= schema ? lazyDrizzleSchema(models, "postgres", { defaultSchema: name }, () => schema!) : undefined), new Map()),
     };
@@ -277,7 +293,14 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
     kind: "postgres",
     supportsRollback: true,
     get client() {
-      return client;
+      return ensure();
+    },
+    configurePool(settings) {
+      pool = settings;
+    },
+    /** The pool settings the `connections` native gave, for diagnostics. */
+    get poolSettings() {
+      return pool;
     },
     async connect(entityModels, connectOptions = {}) {
       models = entityModels;
@@ -288,13 +311,26 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
         await admin.unsafe(`create schema if not exists "${defaultSchema}"`);
         await admin.close();
       }
-      const max = connectOptions.poolSize ?? poolSizePerWorker(options.max ?? DEFAULT_POSTGRES_POOL_SIZE, connectOptions.workers);
-      // The search path is a connection parameter, so every pooled connection uses the default schema.
-      const pool = () => new SQL({ url: secretValue(options.url), max, ...(defaultSchema ? { connection: { search_path: defaultSchema } } : {}) } as never);
-      client = pool();
+      const max = connectOptions.poolSize ?? pool?.max ?? poolSizePerWorker(options.max ?? DEFAULT_POSTGRES_POOL_SIZE, connectOptions.workers);
+      const seconds = (value: string | undefined) => (value === undefined ? undefined : Math.max(1, Math.round((parseDuration(value) ?? 0) / 1000)));
+      const limits = {
+        ...(pool?.idleTimeout !== undefined ? { idleTimeout: seconds(pool.idleTimeout) } : {}),
+        ...(pool?.maxLifetime !== undefined ? { maxLifetime: seconds(pool.maxLifetime) } : {}),
+        ...(pool?.connectTimeout !== undefined ? { connectionTimeout: seconds(pool.connectTimeout) } : {}),
+      };
+      // The search path is a connection parameter, so every pooled connection uses the default schema. Bun's pool opens
+      // a connection on the first query, so it is lazy by itself.
+      const newPool = () => new SQL({ url: secretValue(options.url), max, ...limits, ...(defaultSchema ? { connection: { search_path: defaultSchema } } : {}) } as never);
       const { drizzle } = await driver();
       drizzleFor = (sqlClient) => drizzle({ client: sqlClient });
-      db = drizzleFor(client);
+      // Bun.SQL opens a connection as soon as a pool is created, so a lazy adapter creates it on its first query.
+      const open = () => {
+        openLazily = undefined;
+        client = newPool();
+        db = drizzleFor!(client);
+      };
+      if (pool?.lazy) openLazily = open;
+      else open();
       // A rotated credential is used by every new connection: a new pool takes over, and the old one closes once its
       // open connections finished their queries.
       stopRotation?.();
@@ -302,7 +338,7 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
         ? onSecretValue(options.url, () => {
             const previous = client;
             if (!previous) return;
-            client = pool();
+            client = newPool();
             db = drizzleFor!(client);
             void previous.close({ timeout: 30 }).catch(() => {});
           })
@@ -313,6 +349,7 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
     async disconnect() {
       stopRotation?.();
       stopRotation = undefined;
+      openLazily = undefined;
       await client?.close();
       client = undefined;
       db = undefined;
@@ -347,9 +384,9 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
     },
     async notify(channel, payload) {
       assertChannelName(channel);
-      if (!client) throw new Error("The PostgreSQL adapter is not connected");
+      if (!ensure()) throw new Error("The PostgreSQL adapter is not connected");
       // The pool, never a transaction's connection: a notification is sent at once.
-      await client`select pg_notify(${channel}, ${payload})`;
+      await client!`select pg_notify(${channel}, ${payload})`;
     },
   };
   return adapter;

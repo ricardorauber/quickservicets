@@ -71,7 +71,60 @@ export interface ConnectOptions {
   poolSize?: number;
 }
 
+/** Pool settings the `connections` native gives an adapter before it connects. */
+export interface ConnectionPoolSettings {
+  /** The most connections the pool opens in this process. */
+  max?: number;
+  /** How long an idle connection stays open, as a duration like `30s`. */
+  idleTimeout?: string;
+  /** How long a connection lives before it is replaced, as a duration like `15m`. */
+  maxLifetime?: string;
+  /** How long opening a connection may take, as a duration like `5s`. */
+  connectTimeout?: string;
+  /** Opens the first connection on the first query instead of while connecting. */
+  lazy?: boolean;
+  /** Called when a statement is retried on a new connection, after its connection closed before it was sent. */
+  onReconnect?: (error: unknown) => void;
+}
+
+/** Connection errors raised before a statement reached the database: its socket was gone, so it never ran. */
+const BEFORE_SEND_CODES = new Set(["ECONNRESET", "EPIPE", "ECONNREFUSED", "ENOTCONN", "ERR_SOCKET_CLOSED"]);
+
+/**
+ * Whether a failed statement may be retried on a new connection: an error marked `sent: false`, a socket error raised
+ * while writing it, or a closed connection under a read (which changes nothing even if it ran). Errors after a write
+ * was sent are never retried.
+ */
+export function failedBeforeSend(error: unknown, statement?: string): boolean {
+  const failure = error as { code?: unknown; errno?: unknown; sent?: unknown } | null;
+  if (failure?.sent === true) return false;
+  if (failure?.sent === false) return true;
+  const code = String(failure?.code ?? failure?.errno ?? "");
+  if (BEFORE_SEND_CODES.has(code)) return true;
+  const read = statement !== undefined && /^\s*(select|with\s[\s\S]*\bselect\b(?![\s\S]*\b(insert|update|delete)\b))/i.test(statement);
+  return code === "ERR_POSTGRES_CONNECTION_CLOSED" && read;
+}
+
+/**
+ * Runs a statement, and once more on a new connection when it failed before being sent, calling `onReconnect` with
+ * the first error; any other error is thrown as it is.
+ */
+export async function withReconnect<T>(first: () => Promise<T>, again: () => Promise<T>, statement: string, onReconnect?: (error: unknown) => void): Promise<T> {
+  try {
+    return await first();
+  } catch (error) {
+    if (!failedBeforeSend(error, statement)) throw error;
+    onReconnect?.(error);
+    return again();
+  }
+}
+
 export interface DatabaseAdapter {
+  /**
+   * Applies pool settings of the `connections` native, called before `connect`; the PostgreSQL and MongoDB adapters
+   * size their pools with them, and adapters without a pool leave it out.
+   */
+  configurePool?(settings: ConnectionPoolSettings): void;
   /** Identifies built-in adapters, so tools such as migrations know the database dialect. */
   readonly kind?: AdapterKind;
   /** The schema (or database) a view places the default-schema entities in, for traces; undefined for the adapter itself. */

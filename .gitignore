@@ -15,3 +15,6 @@ specs/
 
 # Editor settings
 .vscode/
+
+# Deployable output of quickservicets build
+dist/

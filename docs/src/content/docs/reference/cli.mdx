@@ -41,10 +41,10 @@ quickservicets dev [--services]
 
 ## `build`
 
-Generates `.generated/`: models, routes, types, the OpenAPI document and the server entry.
+Generates `.generated/`: models, routes, types, the OpenAPI document and the server entry, then writes the deployable output of the deploy target (`--target`, `QS_DEPLOY_TARGET` or `deploy.target`, `server` by default) to `<outDir>/<target>/`.
 
 ```bash
-quickservicets build
+quickservicets build [--target server|binary|lambda|azure-functions|cloud-run]
 ```
 
 **JSON (`--json`):**
@@ -67,6 +67,11 @@ quickservicets build
   "overrides": [
     "string"
   ],
+  "target": {
+    "name": "string?",
+    "dir": "string?",
+    "size": "number?"
+  },
   "warnings": [
     "string"
   ]

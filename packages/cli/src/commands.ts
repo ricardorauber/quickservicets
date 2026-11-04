@@ -31,6 +31,7 @@ const BUILD_JSON: JsonFields = {
   fromFeatures: { endpoints: "number", hooks: "number", jobs: "number" },
   buildSteps: ["string"],
   overrides: ["string"],
+  target: { name: "string?", dir: "string?", size: "number?" },
   warnings: ["string"],
 };
 
@@ -75,12 +76,14 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
   }),
   defineCommand({
     name: "build",
-    usage: "quickservicets build",
-    description: "Generates `.generated/`: models, routes, types, the OpenAPI document and the server entry.",
+    usage: "quickservicets build [--target server|binary|lambda|azure-functions|cloud-run]",
+    description:
+      "Generates `.generated/`: models, routes, types, the OpenAPI document and the server entry, then writes the deployable output of the deploy target (`--target`, `QS_DEPLOY_TARGET` or `deploy.target`, `server` by default) to `<outDir>/<target>/`.",
+    flags: object({ target: string().optional().describe("The deploy target: server, binary, lambda, azure-functions or cloud-run.") }),
     json: BUILD_JSON,
-    async run({ cwd, output, result }) {
+    async run({ cwd, flags, output, result }) {
       const { build } = await import("./build/build.ts");
-      const summary = await build(cwd);
+      const summary = await build(cwd, process.env, { deploy: { ...(flags.target !== undefined ? { target: flags.target } : {}) } });
       result({
         entities: summary.entities,
         endpoints: summary.endpoints,
@@ -89,10 +92,15 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
         fromFeatures: summary.fromFeatures ?? { endpoints: 0, hooks: 0, jobs: 0 },
         buildSteps: (summary.buildSteps ?? []).map((step) => step.key),
         overrides: summary.overrides ?? [],
+        target: summary.deploy ? { name: summary.deploy.target, dir: summary.deploy.dir, size: summary.deploy.size } : {},
         warnings: summary.warnings,
       });
       for (const line of summary.overrides ?? []) output.log(line);
       output.log(buildSummaryLine(summary));
+      if (summary.deploy) {
+        const { targetLine } = await import("./build/deploy.ts");
+        output.log(targetLine(summary.deploy));
+      }
       const fromFeatures = summary.fromFeatures;
       if (fromFeatures && fromFeatures.endpoints + fromFeatures.hooks + fromFeatures.jobs > 0) {
         output.log(`Features added ${fromFeatures.endpoints} endpoints, ${fromFeatures.hooks} hooks and ${fromFeatures.jobs} jobs.`);

@@ -1,11 +1,14 @@
 import type { Database } from "bun:sqlite";
-import { generateSQLiteDrizzleJson, generateSQLiteMigration } from "drizzle-kit/api";
 import type { EntityModel } from "../model.ts";
 import { buildDrizzleSchema, type DrizzleSchemaOptions } from "../sql/schema.ts";
 
 /** DDL statements that create the tables of `models` on an empty SQLite database. */
 export async function sqliteDdl(models: EntityModel[], options: DrizzleSchemaOptions = {}): Promise<string[]> {
   const schema = buildDrizzleSchema(models, "sqlite", options);
+  // Loaded on first use through a computed name, so a service bundle whose config imports the testing helpers leaves
+  // the migration generator (and the optional drivers it imports) out.
+  const generator: string = "drizzle-kit/api";
+  const { generateSQLiteDrizzleJson, generateSQLiteMigration } = (await import(generator)) as typeof import("drizzle-kit/api");
   return generateSQLiteMigration(await generateSQLiteDrizzleJson({}), await generateSQLiteDrizzleJson({ ...schema.tables, ...schema.junctions }));
 }
 

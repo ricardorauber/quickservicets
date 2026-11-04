@@ -347,6 +347,7 @@ import metricsNative, { type MetricsApi } from "./features/metrics/index.ts";
 import proxyNative from "./features/proxy/index.ts";
 import secretsNative, { type SecretRotation, type SecretsApi } from "./features/secrets/index.ts";
 import devNative, { type DevApi } from "./features/dev/index.ts";
+import deployNative from "./features/deploy/index.ts";
 import webhooksNative, { type WebhookDeliveryEvent, type WebhookSubscriptionDisabledEvent, type WebhooksSetupApi } from "./features/webhooks/index.ts";
 import type { SecretReference as RequestSecretReference } from "./secret-references.ts";
 import { registerNative as registerShippedNative, type FeatureConfig as NativeConfig } from "./features.ts";
@@ -368,6 +369,9 @@ registerShippedNative(proxyNative);
 registerShippedNative(secretsNative);
 registerShippedNative(webhooksNative);
 registerShippedNative(devNative);
+registerShippedNative(deployNative);
+export { buildMachinePlatform, defaultPlatform, DEPLOY_DISABLED, DEPLOY_PLATFORMS, DEPLOY_TARGETS, deployFeature, FUNCTION_TARGETS, isFunctionTarget, unknownTarget } from "./features/deploy/index.ts";
+export type { DeployOptions, DeployPlatform, DeployTargetName } from "./features/deploy/index.ts";
 export {
   COMPOSE_HEADER,
   COMPOSE_OVERRIDE_FILE,
@@ -608,6 +612,8 @@ declare module "./features.ts" {
     webhooks?: NativeConfig<typeof webhooksNative>;
     /** Local services for `quickservicets dev --services`, enabled by default; see the `dev` reference page. */
     dev?: NativeConfig<typeof devNative>;
+    /** Deploy targets for `quickservicets build --target`, enabled by default; see the `deploy` reference page. */
+    deploy?: NativeConfig<typeof deployNative>;
   }
   interface FeatureApis {
     events: EventsApi;

@@ -1014,3 +1014,18 @@ Every option, tag, command and hook of `dev` is on [its reference page](/referen
 | `dev.runner` | `ContainerRunner` | — | not overridable | Replaces the `docker compose` calls of the local services and test containers, like a runner calling `podman compose`: `up`, `down`, `status` and `logs` receive the compose files, the project name and a signal. |
 | `dev.enabled` | `boolean` | `true` | `QS_DEV_ENABLED` | Turns the feature off when false. |
 | `dev.database` | `string` | — | `QS_DEV_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
+
+### `deploy`
+
+Deploy targets: `quickservicets build --target <target>` writes the deployable output for a server, a binary, AWS Lambda, Azure Functions or Google Cloud Run.
+
+Every option, tag, command and hook of `deploy` is on [its reference page](/reference/features/deploy/).
+
+| Key | Type | Default | Environment variable | Description |
+| --- | --- | --- | --- | --- |
+| `deploy.target` | `"server" \| "binary" \| "lambda" \| "azure-functions" \| "cloud-run"` | `"server"` | `QS_DEPLOY_TARGET` | The platform `quickservicets build` writes the deployable output for: server, binary, lambda, azure-functions or cloud-run; `--target` wins over it. |
+| `deploy.outDir` | `string` | `"dist"` | `QS_DEPLOY_OUT_DIR` | The folder of the deployable output; each target writes `<outDir>/<target>/`. |
+| `deploy.name` | `string` | — | `QS_DEPLOY_NAME` | The name of the deployed service and its artifacts (default: the package name without its scope). |
+| `deploy.platform` | `"linux-x64" \| "linux-arm64" \| "darwin-x64" \| "darwin-arm64" \| "windows-x64"` | — | `QS_DEPLOY_PLATFORM` | The operating system and CPU of compiled binaries (default: the build machine for server and binary, linux-arm64 for lambda, linux-x64 for azure-functions and cloud-run). |
+| `deploy.enabled` | `boolean` | `true` | `QS_DEPLOY_ENABLED` | Turns the feature off when false. |
+| `deploy.database` | `string` | — | `QS_DEPLOY_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |

@@ -25,7 +25,7 @@ NODE_ENV=production bun run quickservicets migrate
 NODE_ENV=production bun run start
 ```
 
-`bun run start` runs `bun .generated/server.ts`. It listens on `PORT` (default 3000), or `server.port`.
+`bun run start` runs `bun .generated/server.ts`. It listens on `PORT` (default 3000), or `server.port`. `bun run build` also writes the deployable output of the deploy target to `dist/<target>/`: `--target server` (the default), `binary`, `lambda`, `azure-functions` or `cloud-run`, or `QS_DEPLOY_TARGET`; see `/guides/deploy-targets/`.
 
 ## Production settings
 

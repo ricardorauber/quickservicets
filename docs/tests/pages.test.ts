@@ -64,6 +64,7 @@ const PAGES = [
   "guides/coding-agents.md",
   "guides/webhooks.md",
   "guides/local-environment.md",
+  "guides/deploy-targets.md",
   "reference/index.md",
   "reference/tags.mdx",
   "reference/config.mdx",

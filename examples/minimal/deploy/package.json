@@ -1,0 +1,18 @@
+{
+  "name": "minimal-deploy",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "quickservicets build",
+    "build:server": "quickservicets build --target server",
+    "build:binary": "quickservicets build --target binary",
+    "build:lambda": "quickservicets build --target lambda",
+    "build:azure": "quickservicets build --target azure-functions",
+    "build:cloud-run": "quickservicets build --target cloud-run",
+    "test": "bun test tests"
+  },
+  "dependencies": {
+    "@quickservicets/core": "workspace:*",
+    "@quickservicets/cli": "workspace:*"
+  }
+}

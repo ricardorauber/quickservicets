@@ -51,6 +51,7 @@ import { describeEndpoints } from "../openapi/endpoint-docs.ts";
 import { generateOpenApi } from "../openapi/generate-openapi.ts";
 import { writeEnvExample } from "../env/env-example.ts";
 import { assertFeatureImports, featureTypeLines, generateFeaturesFile, overrideLine } from "./project-features.ts";
+import { deployTargetOf, functionModeWarnings, writeDeployOutput, type DeployOutput } from "./deploy.ts";
 
 export const GENERATED_DIR = ".generated";
 
@@ -86,6 +87,8 @@ export interface BuildSummary {
   buildInputs?: Record<string, string[]>;
   /** The features' build steps that ran, in order. */
   buildSteps?: BuildStepResult[];
+  /** The deployable output `quickservicets build` wrote for its target. */
+  deploy?: DeployOutput;
   warnings: string[];
 }
 
@@ -459,21 +462,27 @@ export function vectorIndexWarnings(models: EntityModel[], kind: string | undefi
 export interface BuildOptions {
   /** Runs only these features' build steps, keeping the other features' output (default: every step). */
   steps?: readonly string[];
+  /**
+   * Writes the deployable output of a deploy target after `.generated/`, as `quickservicets build` does: `target` is
+   * the `--target` flag, which wins over `QS_DEPLOY_TARGET` and the config.
+   */
+  deploy?: { target?: string };
 }
 
 export async function build(projectRoot: string, env: Record<string, string | undefined> = process.env, options: BuildOptions = {}): Promise<BuildSummary> {
   assertFeatureImports(projectRoot);
   const config = await loadConfig(projectRoot, env);
+  const target = options.deploy ? deployTargetOf(config, options.deploy.target) : undefined;
   // Endpoint files are parsed with the enabled features' tags too.
   const restore = useFeatureTags(config.features, builtInTagOwner);
   try {
-    return await buildProject(projectRoot, config, options);
+    return await buildProject(projectRoot, config, options, target);
   } finally {
     restore();
   }
 }
 
-async function buildProject(projectRoot: string, config: ResolvedConfig, options: BuildOptions): Promise<BuildSummary> {
+async function buildProject(projectRoot: string, config: ResolvedConfig, options: BuildOptions, target?: string): Promise<BuildSummary> {
   const featureKeys = registeredProjectFeatures().map((feature) => feature.key);
   const variables = declaredVariables(config.env, config.features.map((feature) => ({ key: feature.key, env: feature.definition.env })));
   const parsed = parseProjectModels(projectRoot, config.features, { storage: storageConfigured(config), databases: Object.keys(config.databases), databaseTenancy: databaseTenancyOf(config) });
@@ -511,6 +520,17 @@ async function buildProject(projectRoot: string, config: ResolvedConfig, options
     if (parsed.metadata.tags?.webhook) throw new BuildError(`${route.file}: invalid @webhook: only webhook.ts files take @webhook`);
     return { route, ...parsed };
   });
+  // On function targets, what the platform must drive is a warning, and a WebSocket route cannot run at all.
+  const queuesFeature = config.features.find((feature) => feature.key === "queues");
+  const deployWarnings = target
+    ? functionModeWarnings({
+        target,
+        workers: config.server.workers,
+        jobs: jobs.map((entry) => entry.name),
+        queues: queuesFeature && queuesFeature.options.broker === undefined ? queueTypes(folderFiles).map((entry) => entry.name) : [],
+        sockets: endpoints.filter((endpoint) => endpoint.route.kind === "websocket").map((endpoint) => endpoint.route.file),
+      })
+    : [];
   validateHookReferences(
     models,
     endpoints.map((endpoint) => ({ file: endpoint.route.file, hooks: endpoint.hooks })),
@@ -585,7 +605,7 @@ async function buildProject(projectRoot: string, config: ResolvedConfig, options
   const buildSteps = await runBuildSteps({ root: projectRoot, generatedDir: join(projectRoot, GENERATED_DIR), config, models, folderFiles, only: options.steps });
   // Each named database's connection variable is listed too, as an optional secret.
   const envExampleWarning = writeEnvExample(projectRoot, [...variables, ...databaseVariables(Object.keys(config.databases))]);
-  const warnings: string[] = [...config.warnings, ...publishWarnings, ...(envExampleWarning ? [envExampleWarning] : []), ...joinTableWarnings(models, config.database.kind), ...vectorIndexWarnings(models, config.database.kind)];
+  const warnings: string[] = [...config.warnings, ...deployWarnings, ...publishWarnings, ...(envExampleWarning ? [envExampleWarning] : []), ...joinTableWarnings(models, config.database.kind), ...vectorIndexWarnings(models, config.database.kind)];
   const tsconfigWarning = generatedIncludeWarning(projectRoot);
   if (tsconfigWarning) warnings.push(tsconfigWarning);
   warnings.push(...endpointDocs.warnings);
@@ -600,5 +620,6 @@ async function buildProject(projectRoot: string, config: ResolvedConfig, options
   } else {
     warnings.push(...(await databaseMigrationWarnings(projectRoot, config, models)));
   }
-  return { entities: models.length, endpoints: endpoints.length, hooks: hooks.size, features: featureKeys.length, overrides, fromFeatures: scanned.fromFeatures, watch: featureWatchPaths(config.features), buildInputs: Object.fromEntries(config.features.filter((feature) => feature.definition.build).map((feature) => [feature.key, featureWatchPaths([feature])])), buildSteps, warnings };
+  const deploy = target ? await writeDeployOutput(projectRoot, config, target) : undefined;
+  return { ...(deploy ? { deploy } : {}), entities: models.length, endpoints: endpoints.length, hooks: hooks.size, features: featureKeys.length, overrides, fromFeatures: scanned.fromFeatures, watch: featureWatchPaths(config.features), buildInputs: Object.fromEntries(config.features.filter((feature) => feature.definition.build).map((feature) => [feature.key, featureWatchPaths([feature])])), buildSteps, warnings };
 }

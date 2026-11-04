@@ -22,3 +22,4 @@
 | [`secrets`](/reference/features/secrets/) | Secret references like secret("vault://kv/db#url") in the configuration, resolved at startup by pluggable providers, with built-in env:// and file:// providers. | no |
 | [`webhooks`](/reference/features/webhooks/) | Outgoing webhooks signed by the Standard Webhooks scheme for the events subscriptions choose, and incoming webhook routes. | no |
 | [`dev`](/reference/features/dev/) | Local services for development: `quickservicets dev --services` starts the database and every service the project's features need with Docker Compose. | yes |
+| [`deploy`](/reference/features/deploy/) | Deploy targets: `quickservicets build --target <target>` writes the deployable output for a server, a binary, AWS Lambda, Azure Functions or Google Cloud Run. | yes |

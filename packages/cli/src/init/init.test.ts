@@ -63,7 +63,7 @@ test("the tsconfig uses the Bun types and includes every convention folder, and 
 test("the .gitignore keeps secrets, dependencies and generated files out of git", async () => {
   const root = emptyDir();
   await initProject(root, { db: "sqlite" });
-  expect(read(root, ".gitignore").split("\n").filter(Boolean)).toEqual([".env", "node_modules/", ".generated/", "uploads/", "data.db"]);
+  expect(read(root, ".gitignore").split("\n").filter(Boolean)).toEqual([".env", "node_modules/", ".generated/", "dist/", "uploads/", "data.db"]);
 });
 
 test("a non-empty directory is rejected and nothing is written", async () => {
@@ -228,7 +228,8 @@ test("a fresh project, linked to the workspace packages, builds 0 entities and b
   symlinkSync(join(import.meta.dir, "../index.ts"), join(root, "node_modules/.bin/quickservicets"));
   const logs: string[] = [];
   expect(await run(["build"], { log: (line) => logs.push(line), error: () => {} }, root)).toBe(0);
-  expect(logs).toEqual(["Built 0 entities, 0 custom endpoints and 0 hooks."]);
+  expect(logs[0]).toBe("Built 0 entities, 0 custom endpoints and 0 hooks.");
+  expect(logs.slice(1).map((line) => line.replace(/\(.*\)/, "(size)"))).toEqual(["Target server: dist/server/ (size)"]);
   // The service listens on 3000 by default; the test moves it to a free port with PORT, as the docs show.
   expect((await loadConfig(root, {})).server.port).toBe(3000);
   const probe = Bun.serve({ port: 0, fetch: () => new Response() });

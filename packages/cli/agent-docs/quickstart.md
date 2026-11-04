@@ -39,7 +39,7 @@ Never declare `id`, `createdAt` or `updatedAt`; every entity gets them.
 bun run build
 ```
 
-It prints `Built 1 entity, 0 custom endpoints and 0 hooks.` and writes `.generated/`.
+It prints `Built 1 entity, 0 custom endpoints and 0 hooks.`, writes `.generated/`, and writes the deployable server bundle to `dist/server/` (`Target server: dist/server/ (<size>)`).
 
 ## 4. Create and apply the migration (SQLite, PostgreSQL and MongoDB only)
 

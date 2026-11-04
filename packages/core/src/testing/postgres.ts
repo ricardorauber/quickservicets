@@ -1,11 +1,14 @@
 import type { SQL } from "bun";
-import { generateDrizzleJson, generateMigration } from "drizzle-kit/api";
 import type { EntityModel } from "../model.ts";
 import { buildDrizzleSchema, type DrizzleSchemaOptions } from "../sql/schema.ts";
 
 /** DDL statements that create the tables of `models` on an empty PostgreSQL schema. */
 export async function postgresDdl(models: EntityModel[], options: DrizzleSchemaOptions = {}): Promise<string[]> {
   const schema = buildDrizzleSchema(models, "postgres", options);
+  // Loaded on first use through a computed name, so a service bundle whose config imports the testing helpers leaves
+  // the migration generator (and the optional drivers it imports) out.
+  const generator: string = "drizzle-kit/api";
+  const { generateDrizzleJson, generateMigration } = (await import(generator)) as typeof import("drizzle-kit/api");
   return generateMigration(generateDrizzleJson({}), generateDrizzleJson({ ...schema.tables, ...schema.junctions }));
 }
 

@@ -141,6 +141,7 @@ The `Repositories` type is what gives `repos.users` its types in endpoints and h
 - **`package.json`** has the two framework dependencies, `@types/bun` and `typescript` as dev dependencies, and the `dev`, `build`, `migrate`, `start` and `typecheck` scripts. `bun run typecheck` runs `tsc --noEmit`; run `bun run build` first so the generated types exist.
 - **`tsconfig.json`** uses the Bun types (`"types": ["bun"]`, for `Bun` and `process`) and includes every convention folder (`entities`, `endpoints`, `hooks`, `jobs`, `features`, `migrations`, `lib` and `tests`), the config file and `.generated/**/*.ts`, so your editor checks all your code and sees the generated types. TypeScript skips folders whose name starts with a dot unless a pattern names their files.
 - **`uploads/`** appears once someone uploads a file: it is the default local storage for `File` and `Media` records. `init` lists it in `.gitignore` too.
+- **`dist/`** holds the deployable output `quickservicets build` writes for its deploy target, like `dist/server/`; `init` lists it in `.gitignore`.
 - With SQLite, the database file (`data.db` by default) sits in the project folder too, and is also in `.gitignore`.
 
 ## Next

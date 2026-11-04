@@ -189,7 +189,7 @@ function packageJson(name: string, dependency: string): string {
 }
 
 /** Keeps secrets, dependencies and everything the framework generates out of git. */
-const GITIGNORE = [".env", "node_modules/", ".generated/", "uploads/", "data.db"].join("\n") + "\n";
+const GITIGNORE = [".env", "node_modules/", ".generated/", "dist/", "uploads/", "data.db"].join("\n") + "\n";
 
 export const NEXT_STEPS = [
   "Next steps:",

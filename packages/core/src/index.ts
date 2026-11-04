@@ -107,6 +107,8 @@ export { assetPath, bundledAssets, setAssetsRoot, setEmbeddedAssets } from "./as
 export { isLazyEndpoint, lazyEndpoint } from "./http/lazy-endpoint.ts";
 export { handleLambdaEvent, isLambdaHttpEvent, isTextContent, LAMBDA_RESPONSE_LIMIT, LAMBDA_TOO_LARGE, lambdaRequest, lambdaResult, runLambda, UNSUPPORTED_LAMBDA_EVENT } from "./platforms/lambda.ts";
 export type { LambdaContext, LambdaOptions, LambdaRequest, LambdaResult } from "./platforms/lambda.ts";
+export { forwardedClient, runAzureFunctions } from "./platforms/azure.ts";
+export type { AzureFunctionsOptions, InvocationResult } from "./platforms/azure.ts";
 export { applyMigrations, HISTORY_TABLE, MigrationError, MONGO_HISTORY_COLLECTION, MONGO_NO_TRANSACTION_WARNING, runMigrations, schemaHistoryTable, splitSqlOptions, withSourceDrivers } from "./migration-runner.ts";
 export type { AppliedMigration, BundledMigration, BundledMigrationInputs, DatabaseDriver, MigrateOptions, MigrateResult, MigrationDriver, MigrationFile, MigrationModule, MigrationSource } from "./migration-runner.ts";
 export { createServiceHandler, DEADLINE_EXCEEDED, DEADLINE_MARGIN_MS, platformOf } from "./service-handler.ts";

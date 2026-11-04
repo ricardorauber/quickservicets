@@ -131,6 +131,17 @@ await handler.runJob("reports/daily");
 
 Deploy `function.zip` as a function on `provided.al2023` with the handler `bootstrap`, behind a function URL or API Gateway. Setting `deploy.platform` (like `darwin-arm64`) compiles the bootstrap for another machine, so it runs against a local Runtime API.
 
+## Azure Functions
+
+`--target azure-functions` writes a [custom handler](https://learn.microsoft.com/azure/azure-functions/functions-custom-handlers) app in `dist/azure-functions/`: the service compiled for `linux-x64`, a `host.json` declaring it as the custom handler with `enableForwardingHttpRequest: true` and an empty `extensions.http.routePrefix`, and `http/function.json`, an HTTP trigger on `{*path}` for every method with `authLevel` from `deploy.azure.authLevel` (`anonymous`, or `function` to require a function key).
+
+- The binary listens on `FUNCTIONS_CUSTOMHANDLER_PORT` (or `PORT`) and serves the requests the Functions host forwards through the platform handler, with `x-ms-invocation-id` as the request id. The host runs on loopback, so the client address comes from its `x-forwarded-for`.
+- Each job with a cron schedule gets a timer function, `job-<name with / as ->/function.json`, with the cron as a six-field NCRONTAB (`0 6 * * *` becomes `0 0 6 * * *`; presets and intervals that divide a minute, an hour or a day convert too). Its invocation arrives as `POST /job-<name>` with `{ Data, Metadata }`, runs the job and answers `{ Outputs: {}, Logs: [...], ReturnValue }`; a failing job answers 500 with the error in `Logs`, so the host records it and applies its retry policy. An interval like `every 7m` fails the build with `jobs/<name>: every 7m cannot be expressed as a cron for Azure Functions; use a cron schedule`.
+- A route whose path is a generated function name fails the build with `Route /<name> collides with the Azure function <name>; rename the route`.
+- `deploy.azure.functionTimeout` (like `10m`) is written to `host.json` as `00:10:00`, and `deploy.azure.extensionBundle` (on by default) adds the default extension bundle so trigger bindings resolve.
+
+Publish the folder with `func azure functionapp publish <app> --custom` (Core Tools), or zip it for a run-from-package deployment.
+
 ## See also
 
 - [Local environment](/guides/local-environment/): the services the project needs, on your machine.

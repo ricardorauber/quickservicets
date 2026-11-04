@@ -214,7 +214,10 @@ export async function runLambda(inputs: ServiceHandlerOptions, options: LambdaOp
   const api = options.runtimeApi ?? process.env.AWS_LAMBDA_RUNTIME_API;
   if (!api) throw new Error("AWS_LAMBDA_RUNTIME_API is not set; the lambda bootstrap runs inside AWS Lambda or against a Runtime API");
   const base = `http://${api}/2018-06-01/runtime`;
-  const handler = createServiceHandler({ ...inputs, scheduledWork: false });
+  const handler = createServiceHandler({ ...inputs, scheduledWork: false, handleSigterm: false });
+  // Lambda sends SIGTERM before it shuts an instance down: the service stops and the process exits.
+  const onSigterm = () => void handler.stop().finally(() => process.exit(0));
+  if (inputs.handleSigterm !== false) process.once("SIGTERM", onSigterm);
   try {
     await handler.init();
   } catch (error) {
@@ -248,5 +251,6 @@ export async function runLambda(inputs: ServiceHandlerOptions, options: LambdaOp
       await fetch(`${base}/invocation/${id}/error`, { method: "POST", headers: { "Lambda-Runtime-Function-Error-Type": "Runtime.HandlerError" }, body: errorBody(error) });
     }
   }
+  process.off("SIGTERM", onSigterm);
   await handler.stop();
 }

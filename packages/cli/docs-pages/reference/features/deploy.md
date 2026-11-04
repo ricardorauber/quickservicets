@@ -27,5 +27,8 @@ It is enabled by default; turn it off with `deploy: false` or `QS_DEPLOY_ENABLED
 | `deploy.startupTrace` | `boolean` | `false` | `QS_DEPLOY_STARTUP_TRACE` | no | Adds each feature's setup and onStart time, in milliseconds, to the service.started log entry. |
 | `deploy.lambda.architecture` | `"arm64" \| "x86_64"` | `"arm64"` | `QS_DEPLOY_LAMBDA_ARCHITECTURE` | no | The CPU of the Lambda function the bootstrap is compiled for (deploy.platform, when set, wins). |
 | `deploy.lambda.streaming` | `boolean` | `false` | `QS_DEPLOY_LAMBDA_STREAMING` | no | Sends responses with the streaming response mode, so sse.ts routes work behind function URLs with RESPONSE_STREAM. |
+| `deploy.azure.authLevel` | `"anonymous" \| "function"` | `"anonymous"` | `QS_DEPLOY_AZURE_AUTH_LEVEL` | no | The authLevel of the HTTP function: anonymous, or function to require a function key. |
+| `deploy.azure.functionTimeout` | `duration` | — | `QS_DEPLOY_AZURE_FUNCTION_TIMEOUT` | no | The functionTimeout written to host.json, like 10m (default: the plan's). |
+| `deploy.azure.extensionBundle` | `boolean` | `true` | `QS_DEPLOY_AZURE_EXTENSION_BUNDLE` | no | Adds the default extension bundle to host.json, so trigger bindings resolve. |
 | `deploy.enabled` | `boolean` | `true` | `QS_DEPLOY_ENABLED` | no | Turns the feature off when false. |
 | `deploy.database` | `string` | — | `QS_DEPLOY_DATABASE` | no | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |

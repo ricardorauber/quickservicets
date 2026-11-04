@@ -1,9 +1,10 @@
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
-import { defaultPlatform, DEPLOY_DISABLED, DEPLOY_TARGETS, isFunctionTarget, unknownTarget, type DeployOptions, type ResolvedConfig } from "@quickservicets/core";
+import { defaultPlatform, parseDuration, DEPLOY_DISABLED, DEPLOY_TARGETS, isFunctionTarget, unknownTarget, type DeployOptions, type ResolvedConfig } from "@quickservicets/core";
 import { BuildError } from "../errors.ts";
 import { zipArchive } from "./zip.ts";
+import { hostDuration, ncrontab, timerFunctionName } from "./azure.ts";
 
 /** What the deploy step wrote: the target, its folder relative to the project, its size in bytes and its files. */
 export interface DeployOutput {
@@ -264,6 +265,48 @@ export async function compileBinary(root: string, dir: string, file: string, pla
 export interface DeployBuildOptions {
   /** Also writes `<outDir>/<target>/bundle-report.json` with every module's size. */
   analyze?: boolean;
+  /** The project's jobs with their schedules, for the targets that write a function per job. */
+  jobs?: readonly { name: string; schedule: unknown }[];
+  /** The paths of the project's routes, generated and custom, for the targets whose function names could collide. */
+  routes?: readonly string[];
+}
+
+/** The files of the azure-functions target besides the binary, and the timer functions with their jobs. */
+export function azureFunctionFiles(executable: string, options: NonNullable<DeployOptions["azure"]>, jobs: readonly { name: string; schedule: unknown }[], routes: readonly string[]): { files: Record<string, string>; timers: Record<string, string> } {
+  const timers: Record<string, string> = {};
+  const files: Record<string, string> = {};
+  for (const job of jobs) {
+    const schedule = ncrontab(job.schedule);
+    if ("error" in schedule) throw new BuildError(`jobs/${job.name}: ${schedule.error}`);
+    const name = timerFunctionName(job.name);
+    timers[name] = job.name;
+    files[`${name}/function.json`] = `${JSON.stringify({ bindings: [{ name: "timer", type: "timerTrigger", direction: "in", schedule: schedule.cron }] }, null, 2)}\n`;
+  }
+  for (const name of ["http", ...Object.keys(timers)]) {
+    if (routes.includes(`/${name}`)) throw new BuildError(`Route /${name} collides with the Azure function ${name}; rename the route`);
+  }
+  files["http/function.json"] = `${JSON.stringify(
+    {
+      bindings: [
+        { authLevel: options.authLevel, type: "httpTrigger", direction: "in", name: "req", methods: ["get", "post", "put", "patch", "delete", "head", "options"], route: "{*path}" },
+        { type: "http", direction: "out", name: "res" },
+      ],
+    },
+    null,
+    2,
+  )}\n`;
+  files["host.json"] = `${JSON.stringify(
+    {
+      version: "2.0",
+      customHandler: { description: { defaultExecutablePath: executable, workingDirectory: "", arguments: [] }, enableForwardingHttpRequest: true },
+      extensions: { http: { routePrefix: "" } },
+      ...(options.extensionBundle ? { extensionBundle: { id: "Microsoft.Azure.Functions.ExtensionBundle", version: "[4.*, 5.0.0)" } } : {}),
+      ...(options.functionTimeout ? { functionTimeout: hostDuration(options.functionTimeout, parseDuration) } : {}),
+    },
+    null,
+    2,
+  )}\n`;
+  return { files, timers };
 }
 
 /**
@@ -286,6 +329,15 @@ export async function writeDeployOutput(root: string, config: ResolvedConfig, ta
     const platform = options?.platform ?? (lambda.architecture === "x86_64" ? "linux-x64" : "linux-arm64");
     bundled = await compileBinary(root, dir, "bootstrap", platform, target, external, assets, `runLambda(inputs, ${JSON.stringify({ streaming: lambda.streaming })})`);
     writeFileSync(join(dir, "function.zip"), zipArchive([{ name: "bootstrap", data: new Uint8Array(readFileSync(join(dir, "bootstrap"))), mode: 0o755 }]));
+  } else if (target === "azure-functions") {
+    const platform = options?.platform ?? defaultPlatform(target);
+    const executable = binaryName(serviceName(root, options), platform);
+    const { files, timers } = azureFunctionFiles(executable, options?.azure ?? { authLevel: "anonymous", extensionBundle: true }, build.jobs ?? [], build.routes ?? []);
+    bundled = await compileBinary(root, dir, executable, platform, target, external, assets, `runAzureFunctions(inputs, ${JSON.stringify({ jobs: timers })})`);
+    for (const [file, content] of Object.entries(files)) {
+      mkdirSync(dirname(join(dir, file)), { recursive: true });
+      writeFileSync(join(dir, file), content);
+    }
   } else {
     bundled = await bundle(writeEntry(root, assets, false), dir, target, external);
     copyAssets(dir, assets);

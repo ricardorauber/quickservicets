@@ -659,6 +659,12 @@ async function buildProject(projectRoot: string, config: ResolvedConfig, options
   } else {
     warnings.push(...(await databaseMigrationWarnings(projectRoot, config, models)));
   }
-  const deploy = target ? await writeDeployOutput(projectRoot, config, target, { analyze: options.deploy?.analyze === true }) : undefined;
+  const deploy = target
+    ? await writeDeployOutput(projectRoot, config, target, {
+        analyze: options.deploy?.analyze === true,
+        jobs: jobs.map((entry) => ({ name: entry.name, schedule: entry.schedule })),
+        routes: [...crudTable(models).map((route) => route.path), ...resolved.map((endpoint) => endpoint.route.path)],
+      })
+    : undefined;
   return { ...(deploy ? { deploy } : {}), entities: models.length, endpoints: endpoints.length, hooks: hooks.size, features: featureKeys.length, overrides, fromFeatures: scanned.fromFeatures, watch: featureWatchPaths(config.features), buildInputs: Object.fromEntries(config.features.filter((feature) => feature.definition.build).map((feature) => [feature.key, featureWatchPaths([feature])])), buildSteps, warnings };
 }

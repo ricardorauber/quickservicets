@@ -1,4 +1,4 @@
-import { boolean, defineFeature, list, object, oneOf, platformOf, string } from "../public.ts";
+import { boolean, defineFeature, duration, list, object, oneOf, platformOf, string } from "../public.ts";
 
 /** The deploy targets a project builds for. */
 export const DEPLOY_TARGETS = ["server", "binary", "lambda", "azure-functions", "cloud-run"] as const;
@@ -48,6 +48,7 @@ export interface DeployOptions {
   lazyRoutes: "auto" | "on" | "off";
   startupTrace: boolean;
   lambda: { architecture: "arm64" | "x86_64"; streaming: boolean };
+  azure: { authLevel: "anonymous" | "function"; functionTimeout?: string; extensionBundle: boolean };
 }
 
 /** The targets whose route tables import endpoint modules on first use when `lazyRoutes` is `auto`. */
@@ -74,6 +75,11 @@ const options = object({
     architecture: oneOf(["arm64", "x86_64"] as const).default("arm64").describe("The CPU of the Lambda function the bootstrap is compiled for (deploy.platform, when set, wins)."),
     streaming: boolean().default(false).describe("Sends responses with the streaming response mode, so sse.ts routes work behind function URLs with RESPONSE_STREAM."),
   }).describe("Settings of the lambda target."),
+  azure: object({
+    authLevel: oneOf(["anonymous", "function"] as const).default("anonymous").describe("The authLevel of the HTTP function: anonymous, or function to require a function key."),
+    functionTimeout: duration().optional().describe("The functionTimeout written to host.json, like 10m (default: the plan's)."),
+    extensionBundle: boolean().default(true).describe("Adds the default extension bundle to host.json, so trigger bindings resolve."),
+  }).describe("Settings of the azure-functions target."),
 });
 
 /**

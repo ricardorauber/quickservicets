@@ -104,6 +104,47 @@ import { runSqlExecutorContract } from "@quickservicets/core/testing";
 runSqlExecutorContract((url) => myHttpExecutor(url), { name: "http", variable: "TEST_HTTP_SQL_URL" });
 ```
 
+## HTTP drivers: Neon and the RDS Data API
+
+A function that opens a TCP connection per instance pays for it on every cold start and holds it while frozen. An HTTP driver sends each statement as a request instead, so an instance holds no connection at all; it is a `SqlExecutor`, passed as `postgresAdapter({ url, executor })`.
+
+- Neon's serverless driver sends statements over HTTPS to Neon's proxy. One-shot statements need no session; an interactive `transaction(fn)` needs its WebSocket mode, and `LISTEN` is not available over HTTP, so its executor declares `listen: false`. Keep `url` (or `connections.direct`) pointing at the database for migrations and for the features that need a session.
+- The RDS Data API runs statements through AWS's `ExecuteStatement` calls against an Aurora cluster, with no connection to manage. It has transactions (`BeginTransaction` and `CommitTransaction`), but no `LISTEN` and no server-side prepared statements, so its executor declares `listen: false` and `preparedStatements: false`.
+
+Whichever executor runs, the adapter's statements, migrations and contract are the same, and a feature that needs what the executor lacks fails startup with `<feature> needs <capability>, which the <name> executor does not support` instead of failing at the first request.
+
+## MongoDB in serverless mode
+
+The MongoDB adapter takes the same settings: `max` becomes `maxPoolSize`, `idleTimeout` `maxIdleTimeMS` and `connectTimeout` `connectTimeoutMS`, and `maxLifetime` replaces the client on that period while the old one finishes its operations. In serverless mode an instance opens at most two connections and, with `lazy`, none until its first operation. MongoDB Atlas counts connections per cluster tier, so set `budget` to the tier's limit and `instances` to the function's concurrency limit to get the warning before the cluster refuses connections.
+
+## Hooks
+
+`onConnect` runs each time a pooled connection opens, with `{ adapter, database, durationMs }`, and `onConnectionError` each time a connection fails, with `{ adapter, database, error, retried }`:
+
+```ts
+connections: {
+  onConnect: ({ database, durationMs }) => console.log(`connected to ${database} in ${durationMs} ms`),
+  onConnectionError: ({ database, error, retried }) => console.warn("connection failed", { database, retried, error }),
+},
+```
+
+Both are after-hooks: a failing hook is logged as `feature.hook.failed` and never reaches the statement. The adapters report their events only while a hook listens, so a service without hooks pays nothing.
+
+## Customization levels
+
+| Level | What it means for `connections` |
+| --- | --- |
+| 0. Enable | On by default: server targets keep the adapter's pool, `lambda` and `azure-functions` get small lazy pools. |
+| 1. Options and environment | Every option has its variable: `QS_CONNECTIONS_ENABLED`, `QS_CONNECTIONS_MODE`, `QS_CONNECTIONS_MAX`, `QS_CONNECTIONS_IDLE_TIMEOUT`, `QS_CONNECTIONS_MAX_LIFETIME`, `QS_CONNECTIONS_CONNECT_TIMEOUT`, `QS_CONNECTIONS_LAZY`, `QS_CONNECTIONS_BUDGET`, `QS_CONNECTIONS_INSTANCES`, `QS_CONNECTIONS_PROXY` and `QS_CONNECTIONS_DIRECT`. |
+| 2. Tags | Not applicable: pools belong to the process, not to entities or routes. |
+| 3. Per request | Not applicable: pools belong to the process, not to requests. |
+| 4. Hooks | `onConnect` and `onConnectionError`, and `ctx.feature("connections").addHook(...)` from a feature. |
+| 5. Override files | Not applicable: there is no file to override. |
+| 6. Replace the implementation | A `SqlExecutor` as `postgresAdapter({ executor })`, like an HTTP driver. |
+| 7. Eject | `quickservicets eject connections` copies the native into `features/connections/`, which then replaces it. |
+
+The project in `examples/minimal/connections` shows each level, with tests that check the pool every deploy target gets and run the CRUD flow through PgBouncer.
+
 ## See also
 
 - [Deploy targets](/guides/deploy-targets/): the platforms and their function mode.

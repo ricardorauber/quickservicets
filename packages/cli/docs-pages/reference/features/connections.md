@@ -30,6 +30,8 @@ It is enabled by default; turn it off with `connections: false` or `QS_CONNECTIO
 | `connections.direct` | `string` | — | `QS_CONNECTIONS_DIRECT` | no | A PostgreSQL connection URL that bypasses the proxy, used by migrations and by features that keep a session of their own (LISTEN). |
 | `connections.budget` | `integer` | — | `QS_CONNECTIONS_BUDGET` | no | The connections the database grants this service; startup warns when max × workers × instances may exceed it. |
 | `connections.instances` | `integer` | `1` | `QS_CONNECTIONS_INSTANCES` | no | The most instances (servers, containers or function instances) expected at once, for the budget. |
+| `connections.onConnect` | `hook` | — | not overridable | no | Runs each time a pooled connection opens, with the adapter kind, the database name and durationMs, the time from needing the connection to having it. |
+| `connections.onConnectionError` | `hook` | — | not overridable | no | Runs each time a connection fails, with the adapter kind, the database name, the error and retried, true when the statement ran again on a new connection. |
 | `connections.databases.<name>.max` | `record of integer` | — | `QS_CONNECTIONS_DATABASES_<NAME>_MAX` | no | The most connections each worker opens to the database (default: the adapter's, 2 in serverless mode). |
 | `connections.databases.<name>.idleTimeout` | `record of duration` | — | `QS_CONNECTIONS_DATABASES_<NAME>_IDLE_TIMEOUT` | no | How long an idle connection stays open (default: the adapter's, 30s in serverless mode). |
 | `connections.databases.<name>.maxLifetime` | `record of duration` | — | `QS_CONNECTIONS_DATABASES_<NAME>_MAX_LIFETIME` | no | How long a connection lives before it is replaced (default: the adapter's, 15m in serverless mode). |
@@ -47,3 +49,71 @@ Connects with the project's config and prints each database's kind and version, 
 ```bash
 quickservicets db check
 ```
+
+## Hooks
+
+Hooks are functions (or lists of functions) written in the config; `before` hooks may change the value or cancel the step by throwing, `after` and `on` hooks observe.
+
+| Hook | Kind | Description |
+| --- | --- | --- |
+| `connections.onConnect` | on | Runs each time a pooled connection opens, with the adapter kind, the database name and durationMs, the time from needing the connection to having it. |
+| `connections.onConnectionError` | on | Runs each time a connection fails, with the adapter kind, the database name, the error and retried, true when the statement ran again on a new connection. |
+
+## Feature API
+
+Other features reach it with `ctx.feature("connections")` in their setup, listing `connections` in `requires` or `after`.
+
+### `addHook`
+
+```ts
+addHook(name: "onConnect", fn: FeatureHook<ConnectEvent, undefined>): void;
+```
+
+Adds a hook after the ones written in the config.
+
+### `addHook`
+
+```ts
+addHook(name: "onConnectionError", fn: FeatureHook<ConnectionErrorEvent, undefined>): void;
+```
+
+## Defaults by mode
+
+| Option | Server mode | Serverless mode |
+| --- | --- | --- |
+| `max` | the adapter's (`postgresAdapter`: 10 divided across the workers; MongoDB: the driver's 100) | 2 |
+| `idleTimeout` | the adapter's | `30s` |
+| `maxLifetime` | the adapter's | `15m` |
+| `connectTimeout` | the adapter's | `5s` |
+| `lazy` | `false` | `true` |
+| `proxy` | `none` | `none` |
+
+`mode: "auto"` is serverless on the `lambda` and `azure-functions` deploy targets and server otherwise. In server mode with no option set the adapters keep exactly their own pools.
+
+## Hooks
+
+`onConnect` runs each time a pooled connection opens, with `{ adapter, database, durationMs }`; `onConnectionError` runs each time a connection fails, with `{ adapter, database, error, retried }`, `retried` true when the statement ran again on a new connection. Both are after-hooks: a failing hook is logged as `feature.hook.failed` and never reaches the statement. The adapters report their pool events through `onPoolEvent(listener)` only while a hook listens.
+
+```ts
+connections: {
+  onConnect: ({ database, durationMs }) => console.log(`connected to ${database} in ${durationMs} ms`),
+},
+```
+
+A feature adds hooks with `ctx.feature("connections").addHook("onConnect", fn)`.
+
+## Drivers
+
+The PostgreSQL adapter sends every statement through a `SqlExecutor`: the built-in one over `Bun.SQL`, or the one given as `postgresAdapter({ url, executor })`, like an HTTP driver.
+
+```ts
+interface SqlExecutor {
+  readonly name: string;
+  readonly capabilities: { interactiveTransactions: boolean; listen: boolean; preparedStatements: boolean };
+  query(text: string, params: readonly unknown[], options?: { signal?: AbortSignal }): Promise<Record<string, unknown>[]>;
+  transaction<T>(fn: (executor: SqlExecutor) => Promise<T>): Promise<T>;
+  close(): Promise<void>;
+}
+```
+
+Errors carry the SQLSTATE as `code`. A feature needing a capability the executor lacks fails startup with `<feature> needs <capability>, which the <name> executor does not support`. `runSqlExecutorContract(create, { name, variable })` of `@quickservicets/core/testing` checks an executor against the adapter contract.

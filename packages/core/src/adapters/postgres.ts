@@ -1,7 +1,7 @@
 import { SQL } from "bun";
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
-import { assertChannelName, invalidConnection, withReconnect, UniqueViolationError, type ConnectionPoolSettings, type DatabaseAdapter, type RelatedScope, type StoredRecord } from "../adapter.ts";
+import { assertChannelName, invalidConnection, isConnectionError, withReconnect, type PoolEvent, UniqueViolationError, type ConnectionPoolSettings, type DatabaseAdapter, type RelatedScope, type StoredRecord } from "../adapter.ts";
 import { parseDuration } from "../jobs/job.ts";
 import type { EntityModel } from "../model.ts";
 import { poolSizePerWorker } from "../workers.ts";
@@ -103,6 +103,22 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
     return client;
   };
   const transactions = new AsyncLocalStorage<Session>();
+  const poolListeners = new Set<(event: PoolEvent) => void>();
+  const emit = (event: PoolEvent) => {
+    for (const listener of poolListeners) {
+      try {
+        listener(event);
+      } catch {
+        // A listener's failure never reaches the statement.
+      }
+    }
+  };
+  /** Since when a connection has been needed: the pool's creation, or the first statement after the last connect. */
+  let neededSince: number | undefined;
+  const reconnected = (error: unknown) => {
+    pool?.onReconnect?.(error);
+    if (poolListeners.size > 0) emit({ type: "error", error, retried: true });
+  };
 
   const executor = (): Executor => {
     if (!transactions.getStore()) ensure();
@@ -117,9 +133,16 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
     const target = session ?? pooled;
     if (!target) throw new Error("The PostgreSQL adapter is not connected");
     const send = () => target.query(statement.text, statement.params);
+    if (poolListeners.size > 0 && neededSince === undefined) neededSince = performance.now();
     // A connection closed while the instance was frozen fails before the statement is sent: once more, on a new
     // connection of the pool; inside a transaction the session is gone, so nothing is retried.
-    return session ? send() : withReconnect(send, send, statement.text, pool?.onReconnect);
+    if (poolListeners.size === 0) return session ? send() : withReconnect(send, send, statement.text, pool?.onReconnect);
+    try {
+      return await (session ? send() : withReconnect(send, send, statement.text, reconnected));
+    } catch (error) {
+      if (isConnectionError(error)) emit({ type: "error", error, retried: false });
+      throw error;
+    }
   };
 
   const translateErrors = async <T>(operation: () => Promise<T>): Promise<T> => {
@@ -318,6 +341,10 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
     configurePool(settings) {
       pool = settings;
     },
+    onPoolEvent(listener) {
+      poolListeners.add(listener);
+      return () => void poolListeners.delete(listener);
+    },
     get url() {
       return options.url === undefined ? undefined : secretValue(options.url);
     },
@@ -351,7 +378,17 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
       };
       // The search path is a connection parameter, so every pooled connection uses the default schema. Bun's pool opens
       // a connection on the first query, so it is lazy by itself.
-      const newPool = () => new SQL({ url: secretValue(options.url!), max, ...limits, ...(defaultSchema ? { connection: { search_path: defaultSchema } } : {}) } as never);
+      // Each opened connection is reported with the time since it was needed.
+      const onconnect = (error: unknown) => {
+        if (error || poolListeners.size === 0) return;
+        const since = neededSince;
+        neededSince = undefined;
+        emit({ type: "connect", durationMs: since === undefined ? 0 : Math.round((performance.now() - since) * 100) / 100 });
+      };
+      const newPool = () => {
+        if (poolListeners.size > 0) neededSince = performance.now();
+        return new SQL({ url: secretValue(options.url!), max, ...limits, onconnect, ...(defaultSchema ? { connection: { search_path: defaultSchema } } : {}) } as never);
+      };
       /** The pool and its executor: the given executor with a client of the same shape, or the built-in one. */
       const usePool = () => {
         if (options.executor) {

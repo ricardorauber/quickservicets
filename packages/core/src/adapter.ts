@@ -125,7 +125,25 @@ export async function withReconnect<T>(first: () => Promise<T>, again: () => Pro
   }
 }
 
+/** What a pooled adapter reports about its connections, for the `connections` native's hooks. */
+export type PoolEvent =
+  /** A pooled connection opened, `durationMs` after it was needed. */
+  | { type: "connect"; durationMs: number }
+  /** A connection failed; `retried` when the statement ran again on a new connection. */
+  | { type: "error"; error: unknown; retried: boolean };
+
+/** The error codes of a connection that could not be opened or was lost, as opposed to a failing statement. */
+const CONNECTION_ERROR = /^(ERR_POSTGRES_CONNECTION_|ERR_POSTGRES_TLS|ECONN|ETIMEDOUT|ENOTFOUND|EHOSTUNREACH|ENETUNREACH|EPIPE)/;
+
+/** Whether an error is about the connection rather than the statement. */
+export const isConnectionError = (error: unknown): boolean => CONNECTION_ERROR.test(String((error as { code?: unknown } | null)?.code ?? ""));
+
 export interface DatabaseAdapter {
+  /**
+   * Calls `listener` with each pool event (a connection opened, a connection failed) until the returned function is
+   * called; the PostgreSQL and MongoDB adapters report them, and adapters without a pool leave it out.
+   */
+  onPoolEvent?(listener: (event: PoolEvent) => void): () => void;
   /**
    * Applies pool settings of the `connections` native, called before `connect`; the PostgreSQL and MongoDB adapters
    * size their pools with them, and adapters without a pool leave it out.

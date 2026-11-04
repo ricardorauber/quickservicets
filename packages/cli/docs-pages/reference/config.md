@@ -1083,6 +1083,8 @@ Every option, tag, command and hook of `connections` is on [its reference page](
 | `connections.direct` | `string` | — | `QS_CONNECTIONS_DIRECT` | A PostgreSQL connection URL that bypasses the proxy, used by migrations and by features that keep a session of their own (LISTEN). |
 | `connections.budget` | `integer` | — | `QS_CONNECTIONS_BUDGET` | The connections the database grants this service; startup warns when max × workers × instances may exceed it. |
 | `connections.instances` | `integer` | `1` | `QS_CONNECTIONS_INSTANCES` | The most instances (servers, containers or function instances) expected at once, for the budget. |
+| `connections.onConnect` | `hook` | — | not overridable | Runs each time a pooled connection opens, with the adapter kind, the database name and durationMs, the time from needing the connection to having it. |
+| `connections.onConnectionError` | `hook` | — | not overridable | Runs each time a connection fails, with the adapter kind, the database name, the error and retried, true when the statement ran again on a new connection. |
 | `connections.databases.<name>.max` | `record of integer` | — | `QS_CONNECTIONS_DATABASES_<NAME>_MAX` | The most connections each worker opens to the database (default: the adapter's, 2 in serverless mode). |
 | `connections.databases.<name>.idleTimeout` | `record of duration` | — | `QS_CONNECTIONS_DATABASES_<NAME>_IDLE_TIMEOUT` | How long an idle connection stays open (default: the adapter's, 30s in serverless mode). |
 | `connections.databases.<name>.maxLifetime` | `record of duration` | — | `QS_CONNECTIONS_DATABASES_<NAME>_MAX_LIFETIME` | How long a connection lives before it is replaced (default: the adapter's, 15m in serverless mode). |

@@ -114,6 +114,8 @@ Warning: queues/notify needs a platform trigger (an SQS or Service Bus trigger) 
 
 A `ws.ts` route fails the build with `endpoints/<path>/ws.ts cannot run on <target>; WebSockets need a server target`.
 
+Many function instances each open their own database connections; the `connections` native gives them small, lazy pools on these targets, and [Serverless connections](/guides/serverless-connections/) explains the budget, connection proxies and HTTP drivers.
+
 ## The platform handler
 
 Every platform target serves requests through `createServiceHandler`, exported by `@quickservicets/core`, which takes the inputs the generated server passes to `startService` and runs each standard `Request` through the same pipeline as the server, so a route answers identically everywhere:
@@ -205,4 +207,5 @@ The [example project](https://github.com/ricardorauber/quickservicets/blob/main/
 ## See also
 
 - [Local environment](/guides/local-environment/): the services the project needs, on your machine.
+- [Serverless connections](/guides/serverless-connections/): database connections on servers, functions, proxies and HTTP drivers.
 - [deploy reference](/reference/features/deploy/): every option with its variable.

@@ -1,4 +1,4 @@
-import { boolean, databaseAdapters, defineFeature, duration, integer, object, oneOf, record, safeLog, jsonLogger, secret, type DatabaseAdapter, type ConnectionPoolSettings, type ResolvedConfig, type SecretReference } from "../public.ts";
+import { boolean, databaseAdapters, defineFeature, duration, hook, integer, object, oneOf, record, runAfterHooks, safeLog, jsonLogger, secret, type FeatureHook, type PoolEvent, type DatabaseAdapter, type ConnectionPoolSettings, type ResolvedConfig, type SecretReference } from "../public.ts";
 import { dbCheckCommand } from "./check.ts";
 
 /** The targets on which `mode: "auto"` means serverless. */
@@ -29,9 +29,36 @@ const options = object({
     .describe("A PostgreSQL connection URL that bypasses the proxy, used by migrations and by features that keep a session of their own (LISTEN)."),
   budget: integer().min(1).optional().describe("The connections the database grants this service; startup warns when max × workers × instances may exceed it."),
   instances: integer().min(1).default(1).describe("The most instances (servers, containers or function instances) expected at once, for the budget."),
+  onConnect: hook<ConnectEvent, undefined>().describe("Runs each time a pooled connection opens, with the adapter kind, the database name and durationMs, the time from needing the connection to having it."),
+  onConnectionError: hook<ConnectionErrorEvent, undefined>().describe("Runs each time a connection fails, with the adapter kind, the database name, the error and retried, true when the statement ran again on a new connection."),
   databases: record(object(poolShape).describe("The pool settings of one named database."))
     .describe("Pool settings of named databases, by name, over the settings above."),
 });
+
+/** What `onConnect` receives. */
+export interface ConnectEvent {
+  /** The adapter's kind, like `postgres`. */
+  adapter: string;
+  /** The database's name: `default`, or a name of `databases`. */
+  database: string;
+  durationMs: number;
+}
+
+/** What `onConnectionError` receives. */
+export interface ConnectionErrorEvent {
+  adapter: string;
+  database: string;
+  error: unknown;
+  /** True when the statement ran again on a new connection. */
+  retried: boolean;
+}
+
+/** The public API of the `connections` native, `ctx.feature("connections")` in a feature. */
+export interface ConnectionsApi {
+  /** Adds a hook after the ones written in the config. */
+  addHook(name: "onConnect", fn: FeatureHook<ConnectEvent, undefined>): void;
+  addHook(name: "onConnectionError", fn: FeatureHook<ConnectionErrorEvent, undefined>): void;
+}
 
 /** The resolved options of the `connections` native. */
 export interface ConnectionsOptions {
@@ -45,6 +72,8 @@ export interface ConnectionsOptions {
   direct?: string | SecretReference;
   budget?: number;
   instances: number;
+  onConnect?: FeatureHook<ConnectEvent, undefined>[];
+  onConnectionError?: FeatureHook<ConnectionErrorEvent, undefined>[];
   databases: Record<string, { max?: number; idleTimeout?: string; maxLifetime?: string; connectTimeout?: string; lazy?: boolean }>;
 }
 
@@ -132,7 +161,58 @@ export const budgetWarning = (connections: number, budget: number) => `connectio
  */
 export const connectionsFeature = defineFeature({
   key: "connections",
-  docs: { summary: "Connection pool sizes for servers and functions: small, lazy pools on function targets, the adapters' pools on servers, with a budget warning." },
+  docs: {
+    summary: "Connection pool sizes for servers and functions: small, lazy pools on function targets, the adapters' pools on servers, with a budget warning.",
+    sections: [
+      {
+        title: "Defaults by mode",
+        text: [
+          "| Option | Server mode | Serverless mode |",
+          "| --- | --- | --- |",
+          "| `max` | the adapter's (`postgresAdapter`: 10 divided across the workers; MongoDB: the driver's 100) | 2 |",
+          "| `idleTimeout` | the adapter's | `30s` |",
+          "| `maxLifetime` | the adapter's | `15m` |",
+          "| `connectTimeout` | the adapter's | `5s` |",
+          "| `lazy` | `false` | `true` |",
+          "| `proxy` | `none` | `none` |",
+          "",
+          "`mode: \"auto\"` is serverless on the `lambda` and `azure-functions` deploy targets and server otherwise. In server mode with no option set the adapters keep exactly their own pools.",
+        ].join("\n"),
+      },
+      {
+        title: "Hooks",
+        text: [
+          "`onConnect` runs each time a pooled connection opens, with `{ adapter, database, durationMs }`; `onConnectionError` runs each time a connection fails, with `{ adapter, database, error, retried }`, `retried` true when the statement ran again on a new connection. Both are after-hooks: a failing hook is logged as `feature.hook.failed` and never reaches the statement. The adapters report their pool events through `onPoolEvent(listener)` only while a hook listens.",
+          "",
+          "```ts",
+          "connections: {",
+          "  onConnect: ({ database, durationMs }) => console.log(`connected to ${database} in ${durationMs} ms`),",
+          "},",
+          "```",
+          "",
+          "A feature adds hooks with `ctx.feature(\"connections\").addHook(\"onConnect\", fn)`.",
+        ].join("\n"),
+      },
+      {
+        title: "Drivers",
+        text: [
+          "The PostgreSQL adapter sends every statement through a `SqlExecutor`: the built-in one over `Bun.SQL`, or the one given as `postgresAdapter({ url, executor })`, like an HTTP driver.",
+          "",
+          "```ts",
+          "interface SqlExecutor {",
+          "  readonly name: string;",
+          "  readonly capabilities: { interactiveTransactions: boolean; listen: boolean; preparedStatements: boolean };",
+          "  query(text: string, params: readonly unknown[], options?: { signal?: AbortSignal }): Promise<Record<string, unknown>[]>;",
+          "  transaction<T>(fn: (executor: SqlExecutor) => Promise<T>): Promise<T>;",
+          "  close(): Promise<void>;",
+          "}",
+          "```",
+          "",
+          "Errors carry the SQLSTATE as `code`. A feature needing a capability the executor lacks fails startup with `<feature> needs <capability>, which the <name> executor does not support`. `runSqlExecutorContract(create, { name, variable })` of `@quickservicets/core/testing` checks an executor against the adapter contract.",
+        ].join("\n"),
+      },
+    ],
+  },
   enabledByDefault: true,
   after: ["deploy"],
   options,
@@ -169,7 +249,28 @@ export const connectionsFeature = defineFeature({
       const connections = total * ctx.config.server.workers * resolved.instances;
       if (connections > resolved.budget) safeLog(ctx.config.logger ?? jsonLogger, "warn", { timestamp: new Date().toISOString(), message: budgetWarning(connections, resolved.budget) });
     }
+    // The adapters report their pool events only while a hook listens, so a service without hooks pays nothing.
+    const unsubscribe: (() => void)[] = [];
+    const hooked = () => (resolved.onConnect?.length ?? 0) + (resolved.onConnectionError?.length ?? 0) > 0;
+    const subscribe = () => {
+      if (unsubscribe.length > 0 || !hooked()) return;
+      for (const [name, adapter] of databaseAdapters(ctx.config.database)) {
+        const stop = adapter.onPoolEvent?.((event: PoolEvent) => {
+          const kind = String(adapter.kind ?? "custom");
+          if (event.type === "connect") void runAfterHooks(resolved.onConnect ?? [], { adapter: kind, database: name, durationMs: event.durationMs }, undefined);
+          else void runAfterHooks(resolved.onConnectionError ?? [], { adapter: kind, database: name, error: event.error, retried: event.retried }, undefined);
+        });
+        if (stop) unsubscribe.push(stop);
+      }
+    };
+    // Before the database connects, so the first connection is reported; hooks other features add are seen at start.
+    subscribe();
+    ctx.app.onStart(subscribe);
+    ctx.app.onStop(() => {
+      for (const stop of unsubscribe.splice(0)) stop();
+    });
   },
+  api: (ctx): ConnectionsApi => ({ addHook: ctx.addHook as ConnectionsApi["addHook"] }),
 });
 
 export default connectionsFeature;

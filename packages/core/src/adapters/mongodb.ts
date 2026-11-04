@@ -7,6 +7,7 @@ import {
   type Aggregate,
   type AggregateValues,
   type DatabaseAdapter,
+  type PoolEvent,
   type FindManyOptions,
   type FindManyResult,
   type RelatedScope,
@@ -273,6 +274,18 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
   let probe: (() => Promise<void>) | undefined;
   let pool: ConnectionPoolSettings | undefined;
   let recycle: ReturnType<typeof setInterval> | undefined;
+  const poolListeners = new Set<(event: PoolEvent) => void>();
+  /** Reports the driver's pool events of a client to the listeners. */
+  const watched = <C extends MongoClient>(created: C): C => {
+    created.on("connectionReady", (event: { durationMS?: number }) => {
+      for (const listener of poolListeners) listener({ type: "connect", durationMs: event.durationMS ?? 0 });
+    });
+    created.on("connectionCheckOutFailed", (event: { reason?: string; error?: unknown }) => {
+      if (event.reason !== "connectionError") return;
+      for (const listener of poolListeners) listener({ type: "error", error: event.error ?? new Error("connection failed"), retried: false });
+    });
+    return created;
+  };
   const sessions = new AsyncLocalStorage<ClientSession>();
 
   const databaseFor = (schema?: string | null): Db => {
@@ -359,6 +372,10 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
     },
     databaseFor,
     secretReferences: () => (isSecretReference(options.url) ? [options.url] : []),
+    onPoolEvent(listener) {
+      poolListeners.add(listener);
+      return () => void poolListeners.delete(listener);
+    },
     configurePool(settings) {
       pool = settings;
     },
@@ -373,7 +390,7 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
     async connect(_, connectOptions = {}) {
       const { MongoClient } = await driver();
       const name = connectOptions.defaultSchema ? schemaIdentifier(connectOptions.defaultSchema) : options.database;
-      client = new MongoClient(secretValue(options.url), clientOptions());
+      client = watched(new MongoClient(secretValue(options.url), clientOptions()));
       db = client.db(name);
       // A lazy adapter lets the driver open its first connection on the first operation, and asks the server whether
       // it supports transactions before the first transaction.
@@ -392,7 +409,7 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
       if (lifetime) {
         recycle = setInterval(() => {
           const previous = client;
-          client = new MongoClient(secretValue(options.url), clientOptions());
+          client = watched(new MongoClient(secretValue(options.url), clientOptions()));
           db = client.db(name);
           const timer = setTimeout(() => void previous?.close().catch(() => {}), 30_000);
           (timer as { unref?: () => void }).unref?.();
@@ -404,7 +421,7 @@ export function mongodbAdapter(options: MongodbAdapterOptions): MongodbAdapter {
       stopRotation?.();
       stopRotation = isSecretReference(options.url)
         ? onSecretValue(options.url, () => {
-            const next = new MongoClient(secretValue(options.url));
+            const next = watched(new MongoClient(secretValue(options.url)));
             void next.connect().then(
               () => {
                 const previous = client;

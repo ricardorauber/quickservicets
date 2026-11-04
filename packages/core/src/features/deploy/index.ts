@@ -155,12 +155,16 @@ const options = object({
   lambda: object({
     architecture: oneOf(["arm64", "x86_64"] as const).default("arm64").describe("The CPU of the Lambda function the bootstrap is compiled for (deploy.platform, when set, wins)."),
     streaming: boolean().default(false).describe("Sends responses with the streaming response mode, so sse.ts routes work behind function URLs with RESPONSE_STREAM."),
-  }).describe("Settings of the lambda target."),
+  })
+    .default({})
+    .describe("Settings of the lambda target."),
   azure: object({
     authLevel: oneOf(["anonymous", "function"] as const).default("anonymous").describe("The authLevel of the HTTP function: anonymous, or function to require a function key."),
     functionTimeout: duration().optional().describe("The functionTimeout written to host.json, like 10m (default: the plan's)."),
     extensionBundle: boolean().default(true).describe("Adds the default extension bundle to host.json, so trigger bindings resolve."),
-  }).describe("Settings of the azure-functions target."),
+  })
+    .default({})
+    .describe("Settings of the azure-functions target."),
   cloudRun: object({
     concurrency: integer().min(1).max(1000).default(80).describe("The most requests one container serves at once (containerConcurrency)."),
     timeout: duration().default("300s").describe("How long a request may take before Cloud Run ends it (timeoutSeconds)."),
@@ -170,7 +174,9 @@ const options = object({
     memory: string().default("512Mi").describe("The memory limit of the container."),
     cpu: string().default("1").describe("The CPU limit of the container."),
     trustProxy: boolean().default(true).describe("Takes req.ip from the x-forwarded-for entry Google's front end adds, without listing proxy ranges in security.proxy.trust."),
-  }).describe("Settings of the cloud-run target."),
+  })
+    .default({})
+    .describe("Settings of the cloud-run target."),
   targets: record(provider<DeployTarget>("DeployTarget", ["build"]).describe("A target's build function.")).describe("More targets for --target <name>, by name; build({ bundle, outDir, options, log }) writes the output from the bundled service."),
   beforeBundle: hook<BundleInput, undefined>().describe("Runs before a target is bundled, with its target, entrypoints, external packages and define replacements; returning them changed changes the bundle."),
   afterBundle: hook<BundleOutput, undefined>().describe("Runs after a target's output is written, with its files and their sizes."),

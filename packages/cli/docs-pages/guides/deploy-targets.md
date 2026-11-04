@@ -71,12 +71,24 @@ const migrations = readdirSync(assetPath("migrations"));
 
 The build prints the output's size and its five largest modules; `quickservicets build --analyze` also writes `dist/<target>/bundle-report.json` with the size of every bundled module.
 
+## Cold starts
+
+`bun benchmarks/run.ts cold-start` measures the milliseconds from process start to the first answer on each target, for a small SQLite service; the committed result in `benchmarks/results/cold-start.json` was measured on an Apple M1 Max:
+
+| Target | p50 | p90 | Artifact |
+| --- | --- | --- | --- |
+| `server` (`bun server/server.js`) | 72 ms | 76 ms | 4.5 MB |
+| `binary` | 69 ms | 85 ms | 60 MB |
+| `lambda` (`bootstrap` against a local Runtime API) | 68 ms | 77 ms | 26 MB `function.zip` |
+
+To keep cold starts low: leave lazy routes on for function and Cloud Run targets, tag only the routes that must answer the first request fast with `@preload`, keep heavy work out of feature setups and `onStart` (startup logs `service.started` with the time of each phase, and `QS_DEPLOY_STARTUP_TRACE=true` adds each feature's), and prefer the binary targets, which skip resolving and parsing `node_modules`.
+
 ## Lazy loading and startup time
 
 Cold starts stay short because little is loaded before the first request:
 
 - Importing `@quickservicets/core` loads no database driver; each adapter imports its driver when it connects.
-- With `deploy.lazyRoutes` on, the generated route table holds a loader per endpoint file and imports the module on the first request matching it, keeping it afterward; methods, paths, tags and hook names stay in the table. `auto` (the default) turns it on for `lambda`, `azure-functions` and `cloud-run` and off otherwise; `on` and `off` force it (`QS_DEPLOY_LAZY_ROUTES`). An endpoint whose module fails to import answers 500 for its route only, logs `routes.load.failed` with the file, and is imported again on the next request.
+- With `deploy.lazyRoutes` on, the generated route table holds a loader per endpoint file and imports the module on the first request matching it, keeping it afterward; methods, paths, tags and hook names stay in the table. `@preload` on an endpoint, or on an entity whose routes an endpoint replaces, imports it at startup anyway. `auto` (the default) turns it on for `lambda`, `azure-functions` and `cloud-run` and off otherwise; `on` and `off` force it (`QS_DEPLOY_LAZY_ROUTES`). An endpoint whose module fails to import answers 500 for its route only, logs `routes.load.failed` with the file, and is imported again on the next request.
 - The OpenAPI document and the `/docs` page are read and built on their first request, on every target.
 
 Once the `onStart` callbacks finish, the service logs `service.started` with `durationMs` and the time of each phase:
@@ -126,7 +138,16 @@ await handler.runJob("reports/daily");
 - Buffered responses are limited to 6 MB: a larger one becomes 500 `INTERNAL_ERROR` `Response is larger than the 6 MB Lambda limit`, logged as `lambda.response.too-large` with the route.
 - `deploy.lambda.streaming: true` sends responses with the streaming response mode, so `sse.ts` routes work behind a function URL with `InvokeMode: RESPONSE_STREAM`; without it the build warns `sse.ts routes need deploy.lambda.streaming: true on lambda`.
 
-Deploy `function.zip` as a function on `provided.al2023` with the handler `bootstrap`, behind a function URL or API Gateway. Setting `deploy.platform` (like `darwin-arm64`) compiles the bootstrap for another machine, so it runs against a local Runtime API.
+Deploy `function.zip` as a function on `provided.al2023` with the handler `bootstrap`, then put it behind a function URL or API Gateway:
+
+```bash
+aws lambda create-function --function-name blog --runtime provided.al2023 --architectures arm64 \
+  --handler bootstrap --zip-file fileb://dist/lambda/function.zip --role arn:aws:iam::123456789012:role/blog
+aws lambda create-function-url-config --function-name blog --auth-type NONE
+aws lambda update-function-code --function-name blog --zip-file fileb://dist/lambda/function.zip   # each release
+```
+
+Run the migrations from a machine or a CI step that reaches the database, with the server bundle or the binary (`migrate`), before shifting traffic. Setting `deploy.platform` (like `darwin-arm64`) compiles the bootstrap for another machine, so it runs against a local Runtime API.
 
 ## Azure Functions
 
@@ -164,6 +185,19 @@ gcloud run services replace service.yaml
 ```
 
 The same runtime stage comes from `dockerfile({ artifact, base, user, port, entrypoint, buildStage, healthcheck })` of `@quickservicets/core`, which every generator that packages the service as an image uses: `base` is `distroless` for a binary or `bun-slim` for a bundle, `buildStage` adds a stage that builds the artifact from the sources first, and `healthcheck` adds a `HEALTHCHECK`.
+
+## Customization levels
+
+The [example project](https://github.com/ricardorauber/quickservicets/blob/main/examples/minimal/deploy/README.md) shows each level:
+
+1. **Enable**: nothing to write; `quickservicets build --target lambda` works without a `deploy` key.
+2. **Options and environment**: `deploy.cloudRun.concurrency`, `deploy.lambda.streaming`, `deploy.azure.functionTimeout` and the rest, each with a `QS_DEPLOY_*` variable like `QS_DEPLOY_TARGET`.
+3. **Tags**: `@preload` on an entity or endpoint.
+4. **Per request**: not applicable; targets are chosen at build time.
+5. **Hooks and events**: `beforeBundle` changes the entrypoints, external packages or `define` replacements of a bundle, `afterBundle` receives the files and their sizes, and `onPlatformEvent` sees every non-HTTP platform event first and may answer it (a Lambda warm-up ping); features add them with `ctx.feature("deploy").addHook`.
+6. **Override files**: `deploy/<target>/entry.ts` replaces the target's generated entry, and any other file in `deploy/<target>/` (`Dockerfile`, `service.yaml`, `host.json`) replaces the generated one of the same name, each printing `Override: deploy/<target>/<name> replaces the generated <name>`.
+7. **Replace the implementation**: `deploy.targets` (or `ctx.feature("deploy").target(name, target)` from a feature) adds targets for `--target <name>`, whose `build({ bundle, outDir, options, log })` writes the output from the bundled service.
+8. **Eject**: `quickservicets eject deploy` copies the native into `features/deploy/`.
 
 ## See also
 

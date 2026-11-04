@@ -254,6 +254,7 @@ An error thrown by the logger never changes the response.
 - [Configuration reference](/reference/config/): every key with its type and default.
 - [CLI](/reference/cli/): the commands that read the config.
 - [Environment](/guides/environment/): typed variables, `QS_*` overrides and their precedence.
+- [Deploy targets](/guides/deploy-targets/): the `deploy` key, for building the same project for a server, a binary, AWS Lambda, Azure Functions or Google Cloud Run.
 - [Local environment](/guides/local-environment/): the `dev` key, for `quickservicets dev --services`, which starts the database and every service the features need with Docker Compose.
 - [Named databases](/guides/named-databases/): the `databases` key, several databases in one service and `QS_DATABASES_<NAME>_URL`.
 - [Events](/guides/events/): the `events` key, for write events, listeners, the outbox and durable consumers.

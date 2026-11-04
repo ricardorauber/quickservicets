@@ -39,8 +39,37 @@ export default defineConfig({
 - `outDir`: the output folder (`dist`); each target writes `<outDir>/<target>/`.
 - `name`: the name of the service and its artifacts (the package name without its scope).
 - `platform`: the operating system and CPU of compiled binaries: the build machine for `server` and `binary`, `linux-arm64` for `lambda`, `linux-x64` for `azure-functions` and `cloud-run`.
+- `external`: packages left out of the bundle.
 
 Each option has its variable: `QS_DEPLOY_TARGET`, `QS_DEPLOY_OUT_DIR`, `QS_DEPLOY_NAME` and `QS_DEPLOY_PLATFORM`. `deploy: false` (or `QS_DEPLOY_ENABLED=false`) writes no output, and a target other than `server` then exits 1 with `deploy is disabled (deploy: false in quickservicets.config.ts)`.
+
+## Bundles and binaries
+
+The `server` target bundles the generated entry, the project's files, the enabled features and their dependencies into one minified file, `dist/server/server.js`, with its source map `server.js.map`. It needs no `node_modules`: copy `dist/server/` to a machine with Bun and run it.
+
+```bash
+bun dist/server/server.js migrate   # applies the pending migrations
+bun dist/server/server.js           # serves (the same as `serve`)
+```
+
+The `binary` target compiles the same bundle with `bun build --compile` into one executable for `deploy.platform`, `dist/binary/<name>` (`<name>.exe` on Windows), that needs not even Bun on the machine. It takes the same subcommands, so a container or a release step runs migrations with the artifact it deploys:
+
+```bash
+./dist/binary/blog migrate && ./dist/binary/blog
+```
+
+Files read at runtime travel with the artifact: the `migrations/` folder, `.generated/openapi.json`, each feature's build output in `.generated/<key>/`, and the files a feature lists in its `assets` field. The bundle copies them to `dist/server/assets/` and the binary embeds them; code finds them with `assetPath(name)` from `@quickservicets/core`, which reads from the assets in a bundle or binary and from the project otherwise:
+
+```ts
+import { readdirSync } from "node:fs";
+import { assetPath } from "@quickservicets/core";
+
+const migrations = readdirSync(assetPath("migrations"));
+```
+
+`deploy.external` (`QS_DEPLOY_EXTERNAL`) leaves packages out of the bundle, to ship them next to it in `node_modules`. A module the bundler cannot include, one that does not resolve or a native addon, fails the build with `<module> cannot be bundled for server; add it to deploy.external and ship it next to the bundle`; binaries cannot load external modules, so they fail with `<module> cannot be bundled for binary; binary targets cannot load external modules; use the server target`.
+
+The build prints the output's size and its five largest modules; `quickservicets build --analyze` also writes `dist/<target>/bundle-report.json` with the size of every bundled module.
 
 ## Function mode
 

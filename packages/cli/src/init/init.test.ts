@@ -229,7 +229,8 @@ test("a fresh project, linked to the workspace packages, builds 0 entities and b
   const logs: string[] = [];
   expect(await run(["build"], { log: (line) => logs.push(line), error: () => {} }, root)).toBe(0);
   expect(logs[0]).toBe("Built 0 entities, 0 custom endpoints and 0 hooks.");
-  expect(logs.slice(1).map((line) => line.replace(/\(.*\)/, "(size)"))).toEqual(["Target server: dist/server/ (size)"]);
+  expect(logs[1]!.replace(/\(.*\)/, "(size)")).toBe("Target server: dist/server/ (size)");
+  expect(logs[2]).toBe("Largest modules:");
   // The service listens on 3000 by default; the test moves it to a free port with PORT, as the docs show.
   expect((await loadConfig(root, {})).server.port).toBe(3000);
   const probe = Bun.serve({ port: 0, fetch: () => new Response() });

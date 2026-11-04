@@ -1,4 +1,4 @@
-import { defineFeature, object, oneOf, platformOf, string } from "../public.ts";
+import { defineFeature, list, object, oneOf, platformOf, string } from "../public.ts";
 
 /** The deploy targets a project builds for. */
 export const DEPLOY_TARGETS = ["server", "binary", "lambda", "azure-functions", "cloud-run"] as const;
@@ -44,6 +44,7 @@ export interface DeployOptions {
   outDir: string;
   name?: string;
   platform?: DeployPlatform;
+  external: string[];
 }
 
 const options = object({
@@ -53,6 +54,9 @@ const options = object({
   platform: oneOf(DEPLOY_PLATFORMS)
     .optional()
     .describe("The operating system and CPU of compiled binaries (default: the build machine for server and binary, linux-arm64 for lambda, linux-x64 for azure-functions and cloud-run)."),
+  external: list(string().describe("A package name, like better-sqlite3."))
+    .default([])
+    .describe("Packages left out of the bundle, to ship next to it in node_modules (server target only); a package with a native addon must be listed."),
 });
 
 /**

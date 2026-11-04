@@ -61,7 +61,7 @@ describe("output folders and summary lines", () => {
     expect(server.code).toBe(0);
     const line = server.out.find((entry) => entry.startsWith("Target "))!;
     expect(line).toMatch(/^Target server: dist\/server\/ \(\d+(\.\d)? (B|KB|MB)\)$/);
-    expect(readdirSync(join(root, "dist/server"))).toEqual(["server.js"]);
+    expect(readdirSync(join(root, "dist/server")).sort()).toEqual(["assets", "server.js", "server.js.map"]);
     const binary = await cli(["build", "--target", "binary"], root);
     expect(binary.out.find((entry) => entry.startsWith("Target "))).toStartWith("Target binary: dist/binary/ (");
     expect(existsSync(join(root, "dist/binary"))).toBe(true);

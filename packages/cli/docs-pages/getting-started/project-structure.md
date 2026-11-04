@@ -8,6 +8,7 @@ A project is a handful of folders with fixed names. You write three of them, and
 my-api/
 ├── .env                       # environment variables, read by Bun
 ├── .generated/                # written by build — do not edit
+│   ├── migrations.ts
 │   ├── models.ts
 │   ├── openapi.json
 │   ├── routes.ts
@@ -127,7 +128,8 @@ Everything `build` (and `dev`) produces. Each build updates it in place and dele
 | `types.ts` | One type per entity, plus its `Create` and `Update` types and the typed `Repositories` |
 | `routes.ts` | The generated CRUD routes, your endpoints and their hooks |
 | `openapi.json` | The OpenAPI document served at `/openapi.json` and `/docs` |
-| `server.ts` | The entry that starts the server: `bun .generated/server.ts` |
+| `migrations.ts` | The project's migrations, so `bun .generated/server.ts migrate` (and a bundle or binary of it) applies them |
+| `server.ts` | The entry that starts the server: `bun .generated/server.ts`, or `bun .generated/server.ts migrate` to apply pending migrations |
 
 Never edit these files; the next build overwrites them. `init` already lists `.generated/` in `.gitignore`, so they stay out of git.
 

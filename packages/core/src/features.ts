@@ -125,6 +125,11 @@ export interface FeatureInput<S extends AnyOptionSchema> {
   /** Project-relative paths `quickservicets dev` watches for this feature, besides its folders. */
   watch?: readonly string[];
   /**
+   * Project-relative files or folders the feature reads at runtime, copied into the assets of a bundle or binary and
+   * found with `assetPath(name)`.
+   */
+  assets?: readonly string[];
+  /**
    * Runs in each worker process before the database connects, in feature order; registers lifecycle callbacks and
    * runtime routes through `ctx.app`.
    */
@@ -286,6 +291,8 @@ export interface FeatureDefinition<S extends AnyOptionSchema = AnyOptionSchema> 
   readonly folders?: Readonly<Record<string, FeatureFolder>>;
   /** Project-relative paths `quickservicets dev` watches for this feature. */
   readonly watch?: readonly string[];
+  /** Project-relative files or folders the feature reads at runtime, shipped as assets of bundles and binaries. */
+  readonly assets?: readonly string[];
   /** The feature's setup, run in each worker process before the database connects. */
   readonly setup?: FeatureSetup<FeatureOptions<S>>;
   /** The feature's middlewares. */
@@ -400,6 +407,7 @@ export function defineFeature<S extends AnyOptionSchema = ObjectOptionSchema<{}>
     ...(input.tags !== undefined ? { tags: tagsField(key, input.tags, schema, invalid) } : {}),
     ...(input.folders !== undefined ? { folders: foldersField(input.folders, invalid) } : {}),
     ...(input.watch !== undefined ? { watch: watchField(input.watch, invalid) } : {}),
+    ...(input.assets !== undefined ? { assets: assetsField(input.assets, invalid) } : {}),
     ...(input.setup !== undefined ? { setup: functionField(input.setup, "setup", invalid) } : {}),
     ...(input.middleware !== undefined ? { middleware: middlewareField(input.middleware, invalid) } : {}),
     ...(input.request !== undefined ? { request: requestField(input.request, invalid) } : {}),
@@ -481,6 +489,13 @@ function requestField(request: Readonly<Record<string, (req: ServiceRequest) => 
 function functionField<F>(value: F, name: string, invalid: (reason: string) => Error): F {
   if (typeof value !== "function") throw invalid(`${name} must be a function`);
   return value;
+}
+
+function assetsField(paths: readonly string[], invalid: (reason: string) => Error): readonly string[] {
+  if (!Array.isArray(paths) || !paths.every((path) => typeof path === "string" && path !== "" && !path.startsWith("/") && !path.split("/").includes(".."))) {
+    throw invalid("assets must be a list of paths inside the project");
+  }
+  return Object.freeze([...paths]);
 }
 
 function watchField(paths: readonly string[], invalid: (reason: string) => Error): readonly string[] {

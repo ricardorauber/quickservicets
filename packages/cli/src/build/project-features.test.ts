@@ -155,7 +155,7 @@ export const wrong: ServiceConfig = { database: memoryAdapter(), greeting: { tex
     const root = project({});
     const logs: string[] = [];
     expect(await run(["build"], { log: (line) => logs.push(line), error: (line) => logs.push(line) }, root)).toBe(0);
-    expect(logs.filter((line) => !line.startsWith("Target "))).toEqual(["Built 1 entity, 0 custom endpoints and 0 hooks."]);
+    expect(logs.filter((line) => !/^(Target |Largest modules:|  )/.test(line))).toEqual(["Built 1 entity, 0 custom endpoints and 0 hooks."]);
     expect(readFileSync(join(root, ".generated/features.ts"), "utf8")).toContain("export const features: ProjectFeatureModule[] = [];");
     expect(readFileSync(join(root, ".generated/types.ts"), "utf8")).not.toContain("NativeFeatures");
   });

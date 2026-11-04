@@ -29,7 +29,7 @@ import {
   DEFAULT_DATABASE,
 } from "@quickservicets/core";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 import ts from "typescript";
 import { databaseTenancyOf, builtInTagOwner, parseProjectModels } from "../entities/parse-entities.ts";
 import { BuildError } from "../errors.ts";
@@ -43,7 +43,7 @@ import { runBuildSteps, type BuildStepResult } from "./build-steps.ts";
 import { activeFeatureTags, assertNoHookConflicts, useFeatureTags } from "../entities/feature-tags.ts";
 import { validateHookReferences } from "../hooks/validate-hook-references.ts";
 import { hasPendingChanges, migrationTargets, sqlDialectOf } from "../migrations/add.ts";
-import { readLatestSnapshot } from "../migrations/snapshot.ts";
+import { listMigrations, readLatestSnapshot } from "../migrations/snapshot.ts";
 import { envVarsLines, fileEntityLines, generateTypesFile, queuePayloadLines, serviceNameLines, type PublishedQueueEntry, type QueueTypeEntry } from "./generate-types.ts";
 import { overrideWarnings, publishProblems, publishTargets, type PublishTarget } from "./queue-publish.ts";
 import { extractQueryItems } from "../endpoints/query-items.ts";
@@ -393,19 +393,41 @@ export function generateJobsFile(jobs: JobEntry[]): string {
   ].join("\n");
 }
 
-/** The generated entry; a project without `quickservicets.config.ts` starts with the config `{}`. */
+/**
+ * The generated entry; a project without `quickservicets.config.ts` starts with the config `{}`. `serve` (the default)
+ * starts the service, and `migrate` applies the registered migrations, so a bundle or binary of it does both.
+ */
 export function generateServerFile(hasConfigFile: boolean): string {
   return `${HEADER}
-import { startService${hasConfigFile ? "" : ", type ServiceConfig"} } from "@quickservicets/core";
+import { assetPath, bundledAssets, runMigrations, startService${hasConfigFile ? "" : ", type ServiceConfig"} } from "@quickservicets/core";
 ${hasConfigFile ? 'import projectConfig from "../quickservicets.config.ts";' : "const projectConfig: ServiceConfig = {};"}
 import { featureFolders, features } from "./features.ts";
 import { models } from "./models.ts";
 import { crudRoutes, endpoints, hooks } from "./routes.ts";
 import { jobs } from "./jobs.ts";
+import { migrations } from "./migrations.ts";
 import openApi from "./openapi.json";
 
-await startService({ projectConfig, models, crudRoutes, endpoints, hooks, jobs, openApi, features, featureFolders, generatedDir: import.meta.dir });
+const command = process.argv.slice(2).find((arg) => arg === "serve" || arg === "migrate") ?? "serve";
+if (command === "migrate") {
+  process.exit(await runMigrations({ projectConfig, models, features, migrations }));
+} else {
+  await startService({ projectConfig, models, crudRoutes, endpoints, hooks, jobs, openApi, features, featureFolders, generatedDir: bundledAssets() ? assetPath(".generated") : import.meta.dir });
+}
 `;
+}
+
+/** The migrations of every database, each loaded only when \`migrate\` applies it. */
+export function generateMigrationsFile(root: string, databases: readonly string[]): string {
+  const entries = databases.map((database) => {
+    const files = listMigrations(root, database);
+    const lines = files.map((file) => {
+      const path = relative(root, file.file).split(sep).join("/");
+      return `    { id: ${JSON.stringify(file.id)}, name: ${JSON.stringify(file.name)}, file: ${JSON.stringify(path)}, load: () => import(${JSON.stringify(`../${path}`)}) },`;
+    });
+    return [`  ${JSON.stringify(database)}: [`, ...lines, "  ],"];
+  });
+  return [HEADER, 'import type { BundledMigration } from "@quickservicets/core";', "", "export const migrations: Record<string, BundledMigration[]> = {", ...entries.flat(), "};", ""].join("\n");
 }
 
 /** The queues of the `queues` feature's folder, with how `.generated/types.ts` imports each file. */
@@ -466,7 +488,7 @@ export interface BuildOptions {
    * Writes the deployable output of a deploy target after `.generated/`, as `quickservicets build` does: `target` is
    * the `--target` flag, which wins over `QS_DEPLOY_TARGET` and the config.
    */
-  deploy?: { target?: string };
+  deploy?: { target?: string; analyze?: boolean };
 }
 
 export async function build(projectRoot: string, env: Record<string, string | undefined> = process.env, options: BuildOptions = {}): Promise<BuildSummary> {
@@ -593,6 +615,7 @@ async function buildProject(projectRoot: string, config: ResolvedConfig, options
     "routes.ts": generateRoutesFile(models, resolved, hooks),
     "jobs.ts": generateJobsFile(jobs),
     "server.ts": generateServerFile(existsSync(join(projectRoot, CONFIG_FILE))),
+    "migrations.ts": generateMigrationsFile(projectRoot, [DEFAULT_DATABASE, ...Object.keys(config.databases)]),
     "openapi.json": `${JSON.stringify(openApi, null, 2)}\n`,
   };
 
@@ -620,6 +643,6 @@ async function buildProject(projectRoot: string, config: ResolvedConfig, options
   } else {
     warnings.push(...(await databaseMigrationWarnings(projectRoot, config, models)));
   }
-  const deploy = target ? await writeDeployOutput(projectRoot, config, target) : undefined;
+  const deploy = target ? await writeDeployOutput(projectRoot, config, target, { analyze: options.deploy?.analyze === true }) : undefined;
   return { ...(deploy ? { deploy } : {}), entities: models.length, endpoints: endpoints.length, hooks: hooks.size, features: featureKeys.length, overrides, fromFeatures: scanned.fromFeatures, watch: featureWatchPaths(config.features), buildInputs: Object.fromEntries(config.features.filter((feature) => feature.definition.build).map((feature) => [feature.key, featureWatchPaths([feature])])), buildSteps, warnings };
 }

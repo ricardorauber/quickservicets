@@ -70,7 +70,7 @@ test("builds are deterministic", async () => {
   const first = Object.fromEntries(readdirSync(join(root, ".generated")).map((file) => [file, read(root, file)]));
   await build(root);
   const second = Object.fromEntries(readdirSync(join(root, ".generated")).map((file) => [file, read(root, file)]));
-  expect(Object.keys(first).sort()).toEqual(["features.ts", "jobs.ts", "models.ts", "openapi.json", "routes.ts", "server.ts", "types.ts"]);
+  expect(Object.keys(first).sort()).toEqual(["features.ts", "jobs.ts", "migrations.ts", "models.ts", "openapi.json", "routes.ts", "server.ts", "types.ts"]);
   expect(second).toEqual(first);
 });
 
@@ -101,7 +101,7 @@ test("summary counts", async () => {
   const logs: string[] = [];
   const code = await run(["build"], { log: (line) => logs.push(line), error: () => {} }, project());
   expect(code).toBe(0);
-  expect(logs.filter((line) => !line.startsWith("Target "))).toEqual(["Built 2 entities, 1 custom endpoints and 1 hooks."]);
+  expect(logs.filter((line) => !/^(Target |Largest modules:|  )/.test(line))).toEqual(["Built 2 entities, 1 custom endpoints and 1 hooks."]);
 });
 
 test("end-to-end build and request through the generated app", async () => {

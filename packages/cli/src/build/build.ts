@@ -28,6 +28,7 @@ import {
   databaseVariables,
   DEFAULT_DATABASE,
   lazyRoutesFor,
+  importConfigFile,
 } from "@quickservicets/core";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
@@ -52,7 +53,7 @@ import { describeEndpoints } from "../openapi/endpoint-docs.ts";
 import { generateOpenApi } from "../openapi/generate-openapi.ts";
 import { writeEnvExample } from "../env/env-example.ts";
 import { assertFeatureImports, featureTypeLines, generateFeaturesFile, overrideLine } from "./project-features.ts";
-import { deployOptionsOf, deployTargetOf, functionModeWarnings, writeDeployOutput, type DeployOutput } from "./deploy.ts";
+import { cloudRunWarnings, deployOptionsOf, deployTargetOf, functionModeWarnings, writeDeployOutput, type DeployOutput } from "./deploy.ts";
 
 /** Whether the generated route table loads endpoint modules lazily: `deploy.lazyRoutes` for the build's target. */
 function lazyRoutesOf(config: ResolvedConfig, target: string | undefined): boolean {
@@ -569,6 +570,10 @@ async function buildProject(projectRoot: string, config: ResolvedConfig, options
         lambdaStreaming: deployOptionsOf(config)?.lambda.streaming === true,
       })
     : [];
+  if (target === "cloud-run") {
+    const databaseQueues = queuesFeature && queuesFeature.options.broker === undefined ? queueTypes(folderFiles).length : 0;
+    deployWarnings.push(...cloudRunWarnings((await importConfigFile(projectRoot)) as never, config, jobs.length + databaseQueues > 0));
+  }
   validateHookReferences(
     models,
     endpoints.map((endpoint) => ({ file: endpoint.route.file, hooks: endpoint.hooks })),

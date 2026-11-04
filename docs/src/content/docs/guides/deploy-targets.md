@@ -142,6 +142,32 @@ Deploy `function.zip` as a function on `provided.al2023` with the handler `boots
 
 Publish the folder with `func azure functionapp publish <app> --custom` (Core Tools), or zip it for a run-from-package deployment.
 
+## Google Cloud Run
+
+`--target cloud-run` writes `dist/cloud-run/` with the service compiled for `linux-x64`, a `Dockerfile` that copies it into `gcr.io/distroless/cc-debian12` as the non-root user 10001 with `ENTRYPOINT ["/app/<name>"]`, a `.dockerignore`, and a Knative `service.yaml` named after `deploy.name`:
+
+```ts
+deploy: {
+  cloudRun: { concurrency: 40, timeout: "60s", minInstances: 1, maxInstances: 20, cpuAlwaysAllocated: false, memory: "1Gi", cpu: "2" },
+},
+```
+
+- `concurrency`, `timeout`, `minInstances`, `maxInstances`, `memory` and `cpu` become `containerConcurrency`, `timeoutSeconds`, the scaling annotations and the container's limits; each has a variable, like `QS_DEPLOY_CLOUD_RUN_CONCURRENCY`. With `health` on, the manifest adds a startup probe and a liveness probe on the live route.
+- The service listens on `PORT`. Cloud Run stops containers 10 seconds after SIGTERM, so when the project sets neither, the service stops within 8 seconds and the health routes drain for 1 second; a longer `lifecycle.stopTimeout` plus `health.drainDelay` than 9 seconds makes the build warn `Cloud Run stops containers 10 seconds after SIGTERM; lower lifecycle.stopTimeout or health.drainDelay`.
+- With `cpuAlwaysAllocated: false` (the default, `run.googleapis.com/cpu-throttling: "true"`), the CPU is throttled outside requests, so the service starts no job scheduler or queue consumer loops and the build warns `Background work needs deploy.cloudRun.cpuAlwaysAllocated: true on cloud-run` when the project has jobs or database queues; with `true` they run as on a server.
+- `req.ip` is the address Google's front end adds to `x-forwarded-for`, without listing proxy ranges; `deploy.cloudRun.trustProxy: false` uses the peer address instead.
+
+Build and push the image, set it in `service.yaml`, then deploy:
+
+```bash
+cd dist/cloud-run
+docker build -t REGION-docker.pkg.dev/PROJECT/REPOSITORY/blog .
+docker push REGION-docker.pkg.dev/PROJECT/REPOSITORY/blog
+gcloud run services replace service.yaml
+```
+
+The same runtime stage comes from `dockerfile({ artifact, base, user, port, entrypoint, buildStage, healthcheck })` of `@quickservicets/core`, which every generator that packages the service as an image uses: `base` is `distroless` for a binary or `bun-slim` for a bundle, `buildStage` adds a stage that builds the artifact from the sources first, and `healthcheck` adds a `HEALTHCHECK`.
+
 ## See also
 
 - [Local environment](/guides/local-environment/): the services the project needs, on your machine.

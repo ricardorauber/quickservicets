@@ -109,6 +109,8 @@ export { handleLambdaEvent, isLambdaHttpEvent, isTextContent, LAMBDA_RESPONSE_LI
 export type { LambdaContext, LambdaOptions, LambdaRequest, LambdaResult } from "./platforms/lambda.ts";
 export { forwardedClient, runAzureFunctions } from "./platforms/azure.ts";
 export type { AzureFunctionsOptions, InvocationResult } from "./platforms/azure.ts";
+export { CLOUD_RUN_DRAIN_DELAY, CLOUD_RUN_STOP_TIMEOUT, cloudRunConfig, runCloudRun } from "./platforms/cloud-run.ts";
+export type { CloudRunOptions } from "./platforms/cloud-run.ts";
 export { applyMigrations, HISTORY_TABLE, MigrationError, MONGO_HISTORY_COLLECTION, MONGO_NO_TRANSACTION_WARNING, runMigrations, schemaHistoryTable, splitSqlOptions, withSourceDrivers } from "./migration-runner.ts";
 export type { AppliedMigration, BundledMigration, BundledMigrationInputs, DatabaseDriver, MigrateOptions, MigrateResult, MigrationDriver, MigrationFile, MigrationModule, MigrationSource } from "./migration-runner.ts";
 export { createServiceHandler, DEADLINE_EXCEEDED, DEADLINE_MARGIN_MS, platformOf } from "./service-handler.ts";
@@ -381,6 +383,8 @@ registerShippedNative(secretsNative);
 registerShippedNative(webhooksNative);
 registerShippedNative(devNative);
 registerShippedNative(deployNative);
+export { dockerfile, RUNTIME_IMAGES } from "./features/deploy/dockerfile.ts";
+export type { DockerfileOptions } from "./features/deploy/dockerfile.ts";
 export { buildMachinePlatform, defaultPlatform, LAZY_ROUTE_TARGETS, lazyRoutesFor, DEPLOY_DISABLED, DEPLOY_PLATFORMS, DEPLOY_TARGETS, deployFeature, FUNCTION_TARGETS, isFunctionTarget, unknownTarget } from "./features/deploy/index.ts";
 export type { DeployOptions, DeployPlatform, DeployTargetName } from "./features/deploy/index.ts";
 export {

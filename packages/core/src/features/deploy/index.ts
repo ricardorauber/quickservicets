@@ -1,4 +1,4 @@
-import { boolean, defineFeature, duration, list, object, oneOf, platformOf, string } from "../public.ts";
+import { boolean, defineFeature, duration, integer, list, object, oneOf, platformOf, string } from "../public.ts";
 
 /** The deploy targets a project builds for. */
 export const DEPLOY_TARGETS = ["server", "binary", "lambda", "azure-functions", "cloud-run"] as const;
@@ -49,6 +49,7 @@ export interface DeployOptions {
   startupTrace: boolean;
   lambda: { architecture: "arm64" | "x86_64"; streaming: boolean };
   azure: { authLevel: "anonymous" | "function"; functionTimeout?: string; extensionBundle: boolean };
+  cloudRun: { concurrency: number; timeout: string; minInstances: number; maxInstances: number; cpuAlwaysAllocated: boolean; memory: string; cpu: string; trustProxy: boolean };
 }
 
 /** The targets whose route tables import endpoint modules on first use when `lazyRoutes` is `auto`. */
@@ -80,6 +81,16 @@ const options = object({
     functionTimeout: duration().optional().describe("The functionTimeout written to host.json, like 10m (default: the plan's)."),
     extensionBundle: boolean().default(true).describe("Adds the default extension bundle to host.json, so trigger bindings resolve."),
   }).describe("Settings of the azure-functions target."),
+  cloudRun: object({
+    concurrency: integer().min(1).max(1000).default(80).describe("The most requests one container serves at once (containerConcurrency)."),
+    timeout: duration().default("300s").describe("How long a request may take before Cloud Run ends it (timeoutSeconds)."),
+    minInstances: integer().min(0).default(0).describe("The fewest containers kept running (autoscaling.knative.dev/minScale)."),
+    maxInstances: integer().min(1).default(100).describe("The most containers Cloud Run starts (autoscaling.knative.dev/maxScale)."),
+    cpuAlwaysAllocated: boolean().default(false).describe("Keeps the CPU allocated outside requests, so the job scheduler and queue consumers run (run.googleapis.com/cpu-throttling: false)."),
+    memory: string().default("512Mi").describe("The memory limit of the container."),
+    cpu: string().default("1").describe("The CPU limit of the container."),
+    trustProxy: boolean().default(true).describe("Takes req.ip from the x-forwarded-for entry Google's front end adds, without listing proxy ranges in security.proxy.trust."),
+  }).describe("Settings of the cloud-run target."),
 });
 
 /**
@@ -95,5 +106,8 @@ export const deployFeature = defineFeature({
   // The platform handler's data about each request, computed on first read.
   request: { platform: (req) => platformOf(req.raw) },
 });
+
+export { dockerfile, RUNTIME_IMAGES } from "./dockerfile.ts";
+export type { DockerfileOptions } from "./dockerfile.ts";
 
 export default deployFeature;

@@ -34,5 +34,13 @@ It is enabled by default; turn it off with `deploy: false` or `QS_DEPLOY_ENABLED
 | `deploy.azure.authLevel` | `"anonymous" \| "function"` | `"anonymous"` | `QS_DEPLOY_AZURE_AUTH_LEVEL` | no | The authLevel of the HTTP function: anonymous, or function to require a function key. |
 | `deploy.azure.functionTimeout` | `duration` | — | `QS_DEPLOY_AZURE_FUNCTION_TIMEOUT` | no | The functionTimeout written to host.json, like 10m (default: the plan's). |
 | `deploy.azure.extensionBundle` | `boolean` | `true` | `QS_DEPLOY_AZURE_EXTENSION_BUNDLE` | no | Adds the default extension bundle to host.json, so trigger bindings resolve. |
+| `deploy.cloudRun.concurrency` | `integer` | `80` | `QS_DEPLOY_CLOUD_RUN_CONCURRENCY` | no | The most requests one container serves at once (containerConcurrency). |
+| `deploy.cloudRun.timeout` | `duration` | `"300s"` | `QS_DEPLOY_CLOUD_RUN_TIMEOUT` | no | How long a request may take before Cloud Run ends it (timeoutSeconds). |
+| `deploy.cloudRun.minInstances` | `integer` | `0` | `QS_DEPLOY_CLOUD_RUN_MIN_INSTANCES` | no | The fewest containers kept running (autoscaling.knative.dev/minScale). |
+| `deploy.cloudRun.maxInstances` | `integer` | `100` | `QS_DEPLOY_CLOUD_RUN_MAX_INSTANCES` | no | The most containers Cloud Run starts (autoscaling.knative.dev/maxScale). |
+| `deploy.cloudRun.cpuAlwaysAllocated` | `boolean` | `false` | `QS_DEPLOY_CLOUD_RUN_CPU_ALWAYS_ALLOCATED` | no | Keeps the CPU allocated outside requests, so the job scheduler and queue consumers run (run.googleapis.com/cpu-throttling: false). |
+| `deploy.cloudRun.memory` | `string` | `"512Mi"` | `QS_DEPLOY_CLOUD_RUN_MEMORY` | no | The memory limit of the container. |
+| `deploy.cloudRun.cpu` | `string` | `"1"` | `QS_DEPLOY_CLOUD_RUN_CPU` | no | The CPU limit of the container. |
+| `deploy.cloudRun.trustProxy` | `boolean` | `true` | `QS_DEPLOY_CLOUD_RUN_TRUST_PROXY` | no | Takes req.ip from the x-forwarded-for entry Google's front end adds, without listing proxy ranges in security.proxy.trust. |
 | `deploy.enabled` | `boolean` | `true` | `QS_DEPLOY_ENABLED` | no | Turns the feature off when false. |
 | `deploy.database` | `string` | — | `QS_DEPLOY_DATABASE` | no | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |

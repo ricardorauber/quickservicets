@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -7,7 +7,6 @@ import {
   defineFeature,
   describeInfrastructure,
   importConfigFile,
-  isInfraKind,
   LifecycleError,
   memoryAdapter,
   notifyShutdownSignal,
@@ -18,6 +17,8 @@ import {
   type DatabaseAdapter,
   type EntityModel,
   type AuthProvider,
+  type ContainerRunner,
+  type InfraService,
   type LifecyclePhase,
   type Repositories,
 } from "@quickservicets/core";
@@ -63,14 +64,16 @@ function testDatabases(configured: unknown, chosen: Record<string, DatabaseAdapt
 }
 
 /**
- * The services of the project's infrastructure description, when a requested name is not a catalog kind: the config
- * is read through a fresh import, so the later import still sees the services' variables.
+ * The project's infrastructure description and the `dev` native's runner, read through a fresh import of the config,
+ * so the later import still sees the services' variables.
  */
-async function projectServices(root: string, names: readonly string[]) {
-  if (names.every((name) => isInfraKind(name))) return [];
+async function projectInfrastructure(root: string): Promise<{ services: InfraService[]; runner?: ContainerRunner }> {
   const file = join(root, "quickservicets.config.ts");
+  if (!existsSync(file)) return { services: [] };
   const { default: projectConfig } = (await import(`${file}?describe=${crypto.randomUUID()}`)) as { default: Record<string, unknown> };
-  return describeInfrastructure(resolveConfig(projectConfig as never, { ...process.env }, root) as never).services;
+  const config = resolveConfig(projectConfig as never, { ...process.env }, root);
+  const runner = config.features.find((feature) => feature.key === "dev")?.options.runner as ContainerRunner | undefined;
+  return { services: describeInfrastructure(config as never).services, ...(runner ? { runner } : {}) };
 }
 
 /** The key of the project feature that registers the providers of the `auth` option. */
@@ -195,7 +198,8 @@ export async function startTestService({ files, env: givenEnv = {}, auth, databa
   };
   try {
     if (serviceNames && serviceNames.length > 0) {
-      services = await startServices(serviceNames, { env: { ...process.env, ...givenEnv }, services: await projectServices(root, serviceNames) });
+      const infrastructure = await projectInfrastructure(root);
+      services = await startServices(serviceNames, { env: { ...process.env, ...givenEnv }, services: infrastructure.services, ...(infrastructure.runner ? { runner: infrastructure.runner } : {}) });
       env = { ...services.env, ...givenEnv };
       for (const [name, value] of Object.entries(services.env)) {
         restoreEnv[name] = process.env[name];

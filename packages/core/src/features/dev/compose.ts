@@ -14,6 +14,24 @@ export interface DevOptions {
   composeFile: string;
   project?: string;
   wait: string;
+  /** Hooks over the compose document before it is written. */
+  beforeCompose?: readonly ((document: ComposeDocument, ctx: { project: string }) => unknown)[];
+  /** Hooks run once the services are healthy. */
+  afterUp?: readonly ((value: { services: { name: string; image: string; port: number }[]; env: Record<string, string> }, ctx: undefined) => unknown)[];
+  /** Replaces the `docker compose` calls. */
+  runner?: import("./services.ts").ContainerRunner;
+}
+
+/**
+ * The `services` entry of a service: the one named after it, or else an entry named after its kind when no other
+ * service has that kind, so `services.postgres` reaches the `database` service on PostgreSQL.
+ */
+export function serviceSetting(options: Pick<DevOptions, "services">, service: Pick<InfraService, "name" | "kind">, all: readonly Pick<InfraService, "name" | "kind">[]): DevOptions["services"][string] | undefined {
+  const named = options.services[service.name];
+  if (named) return named;
+  const byKind = options.services[service.kind];
+  if (byKind && !all.some((other) => other.name === service.kind) && all.filter((other) => other.kind === service.kind).length === 1) return byKind;
+  return undefined;
 }
 
 /** One service started locally: its requirement, image and host port of each container port. */
@@ -76,10 +94,13 @@ export function localServicesPlan(config: Record<string, unknown>, options: DevO
   const project = options.project ?? composeProjectName(packageName(root));
   const described = describeInfrastructure(config as never);
   const taken = new Set<number>();
-  const chosen = new Set(Object.values(options.services).flatMap((entry) => (entry.enabled !== false && entry.port !== undefined ? [entry.port] : [])));
+  const chosen = new Set(described.services.flatMap((service) => {
+    const setting = serviceSetting(options, service, described.services);
+    return setting && setting.enabled !== false && setting.port !== undefined ? [setting.port] : [];
+  }));
   const services: LocalService[] = [];
   for (const service of described.services) {
-    const setting = options.services[service.name];
+    const setting = serviceSetting(options, service, described.services);
     if (setting?.enabled === false) continue;
     const ports: Record<number, number> = {};
     service.ports.forEach((container, index) => {
@@ -103,16 +124,16 @@ export function localServicesPlan(config: Record<string, unknown>, options: DevO
       ),
     ).map(([name, value]) => [name, value.split(token).join("[secret]")]),
   );
-  return { project, file: options.composeFile, services, document: composeDocument(project, services, options), env, maskedEnv };
+  return { project, file: options.composeFile, services, document: composeDocument(project, services, options, described.services), env, maskedEnv };
 }
 
 /** The compose document of the local services: image, ports, health check, variables and a named volume each. */
-export function composeDocument(project: string, services: readonly LocalService[], options: Pick<DevOptions, "services">): ComposeDocument {
+export function composeDocument(project: string, services: readonly LocalService[], options: Pick<DevOptions, "services">, all: readonly Pick<InfraService, "name" | "kind">[] = services.map((entry) => entry.service)): ComposeDocument {
   const document: ComposeDocument = { name: project, services: {} };
   const volumes: Record<string, Record<string, unknown>> = {};
   for (const entry of services) {
     const { service } = entry;
-    const environment = { ...service.environment, ...options.services[entry.name]?.env };
+    const environment = { ...service.environment, ...serviceSetting(options, service, all)?.env };
     const definition: Record<string, unknown> = {
       image: entry.image,
       ...(service.command ? { command: [...service.command] } : {}),
@@ -133,10 +154,13 @@ export function composeDocument(project: string, services: readonly LocalService
 
 const PLAIN = /^[A-Za-z0-9_./-]+$/;
 
-/** A YAML scalar: plain when it cannot be misread, quoted otherwise. */
+/**
+ * A YAML scalar: plain when it cannot be misread, quoted otherwise. `$` is written `$$`, so Docker Compose passes it
+ * to the container instead of interpolating a variable of the host, like `$MINIO_ROOT_USER` in a health check.
+ */
 function scalar(value: unknown): string {
   if (typeof value === "number" || typeof value === "boolean") return String(value);
-  const text = String(value);
+  const text = String(value).replaceAll("$", "$$$$");
   return PLAIN.test(text) && !/^(true|false|null|yes|no|on|off|~|[0-9.]+)$/i.test(text) ? text : JSON.stringify(text);
 }
 

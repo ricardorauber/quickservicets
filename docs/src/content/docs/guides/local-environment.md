@@ -34,7 +34,7 @@ Service redis (redis:7.4.1-alpine) on localhost:6379
 
 The development server receives each service's connection variable, like `DATABASE_URL=postgres://postgres:postgres@localhost:5432/app` or `REDIS_URL=redis://localhost:6379`, resolved for `localhost` and the mapped port. A variable already set in the environment or in the project's `.env` files wins, so a real database in `.env` is never replaced. The database connections (`DATABASE_URL`, and `QS_DATABASES_<NAME>_URL` for each named database) are also written to `.env` when it does not set them, so `migration add`, `migrate` and the other commands reach the same databases.
 
-The credentials are local ones from the catalog and are used only by these commands: `--services` and the `services` commands refuse to run with `production: true` or `NODE_ENV=production`, exiting 1 with `Local services are for development only`.
+The credentials are local ones from the catalog (like `postgres`/`postgres` and `minioadmin`/`minioadmin`) and are used only by these commands; never reuse them for a deployed database: `--services` and the `services` commands refuse to run with `production: true` or `NODE_ENV=production`, exiting 1 with `Local services are for development only`.
 
 ## Options
 
@@ -50,10 +50,16 @@ export default defineConfig({
 });
 ```
 
-- `services.<name>`: `enabled` (false leaves the service to you), `image`, `port` (the host port, when the catalog's is taken) and `env` (variables of the container);
+- `services.<name>`: `enabled` (false leaves the service to you), `image`, `port` (the host port, when the catalog's is taken) and `env` (variables of the container). An entry applies to the service of that name, or to the only service of that kind, so `services.postgres` reaches the `database` service on PostgreSQL;
 - `composeFile`: where the compose file is written (`.generated/dev/compose.yml`);
 - `project`: the compose project name;
 - `wait`: how long to wait for the health checks.
+
+Every option has its variable: `QS_DEV_ENABLED`, `QS_DEV_COMPOSE_FILE`, `QS_DEV_PROJECT`, `QS_DEV_WAIT`, and for each entry present in the config `QS_DEV_SERVICES_<NAME>_IMAGE`, `QS_DEV_SERVICES_<NAME>_PORT` and `QS_DEV_SERVICES_<NAME>_ENABLED`:
+
+```bash
+QS_DEV_SERVICES_POSTGRES_PORT=5441 bun run quickservicets dev --services
+```
 
 When a host port is taken, the command exits 1 with `Port <port> for <name> is in use; set dev.services.<name>.port`. A second database of the same kind takes the next port up (5433 for the second PostgreSQL).
 
@@ -77,6 +83,51 @@ services:
 | `quickservicets services status` | One line per service with its state, health and port. |
 | `quickservicets services logs [name]` | The logs of every service, or of one. |
 | `quickservicets services env [--show]` | The connection variables, with passwords as `[secret]` unless `--show`. |
+
+## Test containers
+
+Tests start the same services in throwaway containers with `@quickservicets/cli/testing`: `startServices(["postgres"])` maps every port to a random free one, waits for the health checks and resolves the variables; `describeWithServices` wraps a block of tests and is skipped by name where Docker is missing; `startTestService({ files, services: ["postgres"] })` runs the project on its own adapter with its migrations applied. A set `TEST_<KIND>_URL`, like `TEST_POSTGRES_URL`, points a kind at an existing service instead of a container. The [testing recipe](/recipes/testing/#real-services-in-throwaway-containers) shows them.
+
+## CI
+
+In CI, either let the test containers start (the runner needs Docker), or start the services as CI services and pass their URLs as `TEST_POSTGRES_URL`, `TEST_REDIS_URL` and so on, so no container starts from the tests:
+
+```yaml
+services:
+  postgres:
+    image: postgres:17.11-alpine
+    env: { POSTGRES_PASSWORD: postgres }
+    ports: ["5432:5432"]
+env:
+  TEST_POSTGRES_URL: postgres://postgres:postgres@localhost:5432/postgres
+```
+
+## Podman and other tools
+
+`dev.runner` replaces every `docker compose` call of `--services`, the `services` commands and the test containers. `dockerComposeRunner(exec, env, command)` builds one from a command, so Podman needs one line:
+
+```ts
+import { dockerComposeRunner, spawnExec } from "@quickservicets/core";
+
+export default defineConfig({
+  dev: { runner: dockerComposeRunner(spawnExec, process.env, ["podman", "compose"]) },
+});
+```
+
+A runner is an object with `up`, `down`, `status` and `logs`, each receiving the compose files, the project name, the folder and a signal; the [dev reference](/reference/features/dev/#the-containerrunner-contract) has the contract.
+
+## Customization levels
+
+The [example project](https://github.com/ricardorauber/quickservicets/blob/main/examples/minimal/dev/README.md) shows each level:
+
+1. **Enable**: nothing to write; `quickservicets dev --services` works without a `dev` key.
+2. **Options and environment**: `dev.services.postgres.port` and `QS_DEV_SERVICES_POSTGRES_PORT`, `wait`, `project`.
+3. **Tags**: not applicable; local services are not tied to entities or routes.
+4. **Per request**: not applicable; the services start before the server.
+5. **Hooks and events**: `beforeCompose` receives the compose document as an object and may return a changed one (adding an `adminer` service), and `afterUp` receives `{ services, env }` once they are healthy; a feature that lists `dev` in `after` adds them with `ctx.feature("dev").addHook`.
+6. **Override files**: `dev/compose.override.yml`.
+7. **Replace the implementation**: `dev.runner`, like Podman above.
+8. **Eject**: `quickservicets eject dev` copies the native into `features/dev/`.
 
 ## See also
 

@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { composeYaml, INFRA_CATALOG, isInfraKind, parseDuration, resolveInfraEnv, resolveInfraTemplate, spawnExec, type Exec, type InfraEndpoint, type InfraService } from "@quickservicets/core";
+import { composeYaml, INFRA_CATALOG, isInfraKind, parseDuration, portFree, resolveInfraEnv, resolveInfraTemplate, spawnExec, type ContainerRunner, type Exec, type InfraEndpoint, type InfraService } from "@quickservicets/core";
 
 /** The label every test container carries, so leftovers can be found and removed. */
 export const TEST_CONTAINER_LABEL = "quickservicets.test";
@@ -33,6 +33,11 @@ export interface StartServicesOptions {
   env?: Record<string, string | undefined>;
   /** Runs Docker (default: `Bun.spawn`). */
   exec?: Exec;
+  /**
+   * Replaces the `docker compose` calls, like the `dev` native's `runner` (for Podman): host ports are then chosen
+   * free up front instead of read back from Docker.
+   */
+  runner?: ContainerRunner;
 }
 
 /** The variable that points a kind at an existing service: `postgres` is `TEST_POSTGRES_URL`. */
@@ -144,8 +149,22 @@ function installExitHandlers(): void {
   }
 }
 
-/** The compose document of test containers: every port published on a random loopback port, labeled, no named volumes. */
-function testDocument(project: string, services: readonly InfraService[]) {
+/** A free loopback port for a runner that cannot report the ports it mapped. */
+function freeHostPort(taken: Set<number>): number {
+  for (;;) {
+    const port = 20_000 + Math.floor(Math.random() * 20_000);
+    if (!taken.has(port) && portFree(port)) {
+      taken.add(port);
+      return port;
+    }
+  }
+}
+
+/**
+ * The compose document of test containers: every port published on a random loopback port (or on the chosen one),
+ * labeled, no named volumes.
+ */
+function testDocument(project: string, services: readonly InfraService[], chosen?: Readonly<Record<string, Record<number, number>>>) {
   return {
     name: project,
     services: Object.fromEntries(
@@ -155,7 +174,7 @@ function testDocument(project: string, services: readonly InfraService[]) {
           image: service.image,
           ...(service.command ? { command: [...service.command] } : {}),
           ...(Object.keys(service.environment).length > 0 ? { environment: service.environment } : {}),
-          ports: service.ports.map((port) => `127.0.0.1::${port}`),
+          ports: service.ports.map((port) => `127.0.0.1:${chosen?.[service.name]?.[port] ?? ""}:${port}`),
           labels: { [TEST_CONTAINER_LABEL]: "true" },
           ...(service.health ? { healthcheck: { test: [...service.health], interval: "1s", timeout: "5s", retries: 120, start_period: "2s" } } : {}),
         },
@@ -209,18 +228,23 @@ export async function startServices(names: readonly string[], options: StartServ
     return { env: resolved, urls, ...(project ? { project } : {}), stop };
   };
   if (containers.length === 0) return finish(async () => {});
-  installExitHandlers();
+  const runner = options.runner;
+  if (!runner) installExitHandlers();
   const project = `qs-test-${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
   const dir = mkdtempSync(join(tmpdir(), "qs-test-services-"));
   const file = join(dir, "compose.yml");
-  writeFileSync(file, composeYaml(testDocument(project, containers) as never));
+  const taken = new Set<number>();
+  const chosen = runner ? Object.fromEntries(containers.map((service) => [service.name, Object.fromEntries(service.ports.map((port) => [port, freeHostPort(taken)]))])) : undefined;
+  writeFileSync(file, composeYaml(testDocument(project, containers, chosen) as never));
   const base = ["docker", "compose", "-f", file, "-p", project];
+  const call = { files: [file], project, cwd: dir };
   const entry: RunningProject = { project, file, dir, users: 1, started: undefined as never };
   const stopProject = async () => {
     running.delete(project);
     writeState();
     if (reused.get(key) === entry) reused.delete(key);
-    await exec([...base, "down", "--volumes", "--timeout", "1"], { cwd: dir, env });
+    if (runner) await runner.down({ ...call, volumes: true });
+    else await exec([...base, "down", "--volumes", "--timeout", "1"], { cwd: dir, env });
     rmSync(dir, { recursive: true, force: true });
   };
   const stop = async () => {
@@ -228,17 +252,30 @@ export async function startServices(names: readonly string[], options: StartServ
     if (entry.users <= 0) await stopProject();
   };
   entry.started = (async () => {
-    running.set(project, entry);
-    startReaper();
-    writeState();
+    if (!runner) {
+      running.set(project, entry);
+      startReaper();
+      writeState();
+    }
     const seconds = Math.ceil((parseDuration(timeout) ?? 90_000) / 1000);
-    const up = await exec([...base, "up", "-d", "--wait", "--wait-timeout", String(seconds)], { cwd: dir, env });
-    if (up.code !== 0) {
-      const states = await exec([...base, "ps", "--all", "--format", "json"], { cwd: dir, env });
-      const unhealthy = parseStates(states.stdout).find((state) => state.health !== "healthy") ?? { service: containers[0]!.name };
-      const logs = await logTail(exec, base, unhealthy.service, env, dir);
+    let failure = "";
+    const healthy = runner
+      ? await runner.up({ ...call, waitSeconds: seconds }).then(
+          () => true,
+          (error: unknown) => ((failure = error instanceof Error ? error.message : String(error)), false),
+        )
+      : await exec([...base, "up", "-d", "--wait", "--wait-timeout", String(seconds)], { cwd: dir, env }).then((result) => ((failure = (result.stderr || result.stdout).trim()), result.code === 0));
+    if (!healthy) {
+      const states = runner ? await runner.status(call).catch(() => []) : parseStates((await exec([...base, "ps", "--all", "--format", "json"], { cwd: dir, env })).stdout);
+      const unhealthy = states.find((state) => state.health !== "healthy");
+      // Without a container to blame, Docker's own output says what went wrong.
+      const logs = !unhealthy ? failure : runner ? (await runner.logs({ ...call, service: unhealthy.service, tail: 20 }).catch(() => "")).trimEnd() : await logTail(exec, base, unhealthy.service, env, dir);
       await stopProject();
-      throw new Error(`Service ${unhealthy.service} did not become healthy within ${timeout}\n${logs}`);
+      throw new Error(`Service ${unhealthy?.service ?? containers[0]!.name} did not become healthy within ${timeout}\n${logs}`);
+    }
+    if (chosen) {
+      for (const service of containers) endpoints[service.name] = { host: "127.0.0.1", ports: chosen[service.name]! };
+      return finish(stop, project);
     }
     for (const service of containers) {
       const ports: Record<number, number> = {};
@@ -301,7 +338,7 @@ export function describeWithServices(names: readonly string[], fn: (services: Om
   const label = names.join(", ");
   const kinds = names.map((name) => serviceNamed(name, options.services ?? []).kind);
   const missing = [...new Set(kinds.filter((kind) => !env[testServiceVariable(kind)]))];
-  if (missing.length > 0 && !dockerAnswers(env)) {
+  if (missing.length > 0 && !options.runner && !dockerAnswers(env)) {
     const { test } = require("bun:test") as typeof import("bun:test");
     test.skip(`${label}: Docker is not available (set ${missing.map(testServiceVariable).join(" and ")} to use an existing service)`, () => {});
     return;

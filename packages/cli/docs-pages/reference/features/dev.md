@@ -25,6 +25,9 @@ It is enabled by default; turn it off with `dev: false` or `QS_DEV_ENABLED=false
 | `dev.composeFile` | `string` | `".generated/dev/compose.yml"` | `QS_DEV_COMPOSE_FILE` | no | Where the generated Docker Compose file is written, relative to the project. |
 | `dev.project` | `string` | — | `QS_DEV_PROJECT` | no | The Docker Compose project name (default: the package name, without its scope). |
 | `dev.wait` | `duration` | `"60s"` | `QS_DEV_WAIT` | no | How long `services up` waits for every health check before failing. |
+| `dev.beforeCompose` | `hook` | — | not overridable | no | Runs before the compose file is written, with the compose document as an object; returning a document replaces it, like adding an `adminer` service. |
+| `dev.afterUp` | `hook` | — | not overridable | no | Runs once the services are healthy, with each service's name, image and host port and every resolved connection variable. |
+| `dev.runner` | `ContainerRunner` | — | not overridable | no | Replaces the `docker compose` calls of the local services and test containers, like a runner calling `podman compose`: `up`, `down`, `status` and `logs` receive the compose files, the project name and a signal. |
 | `dev.enabled` | `boolean` | `true` | `QS_DEV_ENABLED` | no | Turns the feature off when false. |
 | `dev.database` | `string` | — | `QS_DEV_DATABASE` | no | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
 
@@ -81,3 +84,76 @@ quickservicets services env [--show]
 **Flags:**
 
 - `--show` (`boolean`, default `false`): Prints the passwords.
+
+## Hooks
+
+Hooks are functions (or lists of functions) written in the config; `before` hooks may change the value or cancel the step by throwing, `after` and `on` hooks observe.
+
+| Hook | Kind | Description |
+| --- | --- | --- |
+| `dev.beforeCompose` | before | Runs before the compose file is written, with the compose document as an object; returning a document replaces it, like adding an `adminer` service. |
+| `dev.afterUp` | after | Runs once the services are healthy, with each service's name, image and host port and every resolved connection variable. |
+
+## Feature API
+
+Other features reach it with `ctx.feature("dev")` in their setup, listing `dev` in `requires` or `after`.
+
+### `addHook`
+
+```ts
+addHook(name: "beforeCompose", fn: FeatureHook<ComposeDocument, { project: string }>): void;
+```
+
+Adds a hook after the ones written in the config.
+
+### `addHook`
+
+```ts
+addHook(name: "afterUp", fn: FeatureHook<{ services: { name: string; image: string; port: number }[]; env: Record<string, string> }, undefined>): void;
+```
+
+## Services
+
+The services come from `describeInfrastructure(config)`: `database` (and `database-<name>` per named database) for PostgreSQL and MongoDB, `minio` for an S3 storage without an `endpoint`, and every requirement an enabled feature declares in `infra`. A `services` entry applies to the service of that name, or to the only service of that kind (`services.postgres` reaches the `database` service on PostgreSQL). Variables like `QS_DEV_SERVICES_POSTGRES_PORT` set the options of entries present in the config. The project file `dev/compose.override.yml` is passed to Docker Compose after the generated file.
+
+## The ContainerRunner contract
+
+`runner` replaces every `docker compose` call of `quickservicets dev --services`, the `services` commands and the test containers of `@quickservicets/cli/testing`:
+
+```ts
+interface ContainerRunner {
+  up(call: { files: string[]; project: string; cwd: string; signal?: AbortSignal; waitSeconds: number }): Promise<void>;
+  down(call: { files: string[]; project: string; cwd: string; signal?: AbortSignal; volumes?: boolean }): Promise<void>;
+  status(call: { files: string[]; project: string; cwd: string; signal?: AbortSignal }): Promise<{ service: string; state: string; health: string }[]>;
+  logs(call: { files: string[]; project: string; cwd: string; signal?: AbortSignal; service?: string; tail?: number }): Promise<string>;
+}
+```
+
+`dockerComposeRunner(exec, env, command)` builds the default one; `dockerComposeRunner(spawnExec, process.env, ["podman", "compose"])` runs Podman instead.
+
+## Catalog
+
+The kinds a requirement may use, with their pinned images:
+
+| Kind | Image | Ports | Variables |
+| --- | --- | --- | --- |
+| `postgres` | `postgres:17.11-alpine` | 5432 | `DATABASE_URL` |
+| `mongodb` | `mongo:7.0.16` | 27017 | `DATABASE_URL` |
+| `redis` | `redis:7.4.1-alpine` | 6379 | `REDIS_URL` |
+| `rabbitmq` | `rabbitmq:4.0.5-management-alpine` | 5672, 15672 | `AMQP_URL` |
+| `kafka` | `apache/kafka:3.9.0` | 9092 | `KAFKA_BROKERS` |
+| `localstack` | `localstack/localstack:4.0.3` | 4566 | `AWS_ENDPOINT_URL`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` |
+| `minio` | `bitnamilegacy/minio:2025.1.20` | 9000, 9001 | `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION` |
+| `azurite` | `mcr.microsoft.com/azure-storage/azurite:3.33.0` | 10000, 10001, 10002 | `AZURE_STORAGE_CONNECTION_STRING` |
+| `vault` | `hashicorp/vault:1.18.3` | 8200 | `VAULT_ADDR`, `VAULT_TOKEN` |
+| `keycloak` | `quay.io/keycloak/keycloak:26.0.7` | 8080, 9000 | `OIDC_ISSUER` |
+| `meilisearch` | `getmeili/meilisearch:v1.12.0` | 7700 | `MEILISEARCH_URL`, `MEILISEARCH_KEY` |
+| `typesense` | `typesense/typesense:27.1` | 8108 | `TYPESENSE_URL`, `TYPESENSE_API_KEY` |
+| `opensearch` | `opensearchproject/opensearch:2.18.0` | 9200 | `OPENSEARCH_URL` |
+| `consul` | `hashicorp/consul:1.20.2` | 8500 | `CONSUL_HTTP_ADDR` |
+| `etcd` | `quay.io/coreos/etcd:v3.5.17` | 2379 | `ETCD_ENDPOINTS` |
+| `clamav` | `clamav/clamav:1.4.1` | 3310 | `CLAMAV_URL` |
+| `mailpit` | `axllent/mailpit:v1.21.8` | 1025, 8025 | `SMTP_URL`, `MAILPIT_URL` |
+| `otel-collector` | `otel/opentelemetry-collector-contrib:0.116.1` | 4317, 4318, 13133 | `OTEL_EXPORTER_OTLP_ENDPOINT` |
+| `jaeger` | `jaegertracing/all-in-one:1.64.0` | 16686, 4317, 4318 | `OTEL_EXPORTER_OTLP_ENDPOINT`, `JAEGER_URL` |
+| `ollama` | `ollama/ollama:0.5.4` | 11434 | `OLLAMA_URL` |

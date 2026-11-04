@@ -1,12 +1,12 @@
 # dev
 
-The smallest project that shows the `dev` native: one command starts the PostgreSQL the project uses, in Docker, and runs the development server connected to it.
+The smallest project that shows the `dev` native: one command starts the PostgreSQL and the MinIO this project uses, in Docker, and runs the development server connected to them. The project stores `Post` records in PostgreSQL, uploads `Attachment` files to an S3 storage without an endpoint (MinIO locally), and consumes the `notify` queue.
 
 ```bash
 bun run quickservicets dev --services
 ```
 
-It writes `.generated/dev/compose.yml`, runs `docker compose up -d --wait`, prints `Service database (postgres:17.11-alpine) on localhost:5432`, writes `DATABASE_URL` to `.env` when `.env` does not set it, and starts `quickservicets dev`. `bun run test` checks the compose document without Docker.
+It writes `.generated/dev/compose.yml`, runs `docker compose up -d --wait`, prints one `Service <name> (<image>) on localhost:<port>` line per service, writes `DATABASE_URL` to `.env` when `.env` does not set it, and starts `quickservicets dev` with `S3_ENDPOINT` and the MinIO keys. `bun run test` checks the compose document without Docker and runs the project end to end on real PostgreSQL and MinIO containers when Docker is there (the test is skipped by name otherwise).
 
 ## Level 0: enable
 
@@ -19,13 +19,17 @@ bun run quickservicets services env
 
 ## Level 1: options and environment
 
-Move PostgreSQL to another host port, wait longer for the health checks, or choose the compose project name:
+Move PostgreSQL to another host port and wait longer for the health checks; a `services` entry named after a kind reaches the only service of that kind, and every option has a `QS_DEV_*` variable:
 
 ```ts
 export default defineConfig({
   database: postgresAdapter({ url: process.env.DATABASE_URL ?? "postgres://postgres:postgres@localhost:5440/app" }),
-  dev: { services: { database: { port: 5440 } }, wait: "2m", project: "blog" },
+  dev: { services: { postgres: { port: 5440 } }, wait: "2m" },
 });
+```
+
+```bash
+QS_DEV_SERVICES_POSTGRES_PORT=5441 QS_DEV_WAIT=3m bun run quickservicets dev --services
 ```
 
 ## Level 2: tags
@@ -38,7 +42,14 @@ Not applicable: local services are started by the CLI before the server runs, so
 
 ## Level 4: hooks and events
 
-Not applicable: the native has no hooks yet; the compose document can be changed with the override file of level 5.
+`beforeCompose` changes the compose document before it is written, here adding Adminer, and `afterUp` receives the services and their variables once they are healthy:
+
+```ts
+dev: {
+  beforeCompose: (document) => ({ ...document, services: { ...document.services, adminer: { image: "adminer:4.8.1", ports: ["8080:8080"] } } }),
+  afterUp: ({ services, env }) => console.log(`${services.length} services ready on ${env.DATABASE_URL}`),
+},
+```
 
 ## Level 5: override files
 
@@ -53,7 +64,13 @@ services:
 
 ## Level 6: replace the implementation
 
-Not applicable: the native calls `docker compose`; start the services yourself and set `DATABASE_URL` in `.env` to use another tool.
+`runner` replaces every `docker compose` call, for the local services and the test containers; this one runs Podman:
+
+```ts
+import { dockerComposeRunner, spawnExec } from "@quickservicets/core";
+
+dev: { runner: dockerComposeRunner(spawnExec, process.env, ["podman", "compose"]) },
+```
 
 ## Level 7: eject
 
@@ -61,4 +78,4 @@ Not applicable: the native calls `docker compose`; start the services yourself a
 bun run quickservicets eject dev
 ```
 
-It copies the native into `features/dev/`, where the project owns its commands.
+It copies the native into `features/dev/`, where the project owns its options, hooks and `services` commands; the tests keep passing.

@@ -104,7 +104,7 @@ The memory database is the quickest way to start: there is nothing to run and no
 
 > **Caution:**
 >
-> The `postgres` and `mongodb` values in `.env` are placeholders. Replace them with your own connection settings before you start the server.
+> The `postgres` and `mongodb` values in `.env` are placeholders. Replace them with your own connection settings before you start the server. Or let `bun run quickservicets dev --services` start PostgreSQL or MongoDB in Docker and write `DATABASE_URL` for you; see [Local environment](/guides/local-environment/).
 
 ## Run the CLI
 

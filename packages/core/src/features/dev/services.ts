@@ -1,6 +1,6 @@
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseDuration } from "../public.ts";
+import { createFeatureLifecycle, parseDuration, runAfterHooks, runBeforeHooks, type FeatureHook, type ResolvedConfig } from "../public.ts";
 import { COMPOSE_OVERRIDE_FILE, composeYaml, localServicesPlan, writeWhenChanged, type DevOptions, type LocalServicesPlan } from "./compose.ts";
 
 /** What a container runner receives for one compose project: its files, its name and a signal that cancels the call. */
@@ -82,9 +82,9 @@ export function parseComposeStatus(output: string): ContainerStatus[] {
 }
 
 /** The runner that calls `docker compose` through `exec`. */
-export function dockerComposeRunner(exec: Exec = spawnExec, env: Record<string, string | undefined> = process.env): ContainerRunner {
+export function dockerComposeRunner(exec: Exec = spawnExec, env: Record<string, string | undefined> = process.env, command: readonly string[] = ["docker", "compose"]): ContainerRunner {
   const run = async (call: ComposeCall, args: string[]) => {
-    const result = await exec([...composeArgs(call), ...args], { cwd: call.cwd, env, ...(call.signal ? { signal: call.signal } : {}) });
+    const result = await exec([...command, ...composeArgs(call).slice(2), ...args], { cwd: call.cwd, env, ...(call.signal ? { signal: call.signal } : {}) });
     if (result.code !== 0) throw new LocalServicesError(`docker compose ${args[0]} failed: ${(result.stderr || result.stdout).trim()}`);
     return result.stdout;
   };
@@ -167,6 +167,7 @@ export function planLocalServices(ctx: Pick<LocalServicesContext, "root" | "conf
 /** The runner of a context, checking that Docker answers when it is the default one. */
 async function runnerOf(ctx: LocalServicesContext): Promise<ContainerRunner> {
   if (ctx.runner) return ctx.runner;
+  if (ctx.options.runner) return ctx.options.runner;
   const env = ctx.env ?? process.env;
   if (!(await dockerAvailable(ctx.exec, env, ctx.root))) throw new LocalServicesError(DOCKER_MISSING);
   return dockerComposeRunner(ctx.exec, env);
@@ -176,6 +177,20 @@ async function runnerOf(ctx: LocalServicesContext): Promise<ContainerRunner> {
 export function composeCall(root: string, plan: Pick<LocalServicesPlan, "file" | "project">): ComposeCall {
   const override = join(root, COMPOSE_OVERRIDE_FILE);
   return { files: [join(root, plan.file), ...(existsSync(override) ? [override] : [])], project: plan.project, cwd: root };
+}
+
+/**
+ * Runs the setups of the features that list `dev` in `requires` or `after`, so the hooks they add through
+ * `ctx.feature("dev").addHook` apply to these commands; resolves a function that stops them.
+ */
+export async function setUpDevDependents(config: Record<string, unknown>): Promise<() => Promise<void>> {
+  const features = (config as unknown as ResolvedConfig).features ?? [];
+  const dev = features.find((feature) => feature.key === "dev");
+  const dependents = features.filter((feature) => feature.key !== "dev" && (feature.definition.requires.some((requirement) => requirement.name === "dev") || feature.definition.after.includes("dev")));
+  if (!dev || dependents.length === 0) return async () => {};
+  const lifecycle = createFeatureLifecycle({ features: [dev, ...dependents], config: config as unknown as ResolvedConfig, models: [], worker: { index: 0, count: 1, runsScheduledWork: false }, resolveSecrets: false });
+  await lifecycle.setup();
+  return () => lifecycle.stop();
 }
 
 /** What `startLocalServices` resolves: the plan and the variables the development server receives. */
@@ -209,9 +224,16 @@ export async function startLocalServices(ctx: LocalServicesContext): Promise<Sta
     if (running.has(service.name)) continue;
     for (const port of Object.values(service.ports)) if (!portFree(port)) throw new LocalServicesError(portInUse(port, service.name));
   }
-  writeWhenChanged(file, composeYaml(plan.document));
-  await runner.up({ ...call, waitSeconds: Math.ceil((parseDuration(ctx.options.wait) ?? 60_000) / 1000) });
-  for (const service of plan.services) ctx.log(`Service ${service.name} (${service.image}) on localhost:${service.port}`);
+  const stopDependents = await setUpDevDependents(ctx.config);
+  try {
+    const document = await runBeforeHooks((ctx.options.beforeCompose ?? []) as FeatureHook<typeof plan.document, { project: string }>[], plan.document, { project: plan.project });
+    writeWhenChanged(file, composeYaml(document));
+    await runner.up({ ...call, waitSeconds: Math.ceil((parseDuration(ctx.options.wait) ?? 60_000) / 1000) });
+    for (const service of plan.services) ctx.log(`Service ${service.name} (${service.image}) on localhost:${service.port}`);
+    await runAfterHooks((ctx.options.afterUp ?? []) as FeatureHook<{ services: { name: string; image: string; port: number }[]; env: Record<string, string> }, undefined>[], { services: plan.services.map((service) => ({ name: service.name, image: service.image, port: service.port })), env: { ...plan.env } }, undefined);
+  } finally {
+    await stopDependents();
+  }
   const fromFiles = envFileValues(ctx.root, env.NODE_ENV || "development");
   const injected = Object.fromEntries(Object.entries(plan.env).filter(([name]) => env[name] === undefined && fromFiles[name] === undefined));
   const missing = Object.entries(injected).filter(([name]) => DATABASE_VARIABLE.test(name));

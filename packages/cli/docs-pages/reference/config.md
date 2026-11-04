@@ -1009,5 +1009,8 @@ Every option, tag, command and hook of `dev` is on [its reference page](/referen
 | `dev.composeFile` | `string` | `".generated/dev/compose.yml"` | `QS_DEV_COMPOSE_FILE` | Where the generated Docker Compose file is written, relative to the project. |
 | `dev.project` | `string` | — | `QS_DEV_PROJECT` | The Docker Compose project name (default: the package name, without its scope). |
 | `dev.wait` | `duration` | `"60s"` | `QS_DEV_WAIT` | How long `services up` waits for every health check before failing. |
+| `dev.beforeCompose` | `hook` | — | not overridable | Runs before the compose file is written, with the compose document as an object; returning a document replaces it, like adding an `adminer` service. |
+| `dev.afterUp` | `hook` | — | not overridable | Runs once the services are healthy, with each service's name, image and host port and every resolved connection variable. |
+| `dev.runner` | `ContainerRunner` | — | not overridable | Replaces the `docker compose` calls of the local services and test containers, like a runner calling `podman compose`: `up`, `down`, `status` and `logs` receive the compose files, the project name and a signal. |
 | `dev.enabled` | `boolean` | `true` | `QS_DEV_ENABLED` | Turns the feature off when false. |
 | `dev.database` | `string` | — | `QS_DEV_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |

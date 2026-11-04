@@ -1,0 +1,5 @@
+# Passed to Docker Compose after .generated/dev/compose.yml: changes or adds services without editing generated output.
+services:
+  adminer:
+    image: adminer:4.8.1
+    ports: ["8080:8080"]

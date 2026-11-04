@@ -106,7 +106,7 @@ bunx quickservicets init my-api --no-agents
 The memory database is the quickest way to start: there is nothing to run and no migrations to apply. Its data is lost when the server stops, so switch to another database once your model settles: add `database` to `quickservicets.config.ts` with one line, like `database: sqliteAdapter({ path: process.env.DATABASE_PATH ?? "data.db" })`, then create and apply a migration. A production service on memory starts and logs a warning that every restart loses all data. Bun reads `.env` on its own when the server starts.
 
 :::caution
-The `postgres` and `mongodb` values in `.env` are placeholders. Replace them with your own connection settings before you start the server.
+The `postgres` and `mongodb` values in `.env` are placeholders. Replace them with your own connection settings before you start the server. Or let `bun run quickservicets dev --services` start PostgreSQL or MongoDB in Docker and write `DATABASE_URL` for you; see [Local environment](/guides/local-environment/).
 :::
 
 ## Run the CLI

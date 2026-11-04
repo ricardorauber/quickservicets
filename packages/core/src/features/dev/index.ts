@@ -1,8 +1,9 @@
-import { boolean, defineCommand, defineFeature, duration, integer, object, record, string, type CommandContext } from "../public.ts";
-import type { DevOptions } from "./compose.ts";
+import { boolean, defineCommand, defineFeature, duration, hook, INFRA_CATALOG, INFRA_KINDS, integer, object, provider, record, string, type CommandContext, type FeatureHook } from "../public.ts";
+import type { ComposeDocument, DevOptions } from "./compose.ts";
+import type { ContainerRunner } from "./services.ts";
 import { LocalServicesError, localServicesEnv, localServicesLogs, localServicesStatus, startLocalServices, stopLocalServices, type LocalServicesContext } from "./services.ts";
 
-export { COMPOSE_HEADER, COMPOSE_OVERRIDE_FILE, composeDocument, composeProjectName, composeYaml, localServicesPlan, writeWhenChanged } from "./compose.ts";
+export { COMPOSE_HEADER, COMPOSE_OVERRIDE_FILE, composeDocument, composeProjectName, composeYaml, localServicesPlan, serviceSetting, writeWhenChanged } from "./compose.ts";
 export type { ComposeDocument, DevOptions, LocalService, LocalServicesPlan } from "./compose.ts";
 export {
   composeCall,
@@ -19,6 +20,7 @@ export {
   planLocalServices,
   portFree,
   portInUse,
+  setUpDevDependents,
   spawnExec,
   startLocalServices,
   stopLocalServices,
@@ -37,7 +39,29 @@ const options = object({
   composeFile: string().default(".generated/dev/compose.yml").describe("Where the generated Docker Compose file is written, relative to the project."),
   project: string().optional().describe("The Docker Compose project name (default: the package name, without its scope)."),
   wait: duration().default("60s").describe("How long `services up` waits for every health check before failing."),
+  beforeCompose: hook<ComposeDocument, { project: string }>().describe("Runs before the compose file is written, with the compose document as an object; returning a document replaces it, like adding an `adminer` service."),
+  afterUp: hook<{ services: { name: string; image: string; port: number }[]; env: Record<string, string> }, undefined>().describe("Runs once the services are healthy, with each service's name, image and host port and every resolved connection variable."),
+  runner: provider<ContainerRunner>("ContainerRunner", ["up", "down", "status", "logs"])
+    .optional()
+    .describe("Replaces the `docker compose` calls of the local services and test containers, like a runner calling `podman compose`: `up`, `down`, `status` and `logs` receive the compose files, the project name and a signal."),
 });
+
+/** The setup API of the `dev` native. */
+export interface DevApi {
+  /** Adds a hook after the ones written in the config. */
+  addHook(name: "beforeCompose", fn: FeatureHook<ComposeDocument, { project: string }>): void;
+  addHook(name: "afterUp", fn: FeatureHook<{ services: { name: string; image: string; port: number }[]; env: Record<string, string> }, undefined>): void;
+}
+
+/** The catalog kinds as a reference table. */
+const catalogTable = [
+  "| Kind | Image | Ports | Variables |",
+  "| --- | --- | --- | --- |",
+  ...INFRA_KINDS.map((kind) => {
+    const entry = INFRA_CATALOG[kind];
+    return `| \`${kind}\` | \`${entry.image}\` | ${entry.ports.join(", ")} | ${Object.keys(entry.templates).map((name) => `\`${name}\``).join(", ")} |`;
+  }),
+].join("\n");
 
 /** The local services context of a command. */
 const contextOf = (ctx: CommandContext<unknown, unknown>): LocalServicesContext => ({
@@ -121,10 +145,24 @@ const commands = [
  */
 export const devFeature = defineFeature({
   key: "dev",
-  docs: { summary: "Local services for development: `quickservicets dev --services` starts the database and every service the project's features need with Docker Compose." },
+  docs: {
+    summary: "Local services for development: `quickservicets dev --services` starts the database and every service the project's features need with Docker Compose.",
+    sections: [
+      {
+        title: "Services",
+        text: "The services come from `describeInfrastructure(config)`: `database` (and `database-<name>` per named database) for PostgreSQL and MongoDB, `minio` for an S3 storage without an `endpoint`, and every requirement an enabled feature declares in `infra`. A `services` entry applies to the service of that name, or to the only service of that kind (`services.postgres` reaches the `database` service on PostgreSQL). Variables like `QS_DEV_SERVICES_POSTGRES_PORT` set the options of entries present in the config. The project file `dev/compose.override.yml` is passed to Docker Compose after the generated file.",
+      },
+      {
+        title: "The ContainerRunner contract",
+        text: "`runner` replaces every `docker compose` call of `quickservicets dev --services`, the `services` commands and the test containers of `@quickservicets/cli/testing`:\n\n```ts\ninterface ContainerRunner {\n  up(call: { files: string[]; project: string; cwd: string; signal?: AbortSignal; waitSeconds: number }): Promise<void>;\n  down(call: { files: string[]; project: string; cwd: string; signal?: AbortSignal; volumes?: boolean }): Promise<void>;\n  status(call: { files: string[]; project: string; cwd: string; signal?: AbortSignal }): Promise<{ service: string; state: string; health: string }[]>;\n  logs(call: { files: string[]; project: string; cwd: string; signal?: AbortSignal; service?: string; tail?: number }): Promise<string>;\n}\n```\n\n`dockerComposeRunner(exec, env, command)` builds the default one; `dockerComposeRunner(spawnExec, process.env, [\"podman\", \"compose\"])` runs Podman instead.",
+      },
+      { title: "Catalog", text: `The kinds a requirement may use, with their pinned images:\n\n${catalogTable}` },
+    ],
+  },
   enabledByDefault: true,
   options,
   commands,
+  api: (ctx): DevApi => ({ addHook: ctx.addHook as DevApi["addHook"] }),
 });
 
 export default devFeature;

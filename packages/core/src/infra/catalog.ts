@@ -124,7 +124,8 @@ export const INFRA_CATALOG: Readonly<Record<InfraKind, InfraCatalogEntry>> = {
     description: "LocalStack, local AWS services such as S3, SQS and DynamoDB.",
   },
   minio: {
-    image: "minio/minio:RELEASE.2025-01-20T14-49-07Z",
+    // The MinIO project no longer publishes its server images to a public registry; Bitnami's archived build is pinned.
+    image: "bitnamilegacy/minio:2025.1.20",
     ports: [9000, 9001],
     // The check also creates the buckets listed in QS_BUCKETS, so a storage finds its bucket once the service is healthy.
     health: [
@@ -133,8 +134,7 @@ export const INFRA_CATALOG: Readonly<Record<InfraKind, InfraCatalogEntry>> = {
     ],
     credentials: { user: "minioadmin", password: "minioadmin" },
     environment: { MINIO_ROOT_USER: "minioadmin", MINIO_ROOT_PASSWORD: "minioadmin" },
-    command: ["server", "/data", "--console-address", ":9001"],
-    data: "/data",
+    data: "/bitnami/minio/data",
     templates: { S3_ENDPOINT: "http://{host}:{port}", S3_ACCESS_KEY_ID: "{user}", S3_SECRET_ACCESS_KEY: "{password}", S3_REGION: "us-east-1" },
     description: "MinIO, an S3-compatible object store.",
   },

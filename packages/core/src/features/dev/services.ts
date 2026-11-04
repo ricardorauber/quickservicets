@@ -1,6 +1,6 @@
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { createFeatureLifecycle, parseDuration, runAfterHooks, runBeforeHooks, type FeatureHook, type ResolvedConfig } from "../public.ts";
+import { parseDuration, setUpDependents, runAfterHooks, runBeforeHooks, type FeatureHook, type ResolvedConfig } from "../public.ts";
 import { COMPOSE_OVERRIDE_FILE, composeYaml, localServicesPlan, writeWhenChanged, type DevOptions, type LocalServicesPlan } from "./compose.ts";
 
 /** What a container runner receives for one compose project: its files, its name and a signal that cancels the call. */
@@ -184,13 +184,7 @@ export function composeCall(root: string, plan: Pick<LocalServicesPlan, "file" |
  * `ctx.feature("dev").addHook` apply to these commands; resolves a function that stops them.
  */
 export async function setUpDevDependents(config: Record<string, unknown>): Promise<() => Promise<void>> {
-  const features = (config as unknown as ResolvedConfig).features ?? [];
-  const dev = features.find((feature) => feature.key === "dev");
-  const dependents = features.filter((feature) => feature.key !== "dev" && (feature.definition.requires.some((requirement) => requirement.name === "dev") || feature.definition.after.includes("dev")));
-  if (!dev || dependents.length === 0) return async () => {};
-  const lifecycle = createFeatureLifecycle({ features: [dev, ...dependents], config: config as unknown as ResolvedConfig, models: [], worker: { index: 0, count: 1, runsScheduledWork: false }, resolveSecrets: false });
-  await lifecycle.setup();
-  return () => lifecycle.stop();
+  return setUpDependents(config as unknown as ResolvedConfig, "dev");
 }
 
 /** What `startLocalServices` resolves: the plan and the variables the development server receives. */

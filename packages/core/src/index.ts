@@ -104,6 +104,7 @@ export type { CrudRoute } from "./http/crud.ts";
 export { createApp } from "./app.ts";
 export { initializeService, startService } from "./service.ts";
 export { assetPath, bundledAssets, setAssetsRoot, setEmbeddedAssets } from "./assets.ts";
+export { setUpDependents } from "./dependents.ts";
 export { isLazyEndpoint, lazyEndpoint } from "./http/lazy-endpoint.ts";
 export { handleLambdaEvent, isLambdaHttpEvent, isTextContent, LAMBDA_RESPONSE_LIMIT, LAMBDA_TOO_LARGE, lambdaRequest, lambdaResult, runLambda, UNSUPPORTED_LAMBDA_EVENT } from "./platforms/lambda.ts";
 export type { LambdaContext, LambdaOptions, LambdaRequest, LambdaResult } from "./platforms/lambda.ts";
@@ -113,7 +114,7 @@ export { CLOUD_RUN_DRAIN_DELAY, CLOUD_RUN_STOP_TIMEOUT, cloudRunConfig, runCloud
 export type { CloudRunOptions } from "./platforms/cloud-run.ts";
 export { applyMigrations, HISTORY_TABLE, MigrationError, MONGO_HISTORY_COLLECTION, MONGO_NO_TRANSACTION_WARNING, runMigrations, schemaHistoryTable, splitSqlOptions, withSourceDrivers } from "./migration-runner.ts";
 export type { AppliedMigration, BundledMigration, BundledMigrationInputs, DatabaseDriver, MigrateOptions, MigrateResult, MigrationDriver, MigrationFile, MigrationModule, MigrationSource } from "./migration-runner.ts";
-export { createServiceHandler, DEADLINE_EXCEEDED, DEADLINE_MARGIN_MS, platformOf } from "./service-handler.ts";
+export { answerPlatformEvent, createServiceHandler, DEADLINE_EXCEEDED, DEADLINE_MARGIN_MS, platformOf } from "./service-handler.ts";
 export type { PlatformInfo, RequestPlatform, ServiceHandler, ServiceHandlerOptions } from "./service-handler.ts";
 export { CORE_VERSION, generatedPath } from "./build-steps.ts";
 export { createFile, fileRecords, fileUrl, openFile } from "./file-records.ts";
@@ -359,7 +360,7 @@ import metricsNative, { type MetricsApi } from "./features/metrics/index.ts";
 import proxyNative from "./features/proxy/index.ts";
 import secretsNative, { type SecretRotation, type SecretsApi } from "./features/secrets/index.ts";
 import devNative, { type DevApi } from "./features/dev/index.ts";
-import deployNative from "./features/deploy/index.ts";
+import deployNative, { type DeployApi } from "./features/deploy/index.ts";
 import webhooksNative, { type WebhookDeliveryEvent, type WebhookSubscriptionDisabledEvent, type WebhooksSetupApi } from "./features/webhooks/index.ts";
 import type { SecretReference as RequestSecretReference } from "./secret-references.ts";
 import type { RequestPlatform } from "./service-handler.ts";
@@ -387,6 +388,8 @@ export { dockerfile, RUNTIME_IMAGES } from "./features/deploy/dockerfile.ts";
 export type { DockerfileOptions } from "./features/deploy/dockerfile.ts";
 export { buildMachinePlatform, defaultPlatform, LAZY_ROUTE_TARGETS, lazyRoutesFor, DEPLOY_DISABLED, DEPLOY_PLATFORMS, DEPLOY_TARGETS, deployFeature, FUNCTION_TARGETS, isFunctionTarget, unknownTarget } from "./features/deploy/index.ts";
 export type { DeployOptions, DeployPlatform, DeployTargetName } from "./features/deploy/index.ts";
+export { addDeployTarget, clearFeatureTargets, featureTargets } from "./features/deploy/index.ts";
+export type { BundleInput, BundleOutput, DeployApi, DeployTarget, DeployTargetContext, PlatformEvent } from "./features/deploy/index.ts";
 export {
   COMPOSE_HEADER,
   COMPOSE_OVERRIDE_FILE,
@@ -653,6 +656,7 @@ declare module "./features.ts" {
     secrets: SecretsApi;
     webhooks: WebhooksSetupApi;
     dev: DevApi;
+    deploy: DeployApi;
   }
 }
 

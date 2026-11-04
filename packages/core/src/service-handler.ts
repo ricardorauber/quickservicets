@@ -3,6 +3,7 @@ import { flushLogs, jsonLogger, safeLog } from "./logger.ts";
 import { LifecycleError } from "./lifecycle.ts";
 import { initializeService, type InitializedService, type StartServiceOptions } from "./service.ts";
 import type { JobRun } from "./jobs/job-run.ts";
+import type { ResolvedConfig } from "./config.ts";
 
 /** What the platform says about one request or invocation. */
 export interface PlatformInfo {
@@ -65,6 +66,21 @@ export interface ServiceHandler {
   runJob(name: string, options?: { tenant?: string }): Promise<JobRun | null>;
   /** Runs `onShutdown` and `onStop` callbacks and disconnects, within `lifecycle.stopTimeout`. */
   stop(): Promise<void>;
+  /** The resolved configuration, once initialized. */
+  readonly config: ResolvedConfig | undefined;
+}
+
+/**
+ * Asks the `onPlatformEvent` hooks of the `deploy` native to answer a non-HTTP platform event: the first hook returning
+ * a result answers it; undefined lets the platform dispatch it.
+ */
+export async function answerPlatformEvent(config: ResolvedConfig | undefined, target: string, event: unknown): Promise<unknown> {
+  const hooks = (config?.features.find((feature) => feature.key === "deploy")?.options.onPlatformEvent ?? []) as ((value: { target: string; event: unknown }, ctx: undefined) => unknown)[];
+  for (const hook of hooks) {
+    const answer = await hook({ target, event }, undefined);
+    if (answer !== undefined) return answer;
+  }
+  return undefined;
 }
 
 /**
@@ -74,6 +90,7 @@ export interface ServiceHandler {
  */
 export function createServiceHandler(inputs: ServiceHandlerOptions): ServiceHandler {
   let initializing: Promise<InitializedService> | undefined;
+  let resolved: ResolvedConfig | undefined;
   let stopped: Promise<void> | undefined;
   let lastScheduled = 0;
   const onSigterm = () => void handler.stop();
@@ -93,6 +110,7 @@ export function createServiceHandler(inputs: ServiceHandlerOptions): ServiceHand
     };
     initializing ??= initializeService(inputs, { index: 0, count: 1, runsScheduledWork: inputs.scheduledWork === true }, (error, _phase, logger) => logFailure(error, logger)).then(
       (service) => {
+        resolved = service.config;
         if (inputs.scheduledWork) service.app.scheduler.start();
         if (inputs.handleSigterm !== false) process.once("SIGTERM", onSigterm);
         return service;
@@ -107,6 +125,9 @@ export function createServiceHandler(inputs: ServiceHandlerOptions): ServiceHand
     return initializing;
   };
   const handler: ServiceHandler = {
+    get config() {
+      return resolved;
+    },
     async init() {
       await ensure();
     },

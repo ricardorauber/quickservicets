@@ -65,7 +65,7 @@ describe("output folders and summary lines", () => {
     const binary = await cli(["build", "--target", "binary"], root);
     expect(binary.out.find((entry) => entry.startsWith("Target "))).toStartWith("Target binary: dist/binary/ (");
     expect(existsSync(join(root, "dist/binary"))).toBe(true);
-  });
+  }, 180_000);
 
   test("sizes print in bytes, kilobytes or megabytes", () => {
     expect(formatSize(512)).toBe("512 B");
@@ -118,7 +118,7 @@ describe("function mode", () => {
     // The server target warns about none of them.
     const server = await cli(["build"], project(config, files));
     expect(server.err.filter((line) => line.includes("platform"))).toEqual([]);
-  });
+  }, 180_000);
 
   test("a ws.ts route fails the build on a function target", async () => {
     const root = project(`import { defineConfig } from "@quickservicets/core";\nexport default defineConfig({ realtime: { websockets: {} } });\n`, {

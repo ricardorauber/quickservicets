@@ -1,6 +1,6 @@
 import { HttpError, toErrorResponse } from "../errors.ts";
 import { flushLogs, jsonLogger, safeLog, type Logger } from "../logger.ts";
-import { createServiceHandler, type ServiceHandler, type ServiceHandlerOptions } from "../service-handler.ts";
+import { answerPlatformEvent, createServiceHandler, type ServiceHandler, type ServiceHandlerOptions } from "../service-handler.ts";
 
 /** The largest buffered response Lambda returns: 6 MB. */
 export const LAMBDA_RESPONSE_LIMIT = 6 * 1024 * 1024;
@@ -149,6 +149,11 @@ export interface LambdaContext {
 
 /** Handles one Lambda invocation: an HTTP event, a job event, or an event `onEvent` answers. */
 export async function handleLambdaEvent(handler: ServiceHandler, event: unknown, context: LambdaContext, options: Pick<LambdaOptions, "onEvent"> & { logger?: Logger } = {}): Promise<unknown> {
+  // The onPlatformEvent hooks see every non-HTTP event first and may answer it.
+  if (!isLambdaHttpEvent(event)) {
+    const answer = await answerPlatformEvent(handler.config, "lambda", event);
+    if (answer !== undefined) return answer;
+  }
   const job = jobOf(event);
   if (job !== undefined) {
     const run = await handler.runJob(job);

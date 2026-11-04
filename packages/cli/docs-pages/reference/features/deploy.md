@@ -38,5 +38,92 @@ It is enabled by default; turn it off with `deploy: false` or `QS_DEPLOY_ENABLED
 | `deploy.cloudRun.memory` | `string` | `"512Mi"` | `QS_DEPLOY_CLOUD_RUN_MEMORY` | no | The memory limit of the container. |
 | `deploy.cloudRun.cpu` | `string` | `"1"` | `QS_DEPLOY_CLOUD_RUN_CPU` | no | The CPU limit of the container. |
 | `deploy.cloudRun.trustProxy` | `boolean` | `true` | `QS_DEPLOY_CLOUD_RUN_TRUST_PROXY` | no | Takes req.ip from the x-forwarded-for entry Google's front end adds, without listing proxy ranges in security.proxy.trust. |
+| `deploy.targets.<name>` | `record of DeployTarget` | — | not overridable | no | A target's build function. |
+| `deploy.beforeBundle` | `hook` | — | not overridable | no | Runs before a target is bundled, with its target, entrypoints, external packages and define replacements; returning them changed changes the bundle. |
+| `deploy.afterBundle` | `hook` | — | not overridable | no | Runs after a target's output is written, with its files and their sizes. |
+| `deploy.onPlatformEvent` | `hook` | — | not overridable | no | Runs for every non-HTTP event a platform delivers (a Lambda event, an Azure invocation) before it is dispatched; returning a result answers the event. |
 | `deploy.enabled` | `boolean` | `true` | `QS_DEPLOY_ENABLED` | no | Turns the feature off when false. |
 | `deploy.database` | `string` | — | `QS_DEPLOY_DATABASE` | no | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
+
+## Tags
+
+### `@preload`
+
+Imports the routes' modules at startup even with lazy routes (deploy.lazyRoutes), for routes that must answer the first request fast.
+
+**Applies to:** entities, endpoints
+
+**Syntax:** `@preload` or `@preload off`
+
+**Options:** none
+
+```ts
+/** @preload */
+export type Post = { title: string };
+```
+
+## Hooks
+
+Hooks are functions (or lists of functions) written in the config; `before` hooks may change the value or cancel the step by throwing, `after` and `on` hooks observe.
+
+| Hook | Kind | Description |
+| --- | --- | --- |
+| `deploy.beforeBundle` | before | Runs before a target is bundled, with its target, entrypoints, external packages and define replacements; returning them changed changes the bundle. |
+| `deploy.afterBundle` | after | Runs after a target's output is written, with its files and their sizes. |
+| `deploy.onPlatformEvent` | on | Runs for every non-HTTP event a platform delivers (a Lambda event, an Azure invocation) before it is dispatched; returning a result answers the event. |
+
+## Feature API
+
+Other features reach it with `ctx.feature("deploy")` in their setup, listing `deploy` in `requires` or `after`.
+
+### `target`
+
+```ts
+target(name: string, target: DeployTarget): void;
+```
+
+Adds a deploy target the build accepts with `--target <name>`.
+
+### `addHook`
+
+```ts
+addHook(name: "beforeBundle", fn: FeatureHook<BundleInput, undefined>): void;
+```
+
+### `addHook`
+
+```ts
+addHook(name: "afterBundle", fn: FeatureHook<BundleOutput, undefined>): void;
+```
+
+### `addHook`
+
+```ts
+addHook(name: "onPlatformEvent", fn: FeatureHook<PlatformEvent, undefined>): void;
+```
+
+## Targets and their output
+
+| Target | Output in `<outDir>/<target>/` |
+| --- | --- |
+| `server` | `server.js`, `server.js.map` and `assets/` |
+| `binary` | the executable `<name>` (`<name>.exe` on Windows) |
+| `lambda` | `bootstrap` and `function.zip` |
+| `azure-functions` | the executable, `host.json`, `http/function.json` and `job-<name>/function.json` per job |
+| `cloud-run` | the executable, `Dockerfile`, `.dockerignore` and `service.yaml` |
+
+## Override files
+
+A project file `deploy/<target>/entry.ts` replaces the generated entry of that target (the bundle's entry for `server`, the platform entry of the others), and any other file in `deploy/<target>/` replaces the generated file of the same name, like `deploy/azure-functions/host.json`, `deploy/cloud-run/service.yaml` or `deploy/cloud-run/Dockerfile`. Each one prints `Override: deploy/<target>/<name> replaces the generated <name>`.
+
+## The DeployTarget contract
+
+`targets` and `ctx.feature("deploy").target(name, target)` (for features listing `deploy` in `requires` or `after`) add targets for `--target <name>`. The build first bundles the service into `<outDir>/<name>/` (`server.js` and `assets/`), then calls the target:
+
+```ts
+interface DeployTarget {
+  build(context: { bundle: string; outDir: string; options: DeployOptions; log(line: string): void }): void | Promise<void>;
+}
+```
+
+A name equal to a built-in target, or registered twice, fails naming both owners.

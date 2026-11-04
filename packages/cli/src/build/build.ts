@@ -29,6 +29,10 @@ import {
   DEFAULT_DATABASE,
   lazyRoutesFor,
   importConfigFile,
+  clearFeatureTargets,
+  DEPLOY_TARGETS,
+  featureTargets,
+  setUpDependents,
 } from "@quickservicets/core";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
@@ -349,8 +353,15 @@ function assertEntityPopulateDepth(models: EntityModel[], maxDepth: number): voi
   }
 }
 
-/** Whether an endpoint's module loads on its first request: plain endpoints of lazy route tables. */
-const loadsLazily = (endpoint: ResolvedEndpoint, lazy: boolean) => lazy && endpoint.route.kind === undefined;
+/** Whether a target's tags turn `@preload` on. */
+const preloaded = (tags: ParsedTags | undefined) => (tags?.preload as { on?: boolean } | undefined)?.on === true;
+
+/**
+ * Whether an endpoint's module loads on its first request: plain endpoints of lazy route tables, unless the endpoint or
+ * the entity whose route it replaces is tagged `@preload`.
+ */
+const loadsLazily = (endpoint: ResolvedEndpoint, lazy: boolean, models: readonly EntityModel[] = []) =>
+  lazy && endpoint.route.kind === undefined && !preloaded(endpoint.tags) && !preloaded(models.find((model) => model.key === endpoint.override?.entity)?.tags);
 
 function generateRoutesFile(
   models: EntityModel[],
@@ -359,15 +370,15 @@ function generateRoutesFile(
   lazy = false,
 ): string {
   const hookNames = [...hooks.keys()].sort();
-  const anyLazy = endpoints.some((endpoint) => loadsLazily(endpoint, lazy));
+  const anyLazy = endpoints.some((endpoint) => loadsLazily(endpoint, lazy, models));
   const imports = [
     `import ${anyLazy ? "{ lazyEndpoint, " : "{ "}type AppEndpoint, type CrudRouteEntry, type Endpoint, type HookDefinition, type SocketDefinition, type SseDefinition${endpoints.some((endpoint) => endpoint.route.kind === "webhook") ? ", type WebhookDefinition" : ""} } from "@quickservicets/core";`,
-    ...endpoints.flatMap((endpoint, index) => (loadsLazily(endpoint, lazy) ? [] : [`import endpoint${index} from ${JSON.stringify(importPath(endpoint.route.file))};`])),
+    ...endpoints.flatMap((endpoint, index) => (loadsLazily(endpoint, lazy, models) ? [] : [`import endpoint${index} from ${JSON.stringify(importPath(endpoint.route.file))};`])),
     ...hookNames.map((name) => `import hook_${name} from ${JSON.stringify(importPath(hooks.get(name)!.file))};`),
   ];
   const endpointEntries = endpoints.map(
     (endpoint, index) =>
-      `  { method: ${JSON.stringify(endpoint.route.method)}, path: ${JSON.stringify(endpoint.route.path)}, hooks: ${JSON.stringify(endpoint.hooks)}, ${endpoint.projection ? `projection: ${JSON.stringify(endpoint.projection)}, ` : ""}${endpoint.populate ? `populate: ${JSON.stringify(endpoint.populate)}, ` : ""}${endpoint.query ? `query: ${JSON.stringify(endpoint.query)}, ` : ""}${endpoint.status !== undefined ? `status: ${endpoint.status}, ` : ""}${endpoint.route.feature ? `feature: ${JSON.stringify(endpoint.route.feature)}, ` : ""}${endpoint.route.kind ? `kind: ${JSON.stringify(endpoint.route.kind)}, ` : ""}${endpoint.tags ? `tags: ${JSON.stringify(endpoint.tags)}, ` : ""}${endpoint.messages ? `messages: ${JSON.stringify(endpoint.messages)}, ` : ""}handler: ${loadsLazily(endpoint, lazy) ? `lazyEndpoint(${JSON.stringify(endpoint.route.file)}, () => import(${JSON.stringify(importPath(endpoint.route.file))}))` : `endpoint${index} as ${endpoint.route.kind === "sse" ? "SseDefinition" : endpoint.route.kind === "websocket" ? "SocketDefinition" : endpoint.route.kind === "webhook" ? "WebhookDefinition" : "Endpoint"}`} },`,
+      `  { method: ${JSON.stringify(endpoint.route.method)}, path: ${JSON.stringify(endpoint.route.path)}, hooks: ${JSON.stringify(endpoint.hooks)}, ${endpoint.projection ? `projection: ${JSON.stringify(endpoint.projection)}, ` : ""}${endpoint.populate ? `populate: ${JSON.stringify(endpoint.populate)}, ` : ""}${endpoint.query ? `query: ${JSON.stringify(endpoint.query)}, ` : ""}${endpoint.status !== undefined ? `status: ${endpoint.status}, ` : ""}${endpoint.route.feature ? `feature: ${JSON.stringify(endpoint.route.feature)}, ` : ""}${endpoint.route.kind ? `kind: ${JSON.stringify(endpoint.route.kind)}, ` : ""}${endpoint.tags ? `tags: ${JSON.stringify(endpoint.tags)}, ` : ""}${endpoint.messages ? `messages: ${JSON.stringify(endpoint.messages)}, ` : ""}handler: ${loadsLazily(endpoint, lazy, models) ? `lazyEndpoint(${JSON.stringify(endpoint.route.file)}, () => import(${JSON.stringify(importPath(endpoint.route.file))}))` : `endpoint${index} as ${endpoint.route.kind === "sse" ? "SseDefinition" : endpoint.route.kind === "websocket" ? "SocketDefinition" : endpoint.route.kind === "webhook" ? "WebhookDefinition" : "Endpoint"}`} },`,
   );
   return [
     HEADER,
@@ -503,19 +514,39 @@ export interface BuildOptions {
    * Writes the deployable output of a deploy target after `.generated/`, as `quickservicets build` does: `target` is
    * the `--target` flag, which wins over `QS_DEPLOY_TARGET` and the config.
    */
-  deploy?: { target?: string; analyze?: boolean };
+  deploy?: { target?: string; analyze?: boolean; log?: (line: string) => void };
 }
 
 export async function build(projectRoot: string, env: Record<string, string | undefined> = process.env, options: BuildOptions = {}): Promise<BuildSummary> {
   assertFeatureImports(projectRoot);
   const config = await loadConfig(projectRoot, env);
-  const target = options.deploy ? deployTargetOf(config, options.deploy.target) : undefined;
-  // Endpoint files are parsed with the enabled features' tags too.
-  const restore = useFeatureTags(config.features, builtInTagOwner);
+  // Features that list deploy in requires or after add targets and hooks through its setup API.
+  let stopDependents = async () => {};
+  if (options.deploy && config.features.some((feature) => feature.key === "deploy")) {
+    clearFeatureTargets();
+    stopDependents = await setUpDependents(config, "deploy");
+  }
   try {
-    return await buildProject(projectRoot, config, options, target);
+    assertProjectTargets(config);
+    const target = options.deploy ? deployTargetOf(config, options.deploy.target) : undefined;
+    // Endpoint files are parsed with the enabled features' tags too.
+    const restore = useFeatureTags(config.features, builtInTagOwner);
+    try {
+      return await buildProject(projectRoot, config, options, target);
+    } finally {
+      restore();
+    }
   } finally {
-    restore();
+    await stopDependents();
+  }
+}
+
+/** Fails when a target of `deploy.targets` has the name of a built-in target or of one a feature added. */
+function assertProjectTargets(config: ResolvedConfig): void {
+  for (const name of Object.keys(deployOptionsOf(config)?.targets ?? {})) {
+    if ((DEPLOY_TARGETS as readonly string[]).includes(name)) throw new BuildError(`Deploy target ${name} of the project conflicts with the built-in ${name} target`);
+    const added = featureTargets().get(name);
+    if (added) throw new BuildError(`Deploy target ${name} of the project conflicts with ${added.owner}`);
   }
 }
 
@@ -669,7 +700,8 @@ async function buildProject(projectRoot: string, config: ResolvedConfig, options
         analyze: options.deploy?.analyze === true,
         jobs: jobs.map((entry) => ({ name: entry.name, schedule: entry.schedule })),
         routes: [...crudTable(models).map((route) => route.path), ...resolved.map((endpoint) => endpoint.route.path)],
+        ...(options.deploy?.log ? { log: options.deploy.log } : {}),
       })
     : undefined;
-  return { ...(deploy ? { deploy } : {}), entities: models.length, endpoints: endpoints.length, hooks: hooks.size, features: featureKeys.length, overrides, fromFeatures: scanned.fromFeatures, watch: featureWatchPaths(config.features), buildInputs: Object.fromEntries(config.features.filter((feature) => feature.definition.build).map((feature) => [feature.key, featureWatchPaths([feature])])), buildSteps, warnings };
+  return { ...(deploy ? { deploy } : {}), entities: models.length, endpoints: endpoints.length, hooks: hooks.size, features: featureKeys.length, overrides: [...overrides, ...(deploy?.overrides ?? [])], fromFeatures: scanned.fromFeatures, watch: featureWatchPaths(config.features), buildInputs: Object.fromEntries(config.features.filter((feature) => feature.definition.build).map((feature) => [feature.key, featureWatchPaths([feature])])), buildSteps, warnings };
 }

@@ -1,7 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
-import { CLOUD_RUN_DRAIN_DELAY, CLOUD_RUN_STOP_TIMEOUT, cloudRunConfig, defaultPlatform, dockerfile, parseDuration, DEPLOY_DISABLED, DEPLOY_TARGETS, isFunctionTarget, unknownTarget, type DeployOptions, type ResolvedConfig } from "@quickservicets/core";
+import { featureTargets, runAfterHooks, runBeforeHooks, type BundleInput, type FeatureHook, CLOUD_RUN_DRAIN_DELAY, CLOUD_RUN_STOP_TIMEOUT, cloudRunConfig, defaultPlatform, dockerfile, parseDuration, DEPLOY_DISABLED, DEPLOY_TARGETS, isFunctionTarget, unknownTarget, type DeployOptions, type ResolvedConfig } from "@quickservicets/core";
 import { BuildError } from "../errors.ts";
 import { zipArchive } from "./zip.ts";
 import { hostDuration, ncrontab, timerFunctionName } from "./azure.ts";
@@ -15,6 +15,8 @@ export interface DeployOutput {
   files: string[];
   /** The five largest modules of the bundle. */
   modules: ModuleSize[];
+  /** `Override:` lines of the project files that replaced generated ones. */
+  overrides: string[];
 }
 
 /** The `deploy` native's options, or undefined while it is off. */
@@ -28,8 +30,9 @@ export function deployOptionsOf(config: ResolvedConfig): DeployOptions | undefin
  * and for any target but `server` while the native is off.
  */
 export function deployTargetOf(config: ResolvedConfig, flag: string | undefined): string | undefined {
-  if (flag !== undefined && !(DEPLOY_TARGETS as readonly string[]).includes(flag)) throw new BuildError(unknownTarget(flag));
   const options = deployOptionsOf(config);
+  const custom = [...Object.keys(options?.targets ?? {}), ...featureTargets().keys()];
+  if (flag !== undefined && !(DEPLOY_TARGETS as readonly string[]).includes(flag) && !custom.includes(flag)) throw new BuildError(unknownTarget(flag));
   const target = flag ?? options?.target ?? "server";
   if (!options && target !== "server") throw new BuildError(DEPLOY_DISABLED);
   return options ? target : undefined;
@@ -145,9 +148,10 @@ export interface ModuleSize {
   bytes: number;
 }
 
-/** What bundling the service produced. */
+/** What bundling the service produced, and the input the `beforeBundle` hooks left. */
 interface Bundled {
   modules: ModuleSize[];
+  input: BundleInput;
 }
 
 /** The package a module path belongs to, like `better-sqlite3` for `node_modules/better-sqlite3/build/x.node`. */
@@ -224,8 +228,9 @@ function writePlatformEntry(root: string, assets: readonly RuntimeAsset[], call:
  * Bundles the service's entry into `outdir/<naming>` for Bun, minified with a linked source map, leaving `external`
  * packages out; fails naming a module that cannot be bundled (one that does not resolve, or a native addon).
  */
-async function bundle(entry: string, outdir: string, target: string, external: readonly string[], naming = "server.js"): Promise<Bundled> {
-  const result = await Bun.build({ entrypoints: [entry], outdir, target: "bun", naming, minify: true, sourcemap: "linked", external: [...external], metafile: true, throw: false });
+async function bundle(entry: string, outdir: string, target: string, external: readonly string[], naming = "server.js", beforeBundle: readonly FeatureHook<BundleInput, undefined>[] = []): Promise<Bundled> {
+  const input = await runBeforeHooks(beforeBundle, { target, entrypoints: [entry], external: [...external], define: {} }, undefined);
+  const result = await Bun.build({ entrypoints: input.entrypoints, outdir, target: "bun", naming, minify: true, sourcemap: "linked", external: input.external, define: input.define, metafile: true, throw: false });
   if (!result.success) {
     const unresolved = result.logs.map((log) => /Could not resolve: "([^"]+)"/.exec(String(log))?.[1]).find((name) => name !== undefined);
     if (unresolved) throw new BuildError(unbundleable(unresolved, target));
@@ -238,7 +243,7 @@ async function bundle(entry: string, outdir: string, target: string, external: r
   for (const output of Object.values(result.metafile?.outputs ?? {})) {
     for (const [path, input] of Object.entries((output as { inputs?: Record<string, { bytesInOutput: number }> }).inputs ?? {})) bytes.set(path, (bytes.get(path) ?? 0) + input.bytesInOutput);
   }
-  return { modules: [...bytes].map(([path, size]) => ({ path, bytes: size })).sort((a, b) => b.bytes - a.bytes) };
+  return { modules: [...bytes].map(([path, size]) => ({ path, bytes: size })).sort((a, b) => b.bytes - a.bytes), input };
 }
 
 /** Copies the assets into `<dir>/assets/`. */
@@ -265,20 +270,31 @@ export function serviceName(root: string, options: Pick<DeployOptions, "name"> |
  * Compiles the service into one executable for a platform with `bun build --compile`, embedding its assets, at
  * `<dir>/<file>`; resolves the bundled modules' sizes.
  */
-export async function compileBinary(root: string, dir: string, file: string, platform: string, target: string, external: readonly string[], assets: readonly RuntimeAsset[], platformCall?: string): Promise<Bundled> {
+export async function compileBinary(root: string, dir: string, file: string, platform: string, target: string, external: readonly string[], entry: string, beforeBundle: readonly FeatureHook<BundleInput, undefined>[] = []): Promise<Bundled> {
   if (external.length > 0) throw new BuildError(unbundleable(external[0]!, target));
-  const entry = platformCall ? writePlatformEntry(root, assets, platformCall) : writeEntry(root, assets, true);
   // Bundling first checks every module and measures them; the compiled executable embeds the same graph.
   const scratch = mkdtempSync(join(tmpdir(), "qs-compile-"));
   try {
-    const bundled = await bundle(entry, scratch, target, external);
-    const compiled = Bun.spawnSync([process.execPath, "build", entry, "--compile", "--minify", `--target=bun-${platform}`, "--outfile", join(dir, file)], { cwd: root, stdout: "pipe", stderr: "pipe" });
+    const bundled = await bundle(entry, scratch, target, external, "server.js", beforeBundle);
+    if (bundled.input.external.length > 0) throw new BuildError(unbundleable(bundled.input.external[0]!, target));
+    const defines = Object.entries(bundled.input.define).flatMap(([name, value]) => ["--define", `${name}=${value}`]);
+    const compiled = Bun.spawnSync([process.execPath, "build", bundled.input.entrypoints[0]!, "--compile", "--minify", ...defines, `--target=bun-${platform}`, "--outfile", join(dir, file)], { cwd: root, stdout: "pipe", stderr: "pipe" });
     if (compiled.exitCode !== 0) throw new BuildError(`Compiling for ${platform} failed:\n${compiled.stderr.toString()}${compiled.stdout.toString()}`);
     return bundled;
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
 }
+
+/** The project files that replace the generated ones of a target: `deploy/<target>/entry.ts` and support files. */
+export function targetOverrides(root: string, target: string): { entry?: string; files: string[] } {
+  const dir = join(root, "deploy", target);
+  const files = filesUnder(dir);
+  return { ...(files.includes("entry.ts") ? { entry: join(dir, "entry.ts") } : {}), files: files.filter((file) => file !== "entry.ts") };
+}
+
+/** The line printed for a project file replacing a generated one. */
+export const deployOverrideLine = (target: string, name: string) => `Override: deploy/${target}/${name} replaces the generated ${name}`;
 
 /** What `writeDeployOutput` accepts besides the project, the config and the target. */
 export interface DeployBuildOptions {
@@ -288,6 +304,8 @@ export interface DeployBuildOptions {
   jobs?: readonly { name: string; schedule: unknown }[];
   /** The paths of the project's routes, generated and custom, for the targets whose function names could collide. */
   routes?: readonly string[];
+  /** Prints the lines a custom target logs. */
+  log?: (line: string) => void;
 }
 
 /** The Knative `service.yaml` of the cloud-run target. */
@@ -370,21 +388,27 @@ export async function writeDeployOutput(root: string, config: ResolvedConfig, ta
   const dir = targetFolder(root, options, target);
   const assets = runtimeAssets(root, config);
   const external = options?.external ?? [];
+  const beforeBundle = options?.beforeBundle ?? [];
+  const overrides = targetOverrides(root, target);
+  const overrideLines: string[] = overrides.entry ? [deployOverrideLine(target, "entry.ts")] : [];
+  /** The entry of a target: the project's `deploy/<target>/entry.ts`, or the generated one. */
+  const entryOf = (generated: () => string) => overrides.entry ?? generated();
+  const custom = target in (options?.targets ?? {}) || featureTargets().has(target);
   let bundled: Bundled;
   if (target === "binary") {
     const platform = options?.platform ?? defaultPlatform(target);
-    bundled = await compileBinary(root, dir, binaryName(serviceName(root, options), platform), platform, target, external, assets);
+    bundled = await compileBinary(root, dir, binaryName(serviceName(root, options), platform), platform, target, external, entryOf(() => writeEntry(root, assets, true)), beforeBundle);
   } else if (target === "lambda") {
     const lambda = options?.lambda ?? { architecture: "arm64", streaming: false };
     // The bootstrap runs on Amazon Linux; deploy.platform, when set, wins (a local platform runs it outside AWS).
     const platform = options?.platform ?? (lambda.architecture === "x86_64" ? "linux-x64" : "linux-arm64");
-    bundled = await compileBinary(root, dir, "bootstrap", platform, target, external, assets, `runLambda(inputs, ${JSON.stringify({ streaming: lambda.streaming })})`);
+    bundled = await compileBinary(root, dir, "bootstrap", platform, target, external, entryOf(() => writePlatformEntry(root, assets, `runLambda(inputs, ${JSON.stringify({ streaming: lambda.streaming })})`)), beforeBundle);
     writeFileSync(join(dir, "function.zip"), zipArchive([{ name: "bootstrap", data: new Uint8Array(readFileSync(join(dir, "bootstrap"))), mode: 0o755 }]));
   } else if (target === "azure-functions") {
     const platform = options?.platform ?? defaultPlatform(target);
     const executable = binaryName(serviceName(root, options), platform);
     const { files, timers } = azureFunctionFiles(executable, options?.azure ?? { authLevel: "anonymous", extensionBundle: true }, build.jobs ?? [], build.routes ?? []);
-    bundled = await compileBinary(root, dir, executable, platform, target, external, assets, `runAzureFunctions(inputs, ${JSON.stringify({ jobs: timers })})`);
+    bundled = await compileBinary(root, dir, executable, platform, target, external, entryOf(() => writePlatformEntry(root, assets, `runAzureFunctions(inputs, ${JSON.stringify({ jobs: timers })})`)), beforeBundle);
     for (const [file, content] of Object.entries(files)) {
       mkdirSync(dirname(join(dir, file)), { recursive: true });
       writeFileSync(join(dir, file), content);
@@ -394,20 +418,32 @@ export async function writeDeployOutput(root: string, config: ResolvedConfig, ta
     const name = serviceName(root, options);
     const executable = binaryName(name, platform);
     const cloudRun = options!.cloudRun;
-    bundled = await compileBinary(root, dir, executable, platform, target, external, assets, `runCloudRun(inputs, ${JSON.stringify({ scheduledWork: cloudRun.cpuAlwaysAllocated, trustProxy: cloudRun.trustProxy })})`);
+    bundled = await compileBinary(root, dir, executable, platform, target, external, entryOf(() => writePlatformEntry(root, assets, `runCloudRun(inputs, ${JSON.stringify({ scheduledWork: cloudRun.cpuAlwaysAllocated, trustProxy: cloudRun.trustProxy })})`)), beforeBundle);
     const health = config.features.find((feature) => feature.key === "health");
     const files = dockerfile({ artifact: executable, base: "distroless", user: 10001, port: 8080 });
     writeFileSync(join(dir, "Dockerfile"), files.dockerfile);
     writeFileSync(join(dir, ".dockerignore"), files.dockerignore);
     writeFileSync(join(dir, "service.yaml"), cloudRunService(name, 8080, cloudRun, health ? String(health.options.live) : undefined));
   } else {
-    bundled = await bundle(writeEntry(root, assets, false), dir, target, external);
+    bundled = await bundle(entryOf(() => writeEntry(root, assets, false)), dir, target, external, "server.js", beforeBundle);
     copyAssets(dir, assets);
+    if (custom) {
+      // A target of the project or a feature writes its output from the bundled service.
+      const added = options?.targets?.[target] ?? featureTargets().get(target)!.target;
+      await added.build({ bundle: join(dir, "server.js"), outDir: dir, options: options!, log: (line) => void build.log?.(line) });
+    }
+  }
+  // Project files in deploy/<target>/ replace the generated files of the same name.
+  for (const file of overrides.files) {
+    mkdirSync(dirname(join(dir, file)), { recursive: true });
+    copyFileSync(join(root, "deploy", target, file), join(dir, file));
+    overrideLines.push(deployOverrideLine(target, file));
   }
   const files = filesUnder(dir);
   const size = files.reduce((total, file) => total + statSync(join(dir, file)).size, 0);
   if (build.analyze) writeFileSync(join(dir, "bundle-report.json"), `${JSON.stringify({ target, size, modules: bundled.modules }, null, 2)}\n`);
-  return { target, dir: `${relative(root, dir)}/`, size, files: build.analyze ? [...files, "bundle-report.json"].sort() : files, modules: bundled.modules.slice(0, 5) };
+  await runAfterHooks(options?.afterBundle ?? [], { target, files, sizes: Object.fromEntries(files.map((file) => [file, statSync(join(dir, file)).size])) }, undefined);
+  return { overrides: overrideLines, target, dir: `${relative(root, dir)}/`, size, files: build.analyze ? [...files, "bundle-report.json"].sort() : files, modules: bundled.modules.slice(0, 5) };
 }
 
 /** The lines naming the largest modules of a bundle. */

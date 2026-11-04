@@ -1047,5 +1047,24 @@ Every option, tag, command and hook of `deploy` is on [its reference page](/refe
 | `deploy.cloudRun.memory` | `string` | `"512Mi"` | `QS_DEPLOY_CLOUD_RUN_MEMORY` | The memory limit of the container. |
 | `deploy.cloudRun.cpu` | `string` | `"1"` | `QS_DEPLOY_CLOUD_RUN_CPU` | The CPU limit of the container. |
 | `deploy.cloudRun.trustProxy` | `boolean` | `true` | `QS_DEPLOY_CLOUD_RUN_TRUST_PROXY` | Takes req.ip from the x-forwarded-for entry Google's front end adds, without listing proxy ranges in security.proxy.trust. |
+| `deploy.targets.<name>` | `record of DeployTarget` | — | not overridable | A target's build function. |
+| `deploy.beforeBundle` | `hook` | — | not overridable | Runs before a target is bundled, with its target, entrypoints, external packages and define replacements; returning them changed changes the bundle. |
+| `deploy.afterBundle` | `hook` | — | not overridable | Runs after a target's output is written, with its files and their sizes. |
+| `deploy.onPlatformEvent` | `hook` | — | not overridable | Runs for every non-HTTP event a platform delivers (a Lambda event, an Azure invocation) before it is dispatched; returning a result answers the event. |
 | `deploy.enabled` | `boolean` | `true` | `QS_DEPLOY_ENABLED` | Turns the feature off when false. |
 | `deploy.database` | `string` | — | `QS_DEPLOY_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
+
+#### `@preload`
+
+Imports the routes' modules at startup even with lazy routes (deploy.lazyRoutes), for routes that must answer the first request fast.
+
+**Applies to:** entities, endpoints
+
+**Options:** none (a flag: `@preload` or `@preload off`)
+
+**Syntax:** `@preload` or `@preload off`
+
+```ts
+/** @preload */
+export type Post = { title: string };
+```

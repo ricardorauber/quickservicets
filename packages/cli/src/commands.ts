@@ -86,7 +86,7 @@ export const BUILT_IN_COMMANDS: readonly CommandDefinition[] = [
     json: BUILD_JSON,
     async run({ cwd, flags, output, result }) {
       const { build } = await import("./build/build.ts");
-      const summary = await build(cwd, process.env, { deploy: { ...(flags.target !== undefined ? { target: flags.target } : {}), analyze: flags.analyze } });
+      const summary = await build(cwd, process.env, { deploy: { ...(flags.target !== undefined ? { target: flags.target } : {}), analyze: flags.analyze, log: (line) => output.log(line) } });
       result({
         entities: summary.entities,
         endpoints: summary.endpoints,

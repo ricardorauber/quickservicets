@@ -1,5 +1,5 @@
 import { normalizeAddress } from "../cidr.ts";
-import { createServiceHandler, type ServiceHandlerOptions } from "../service-handler.ts";
+import { answerPlatformEvent, createServiceHandler, type ServiceHandlerOptions } from "../service-handler.ts";
 
 /** What `runAzureFunctions` accepts besides the service's inputs. */
 export interface AzureFunctionsOptions {
@@ -45,6 +45,10 @@ export async function runAzureFunctions(inputs: ServiceHandlerOptions, options: 
       const url = new URL(request.url);
       const job = request.method === "POST" ? jobs.get(url.pathname.slice(1)) : undefined;
       if (job !== undefined) {
+        // The onPlatformEvent hooks see every invocation first and may answer it.
+        const invocation = await request.json().catch(() => undefined);
+        const answer = await answerPlatformEvent(handler.config, "azure-functions", { function: url.pathname.slice(1), invocation });
+        if (answer !== undefined) return Response.json(answer);
         try {
           const run = await handler.runJob(job);
           if (run && run.status !== "success") throw new Error(`Job ${job} ${run.status}: ${(run.error as { message?: string } | undefined)?.message ?? ""}`.trim());

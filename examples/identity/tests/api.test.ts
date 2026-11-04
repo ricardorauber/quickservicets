@@ -11,6 +11,7 @@ import { join } from "node:path";
 import {
   createApp,
   createFeatureLifecycle,
+  createServiceHandler,
   localStorage,
   memoryAdapter,
   postgresAdapter,
@@ -20,6 +21,7 @@ import {
   type DatabaseAdapter,
   type EntityModel,
   type FeatureLifecycle,
+  type JobRun,
 } from "@quickservicets/core";
 import projectConfig from "../quickservicets.config.ts";
 
@@ -57,13 +59,19 @@ async function postgresDatabase(models: EntityModel[]): Promise<TestDatabase> {
   };
 }
 
-const databases: [string, (models: EntityModel[]) => Promise<TestDatabase>][] = [
-  ["memory", memoryDatabase],
-  ...(process.env.TEST_POSTGRES_URL ? [["PostgreSQL", postgresDatabase] as [string, typeof postgresDatabase]] : []),
+/** How requests reach the service: the server's app in process, or the platform handler of the deploy targets. */
+type Pipeline = "app" | "handler";
+
+const databases: [string, (models: EntityModel[]) => Promise<TestDatabase>, Pipeline][] = [
+  ["memory", memoryDatabase, "app"],
+  // The same suite through createServiceHandler, the entry point of the Lambda, Azure Functions and Cloud Run targets.
+  ["memory through the platform handler", memoryDatabase, "handler"],
+  ...(process.env.TEST_POSTGRES_URL ? [["PostgreSQL", postgresDatabase, "app"] as [string, typeof postgresDatabase, Pipeline]] : []),
 ];
 
 let generated: { models: EntityModel[]; crudRoutes: any; endpoints: any; hooks: any; openApi: any; jobs: any; featureFolders: any };
 let fetchApp: (request: Request, peer?: string) => Promise<Response>;
+let runJobNow: (name: string) => Promise<JobRun>;
 let app: App;
 let lifecycle: FeatureLifecycle;
 
@@ -84,8 +92,9 @@ let peers = 0;
  * Connects the database and starts the project's app on it, with its config and native features, as the server does;
  * the tests send it requests through `fetchApp` and run jobs with `app`.
  */
-async function startApp(open: (models: EntityModel[]) => Promise<TestDatabase>): Promise<TestDatabase> {
+async function startApp(open: (models: EntityModel[]) => Promise<TestDatabase>, pipeline: Pipeline = "app"): Promise<TestDatabase> {
   const { models, crudRoutes, endpoints, hooks, openApi, jobs, featureFolders } = generated;
+  if (pipeline === "handler") return startHandler();
   const opened = await open(models);
   const config = resolveConfig(
     {
@@ -102,6 +111,8 @@ async function startApp(open: (models: EntityModel[]) => Promise<TestDatabase>):
   await lifecycle.start({ repos: app.repos as never, server: app.server });
   // Each request comes from its own address, so the rate limits only count the requests a test sends from one.
   fetchApp = (request, peer = `10.9.${Math.floor(++peers / 250) % 250}.${peers % 250}`) => app.server.fetch(request, { peer });
+  let at = Date.now();
+  runJobNow = async (name) => (await app.jobRunner.run({ job: name, trigger: "manual", scheduledAt: new Date(at++), attempt: 1 }))!;
   return {
     database: opened.database,
     async close() {
@@ -110,6 +121,33 @@ async function startApp(open: (models: EntityModel[]) => Promise<TestDatabase>):
       await opened.close();
     },
   };
+}
+
+/** Starts the project through createServiceHandler on a fresh memory database; the platform gives each client address. */
+async function startHandler(): Promise<TestDatabase> {
+  const { models, crudRoutes, endpoints, hooks, openApi, jobs, featureFolders } = generated;
+  const database = memoryAdapter();
+  const handler = createServiceHandler({
+    projectConfig: {
+      ...projectConfig,
+      database,
+      storage: { default: localStorage({ dir: mkdtempSync(join(tmpdir(), "identity-uploads-")) }) },
+      logger: { info() {}, warn() {}, error() {} },
+    },
+    models,
+    crudRoutes,
+    endpoints,
+    hooks,
+    jobs,
+    openApi,
+    featureFolders,
+    env: {},
+    handleSigterm: false,
+  });
+  await handler.init();
+  fetchApp = (request, peer = `10.9.${Math.floor(++peers / 250) % 250}.${peers % 250}`) => handler.fetch(request, { name: "test", clientIp: peer });
+  runJobNow = async (name) => (await handler.runJob(name))!;
+  return { database, close: () => handler.stop() };
 }
 
 async function call(method: string, path: string, body?: unknown, headers: Record<string, string> = {}, peer?: string): Promise<Result> {
@@ -228,10 +266,10 @@ const crudCases: CrudCase[] = [
   },
 ];
 
-describe.each(databases)("on %s", (_name, open) => {
+describe.each(databases)("on %s", (_name, open, pipeline) => {
   let opened: TestDatabase;
   beforeAll(async () => {
-    opened = await startApp(open);
+    opened = await startApp(open, pipeline);
   }, 60_000);
   afterAll(() => opened?.close());
 
@@ -768,8 +806,7 @@ describe.each(databases)("on %s", (_name, open) => {
 
   describe("job deactivate-memberships-of-inactive-organizations", () => {
     const name = "deactivate-memberships-of-inactive-organizations";
-    let at = Date.now();
-    const runJob = async () => (await app.jobRunner.run({ job: name, trigger: "manual", scheduledAt: new Date(at++), attempt: 1 }))!;
+    const runJob = () => runJobNow(name);
 
     test("deactivates the active memberships of inactive organizations and returns how many", async () => {
       await runJob(); // Other tests leave active memberships in inactive organizations; start from none.

@@ -1,4 +1,4 @@
-import { defineFeature, object, oneOf, string } from "../public.ts";
+import { defineFeature, object, oneOf, platformOf, string } from "../public.ts";
 
 /** The deploy targets a project builds for. */
 export const DEPLOY_TARGETS = ["server", "binary", "lambda", "azure-functions", "cloud-run"] as const;
@@ -65,6 +65,8 @@ export const deployFeature = defineFeature({
   docs: { summary: "Deploy targets: `quickservicets build --target <target>` writes the deployable output for a server, a binary, AWS Lambda, Azure Functions or Google Cloud Run." },
   enabledByDefault: true,
   options,
+  // The platform handler's data about each request, computed on first read.
+  request: { platform: (req) => platformOf(req.raw) },
 });
 
 export default deployFeature;

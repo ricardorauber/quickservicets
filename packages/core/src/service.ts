@@ -7,7 +7,7 @@ import type { JobDefinition } from "./jobs/job.ts";
 import { handleShutdownSignals, type SignalTarget } from "./jobs/lifecycle.ts";
 import { createFeatureLifecycle, LifecycleError, logLifecycleFailure, notifyShutdownSignal, withTimeout, type FeatureLifecycle, type FeatureSetupContext } from "./lifecycle.ts";
 import { parseDuration } from "./jobs/job.ts";
-import { flushLogs, jsonLogger, safeLog } from "./logger.ts";
+import { flushLogs, jsonLogger, safeLog, type Logger } from "./logger.ts";
 import { MIGRATIONS_TABLE_RENAMED, renameLegacyMigrationTables } from "./legacy-names.ts";
 import { reportStartupFailure } from "./error-reports.ts";
 import type { EntityModel } from "./model.ts";
@@ -55,51 +55,71 @@ export interface RunningService {
   stop(): Promise<void>;
 }
 
-/**
- * Starts the service the generated `server.ts` describes: resolves the config, supervises the workers or, in a worker,
- * runs the features' setups, connects, creates the app, runs the `onStart` callbacks, listens, starts the scheduler and
- * handles the shutdown signals. A failing setup or `onStart` logs `{ feature, phase, error }`, stops what started and
- * exits with 1. Resolves once the server listens (undefined in a primary process or after a failed start).
- */
-export async function startService(options: StartServiceOptions): Promise<RunningService | undefined> {
+/** The worker a service instance runs as. */
+export interface ServiceWorker {
+  index: number;
+  count: number;
+  /** Whether this instance runs the scheduler, consumer loops and other scheduled work. */
+  runsScheduledWork: boolean;
+}
+
+/** A service initialized in this process: config, app and lifecycle, ready to serve requests and run jobs. */
+export interface InitializedService {
+  config: ResolvedConfig;
+  app: App;
+  lifecycle: FeatureLifecycle;
+  /** The jobs of the project, by name. */
+  jobs: ReadonlyMap<string, JobDefinition>;
+  /** Runs `onShutdown` callbacks, drains jobs, runs `onStop` callbacks and disconnects. */
+  stop(): Promise<void>;
+}
+
+/** The config and models of a service, resolved from the generated inputs. */
+interface PreparedService {
+  config: ResolvedConfig;
+  options: StartServiceOptions;
+}
+
+/** Registers the project's features, resolves the config and places the feature entities. */
+function prepareService(options: StartServiceOptions): PreparedService {
   const env = options.env ?? process.env;
-  const target = options.process ?? process;
   registerProjectFeatures(options.features ?? []);
   const config = resolveConfig(options.projectConfig, env);
   // Feature entities live where the features' `database` options of this environment place them.
-  options = { ...options, models: placeFeatureEntities(options.models, config.features) };
+  const placed = { ...options, models: placeFeatureEntities(options.models, config.features) };
   logConfigWarnings(config);
   if (config.production && config.database.kind === "memory") safeLog(config.logger ?? jsonLogger, "warn", { timestamp: new Date().toISOString(), message: MEMORY_IN_PRODUCTION });
-  if (isPrimary(config, env)) {
-    // With several workers this process only supervises them; each worker runs the script again.
-    await runWorkers(config, options.script ?? Bun.main);
-    return undefined;
-  }
-  logEnabledFeatures(config);
+  return { config, options: placed };
+}
+
+/**
+ * Runs the features' setups, connects the database, creates the app and runs the `onStart` callbacks: the pipeline
+ * `startService` and the platform handler share. On a failure, `onFailure` runs first (with the phase when no feature
+ * owns it), then what started is stopped and the database disconnected, and the error is rethrown.
+ */
+/** Runs when the initialization of a service fails, before what started is stopped. */
+export type ServiceFailureHandler = (error: unknown, phase: string | undefined, logger: Logger) => Promise<void> | void;
+
+async function bootService(prepared: PreparedService, worker: ServiceWorker, onFailure: ServiceFailureHandler): Promise<InitializedService> {
+  const { config, options } = prepared;
   const logger = config.logger ?? jsonLogger;
   const lifecycle = createFeatureLifecycle({
     features: config.features,
     config,
     models: options.models,
     featureFolders: options.featureFolders,
-    worker: { index: workerIndex(env) ?? 0, count: config.server.workers, runsScheduledWork: runsScheduledWork(env) },
+    worker,
     generatedDir: options.generatedDir,
     extendContext: options.extendSetupContext,
     endpoints: options.endpoints,
     crudRoutes: options.crudRoutes,
   });
-  const fail = async (error: unknown, connected: boolean, phase?: string) => {
-    if (error instanceof LifecycleError) logLifecycleFailure(logger, error);
-    else safeLog(logger, "error", { timestamp: new Date().toISOString(), message: "service.failed", error: { message: (error as Error)?.message ?? String(error), stack: (error as Error)?.stack } });
-    // An error reporter set up before the failure gets it, and delivers it before the process exits.
-    await reportStartupFailure(error instanceof LifecycleError ? error.cause : error, error instanceof LifecycleError ? { feature: error.feature, phase: error.phase } : phase ? { phase } : {});
+  const fail = async (error: unknown, connected: boolean, phase?: string): Promise<never> => {
+    await onFailure(error, phase, logger);
     await lifecycle.stop();
     if (connected) await disconnect(config);
-    flushLogs();
-    target.exit(1);
-    return undefined;
+    throw error;
   };
-
   // The certificate and key are read and checked before anything starts, and described once per worker; secret
   // references among them are resolved first, by the setup of the secrets native.
   const checkTls = () => {
@@ -162,6 +182,52 @@ export async function startService(options: StartServiceOptions): Promise<Runnin
   } catch (error) {
     return fail(error, true);
   }
+  const jobs = options.jobs ?? new Map<string, JobDefinition>();
+  return { config, app, lifecycle, jobs, stop: () => stopService(config, app, lifecycle) };
+}
+
+/**
+ * Initializes one service instance in this process from the inputs of `startService`, without listening: config,
+ * feature setups, the database, the app and the `onStart` callbacks. `onFailure` runs before what started is stopped.
+ */
+export async function initializeService(options: StartServiceOptions, worker: ServiceWorker, onFailure: ServiceFailureHandler = () => {}): Promise<InitializedService> {
+  const prepared = prepareService(options);
+  logEnabledFeatures(prepared.config);
+  return bootService(prepared, worker, onFailure);
+}
+
+/**
+ * Starts the service the generated `server.ts` describes: resolves the config, supervises the workers or, in a worker,
+ * runs the features' setups, connects, creates the app, runs the `onStart` callbacks, listens, starts the scheduler and
+ * handles the shutdown signals. A failing setup or `onStart` logs `{ feature, phase, error }`, stops what started and
+ * exits with 1. Resolves once the server listens (undefined in a primary process or after a failed start).
+ */
+export async function startService(options: StartServiceOptions): Promise<RunningService | undefined> {
+  const env = options.env ?? process.env;
+  const target = options.process ?? process;
+  const prepared = prepareService(options);
+  const { config } = prepared;
+  if (isPrimary(config, env)) {
+    // With several workers this process only supervises them; each worker runs the script again.
+    await runWorkers(config, options.script ?? Bun.main);
+    return undefined;
+  }
+  logEnabledFeatures(config);
+  const logger = config.logger ?? jsonLogger;
+  let service: InitializedService;
+  try {
+    service = await bootService(prepared, { index: workerIndex(env) ?? 0, count: config.server.workers, runsScheduledWork: runsScheduledWork(env) }, async (error, phase) => {
+      if (error instanceof LifecycleError) logLifecycleFailure(logger, error);
+      else safeLog(logger, "error", { timestamp: new Date().toISOString(), message: "service.failed", error: { message: (error as Error)?.message ?? String(error), stack: (error as Error)?.stack } });
+      // An error reporter set up before the failure gets it, and delivers it before the process exits.
+      await reportStartupFailure(error instanceof LifecycleError ? error.cause : error, error instanceof LifecycleError ? { feature: error.feature, phase: error.phase } : phase ? { phase } : {});
+    });
+  } catch {
+    flushLogs();
+    target.exit(1);
+    return undefined;
+  }
+  const { app, lifecycle } = service;
   const listening = app.server.listen();
   console.log(`QuickService.ts listening on ${config.server.tls ? "https" : "http"}://localhost:${listening.port}`);
   if (runsScheduledWork(env)) app.scheduler.start();
@@ -201,12 +267,15 @@ async function disconnect(config: ResolvedConfig): Promise<void> {
   }
 }
 
-/** `onShutdown` callbacks, the listener closed and jobs drained, `onStop` callbacks, then the database disconnected. */
-async function stopService(config: ResolvedConfig, app: App, lifecycle: FeatureLifecycle, listening: { stop(close?: boolean): Promise<void> | void }): Promise<void> {
+/**
+ * `onShutdown` callbacks, the listener (when there is one) closed and jobs drained, `onStop` callbacks, then the
+ * database disconnected.
+ */
+async function stopService(config: ResolvedConfig, app: App, lifecycle: FeatureLifecycle, listening?: { stop(close?: boolean): Promise<void> | void }): Promise<void> {
   notifyShutdownSignal();
   await lifecycle.shutdown();
   // In-flight requests finish while jobs drain; idle keep-alive connections never hold the shutdown longer than the limit.
-  await Promise.all([withTimeout(() => listening.stop(), parseDuration(config.lifecycle.stopTimeout) ?? 10_000, "closing the listener").catch(() => {}), app.shutdown()]);
+  await Promise.all([listening ? withTimeout(() => listening.stop(), parseDuration(config.lifecycle.stopTimeout) ?? 10_000, "closing the listener").catch(() => {}) : undefined, app.shutdown()]);
   await lifecycle.stop();
   await disconnect(config);
 }

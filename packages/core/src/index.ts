@@ -102,7 +102,9 @@ export type { StoredRecordOf } from "./http/stored-records.ts";
 export type { CrudOptions } from "./http/crud.ts";
 export type { CrudRoute } from "./http/crud.ts";
 export { createApp } from "./app.ts";
-export { startService } from "./service.ts";
+export { initializeService, startService } from "./service.ts";
+export { createServiceHandler, DEADLINE_EXCEEDED, DEADLINE_MARGIN_MS, platformOf } from "./service-handler.ts";
+export type { PlatformInfo, RequestPlatform, ServiceHandler, ServiceHandlerOptions } from "./service-handler.ts";
 export { CORE_VERSION, generatedPath } from "./build-steps.ts";
 export { createFile, fileRecords, fileUrl, openFile } from "./file-records.ts";
 export { addUploadCheck, UploadCheckUnavailableError, UploadRejectedError } from "./upload-checks.ts";
@@ -123,7 +125,7 @@ export type {
   ProjectOpenApiContext,
   SecurityScheme,
 } from "./openapi.ts";
-export type { RunningService, StartServiceOptions } from "./service.ts";
+export type { InitializedService, RunningService, ServiceFailureHandler, ServiceWorker, StartServiceOptions } from "./service.ts";
 export { createFeatureLifecycle, featureLogger, LifecycleError, logLifecycleFailure, notifyShutdownSignal, onServiceStarted, onShutdownSignal, withTimeout } from "./lifecycle.ts";
 export type { FeatureApp, FeatureLifecycle, FeatureLifecycleOptions, FeatureSetupContext, LifecyclePhase, RuntimeRoute, RuntimeRouteOptions, StartContext, WorkerInfo } from "./lifecycle.ts";
 export type { App, AppEndpoint, AppOptions, CrudRouteEntry, FeatureFolderRegistry } from "./app.ts";
@@ -350,6 +352,7 @@ import devNative, { type DevApi } from "./features/dev/index.ts";
 import deployNative from "./features/deploy/index.ts";
 import webhooksNative, { type WebhookDeliveryEvent, type WebhookSubscriptionDisabledEvent, type WebhooksSetupApi } from "./features/webhooks/index.ts";
 import type { SecretReference as RequestSecretReference } from "./secret-references.ts";
+import type { RequestPlatform } from "./service-handler.ts";
 import { registerNative as registerShippedNative, type FeatureConfig as NativeConfig } from "./features.ts";
 registerShippedNative(securityNative);
 registerShippedNative(eventsNative);
@@ -571,6 +574,12 @@ declare module "./hooks.ts" {
      * an anonymous request; present while the `auth` native is enabled.
      */
     auth: RequestAuth | undefined;
+    /**
+     * What the platform said about the request (its name, raw event and context, and the time left before its
+     * deadline), or undefined for a request the platform handler did not receive; present while the `deploy` native
+     * is enabled.
+     */
+    platform: RequestPlatform | undefined;
   }
 }
 

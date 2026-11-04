@@ -57,6 +57,24 @@ Warning: queues/notify needs a platform trigger (an SQS or Service Bus trigger) 
 
 A `ws.ts` route fails the build with `endpoints/<path>/ws.ts cannot run on <target>; WebSockets need a server target`.
 
+## The platform handler
+
+Every platform target serves requests through `createServiceHandler`, exported by `@quickservicets/core`, which takes the inputs the generated server passes to `startService` and runs each standard `Request` through the same pipeline as the server, so a route answers identically everywhere:
+
+```ts
+import { createServiceHandler } from "@quickservicets/core";
+
+const handler = createServiceHandler({ projectConfig, models, crudRoutes, endpoints, hooks, jobs, openApi, features, featureFolders });
+const response = await handler.fetch(request, { name: "lambda", requestId: "c6af9ac6-7b61", clientIp: "203.0.113.9", deadline: Date.now() + 3000 });
+await handler.runJob("reports/daily");
+```
+
+- Nothing happens until `init()` or the first `fetch` or `runJob`; the config, the feature setups, the database and the `onStart` callbacks then run once per instance, even for concurrent first calls. A failed initialization logs `service.init.failed`, rejects the call and is tried again on the next one, so the platform can retry or recycle the instance.
+- The platform's `requestId` becomes the request id when the request has no `x-request-id`, and `clientIp` becomes `req.ip`. `req.platform` gives `name`, the raw `event` and `context`, and `remainingMs()`.
+- With a `deadline`, the request's `req.raw.signal` aborts 500 milliseconds before it, and a handler still running at the deadline answers 504 `GATEWAY_TIMEOUT` `Request exceeded the platform deadline`.
+- `runJob(name, { tenant })` runs one job and records its `JobRun`, so a platform schedule drives jobs; an undeclared name rejects with `Unknown job <name>`.
+- `stop()` runs the `onShutdown` and `onStop` callbacks and disconnects within `lifecycle.stopTimeout`; the handler calls it on `SIGTERM`.
+
 ## See also
 
 - [Local environment](/guides/local-environment/): the services the project needs, on your machine.

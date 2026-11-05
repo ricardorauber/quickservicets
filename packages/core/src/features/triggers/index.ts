@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
-import { reportError, boolean, defineFeature, duration, isFunctionTarget, object, parseDuration, safeLog, setUpDependents, systemClock, type JobClock, type Repositories, type ResolvedConfig } from "../public.ts";
+import { http, reportError, boolean, defineFeature, type FeatureSetupContext, type ServiceRequest, type RunTenant, duration, isFunctionTarget, object, parseDuration, safeLog, setUpDependents, systemClock, type JobClock, type Repositories, type ResolvedConfig } from "../public.ts";
+import { checkPushAuth, CLOUDEVENTS_KIND, cloudEventsSource, GOOGLE_ISSUER, pushPath, requestEvents, type CloudEventsRef, type KeyLoader, type SigningKey } from "./cloudevents.ts";
 import { checkpointStore, MISSING_CHECKPOINTS, type TriggerCheckpoints } from "./checkpoints.ts";
 import { startPoller, type Poller } from "./poll.ts";
 import { runTriggerEvents } from "./run.ts";
@@ -114,6 +115,16 @@ export const triggersFeature = defineFeature({
         ].join("\n"),
       },
       {
+        title: "CloudEvents",
+        text: [
+          "`cloudEvents({ type?, source?, path?, auth? })` is the built-in kind `cloudevents`: `type` and `source` match exactly or by a prefix ending in `*`, and each trigger on it gets the runtime route `POST <path>` (default `/_triggers/<trigger name>`). The route takes binary mode (`ce-id`, `ce-type`, `ce-source`, `ce-specversion: 1.0`, optional `ce-time` and `ce-subject`, the data as the body), structured mode (`application/cloudevents+json`) and batch mode (`application/cloudevents-batch+json`); JSON data is parsed and other data stays bytes. A missing attribute answers 400 `VALIDATION_ERROR` `Invalid CloudEvent: <reason>`.",
+          "",
+          "`auth: { bearer }` compares a shared token (text or a secret reference) in constant time; `auth: { oidc: { audience, issuer?, email? } }` checks a JWT signed by the issuer's keys (default `https://accounts.google.com`, fetched through the native's HTTP service `triggers/oidc` and kept for an hour) for `aud`, `iss`, `exp` and the optional service account `email`. A failed check answers 401 `INVALID_SIGNATURE` `Invalid event credentials` without running the trigger. `OPTIONS <path>` with `WebHook-Request-Origin` answers 200 with `WebHook-Allowed-Origin` and `WebHook-Allowed-Rate: *`, the Event Grid handshake.",
+          "",
+          "The route answers 204 when every event completed or was discarded, and 500 without details when one failed, so the sender retries. Push routes are exempt from the CSRF item and, unless the trigger sets `tenant: true`, from tenancy resolution; they keep the global rate limit and are left out of `/openapi.json`.",
+        ].join("\n"),
+      },
+      {
         title: "Function targets",
         text: [
           "On `lambda`, every event that is neither HTTP nor a job invocation goes to `ctx.feature(\"triggers\").dispatch(platform, raw)`: the registered sources are asked in registration order, the first whose `recognize` accepts the event decodes it, and each event goes to every trigger of that kind whose reference `matches` it, in file name order. An event no source recognizes fails with `Unsupported Lambda event`; an event no trigger takes logs `trigger.event.unmatched` and completes, so it is not redelivered forever.",
@@ -154,6 +165,8 @@ export const triggersFeature = defineFeature({
     ],
   },
   options,
+  // Push routes are exempted from CSRF, tenancy and OpenAPI, and OIDC keys are fetched through an HTTP service.
+  after: ["http", "security", "tenancy"],
   folders: {
     triggers: {
       dir: "triggers",
@@ -166,6 +179,7 @@ export const triggersFeature = defineFeature({
     registered.sources = builtInSources();
     const declared = new Map<string, TriggerDefinition>();
     for (const [name, file] of ctx.folders.triggers ?? []) if (isTriggerDefinition(file)) declared.set(name, file);
+    registerPushRoutes(ctx, declared, (input) => runPushed(input));
     const queuesOn = ctx.config.features.some((feature) => feature.key === "queues");
     const eventsOn = ctx.config.features.some((feature) => feature.key === "events");
     const failureOf = (outcome: TriggerOutcome, event: TriggerEvent): TriggerFailureEvent => ({ trigger: outcome.trigger, kind: event.kind, eventId: event.id, attempt: event.attempt, error: { message: (outcome.error as Error)?.message ?? String(outcome.error) } });
@@ -190,6 +204,19 @@ export const triggersFeature = defineFeature({
         await emitEvent("trigger.event.failed", failureOf(outcome, event));
       }
     };
+    /** Runs one trigger on the events of a push request, as dispatch would. */
+    async function runPushed({ name, definition, events, tenant }: { name: string; definition: TriggerDefinition; events: TriggerEvent[]; tenant?: RunTenant }): Promise<TriggerOutcome[]> {
+      const source = registered.sources.get(definition.source.kind)!.source;
+      const mine = events.filter((event) => source.matches(definition.source as never, event));
+      const outcomes = mine.length > 0 ? await runTriggerEvents({ name, definition, events: mine, repos: () => repos!, logger: ctx.logger, queues: queuesOn, ordered: source.ordered === true, ...(tenant ? { tenant } : {}) }) : [];
+      for (const event of events) {
+        if (mine.includes(event)) continue;
+        safeLog(ctx.logger, "warn", { timestamp: new Date().toISOString(), message: "trigger.event.unmatched", kind: source.kind, eventId: event.id });
+        outcomes.push({ eventId: event.id, trigger: "", status: "completed", reason: "unmatched" });
+      }
+      await afterPushed(outcomes, events, source);
+      return outcomes;
+    }
     /** What follows an event that failed its last polled attempt. */
     const onDead = async (outcome: TriggerOutcome, event: TriggerEvent) => {
       const failure = failureOf(outcome, event);
@@ -337,8 +364,91 @@ export function runningTriggers(): RunningTriggers {
   return current;
 }
 
+/**
+ * Registers the push routes of the triggers on the built-in CloudEvents source: `POST <path>` runs the trigger and
+ * answers 204, or 500 without details when an event failed; `OPTIONS <path>` completes the Event Grid handshake. The
+ * routes are exempt from CSRF and, unless the trigger sets `tenant`, from tenancy, and stay out of the OpenAPI document.
+ */
+function registerPushRoutes(
+  ctx: FeatureSetupContext,
+  declared: ReadonlyMap<string, TriggerDefinition>,
+  run: (input: { name: string; definition: TriggerDefinition; events: TriggerEvent[]; tenant?: RunTenant }) => Promise<TriggerOutcome[]>,
+): void {
+  const pushed = [...declared].filter(([, definition]) => definition.source.kind === CLOUDEVENTS_KIND) as [string, TriggerDefinition][];
+  if (pushed.length === 0) return;
+  const keys = oidcKeys(ctx, pushed.map(([, definition]) => definition.source as CloudEventsRef));
+  const tenancy = ctx.config.features.some((feature) => feature.key === "tenancy");
+  const paths = new Map<string, string>();
+  for (const [name, definition] of pushed) {
+    const ref = definition.source as CloudEventsRef;
+    const path = pushPath(ref, name);
+    const taken = paths.get(path);
+    if (taken) throw new Error(`triggers/${name} and triggers/${taken} both push to ${path}; give one a path`);
+    paths.set(path, name);
+    if (tenancy && !definition.tenant) ctx.feature("tenancy").exempt(path);
+    const options = { auth: false, tags: { csrf: { on: false, options: {} } } };
+    ctx.app.route(
+      "POST",
+      path,
+      async (_repos: unknown, req: ServiceRequest) => {
+        await checkPushAuth(req.raw, ref.auth, keys);
+        const events = await requestEvents(req.raw);
+        const tenant = definition.tenant ? (req as { tenant?: RunTenant }).tenant : undefined;
+        const outcomes = await run({ name, definition, events, ...(tenant ? { tenant } : {}) });
+        // A failed event answers 500 so the sender retries; the answer never carries the error.
+        return new Response(null, { status: outcomes.some((outcome) => outcome.status === "failed") ? 500 : 204 });
+      },
+      options,
+    );
+    ctx.app.route(
+      "OPTIONS",
+      path,
+      (_repos: unknown, req: ServiceRequest) => {
+        const origin = req.headers.get("webhook-request-origin");
+        return new Response(null, { status: 200, headers: origin ? { "WebHook-Allowed-Origin": origin, "WebHook-Allowed-Rate": "*" } : {} });
+      },
+      options,
+    );
+  }
+}
+
+/**
+ * The key loader of the OIDC issuers the push routes use: each issuer is an HTTP service of the native (`oidc`, then
+ * `oidc-2`…), its discovery document gives the JWKS address, and its keys are kept for an hour.
+ */
+function oidcKeys(ctx: FeatureSetupContext, refs: readonly CloudEventsRef[]): KeyLoader {
+  const issuers = [...new Set(refs.flatMap((ref) => (ref.auth && "oidc" in ref.auth ? [ref.auth.oidc.issuer ?? GOOGLE_ISSUER] : [])))];
+  const services = new Map<string, string>();
+  if (issuers.length > 0 && !ctx.config.features.some((feature) => feature.key === "http")) throw new Error("triggers needs the http native to verify OIDC push tokens; remove http: false");
+  issuers.forEach((issuer, index) => {
+    const name = index === 0 ? "oidc" : `oidc-${index + 1}`;
+    ctx.feature("http").addService(name, { url: issuer });
+    services.set(issuer, `triggers/${name}`);
+  });
+  const cache = new Map<string, { at: number; keys: Map<string, SigningKey> }>();
+  return async (issuer, refresh = false) => {
+    const cached = cache.get(issuer);
+    if (cached && !refresh && Date.now() - cached.at < OIDC_KEYS_TTL_MS) return cached.keys;
+    const service = services.get(issuer);
+    if (!service) return new Map();
+    const discovery = (await http.service(service as never).get("/.well-known/openid-configuration").send()) as { jwks_uri?: string };
+    if (typeof discovery?.jwks_uri !== "string") throw new Error(`The OIDC issuer ${issuer} has no jwks_uri`);
+    const document = (await http.get(discovery.jwks_uri).send()) as { keys?: SigningKey[] };
+    const keys = new Map((document?.keys ?? []).filter((key) => typeof key.kid === "string").map((key) => [key.kid!, key]));
+    cache.set(issuer, { at: Date.now(), keys });
+    return keys;
+  };
+}
+
 /** The built-in sources, by kind. */
-const builtInSources = (): Map<string, { source: TriggerSource; owner: string }> => new Map([[TEST_SOURCE_KIND, { source: testTriggerSource as TriggerSource, owner: "triggers" }]]);
+const builtInSources = (): Map<string, { source: TriggerSource; owner: string }> =>
+  new Map([
+    [TEST_SOURCE_KIND, { source: testTriggerSource as TriggerSource, owner: "triggers" }],
+    [CLOUDEVENTS_KIND, { source: cloudEventsSource as TriggerSource, owner: "triggers" }],
+  ]);
+
+/** How long the signing keys of an OIDC issuer are kept. */
+export const OIDC_KEYS_TTL_MS = 3_600_000;
 
 /**
  * The trigger sources a configuration provides, by kind, outside a running service: the built-in ones and those the
@@ -360,6 +470,8 @@ export default triggersFeature;
 export { runTriggerEvents, triggerTimedOut } from "./run.ts";
 export { dispatchPlatformEvent, overallStatus } from "./state.ts";
 export { isTriggerDiscard, TriggerDiscard } from "./discard.ts";
+export { CLOUDEVENTS_KIND, cloudEvents, cloudEventsSource, GOOGLE_ISSUER, invalidCloudEvent, invalidEventCredentials, matchesPattern, pushPath, requestEvents, structuredEvent, verifyOidcToken } from "./cloudevents.ts";
+export type { CloudEventsAuth, CloudEventsOptions, CloudEventsRef, KeyLoader, SigningKey } from "./cloudevents.ts";
 export { partitionOf, skippedAfterFailure } from "./run.ts";
 export { checkpointStore, MISSING_CHECKPOINTS, triggerCheckpointEntity } from "./checkpoints.ts";
 export type { CheckpointStoreOptions, ClaimedPartition, TriggerCheckpoints } from "./checkpoints.ts";

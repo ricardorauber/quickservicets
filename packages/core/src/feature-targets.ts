@@ -78,7 +78,9 @@ export function tagsOf(target: OptionsTarget): ParsedTags | undefined {
     const key = endpointKey(target.method, target.route);
     if (prepared.endpoints.has(key)) return prepared.endpoints.get(key);
     const entity = prepared.generated.get(key);
-    return entity === undefined ? undefined : prepared.models.get(entity)?.tags;
+    if (entity !== undefined) return prepared.models.get(entity)?.tags;
+    // A route a feature registered at runtime carries the tags it was given.
+    return runtime.find((route) => route.tags && endpointKey(route.method, route.path) === key)?.tags;
   }
   if ("field" in target) return prepared.models.get(target.entity)?.fields.find((field) => field.name === target.field)?.tags;
   if ("method" in target) return prepared.endpoints.get(endpointKey(target.method, target.path));
@@ -98,6 +100,8 @@ export interface RuntimeTarget {
   entity?: string;
   /** The operation of the entity the route stands for. */
   operation?: CrudOperation;
+  /** The route's feature tags, which `optionsFor` reads for its requests. */
+  tags?: ParsedTags;
 }
 
 let runtime: RuntimeTarget[] = [];
@@ -116,6 +120,7 @@ export function registerRuntimeTarget(route: RuntimeTarget): void {
     ...(route.auth === false ? { auth: false } : {}),
     ...(route.entity !== undefined ? { entity: route.entity } : {}),
     ...(route.operation !== undefined ? { operation: route.operation } : {}),
+    ...(route.tags ? { tags: route.tags } : {}),
   });
 }
 

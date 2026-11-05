@@ -71,3 +71,24 @@ describe("emitTrigger", () => {
     }
   });
 });
+
+describe("push routes", () => {
+  test("a CloudEvents trigger's route answers pushes and is absent from /openapi.json", async () => {
+    const service = await startTestService({
+      files: {
+        "quickservicets.config.ts": CONFIG,
+        "entities/Image.ts": IMAGE,
+        "triggers/stored.ts": 'import { cloudEvents, trigger } from "@quickservicets/core";\nexport default trigger<{ name: string }>({ source: cloudEvents({ type: "storage.*" }), handle: ({ event, repos }) => repos.images.create({ key: event.data.name }) });\n',
+      },
+    });
+    try {
+      const pushed = await service.fetch("/_triggers/stored", { method: "POST", headers: { "content-type": "application/json", "ce-specversion": "1.0", "ce-id": "1", "ce-source": "/bucket", "ce-type": "storage.object.created" }, body: JSON.stringify({ name: "b.png" }) });
+      expect(pushed.status).toBe(204);
+      expect(((await (await service.fetch("/images")).json()) as { total: number }).total).toBe(1);
+      const paths = Object.keys(((await (await service.fetch("/openapi.json")).json()) as { paths: Record<string, unknown> }).paths);
+      expect(paths.some((path) => path.startsWith("/_triggers"))).toBe(false);
+    } finally {
+      await service.stop();
+    }
+  });
+});

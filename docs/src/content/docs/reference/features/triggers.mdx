@@ -18,6 +18,8 @@ triggers: {}
 
 It is not enabled by default: turn it on with `triggers: {}` or `QS_TRIGGERS_ENABLED=true`, and off with `triggers: false` or `QS_TRIGGERS_ENABLED=false`.
 
+**Runs after:** `http`, `security`, `tenancy`
+
 ## Options
 
 | Key | Type | Default | Environment variable | Per request | Description |
@@ -69,6 +71,14 @@ export default trigger<{ key: string }>({
 ```
 
 `handle` runs once per event, or once per delivery with `ctx.events` when `batch: true`. It receives `{ event, events?, trigger, repos, log, signal, http, files, queue?, tenant?, attempt }`: `log` adds `trigger` and `eventId`, `http` sends the event id as `x-request-id`, and writes carry the actor `job:trigger/<name>`. An event is `{ id, kind, type, time, subject?, data, attributes, attempt }`, with an `id` that stays the same across redeliveries.
+
+## CloudEvents
+
+`cloudEvents({ type?, source?, path?, auth? })` is the built-in kind `cloudevents`: `type` and `source` match exactly or by a prefix ending in `*`, and each trigger on it gets the runtime route `POST <path>` (default `/_triggers/<trigger name>`). The route takes binary mode (`ce-id`, `ce-type`, `ce-source`, `ce-specversion: 1.0`, optional `ce-time` and `ce-subject`, the data as the body), structured mode (`application/cloudevents+json`) and batch mode (`application/cloudevents-batch+json`); JSON data is parsed and other data stays bytes. A missing attribute answers 400 `VALIDATION_ERROR` `Invalid CloudEvent: <reason>`.
+
+`auth: { bearer }` compares a shared token (text or a secret reference) in constant time; `auth: { oidc: { audience, issuer?, email? } }` checks a JWT signed by the issuer's keys (default `https://accounts.google.com`, fetched through the native's HTTP service `triggers/oidc` and kept for an hour) for `aud`, `iss`, `exp` and the optional service account `email`. A failed check answers 401 `INVALID_SIGNATURE` `Invalid event credentials` without running the trigger. `OPTIONS <path>` with `WebHook-Request-Origin` answers 200 with `WebHook-Allowed-Origin` and `WebHook-Allowed-Rate: *`, the Event Grid handshake.
+
+The route answers 204 when every event completed or was discarded, and 500 without details when one failed, so the sender retries. Push routes are exempt from the CSRF item and, unless the trigger sets `tenant: true`, from tenancy resolution; they keep the global rate limit and are left out of `/openapi.json`.
 
 ## Function targets
 

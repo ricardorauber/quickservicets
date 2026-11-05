@@ -70,6 +70,11 @@ export interface TriggerInput<Data = unknown> {
   handle: TriggerHandler<Data>;
   /** Hands the handler every event of one delivery at once (default false). */
   batch?: boolean;
+  /**
+   * Resolves the tenant of pushed requests like any route, so the handler runs for `ctx.tenant` (default false: push
+   * routes are exempt from tenancy resolution).
+   */
+  tenant?: boolean;
   options?: TriggerOptions;
 }
 
@@ -81,6 +86,8 @@ export interface TriggerDefinition<Data = unknown> {
   readonly source: TriggerSourceRef;
   readonly handle: TriggerHandler<Data>;
   readonly batch: boolean;
+  /** Whether pushed requests resolve their tenant. */
+  readonly tenant: boolean;
   /** The trigger's options with the defaults applied. */
   readonly options: ResolvedTriggerOptions;
 }
@@ -98,7 +105,7 @@ export function trigger<Data = unknown>(input: TriggerInput<Data>): TriggerDefin
   const options = { ...TRIGGER_DEFAULTS, ...definedOf(input.options ?? {}) };
   if (!Number.isInteger(options.concurrency) || options.concurrency < 1) throw new Error("trigger() options.concurrency must be an integer of at least 1");
   if (!Number.isInteger(options.retries) || options.retries < 0) throw new Error("trigger() options.retries must be an integer of at least 0");
-  return { [TRIGGER_MARKER]: true, source: input.source, handle: input.handle, batch: input.batch === true, options };
+  return { [TRIGGER_MARKER]: true, source: input.source, handle: input.handle, batch: input.batch === true, tenant: input.tenant === true, options };
 }
 
 /** The entries of an object whose value is defined. */

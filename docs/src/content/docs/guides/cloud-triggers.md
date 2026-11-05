@@ -79,6 +79,40 @@ setup(ctx) {
 
 A trigger on a kind no feature registers fails startup with `triggers/<name> uses source <kind>, which no feature registers; enable the feature that provides it`, and a kind registered by two features fails naming both.
 
+## CloudEvents
+
+The built-in source `cloudEvents({ type?, source?, path?, auth? })` receives events pushed over HTTP in the CloudEvents format, as Google Eventarc, Pub/Sub push subscriptions, Knative and Azure Event Grid send them. It needs no cloud package: each trigger on it gets the route `POST /_triggers/<trigger name>` (or `path`).
+
+```ts title="triggers/uploads/finalized.ts"
+import { cloudEvents, trigger } from "@quickservicets/core";
+
+export default trigger<{ bucket: string; name: string }>({
+  source: cloudEvents({ type: "google.cloud.storage.object.v1.*" }),
+  handle: ({ event, repos }) => repos.images.create({ key: event.data.name }),
+});
+```
+
+`type` and `source` match exactly, or by a prefix ending in `*`. The route accepts the three CloudEvents modes:
+
+- **Binary**: the attributes in `ce-id`, `ce-type`, `ce-source` and `ce-specversion: 1.0` headers (optional `ce-time` and `ce-subject`), the data as the body.
+- **Structured**: one event as `application/cloudevents+json`.
+- **Batch**: an array of events as `application/cloudevents-batch+json`; the trigger runs once per event.
+
+JSON data is parsed; any other content type keeps the bytes. An event missing a required attribute answers 400 `VALIDATION_ERROR` with `Invalid CloudEvent: <reason>`, like `Invalid CloudEvent: missing id`.
+
+### Authentication
+
+- `auth: { bearer: secret("env://PUSH_TOKEN") }` (or a text) compares the `Authorization: Bearer` token in constant time.
+- `auth: { oidc: { audience, issuer?, email? } }` checks a JWT signed by the issuer's keys, as Pub/Sub push and Eventarc send with an OIDC token: the signature, `aud`, `iss` (default `https://accounts.google.com`), `exp`, and the service account `email` when given. The keys are fetched through the native's HTTP service `triggers/oidc` and kept for an hour, so `http.mock()` answers them in tests.
+
+A failed check answers 401 `INVALID_SIGNATURE` with `Invalid event credentials`, and the trigger never runs.
+
+### Acknowledgments and the Event Grid handshake
+
+The route answers 204 when every event completed or was discarded, and 500 when any failed, so the sender retries the delivery; the answer never includes error details. Azure Event Grid validates a CloudEvents endpoint with `OPTIONS` and `WebHook-Request-Origin`; the route answers 200 with `WebHook-Allowed-Origin` set to that origin and `WebHook-Allowed-Rate: *`.
+
+Push routes are exempt from the CSRF item and, unless the trigger sets `tenant: true`, from tenancy resolution; they keep the global rate limit and are left out of `/openapi.json`.
+
 ## Function targets
 
 A function deployed with `--target lambda` handles HTTP requests and cloud events alike. Every Lambda event that is neither HTTP nor a job invocation goes to the triggers: the registered sources are asked in registration order, the first that recognizes the event decodes it, and each decoded event goes to every trigger of that kind whose reference matches it, in file name order. An event no source recognizes fails with `Unsupported Lambda event`. An event no trigger takes logs `trigger.event.unmatched` at warning level and counts as completed, so a misrouted event is not redelivered forever.

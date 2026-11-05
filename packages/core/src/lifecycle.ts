@@ -49,6 +49,8 @@ export interface RuntimeRouteOptions {
   entity?: string;
   /** The operation of the entity the route stands for, like `read` for a history route. */
   operation?: CrudOperation;
+  /** Feature tags of the route, as an endpoint's JSDoc tags would give them, like `{ csrf: { on: false, options: {} } }`. */
+  tags?: ParsedTags;
 }
 
 /** A route a feature registered at runtime with `ctx.app.route`. */
@@ -68,6 +70,8 @@ export interface RuntimeRoute {
   entity?: string;
   /** The operation of the entity the route stands for. */
   operation?: CrudOperation;
+  /** The route's feature tags. */
+  tags?: ParsedTags;
 }
 
 /** The running service's extension points a feature reaches from its setup. */
@@ -338,6 +342,7 @@ export function createFeatureLifecycle({ features, config, models, featureFolder
               ...(options.auth === false ? { auth: false } : {}),
               ...(options.entity !== undefined ? { entity: options.entity } : {}),
               ...(options.operation !== undefined ? { operation: options.operation } : {}),
+              ...(options.tags ? { tags: options.tags } : {}),
             };
             routes.push(route);
             registerRuntimeTarget(route);

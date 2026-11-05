@@ -1,4 +1,4 @@
-import { contextHttp, DEADLINE_MARGIN_MS, fileRecords, parseDuration, queues, resolveRunRepositories, safeLog, withJobOperation, type JobLogFields, type JobLogger, type Logger, type Repositories } from "../public.ts";
+import { contextHttp, DEADLINE_MARGIN_MS, fileRecords, parseDuration, queues, resolveRunRepositories, safeLog, withJobOperation, type JobLogFields, type JobLogger, type Logger, type Repositories, type RunTenant } from "../public.ts";
 import type { TriggerEvent, TriggerOutcome } from "./source.ts";
 import type { TriggerContext, TriggerDefinition } from "./trigger.ts";
 import { isTriggerDiscard } from "./discard.ts";
@@ -25,6 +25,8 @@ export interface TriggerRunInput {
    * partition without running it.
    */
   ordered?: boolean;
+  /** The tenant the events run for, like the one a pushed request resolved. */
+  tenant?: RunTenant;
 }
 
 /** The partition of an event in an ordered batch: its `partition` attribute, or one partition for all. */
@@ -89,6 +91,7 @@ async function runHandler(input: TriggerRunInput, events: readonly TriggerEvent[
         files: fileRecords,
         ...(http ? { http } : {}),
         ...(input.queues ? { queue: queues } : {}),
+        ...(input.tenant ? { tenant: input.tenant } : {}),
         attempt: first.attempt,
       } as TriggerContext;
       // Writes carry the actor `job:trigger/<name>`, like a job run's.

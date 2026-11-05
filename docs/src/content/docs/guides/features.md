@@ -42,6 +42,7 @@ export default defineConfig({
 | `dev` | Local services for development: `quickservicets dev --services` starts the database and every service the features need with Docker Compose; adds nothing to a running service | by default | — | [Local environment](/guides/local-environment/) | [dev](/reference/features/dev/) |
 | `deploy` | Deploy targets: `quickservicets build --target` writes the deployable output for a server, a binary, AWS Lambda, Azure Functions or Google Cloud Run; acts only at build time | by default | — | [Deploy targets](/guides/deploy-targets/) | [deploy](/reference/features/deploy/) |
 | `connections` | Connection pool sizes for servers and functions: small, lazy pools on function targets, the adapters' pools on servers, with a budget warning | by default | — | [Serverless connections](/guides/serverless-connections/) | [connections](/reference/features/connections/) |
+| `triggers` | Trigger files in `triggers/` that react to cloud events (bucket objects, cloud queue messages, change feeds) through registered sources, with the repositories like jobs | by its key | — | [Cloud triggers](/guides/cloud-triggers/) | [triggers](/reference/features/triggers/) |
 
 The infrastructure natives (`tenancy`, `auth`, `metrics`, `proxy`, `secrets` and the WebSocket part of `realtime`) shape how the service runs rather than what an entity does; mTLS is an item of `security` with its own [mTLS guide](/guides/mtls/).
 

@@ -1096,3 +1096,14 @@ Every option, tag, command and hook of `connections` is on [its reference page](
 | `connections.databases.<name>.lazy` | `record of boolean` | — | `QS_CONNECTIONS_DATABASES_<NAME>_LAZY` | Opens the first connection on the first query instead of at startup (default false, true in serverless mode). |
 | `connections.enabled` | `boolean` | `true` | `QS_CONNECTIONS_ENABLED` | Turns the feature off when false. |
 | `connections.database` | `string` | — | `QS_CONNECTIONS_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
+
+### `triggers`
+
+Trigger files in triggers/ that react to cloud events through registered sources, with the repositories like jobs.
+
+Every option, tag, command and hook of `triggers` is on [its reference page](/reference/features/triggers/).
+
+| Key | Type | Default | Environment variable | Description |
+| --- | --- | --- | --- | --- |
+| `triggers.enabled` | `boolean` | `true` | `QS_TRIGGERS_ENABLED` | Turns the feature off when false. |
+| `triggers.database` | `string` | — | `QS_TRIGGERS_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |

@@ -50,7 +50,7 @@ import { activeFeatureTags, assertNoHookConflicts, useFeatureTags } from "../ent
 import { validateHookReferences } from "../hooks/validate-hook-references.ts";
 import { hasPendingChanges, migrationTargets, sqlDialectOf } from "../migrations/add.ts";
 import { listMigrations, readLatestSnapshot } from "../migrations/snapshot.ts";
-import { envVarsLines, fileEntityLines, generateTypesFile, queuePayloadLines, serviceNameLines, type PublishedQueueEntry, type QueueTypeEntry } from "./generate-types.ts";
+import { envVarsLines, fileEntityLines, generateTypesFile, queuePayloadLines, serviceNameLines, triggerNameLines, type PublishedQueueEntry, type QueueTypeEntry, type TriggerTypeEntry } from "./generate-types.ts";
 import { overrideWarnings, publishProblems, publishTargets, type PublishTarget } from "./queue-publish.ts";
 import { extractQueryItems } from "../endpoints/query-items.ts";
 import { describeEndpoints } from "../openapi/endpoint-docs.ts";
@@ -461,6 +461,11 @@ function queueTypes(files: readonly FolderFile[]): QueueTypeEntry[] {
   return files.filter((entry) => entry.feature === "queues" && entry.folder === "queues").map((entry) => ({ name: entry.name, specifier: importPath(entry.file) }));
 }
 
+/** The triggers of the `triggers/` folders, as `.generated/types.ts` imports them. */
+function triggerTypes(files: readonly FolderFile[]): TriggerTypeEntry[] {
+  return files.filter((entry) => entry.feature === "triggers" && entry.folder === "triggers").map((entry) => ({ name: entry.name, specifier: importPath(entry.file) }));
+}
+
 /** The queues entities publish to, with the write event types each receives. */
 function publishedQueues(targets: readonly PublishTarget[]): PublishedQueueEntry[] {
   const byQueue = new Map<string, string[]>();
@@ -662,7 +667,7 @@ async function buildProject(projectRoot: string, config: ResolvedConfig, options
   });
   const files: Record<string, string> = {
     "models.ts": `${HEADER}\nimport type { EntityModel } from "@quickservicets/core";\n\nexport const models: EntityModel[] = ${JSON.stringify(models, null, 2)};\n`,
-    "types.ts": [generateTypesFile(models, envVarsLines(variables)), ...featureTypeLines(featureKeys), ...queuePayloadLines(queueTypes(folderFiles), publishedQueues(publishing)), ...serviceNameLines(Object.keys((config.features.find((feature) => feature.key === "http")?.options.services as Record<string, unknown> | undefined) ?? {})), ...fileEntityLines(models)].join("\n"),
+    "types.ts": [generateTypesFile(models, envVarsLines(variables)), ...featureTypeLines(featureKeys), ...queuePayloadLines(queueTypes(folderFiles), publishedQueues(publishing)), ...triggerNameLines(triggerTypes(folderFiles)), ...serviceNameLines(Object.keys((config.features.find((feature) => feature.key === "http")?.options.services as Record<string, unknown> | undefined) ?? {})), ...fileEntityLines(models)].join("\n"),
     "features.ts": generateFeaturesFile(HEADER, featureKeys, folderFiles.map((entry) => ({ ...entry, specifier: importPath(entry.file) }))),
     "routes.ts": generateRoutesFile(models, resolved, hooks, lazyRoutesOf(config, target)),
     "jobs.ts": generateJobsFile(jobs),

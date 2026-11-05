@@ -327,7 +327,7 @@ export type { TransactionOptions } from "./transactions.ts";
 export { changedFields, observeWrites } from "./write-observers.ts";
 export type { WriteCause, WriteChange, WriteObserver } from "./write-observers.ts";
 export { runAsCommand, withWriteCause, type SetWriteCause } from "./write-cause.ts";
-export { currentOperation, disableOperationContext, enableOperationContext, operationContextEnabled, operationMiddleware, withOperation } from "./operation-context.ts";
+export { currentOperation, disableOperationContext, enableOperationContext, operationContextEnabled, operationMiddleware, withJobOperation, withOperation } from "./operation-context.ts";
 export type { OperationInfo } from "./operation-context.ts";
 export type { AnyEvent, CustomEvent, EventActor, EventFor, EventMap, EventOf, PatternMatches, PayloadOf, WriteEvent, WriteOperation } from "./event-types.ts";
 export { parseRate } from "./rates.ts";
@@ -362,6 +362,7 @@ import secretsNative, { type SecretRotation, type SecretsApi } from "./features/
 import devNative, { type DevApi } from "./features/dev/index.ts";
 import deployNative, { type DeployApi } from "./features/deploy/index.ts";
 import connectionsNative, { type ConnectionsApi } from "./features/connections/index.ts";
+import triggersNative, { type TriggersApi } from "./features/triggers/index.ts";
 import webhooksNative, { type WebhookDeliveryEvent, type WebhookSubscriptionDisabledEvent, type WebhooksSetupApi } from "./features/webhooks/index.ts";
 import type { SecretReference as RequestSecretReference } from "./secret-references.ts";
 import type { RequestPlatform } from "./service-handler.ts";
@@ -386,6 +387,9 @@ registerShippedNative(webhooksNative);
 registerShippedNative(devNative);
 registerShippedNative(deployNative);
 registerShippedNative(connectionsNative);
+registerShippedNative(triggersNative);
+export { duplicateSource, isTriggerDefinition, missingSource, overallStatus, runTriggerEvents, TEST_SOURCE_KIND, testDelivery, testSource, testTriggerSource, trigger, TRIGGER_DEFAULTS, triggersFeature, triggerTimedOut } from "./features/triggers/index.ts";
+export type { EmitTriggerOptions, ResolvedTriggerOptions, TestDelivery, TestEventInput, TestSourceRef, TriggerContext, TriggerDataOf, TriggerDefinition, TriggerEmission, TriggerEvent, TriggerHandler, TriggerInput, TriggerName, TriggerNames, TriggerOptions, TriggerOutcome, TriggersApi, TriggerSource, TriggerSourceHints, TriggerSourceRef, TriggerStatus } from "./features/triggers/index.ts";
 export { budgetWarning, connectionsFeature, directConnectionNeeded, poolSettingsFor, proxyProblems, proxySettings, RDS_PROXY_TLS, resolveConnectionMode, SERVERLESS_DEFAULTS, SERVERLESS_TARGETS, sessionFeatures } from "./features/connections/index.ts";
 export { checkDatabases, redactCredentials, type DatabaseCheckResult } from "./features/connections/check.ts";
 export { bunSqlExecutor, executorClient, missingCapability, withSignal } from "./sql-executor.ts";
@@ -647,6 +651,8 @@ declare module "./features.ts" {
     deploy?: NativeConfig<typeof deployNative>;
     /** Connection pool sizes for servers and functions, enabled by default; see the `connections` reference page. */
     connections?: NativeConfig<typeof connectionsNative>;
+    /** Trigger files that react to cloud events through registered sources; see the `triggers` reference page. */
+    triggers?: NativeConfig<typeof triggersNative>;
   }
   interface FeatureApis {
     events: EventsApi;
@@ -667,6 +673,7 @@ declare module "./features.ts" {
     dev: DevApi;
     deploy: DeployApi;
     connections: ConnectionsApi;
+    triggers: TriggersApi;
   }
 }
 

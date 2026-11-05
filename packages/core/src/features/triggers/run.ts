@@ -1,0 +1,113 @@
+import { contextHttp, fileRecords, parseDuration, queues, resolveRunRepositories, safeLog, withJobOperation, type JobLogFields, type JobLogger, type Logger, type Repositories } from "../public.ts";
+import type { TriggerEvent, TriggerOutcome } from "./source.ts";
+import type { TriggerContext, TriggerDefinition } from "./trigger.ts";
+
+/** What running a trigger's events needs. */
+export interface TriggerRunInput {
+  /** The trigger's name, like `uploads/new-image`. */
+  name: string;
+  definition: TriggerDefinition;
+  /** The events to handle, in order. */
+  events: readonly TriggerEvent[];
+  /** The repositories of the running service. */
+  repos: () => Repositories;
+  logger: Logger;
+  /** Whether the `queues` native runs, so handlers get `ctx.queue`. */
+  queues?: boolean;
+  /** Aborts every handler, like a shutdown. */
+  signal?: AbortSignal;
+}
+
+/** The error of a handler that ran out of time. */
+export const triggerTimedOut = (name: string, ms: number) => new Error(`Trigger ${name} timed out after ${ms} ms`);
+
+/** A logger writing the trigger and the event id with every entry. */
+function eventLogger(logger: Logger, name: string, eventId: string): JobLogger {
+  const write = (level: "info" | "warn" | "error") => (line: string, fields?: JobLogFields) =>
+    safeLog(logger, level, { timestamp: new Date().toISOString(), message: String(line), ...fields, trigger: name, eventId });
+  return { info: write("info"), warn: write("warn"), error: write("error") };
+}
+
+/**
+ * Runs `fn` with a signal aborted after `ms` or when `outer` aborts, rejecting with the timeout error at the limit even
+ * when `fn` ignores the signal.
+ */
+async function withLimit<T>(ms: number, outer: AbortSignal | undefined, onTimeout: () => Error, fn: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const aborted = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      const error = onTimeout();
+      controller.abort(error);
+      reject(error);
+    }, Math.max(0, ms));
+  });
+  const forward = () => controller.abort(outer?.reason);
+  if (outer?.aborted) forward();
+  else outer?.addEventListener("abort", forward, { once: true });
+  try {
+    return await Promise.race([fn(controller.signal), aborted]);
+  } finally {
+    clearTimeout(timer);
+    outer?.removeEventListener("abort", forward);
+  }
+}
+
+/** Runs one call of the handler, for one event or a batch, inside the trigger's operation; resolves the error or undefined. */
+async function runHandler(input: TriggerRunInput, events: readonly TriggerEvent[]): Promise<unknown> {
+  const { name, definition } = input;
+  const first = events[0]!;
+  const limit = parseDuration(definition.options.timeout) ?? 30_000;
+  const run = { job: { name: `trigger/${name}`, runId: first.id } };
+  try {
+    await withLimit(limit, input.signal, () => triggerTimedOut(name, limit), async (signal) => {
+      const http = contextHttp(first.id);
+      const context = {
+        event: first,
+        ...(definition.batch ? { events: [...events] } : {}),
+        trigger: name,
+        repos: resolveRunRepositories(run, input.repos as never) as unknown as Repositories,
+        log: eventLogger(input.logger, name, first.id),
+        signal,
+        files: fileRecords,
+        ...(http ? { http } : {}),
+        ...(input.queues ? { queue: queues } : {}),
+        attempt: first.attempt,
+      } as TriggerContext;
+      // Writes carry the actor `job:trigger/<name>`, like a job run's.
+      await withJobOperation(run.job, () => definition.handle(context));
+    });
+    return undefined;
+  } catch (error) {
+    return error ?? new Error(`Trigger ${name} failed`);
+  }
+}
+
+/** Runs `work` over `items` with at most `limit` at once, keeping the order of the results. */
+async function pooled<T, R>(items: readonly T[], limit: number, work: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  const lane = async () => {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await work(items[index]!);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(Math.max(1, limit), items.length) }, lane));
+  return results;
+}
+
+/**
+ * Handles events with a trigger: once per event with the trigger's `concurrency`, or once for all of them with
+ * `batch: true`; each call is limited by the trigger's `timeout`. Resolves one outcome per event, in order.
+ */
+export async function runTriggerEvents(input: TriggerRunInput): Promise<TriggerOutcome[]> {
+  const { name, definition, events } = input;
+  if (events.length === 0) return [];
+  const outcomeOf = (event: TriggerEvent, error: unknown): TriggerOutcome => (error === undefined ? { eventId: event.id, trigger: name, status: "completed" } : { eventId: event.id, trigger: name, status: "failed", error });
+  if (definition.batch) {
+    const error = await runHandler(input, events);
+    return events.map((event) => outcomeOf(event, error));
+  }
+  return pooled(events, definition.options.concurrency, async (event) => outcomeOf(event, await runHandler(input, [event])));
+}

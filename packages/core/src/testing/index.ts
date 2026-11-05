@@ -25,3 +25,4 @@ export { checkSecretProvider, runSecretProviderContract, SECRET_PROVIDER_CHECKS 
 export type { SecretProviderCheck, SecretProviderContractOptions, SecretProviderFixtures } from "./secret-provider-contract.ts";
 export { runSqlExecutorContract } from "./sql-executor-contract.ts";
 export type { SqlExecutorContractOptions } from "./sql-executor-contract.ts";
+export { emitTrigger } from "./triggers.ts";

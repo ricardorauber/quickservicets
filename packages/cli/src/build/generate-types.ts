@@ -272,6 +272,27 @@ export function queuePayloadLines(queues: readonly QueueTypeEntry[], published: 
   ];
 }
 
+/** One trigger of the project's `triggers/` folder: its name and how `.generated/types.ts` imports its file. */
+export interface TriggerTypeEntry {
+  name: string;
+  specifier: string;
+}
+
+/** The `TriggerNames` entries of the project's triggers, each typed with the data its file declares; nothing without triggers. */
+export function triggerNameLines(triggers: readonly TriggerTypeEntry[]): string[] {
+  if (triggers.length === 0) return [];
+  return [
+    'import type { TriggerDataOf } from "@quickservicets/core";',
+    "",
+    'declare module "@quickservicets/core" {',
+    "  interface TriggerNames {",
+    ...triggers.map((entry) => `    ${JSON.stringify(entry.name)}: TriggerDataOf<typeof import(${JSON.stringify(entry.specifier)}).default>;`),
+    "  }",
+    "}",
+    "",
+  ];
+}
+
 /** The `FileEntityNames` entries of the model's file entities, so `createFile` takes only their names. */
 export function fileEntityLines(models: readonly { entityName: string; file?: unknown }[]): string[] {
   const names = models.filter((model) => model.file).map((model) => model.entityName);

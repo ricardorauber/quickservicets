@@ -176,6 +176,13 @@
         "@quickservicets/core": "workspace:*",
       },
     },
+    "examples/minimal/triggers": {
+      "name": "minimal-triggers",
+      "dependencies": {
+        "@quickservicets/cli": "workspace:*",
+        "@quickservicets/core": "workspace:*",
+      },
+    },
     "examples/minimal/webhooks": {
       "name": "minimal-webhooks",
       "dependencies": {
@@ -906,6 +913,8 @@
     "minimal-security": ["minimal-security@workspace:examples/minimal/security"],
 
     "minimal-tenancy": ["minimal-tenancy@workspace:examples/minimal/tenancy"],
+
+    "minimal-triggers": ["minimal-triggers@workspace:examples/minimal/triggers"],
 
     "minimal-webhooks": ["minimal-webhooks@workspace:examples/minimal/webhooks"],
 

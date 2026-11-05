@@ -76,6 +76,16 @@ setup(ctx) {
 
 A trigger on a kind no feature registers fails startup with `triggers/<name> uses source <kind>, which no feature registers; enable the feature that provides it`, and a kind registered by two features fails naming both.
 
+## Function targets
+
+A function deployed with `--target lambda` handles HTTP requests and cloud events alike. Every Lambda event that is neither HTTP nor a job invocation goes to the triggers: the registered sources are asked in registration order, the first that recognizes the event decodes it, and each decoded event goes to every trigger of that kind whose reference matches it, in file name order. An event no source recognizes fails with `Unsupported Lambda event`. An event no trigger takes logs `trigger.event.unmatched` at warning level and counts as completed, so a misrouted event is not redelivered forever.
+
+Events of one invocation run with each trigger's `concurrency`. Each handler stops at the smaller of its `timeout` and the time left before the platform's deadline less 500 milliseconds: its `signal` aborts and the event fails.
+
+The source's `result(outcomes, raw)` builds the answer the platform receives, like the partial batch response of a queue, so only the failed events come back. A source without `result` fails the whole invocation when an event failed. Every event logs `trigger.event.started`, then `trigger.event.completed`, `trigger.event.failed` or `trigger.event.discarded`, with `trigger`, `kind`, `eventId`, `attempt` and `durationMs`.
+
+On `--target azure-functions`, the build writes one function per trigger, `trigger-<name>/function.json` with `/` as `-` (`trigger-uploads-new-image`), from the binding the source's `describe(ref).azure` gives, and the custom handler dispatches that function's invocations to its trigger. A source without an Azure binding fails the build with `triggers/<name>: source <kind> cannot run on azure-functions`.
+
 ## Testing triggers
 
 The built-in `test` source (`testSource({ type? })`) runs triggers in tests. `emitTrigger(name, data, { attributes? })` of `@quickservicets/core/testing` runs a trigger of the running service as a delivery would and resolves its outcome:

@@ -34,6 +34,16 @@ source(kind: string, source: TriggerSource<never>): void;
 Registers the source of a kind, so triggers whose reference names that kind run on its events. Only available
 during the setup of another feature; a kind registered twice fails startup naming both owners.
 
+### `dispatch`
+
+```ts
+dispatch(platform: string, raw: unknown, options?: DispatchOptions): Promise<TriggerDispatch | undefined>;
+```
+
+Hands a raw platform event (`platform` is `lambda`, `azure-functions` or another target) to the triggers it
+belongs to: the first registered source whose `recognize` accepts it decodes it, and every trigger whose reference
+`matches` an event handles it. Resolves undefined when no source recognizes the event.
+
 ## Trigger files
 
 Each file in `triggers/` default-exports `trigger({ source, handle, batch?, options? })`; its path without extension is its name (`triggers/uploads/new-image.ts` is `uploads/new-image`), and a trigger a feature ships in its folder is named `<key>/<path>`. The build lists every name in `TriggerNames` of `.generated/types.ts`.
@@ -52,6 +62,14 @@ export default trigger<{ key: string }>({
 ```
 
 `handle` runs once per event, or once per delivery with `ctx.events` when `batch: true`. It receives `{ event, events?, trigger, repos, log, signal, http, files, queue?, tenant?, attempt }`: `log` adds `trigger` and `eventId`, `http` sends the event id as `x-request-id`, and writes carry the actor `job:trigger/<name>`. An event is `{ id, kind, type, time, subject?, data, attributes, attempt }`, with an `id` that stays the same across redeliveries.
+
+## Function targets
+
+On `lambda`, every event that is neither HTTP nor a job invocation goes to `ctx.feature("triggers").dispatch(platform, raw)`: the registered sources are asked in registration order, the first whose `recognize` accepts the event decodes it, and each event goes to every trigger of that kind whose reference `matches` it, in file name order. An event no source recognizes fails with `Unsupported Lambda event`; an event no trigger takes logs `trigger.event.unmatched` and completes, so it is not redelivered forever.
+
+Each handler is limited by the smaller of its `timeout` and the time left before the platform's deadline less 500 ms, its `signal` aborted at that limit. The source's `result(outcomes, raw)` builds the invocation's answer, like a partial batch response; without it, a failed event fails the invocation. Each event logs `trigger.event.started` and `trigger.event.completed`, `trigger.event.failed` or `trigger.event.discarded` with `trigger`, `kind`, `eventId`, `attempt` and `durationMs`.
+
+On `azure-functions` the build writes `trigger-<name>/function.json` (with `/` as `-`) from the binding of the source's `describe(ref).azure`, and the custom handler dispatches that function's invocations to its trigger; a source without an Azure binding fails the build with `triggers/<name>: source <kind> cannot run on azure-functions`.
 
 ## Sources
 

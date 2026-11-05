@@ -1,4 +1,4 @@
-import { contextHttp, fileRecords, parseDuration, queues, resolveRunRepositories, safeLog, withJobOperation, type JobLogFields, type JobLogger, type Logger, type Repositories } from "../public.ts";
+import { contextHttp, DEADLINE_MARGIN_MS, fileRecords, parseDuration, queues, resolveRunRepositories, safeLog, withJobOperation, type JobLogFields, type JobLogger, type Logger, type Repositories } from "../public.ts";
 import type { TriggerEvent, TriggerOutcome } from "./source.ts";
 import type { TriggerContext, TriggerDefinition } from "./trigger.ts";
 
@@ -16,6 +16,8 @@ export interface TriggerRunInput {
   queues?: boolean;
   /** Aborts every handler, like a shutdown. */
   signal?: AbortSignal;
+  /** The platform's deadline (epoch milliseconds): each handler stops 500 ms before it, when that comes first. */
+  deadline?: number;
 }
 
 /** The error of a handler that ran out of time. */
@@ -57,7 +59,9 @@ async function withLimit<T>(ms: number, outer: AbortSignal | undefined, onTimeou
 async function runHandler(input: TriggerRunInput, events: readonly TriggerEvent[]): Promise<unknown> {
   const { name, definition } = input;
   const first = events[0]!;
-  const limit = parseDuration(definition.options.timeout) ?? 30_000;
+  const timeout = parseDuration(definition.options.timeout) ?? 30_000;
+  // The smaller of the trigger's timeout and the time left before the platform's deadline, less a margin.
+  const limit = input.deadline === undefined ? timeout : Math.max(0, Math.min(timeout, input.deadline - Date.now() - DEADLINE_MARGIN_MS));
   const run = { job: { name: `trigger/${name}`, runId: first.id } };
   try {
     await withLimit(limit, input.signal, () => triggerTimedOut(name, limit), async (signal) => {
@@ -104,10 +108,19 @@ async function pooled<T, R>(items: readonly T[], limit: number, work: (item: T) 
 export async function runTriggerEvents(input: TriggerRunInput): Promise<TriggerOutcome[]> {
   const { name, definition, events } = input;
   if (events.length === 0) return [];
-  const outcomeOf = (event: TriggerEvent, error: unknown): TriggerOutcome => (error === undefined ? { eventId: event.id, trigger: name, status: "completed" } : { eventId: event.id, trigger: name, status: "failed", error });
-  if (definition.batch) {
-    const error = await runHandler(input, events);
-    return events.map((event) => outcomeOf(event, error));
-  }
-  return pooled(events, definition.options.concurrency, async (event) => outcomeOf(event, await runHandler(input, [event])));
+  const entry = (event: TriggerEvent) => ({ timestamp: new Date().toISOString(), trigger: name, kind: event.kind, eventId: event.id, attempt: event.attempt });
+  const handled = async (batch: readonly TriggerEvent[]): Promise<TriggerOutcome[]> => {
+    for (const event of batch) safeLog(input.logger, "info", { ...entry(event), message: "trigger.event.started" });
+    const started = performance.now();
+    const error = await runHandler(input, batch);
+    const durationMs = Math.round((performance.now() - started) * 1000) / 1000;
+    return batch.map((event) => {
+      const outcome: TriggerOutcome = error === undefined ? { eventId: event.id, trigger: name, status: "completed" } : { eventId: event.id, trigger: name, status: "failed", error };
+      const failure = outcome.status === "failed" ? { error: { message: (error as Error)?.message ?? String(error) } } : {};
+      safeLog(input.logger, outcome.status === "failed" ? "warn" : "info", { ...entry(event), message: `trigger.event.${outcome.status}`, durationMs, ...failure });
+      return outcome;
+    });
+  };
+  if (definition.batch) return handled(events);
+  return (await pooled(events, definition.options.concurrency, (event) => handled([event]))).flat();
 }

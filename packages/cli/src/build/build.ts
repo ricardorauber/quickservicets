@@ -33,6 +33,7 @@ import {
   DEPLOY_TARGETS,
   featureTargets,
   setUpDependents,
+  type TriggerSourceRef,
 } from "@quickservicets/core";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
@@ -466,6 +467,12 @@ function triggerTypes(files: readonly FolderFile[]): TriggerTypeEntry[] {
   return files.filter((entry) => entry.feature === "triggers" && entry.folder === "triggers").map((entry) => ({ name: entry.name, specifier: importPath(entry.file) }));
 }
 
+/** The triggers of the `triggers/` folders with their source references, read from their files. */
+async function triggerReferences(files: readonly FolderFile[]): Promise<{ name: string; source: TriggerSourceRef }[]> {
+  const triggers = files.filter((entry) => entry.feature === "triggers" && entry.folder === "triggers");
+  return Promise.all(triggers.map(async (entry) => ({ name: entry.name, source: ((await import(entry.source)) as { default: { source: TriggerSourceRef } }).default.source })));
+}
+
 /** The queues entities publish to, with the write event types each receives. */
 function publishedQueues(targets: readonly PublishTarget[]): PublishedQueueEntry[] {
   const byQueue = new Map<string, string[]>();
@@ -704,6 +711,7 @@ async function buildProject(projectRoot: string, config: ResolvedConfig, options
     ? await writeDeployOutput(projectRoot, config, target, {
         analyze: options.deploy?.analyze === true,
         jobs: jobs.map((entry) => ({ name: entry.name, schedule: entry.schedule })),
+        triggers: await triggerReferences(folderFiles),
         routes: [...crudTable(models).map((route) => route.path), ...resolved.map((endpoint) => endpoint.route.path)],
         ...(options.deploy?.log ? { log: options.deploy.log } : {}),
       })

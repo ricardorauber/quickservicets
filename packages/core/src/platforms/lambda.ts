@@ -1,6 +1,7 @@
 import { HttpError, toErrorResponse } from "../errors.ts";
 import { flushLogs, jsonLogger, safeLog, type Logger } from "../logger.ts";
 import { answerPlatformEvent, createServiceHandler, type ServiceHandler, type ServiceHandlerOptions } from "../service-handler.ts";
+import { dispatchPlatformEvent } from "../features/triggers/state.ts";
 
 /** The largest buffered response Lambda returns: 6 MB. */
 export const LAMBDA_RESPONSE_LIMIT = 6 * 1024 * 1024;
@@ -147,7 +148,7 @@ export interface LambdaContext {
   traceId?: string;
 }
 
-/** Handles one Lambda invocation: an HTTP event, a job event, or an event `onEvent` answers. */
+/** Handles one Lambda invocation: an HTTP event, a job event, an event a trigger source recognizes, or one `onEvent` answers. */
 export async function handleLambdaEvent(handler: ServiceHandler, event: unknown, context: LambdaContext, options: Pick<LambdaOptions, "onEvent"> & { logger?: Logger } = {}): Promise<unknown> {
   // The onPlatformEvent hooks see every non-HTTP event first and may answer it.
   if (!isLambdaHttpEvent(event)) {
@@ -169,6 +170,12 @@ export async function handleLambdaEvent(handler: ServiceHandler, event: unknown,
       return lambdaResult(toErrorResponse(new HttpError(500, LAMBDA_TOO_LARGE), { production: true }), format, multiValue);
     }
     return lambdaResult(new Response(body, { status: response.status, headers: response.headers }), format, multiValue, body);
+  }
+  // Every other event goes to the triggers whose source recognizes it.
+  const dispatched = await dispatchPlatformEvent("lambda", event, { deadline: context.deadlineMs });
+  if (dispatched) {
+    if (dispatched.error) throw dispatched.error;
+    return dispatched.response ?? { status: "completed" };
   }
   if (options.onEvent) {
     const answer = await options.onEvent(event, context);

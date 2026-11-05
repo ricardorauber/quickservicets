@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { defineFeature, type Repositories } from "../public.ts";
+import { defineFeature, safeLog, setUpDependents, type Repositories, type ResolvedConfig } from "../public.ts";
 import { runTriggerEvents } from "./run.ts";
-import type { TriggerEvent, TriggerSource } from "./source.ts";
-import { NOT_ENABLED, overallStatus, running, sharedState, type EmitTriggerOptions, type RunningTriggers, type TriggerEmission } from "./state.ts";
+import type { TriggerEvent, TriggerOutcome, TriggerSource } from "./source.ts";
+import { dispatchPlatformEvent, NOT_ENABLED, overallStatus, running, sharedState, type DispatchOptions, type EmitTriggerOptions, type RunningTriggers, type TriggerDispatch, type TriggerEmission } from "./state.ts";
 import { TEST_SOURCE_KIND, testTriggerSource } from "./test-source.ts";
 import { isTriggerDefinition, type TriggerDefinition } from "./trigger.ts";
 
@@ -13,6 +13,12 @@ export interface TriggersApi {
    * during the setup of another feature; a kind registered twice fails startup naming both owners.
    */
   source(kind: string, source: TriggerSource<never>): void;
+  /**
+   * Hands a raw platform event (`platform` is `lambda`, `azure-functions` or another target) to the triggers it
+   * belongs to: the first registered source whose `recognize` accepts it decodes it, and every trigger whose reference
+   * `matches` an event handles it. Resolves undefined when no source recognizes the event.
+   */
+  dispatch(platform: string, raw: unknown, options?: DispatchOptions): Promise<TriggerDispatch | undefined>;
 }
 
 /** The sources registered in this process, by kind, with the feature that registered each. */
@@ -66,6 +72,16 @@ export const triggersFeature = defineFeature({
         ].join("\n"),
       },
       {
+        title: "Function targets",
+        text: [
+          "On `lambda`, every event that is neither HTTP nor a job invocation goes to `ctx.feature(\"triggers\").dispatch(platform, raw)`: the registered sources are asked in registration order, the first whose `recognize` accepts the event decodes it, and each event goes to every trigger of that kind whose reference `matches` it, in file name order. An event no source recognizes fails with `Unsupported Lambda event`; an event no trigger takes logs `trigger.event.unmatched` and completes, so it is not redelivered forever.",
+          "",
+          "Each handler is limited by the smaller of its `timeout` and the time left before the platform's deadline less 500 ms, its `signal` aborted at that limit. The source's `result(outcomes, raw)` builds the invocation's answer, like a partial batch response; without it, a failed event fails the invocation. Each event logs `trigger.event.started` and `trigger.event.completed`, `trigger.event.failed` or `trigger.event.discarded` with `trigger`, `kind`, `eventId`, `attempt` and `durationMs`.",
+          "",
+          "On `azure-functions` the build writes `trigger-<name>/function.json` (with `/` as `-`) from the binding of the source's `describe(ref).azure`, and the custom handler dispatches that function's invocations to its trigger; a source without an Azure binding fails the build with `triggers/<name>: source <kind> cannot run on azure-functions`.",
+        ].join("\n"),
+      },
+      {
         title: "Sources",
         text: [
           "A source is a `TriggerSource`: `kind`, `recognize(platform, raw)`, `decode(raw)` returning events and `matches(ref, event)`, plus the optional `poll(ref, ctx)`, `result(outcomes, raw)`, `push` and `describe(ref)`. A feature listing `triggers` in `requires`, `after` or `enables` registers one during its setup with `ctx.feature(\"triggers\").source(kind, source)`. A trigger on a kind no feature registers fails startup with `triggers/<name> uses source <kind>, which no feature registers; enable the feature that provides it`.",
@@ -84,7 +100,7 @@ export const triggersFeature = defineFeature({
     },
   },
   setup(ctx) {
-    registered.sources = new Map([[TEST_SOURCE_KIND, { source: testTriggerSource as TriggerSource, owner: "triggers" }]]);
+    registered.sources = builtInSources();
     const declared = new Map<string, TriggerDefinition>();
     for (const [name, file] of ctx.folders.triggers ?? []) if (isTriggerDefinition(file)) declared.set(name, file);
     const queuesOn = ctx.config.features.some((feature) => feature.key === "queues");
@@ -103,6 +119,36 @@ export const triggersFeature = defineFeature({
         if (first.error !== undefined) emission.error = first.error;
         if (first.reason !== undefined) emission.reason = first.reason;
         return emission;
+      },
+      async dispatch(platform, raw, options = {}) {
+        // Sources are asked in registration order; the first that recognizes the event decodes it.
+        const found = [...registered.sources.values()].find(({ source }) => source.recognize(platform, raw));
+        if (!found) return undefined;
+        const { source } = found;
+        const events = await source.decode(raw);
+        const only = options.triggers ? new Set(options.triggers) : undefined;
+        const candidates = [...declared].filter(([name, definition]) => definition.source.kind === source.kind && (!only || only.has(name))).sort(([a], [b]) => a.localeCompare(b));
+        const outcomes: TriggerOutcome[] = [];
+        const matched = new Set<string>();
+        for (const [name, definition] of candidates) {
+          const mine = events.filter((event) => source.matches(definition.source as never, event));
+          for (const event of mine) matched.add(event.id);
+          if (mine.length === 0) continue;
+          outcomes.push(...(await runTriggerEvents({ name, definition, events: mine, repos: () => repos!, logger: ctx.logger, queues: queuesOn, ...(options.deadline !== undefined ? { deadline: options.deadline } : {}) })));
+        }
+        // An event no trigger takes is completed, so a misrouted event is not redelivered forever.
+        for (const event of events) {
+          if (matched.has(event.id)) continue;
+          safeLog(ctx.logger, "warn", { timestamp: new Date().toISOString(), message: "trigger.event.unmatched", kind: source.kind, eventId: event.id });
+          outcomes.push({ eventId: event.id, trigger: "", status: "completed", reason: "unmatched" });
+        }
+        const dispatched: TriggerDispatch = { kind: source.kind, outcomes };
+        if (source.result) dispatched.response = await source.result(outcomes, raw);
+        else {
+          const failed = outcomes.filter((outcome) => outcome.status === "failed");
+          if (failed.length > 0) dispatched.error = new Error(`${failed.length} of ${events.length} ${source.kind} events failed: ${failed.map((outcome) => outcome.eventId).join(", ")}`);
+        }
+        return dispatched;
       },
     };
     // Sources are registered during the setups of later features, so the kinds are checked once every setup ran.
@@ -128,6 +174,7 @@ export const triggersFeature = defineFeature({
       if (taken) throw new Error(duplicateSource(kind, taken.owner, caller));
       registered.sources.set(kind, { source: source as TriggerSource, owner: caller });
     },
+    dispatch: (platform, raw, options) => dispatchPlatformEvent(platform, raw, options),
   }),
 });
 
@@ -138,10 +185,29 @@ export function runningTriggers(): RunningTriggers {
   return current;
 }
 
+/** The built-in sources, by kind. */
+const builtInSources = (): Map<string, { source: TriggerSource; owner: string }> => new Map([[TEST_SOURCE_KIND, { source: testTriggerSource as TriggerSource, owner: "triggers" }]]);
+
+/**
+ * The trigger sources a configuration provides, by kind, outside a running service: the built-in ones and those the
+ * features listing `triggers` in `requires` or `after` register in their setups, which run and stop again. For builds
+ * that read a source's `describe` hints.
+ */
+export async function triggerSources(config: ResolvedConfig): Promise<Map<string, TriggerSource>> {
+  registered.sources = builtInSources();
+  const stop = await setUpDependents(config, "triggers");
+  try {
+    return new Map([...registered.sources].map(([kind, { source }]) => [kind, source]));
+  } finally {
+    await stop();
+    registered.sources = new Map();
+  }
+}
+
 export default triggersFeature;
 export { runTriggerEvents, triggerTimedOut } from "./run.ts";
-export { overallStatus } from "./state.ts";
-export type { EmitTriggerOptions, TriggerEmission } from "./state.ts";
+export { dispatchPlatformEvent, overallStatus } from "./state.ts";
+export type { DispatchOptions, EmitTriggerOptions, TriggerDispatch, TriggerEmission } from "./state.ts";
 export { TEST_SOURCE_KIND, testDelivery, testSource, testTriggerSource } from "./test-source.ts";
 export type { TestDelivery, TestEventInput, TestSourceRef } from "./test-source.ts";
 export { isTriggerDefinition, trigger, TRIGGER_DEFAULTS } from "./trigger.ts";

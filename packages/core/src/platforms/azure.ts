@@ -1,10 +1,13 @@
 import { normalizeAddress } from "../cidr.ts";
 import { answerPlatformEvent, createServiceHandler, type ServiceHandlerOptions } from "../service-handler.ts";
+import { dispatchPlatformEvent } from "../features/triggers/state.ts";
 
 /** What `runAzureFunctions` accepts besides the service's inputs. */
 export interface AzureFunctionsOptions {
   /** The timer functions the build wrote, by function name, with the job each one runs. */
   jobs?: Readonly<Record<string, string>>;
+  /** The trigger functions the build wrote, by function name, with the trigger each one runs. */
+  triggers?: Readonly<Record<string, string>>;
   /** The port (default `FUNCTIONS_CUSTOMHANDLER_PORT`, then `PORT`). */
   port?: number;
 }
@@ -32,12 +35,13 @@ export function forwardedClient(header: string | null): string | undefined {
 /**
  * The custom handler of the `azure-functions` target: listens on `FUNCTIONS_CUSTOMHANDLER_PORT` (falling back to
  * `PORT`), serves the HTTP requests the Functions host forwards through the platform handler, and answers the
- * invocations of the timer functions by running their jobs. Resolves the server, so tests can stop it.
+ * invocations of the timer functions by running their jobs and of the trigger functions by dispatching their events. Resolves the server, so tests can stop it.
  */
 export async function runAzureFunctions(inputs: ServiceHandlerOptions, options: AzureFunctionsOptions = {}): Promise<{ port: number; stop(): Promise<void> }> {
   const handler = createServiceHandler({ ...inputs, scheduledWork: false, handleSigterm: false });
   await handler.init();
   const jobs = new Map(Object.entries(options.jobs ?? {}));
+  const triggers = new Map(Object.entries(options.triggers ?? {}));
   const port = options.port ?? Number(process.env.FUNCTIONS_CUSTOMHANDLER_PORT ?? process.env.PORT ?? 7071);
   const server = Bun.serve({
     port,
@@ -53,6 +57,23 @@ export async function runAzureFunctions(inputs: ServiceHandlerOptions, options: 
           const run = await handler.runJob(job);
           if (run && run.status !== "success") throw new Error(`Job ${job} ${run.status}: ${(run.error as { message?: string } | undefined)?.message ?? ""}`.trim());
           return Response.json({ Outputs: {}, Logs: [`Job ${job} completed`], ReturnValue: { status: "completed" } } satisfies InvocationResult);
+        } catch (error) {
+          return Response.json({ Outputs: {}, Logs: [error instanceof Error ? error.message : String(error)], ReturnValue: null } satisfies InvocationResult, { status: 500 });
+        }
+      }
+      const trigger = request.method === "POST" ? triggers.get(url.pathname.slice(1)) : undefined;
+      if (trigger !== undefined) {
+        const name = url.pathname.slice(1);
+        const invocation = await request.json().catch(() => undefined);
+        const raw = { function: name, trigger, invocation };
+        const answer = await answerPlatformEvent(handler.config, "azure-functions", raw);
+        if (answer !== undefined) return Response.json(answer);
+        try {
+          // The function is bound to one trigger, so only that trigger receives its events.
+          const dispatched = await dispatchPlatformEvent("azure-functions", raw, { triggers: [trigger] });
+          if (!dispatched) throw new Error(`No trigger source recognizes the invocation of ${name}`);
+          if (dispatched.error) throw dispatched.error;
+          return Response.json({ Outputs: {}, Logs: [`Trigger ${trigger} handled ${dispatched.outcomes.length} events`], ReturnValue: dispatched.response ?? { status: "completed" } } satisfies InvocationResult);
         } catch (error) {
           return Response.json({ Outputs: {}, Logs: [error instanceof Error ? error.message : String(error)], ReturnValue: null } satisfies InvocationResult, { status: 500 });
         }

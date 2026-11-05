@@ -38,6 +38,9 @@ export function ncrontab(schedule: unknown): { cron: string } | { error: string 
 /** The name of a job's timer function: `job-` and the job name with `/` as `-`. */
 export const timerFunctionName = (job: string) => `job-${job.replaceAll("/", "-")}`;
 
+/** The Azure function of a trigger: `trigger-<name>`, with `/` as `-`. */
+export const triggerFunctionName = (trigger: string) => `trigger-${trigger.replaceAll("/", "-")}`;
+
 /** A duration like `10m` as the `hh:mm:ss` of `host.json`. */
 export function hostDuration(duration: string, parse: (text: string) => number | undefined): string {
   const total = Math.round((parse(duration) ?? 0) / 1000);

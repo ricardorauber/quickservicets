@@ -1,10 +1,10 @@
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
-import { featureTargets, runAfterHooks, runBeforeHooks, type BundleInput, type FeatureHook, CLOUD_RUN_DRAIN_DELAY, CLOUD_RUN_STOP_TIMEOUT, cloudRunConfig, defaultPlatform, dockerfile, parseDuration, DEPLOY_DISABLED, DEPLOY_TARGETS, isFunctionTarget, unknownTarget, type DeployOptions, type ResolvedConfig } from "@quickservicets/core";
+import { featureTargets, runAfterHooks, runBeforeHooks, type BundleInput, type FeatureHook, CLOUD_RUN_DRAIN_DELAY, CLOUD_RUN_STOP_TIMEOUT, cloudRunConfig, defaultPlatform, dockerfile, parseDuration, DEPLOY_DISABLED, DEPLOY_TARGETS, isFunctionTarget, triggerSources, unknownTarget, type DeployOptions, type ResolvedConfig, type TriggerSourceRef } from "@quickservicets/core";
 import { BuildError } from "../errors.ts";
 import { zipArchive } from "./zip.ts";
-import { hostDuration, ncrontab, timerFunctionName } from "./azure.ts";
+import { hostDuration, ncrontab, timerFunctionName, triggerFunctionName } from "./azure.ts";
 
 /** What the deploy step wrote: the target, its folder relative to the project, its size in bytes and its files. */
 export interface DeployOutput {
@@ -304,6 +304,8 @@ export interface DeployBuildOptions {
   analyze?: boolean;
   /** The project's jobs with their schedules, for the targets that write a function per job. */
   jobs?: readonly { name: string; schedule: unknown }[];
+  /** The project's triggers with their source references, for the targets that write a function per trigger. */
+  triggers?: readonly { name: string; source: TriggerSourceRef }[];
   /** The paths of the project's routes, generated and custom, for the targets whose function names could collide. */
   routes?: readonly string[];
   /** Prints the lines a custom target logs. */
@@ -342,10 +344,37 @@ export function cloudRunService(name: string, port: number, options: DeployOptio
   ].join("\n");
 }
 
-/** The files of the azure-functions target besides the binary, and the timer functions with their jobs. */
-export function azureFunctionFiles(executable: string, options: NonNullable<DeployOptions["azure"]>, jobs: readonly { name: string; schedule: unknown }[], routes: readonly string[]): { files: Record<string, string>; timers: Record<string, string> } {
+/** One trigger of the project with the Azure binding its source describes, or none when it has none. */
+export interface AzureTriggerBinding {
+  name: string;
+  kind: string;
+  binding?: Record<string, unknown>;
+}
+
+/** The message of a trigger whose source has no Azure binding. */
+export const noAzureBinding = (name: string, kind: string) => `triggers/${name}: source ${kind} cannot run on azure-functions`;
+
+/** Each trigger with the Azure binding its source's `describe(ref).azure` gives. */
+export async function azureTriggerBindings(config: ResolvedConfig, triggers: readonly { name: string; source: TriggerSourceRef }[]): Promise<AzureTriggerBinding[]> {
+  if (triggers.length === 0) return [];
+  const sources = await triggerSources(config);
+  return triggers.map(({ name, source: ref }) => {
+    const binding = sources.get(ref.kind)?.describe?.(ref as never)?.azure;
+    return { name, kind: ref.kind, ...(binding ? { binding: binding as Record<string, unknown> } : {}) };
+  });
+}
+
+/** The files of the azure-functions target besides the binary, the timer functions with their jobs and the trigger functions with their triggers. */
+export function azureFunctionFiles(executable: string, options: NonNullable<DeployOptions["azure"]>, jobs: readonly { name: string; schedule: unknown }[], routes: readonly string[], triggerBindings: readonly AzureTriggerBinding[] = []): { files: Record<string, string>; timers: Record<string, string>; triggers: Record<string, string> } {
   const timers: Record<string, string> = {};
+  const triggers: Record<string, string> = {};
   const files: Record<string, string> = {};
+  for (const trigger of triggerBindings) {
+    if (!trigger.binding) throw new BuildError(noAzureBinding(trigger.name, trigger.kind));
+    const name = triggerFunctionName(trigger.name);
+    triggers[name] = trigger.name;
+    files[`${name}/function.json`] = `${JSON.stringify({ bindings: [{ name: "event", direction: "in", ...trigger.binding }] }, null, 2)}\n`;
+  }
   for (const job of jobs) {
     const schedule = ncrontab(job.schedule);
     if ("error" in schedule) throw new BuildError(`jobs/${job.name}: ${schedule.error}`);
@@ -353,7 +382,7 @@ export function azureFunctionFiles(executable: string, options: NonNullable<Depl
     timers[name] = job.name;
     files[`${name}/function.json`] = `${JSON.stringify({ bindings: [{ name: "timer", type: "timerTrigger", direction: "in", schedule: schedule.cron }] }, null, 2)}\n`;
   }
-  for (const name of ["http", ...Object.keys(timers)]) {
+  for (const name of ["http", ...Object.keys(timers), ...Object.keys(triggers)]) {
     if (routes.includes(`/${name}`)) throw new BuildError(`Route /${name} collides with the Azure function ${name}; rename the route`);
   }
   files["http/function.json"] = `${JSON.stringify(
@@ -377,7 +406,7 @@ export function azureFunctionFiles(executable: string, options: NonNullable<Depl
     null,
     2,
   )}\n`;
-  return { files, timers };
+  return { files, timers, triggers };
 }
 
 /**
@@ -409,8 +438,9 @@ export async function writeDeployOutput(root: string, config: ResolvedConfig, ta
   } else if (target === "azure-functions") {
     const platform = options?.platform ?? defaultPlatform(target);
     const executable = binaryName(serviceName(root, options), platform);
-    const { files, timers } = azureFunctionFiles(executable, options?.azure ?? { authLevel: "anonymous", extensionBundle: true }, build.jobs ?? [], build.routes ?? []);
-    bundled = await compileBinary(root, dir, executable, platform, target, external, entryOf(() => writePlatformEntry(root, assets, `runAzureFunctions(inputs, ${JSON.stringify({ jobs: timers })})`)), beforeBundle);
+    const bindings = await azureTriggerBindings(config, build.triggers ?? []);
+    const { files, timers, triggers } = azureFunctionFiles(executable, options?.azure ?? { authLevel: "anonymous", extensionBundle: true }, build.jobs ?? [], build.routes ?? [], bindings);
+    bundled = await compileBinary(root, dir, executable, platform, target, external, entryOf(() => writePlatformEntry(root, assets, `runAzureFunctions(inputs, ${JSON.stringify({ jobs: timers, ...(Object.keys(triggers).length > 0 ? { triggers } : {}) })})`)), beforeBundle);
     for (const [file, content] of Object.entries(files)) {
       mkdirSync(dirname(join(dir, file)), { recursive: true });
       writeFileSync(join(dir, file), content);

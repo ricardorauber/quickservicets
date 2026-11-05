@@ -1,4 +1,4 @@
-import { currentInstance, currentRegistryProvider, type Logger, type ServiceInstance } from "../public.ts";
+import { notifyInstanceChanges, currentInstance, currentRegistryProvider, type Logger, type ServiceInstance } from "../public.ts";
 import { isEjected, logPanic } from "./outlier.ts";
 import { HttpClientError } from "./errors.ts";
 import { sharedState } from "./state.ts";
@@ -78,17 +78,22 @@ export async function discoveredInstances(service: string, settings: DiscoverSet
   if (!resolution) {
     resolution = { instances, at: now, turn: 0, inFlight: new Map() };
     resolutions.byService.set(service, resolution);
+    void notifyInstanceChanges(settings.name, undefined, instances);
     if (provider.watch) {
       const current = resolution;
       const stop = await provider.watch(settings.name, (changed) => {
+        const before = current.instances;
         current.instances = changed;
         current.at = resolutions.now();
+        void notifyInstanceChanges(settings.name, before, changed);
       });
       current.watching = stop;
     }
   } else {
+    const before = resolution.instances;
     resolution.instances = instances;
     resolution.at = now;
+    void notifyInstanceChanges(settings.name, before, instances);
   }
   return resolution.instances;
 }

@@ -36,11 +36,19 @@ Not applicable: discovery belongs to outgoing calls, not to entities, fields or 
 
 ## Level 3: per request
 
-Not applicable: an instance registers once per process, not per request.
+A service's `discover` may be a function of the call, so chosen tenants reach a canary:
+
+```ts
+http: { services: { billing: { discover: ({ tenant }) => (tenant?.id === "acme" ? "billing@^3" : "billing@^2") } } },
+```
 
 ## Level 4: hooks and events
 
-Not applicable: the native has no hooks yet; failures log `registry.register.failed`, `registry.heartbeat.failed` and `registry.deregister.failed`.
+`beforeRegister` changes what registers, and `onInstanceUp`, `onInstanceDown` and `onEjected` follow the instances of discovered services:
+
+```ts
+registry: { beforeRegister: (instance) => ({ metadata: { ...instance.metadata, build: "42" } }) },
+```
 
 ## Level 5: override files
 
@@ -48,12 +56,10 @@ Not applicable: the native contributes no files.
 
 ## Level 6: replace the implementation
 
-A feature sets the provider of a registry server with `setProvider`:
+`provider` takes the provider of a registry server, and each discovered service a `balancer`:
 
 ```ts
-setup(ctx) {
-  ctx.feature("registry").setProvider({ register() {}, heartbeat() {}, deregister() {}, resolve: () => [] });
-},
+registry: { provider: { register() {}, heartbeat() {}, deregister() {}, resolve: () => [] } },
 ```
 
 ## Level 7: eject

@@ -146,4 +146,31 @@ A feature that lists `registry` in `requires`, `after` or `enables` sets it duri
 
 Without the native, no registration, timer or resolution exists.
 
+## Customization levels
+
+| Level | Service discovery |
+| --- | --- |
+| 0. Enable | `registry: {}` registers through the static provider (a no-op) and lets the static `services` be discovered |
+| 1. Options and environment | Every option has its variable: `QS_REGISTRY_NAME`, `QS_REGISTRY_VERSION`, `QS_REGISTRY_ADDRESS`, `QS_REGISTRY_ZONE`, `QS_REGISTRY_PROVIDER`, `QS_REGISTRY_REGISTER`, `QS_REGISTRY_HEARTBEAT`, `QS_REGISTRY_TTL`, `QS_REGISTRY_SERVICES`, and per service `QS_HTTP_SERVICES_<NAME>_DISCOVER` |
+| 2. Tags | Not applicable: discovery belongs to outgoing calls, not to entities, fields or endpoints |
+| 3. Per request | `discover: ({ req, user, tenant }) => …`, evaluated for each call through `req.http` |
+| 4. Hooks and events | `beforeRegister`, `onInstanceUp`, `onInstanceDown` and `onEjected`, and `ctx.feature("registry").addHook` |
+| 5. Override files | Not applicable: the native contributes no files |
+| 6. Replace the implementation | `provider` takes a `RegistryProvider` object (or a feature's `setProvider`), and each service a `balancer` |
+| 7. Eject | `quickservicets eject registry` copies the native into `features/registry/` |
+
+A canary sends chosen tenants to the new major version while the others keep the old one:
+
+```ts
+http: { services: { billing: { discover: ({ tenant }) => (tenant?.id === "acme" ? "billing@^3" : "billing@^2") } } },
+```
+
+A balancer replaces the strategy: `pick(instances, request)` returns one of the attempt's candidates.
+
+```ts
+http: { services: { billing: { discover: "billing", balancer: { pick: (instances) => instances[0]! } } } },
+```
+
+Provider authors check their provider with `runRegistryProviderContract(create, { fixtures })` of `@quickservicets/core/testing`.
+
 See the [registry reference](/reference/features/registry/) for every option, and [examples/minimal/registry](https://github.com/ricardorauber/quickservicets/blob/main/examples/minimal/registry/README.md) for a project that runs without a registry server.

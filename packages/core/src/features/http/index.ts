@@ -13,6 +13,7 @@ import { startProbes } from "./probe.ts";
 
 /** The problem of a `discover` option whose version range is not one. */
 function rangeProblems(name: string, discover: unknown): string[] {
+  if (typeof discover === "function") return [];
   const settings = discoverSettings(discover);
   if (settings?.version === undefined) return [];
   return isVersionRange(settings.version) ? [] : [invalidRange(name, settings.version)];
@@ -217,7 +218,7 @@ export { http, HttpRequestBuilder, joinPath, serviceUrl, streamCall } from "./cl
 export type { StreamCallSpec } from "./client.ts";
 export type { HttpApi } from "./api.ts";
 export type { ServiceOptions, ServiceOptionsInput } from "./options.ts";
-export type { Http, HttpBody, HttpMethods, HttpServiceMethods, HttpServiceNames, ServiceName, HttpModifier, HttpQueryValue, HttpRequest, HttpResponse } from "./client.ts";
+export type { Http, HttpBody, HttpMethods, HttpServiceMethods, HttpServiceNames, LoadBalancer, ServiceName, HttpModifier, HttpQueryValue, HttpRequest, HttpResponse } from "./client.ts";
 export { HttpClientError } from "./errors.ts";
 export { ssrfProblem } from "./transport.ts";
 export { blockedCategory, useTestResolver } from "./ssrf.ts";

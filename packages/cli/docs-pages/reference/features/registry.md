@@ -25,7 +25,7 @@ It is not enabled by default: turn it on with `registry: {}` or `QS_REGISTRY_ENA
 | `registry.address` | `url` | — | `QS_REGISTRY_ADDRESS` | no | The base URL other services call the instance at (default: http with the machine's first non-loopback address and the server port). |
 | `registry.metadata.<name>` | `record of string` | — | `QS_REGISTRY_METADATA_<NAME>` | no | A metadata value. |
 | `registry.zone` | `string` | — | `QS_REGISTRY_ZONE` | no | The zone the instance runs in, preferred by callers in the same zone. |
-| `registry.provider` | `"static" \| "dns"` | `"static"` | `QS_REGISTRY_PROVIDER` | no | The built-in provider: static (instances listed in services; registering does nothing) or dns (instances from DNS records). |
+| `registry.provider` | `"static" \| "dns" \| RegistryProvider` | `"static"` | `QS_REGISTRY_PROVIDER` | no | The provider: static (instances listed in services; registering does nothing), dns (instances from DNS records), or a RegistryProvider object of the project. |
 | `registry.services.<name>.instances` | `record of object[]` | — | `QS_REGISTRY_SERVICES_<NAME>_INSTANCES` | no | The service's instances. |
 | `registry.dns.template` | `string` | `"{name}"` | `QS_REGISTRY_DNS_TEMPLATE` | no | The host name to query, with `{name}` replaced by the service name, like `{name}.default.svc.cluster.local`. |
 | `registry.dns.records` | `"a" \| "srv"` | `"a"` | `QS_REGISTRY_DNS_RECORDS` | no | The records to look up: a (A and AAAA, one instance per address with port) or srv (one instance per target and port). |
@@ -35,8 +35,23 @@ It is not enabled by default: turn it on with `registry: {}` or `QS_REGISTRY_ENA
 | `registry.register` | `boolean` | `true` | `QS_REGISTRY_REGISTER` | no | Registers the instance once it started, keeps it alive with heartbeats and deregisters it on shutdown. |
 | `registry.heartbeat` | `duration` | `"10s"` | `QS_REGISTRY_HEARTBEAT` | no | How often the instance's entry is renewed with its status. |
 | `registry.ttl` | `duration` | `"30s"` | `QS_REGISTRY_TTL` | no | How long a registry keeps the entry without a heartbeat. |
+| `registry.beforeRegister` | `hook` | — | not overridable | no | Runs before the instance registers, with the instance; returns a changed instance or `{ metadata }` to register other metadata. |
+| `registry.onInstanceUp` | `hook` | — | not overridable | no | Runs when a resolution of a discovered service adds an instance, with the service and the instance. |
+| `registry.onInstanceDown` | `hook` | — | not overridable | no | Runs when a resolution of a discovered service no longer has an instance, with the service and the instance. |
+| `registry.onEjected` | `hook` | — | not overridable | no | Runs when an instance of a discovered service is ejected, with the service, the instance and until. |
 | `registry.enabled` | `boolean` | `true` | `QS_REGISTRY_ENABLED` | no | Turns the feature off when false. |
 | `registry.database` | `string` | — | `QS_REGISTRY_DATABASE` | no | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
+
+## Hooks
+
+Hooks are functions (or lists of functions) written in the config; `before` hooks may change the value or cancel the step by throwing, `after` and `on` hooks observe.
+
+| Hook | Kind | Description |
+| --- | --- | --- |
+| `registry.beforeRegister` | before | Runs before the instance registers, with the instance; returns a changed instance or `{ metadata }` to register other metadata. |
+| `registry.onInstanceUp` | on | Runs when a resolution of a discovered service adds an instance, with the service and the instance. |
+| `registry.onInstanceDown` | on | Runs when a resolution of a discovered service no longer has an instance, with the service and the instance. |
+| `registry.onEjected` | on | Runs when an instance of a discovered service is ejected, with the service, the instance and until. |
 
 ## Feature API
 
@@ -66,6 +81,26 @@ instance(): ServiceInstance;
 
 This process's instance, as it registers.
 
+### `addHook`
+
+```ts
+addHook(name: "beforeRegister", fn: FeatureHook<ServiceInstance, undefined>): void;
+```
+
+Adds a hook after the ones written in the config.
+
+### `addHook`
+
+```ts
+addHook(name: "onInstanceUp" | "onInstanceDown", fn: FeatureHook<InstanceChange, undefined>): void;
+```
+
+### `addHook`
+
+```ts
+addHook(name: "onEjected", fn: FeatureHook<InstanceEjection, undefined>): void;
+```
+
 ## Registration
 
 With `register: true`, the worker that runs scheduled work registers the instance after every `onStart` callback ran (once per process, whatever `server.workers`), sends a heartbeat every `heartbeat` with `passing` (or, while `health` is enabled, the readiness: `passing` for ok, `warning` for degraded, `critical` for fail), and deregisters as soon as the shutdown signal arrives, before draining, so callers stop sending traffic first.
@@ -73,6 +108,25 @@ With `register: true`, the worker that runs scheduled work registers the instanc
 The instance is `{ id, name, version?, address, status, zone?, metadata }`, with the id `<name>-<hostname>-<pid>`; `name` defaults to `deploy.name` or the package name, `version` to the package version, and `address` to `http://<first non-loopback address>:<port>`.
 
 A failed registration, heartbeat or deregistration logs `registry.register.failed`, `registry.heartbeat.failed` or `registry.deregister.failed` with the provider and the reason; registration is retried with a delay from 1 second doubling to 30 seconds, and nothing fails startup or shutdown. While `health` is enabled, the non-critical check `registry` fails while the instance is not registered or its last heartbeat failed, with the provider's `health()` when it has one.
+
+## Discovered services
+
+`http.services.<name>.discover` takes a service name (`"billing"`), a name with a version range (`"billing@^2"`), the object `{ name, balance, preferZone, version, prefer, allowUnversioned }`, or a function of the call context `({ req, user, tenant }) => string | object` evaluated for each call through `req.http` (outside requests `req`, `user` and `tenant` are undefined), like a canary sending chosen tenants to `billing@^3`. `QS_HTTP_SERVICES_<NAME>_DISCOVER` sets it. `balancer` (a `LoadBalancer`, `{ pick(instances, request) }`) replaces the balance strategy; `outlier` and `probe` tune ejection.
+
+## Hooks
+
+`beforeRegister` receives the instance before it registers and may return a changed instance or `{ metadata }`; a throw fails the attempt, which is retried. `onInstanceUp` and `onInstanceDown` receive `{ service, instance }` when a resolution of a discovered service adds or removes an instance, and `onEjected` receives `{ service, instance, until }` when the HTTP client ejects one. The last three are after-hooks: a failing one is logged as `feature.hook.failed`. A feature adds hooks with `ctx.feature("registry").addHook(name, fn)`.
+
+```ts
+registry: {
+  beforeRegister: (instance) => ({ metadata: { ...instance.metadata, build: process.env.BUILD_ID ?? "dev" } }),
+  onEjected: ({ service, instance, until }) => console.warn(`${service}: ${instance.id} ejected until ${until.toISOString()}`),
+},
+```
+
+## Contracts
+
+`provider` also takes a `RegistryProvider` object. `runRegistryProviderContract(create, { fixtures })` of `@quickservicets/core/testing` registers one `bun:test` test per check: registration, heartbeats with each status and deregistration, resolution with versions and statuses, watches when offered, failures without secret values in their messages, and no timers left after `close()`; the static and DNS providers pass it. A `LoadBalancer` has `pick(instances, request)` returning one of the candidates of an attempt (neither critical nor ejected, the own zone first). `quickservicets eject registry` copies the native into `features/registry/`.
 
 ## Providers
 

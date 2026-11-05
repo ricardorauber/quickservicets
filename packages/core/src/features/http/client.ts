@@ -1,4 +1,4 @@
-import { coreInstruments, currentTenant, DEFAULT_MASKED_KEYS, formatTraceparent, metricsEnabled, tenantAttributes, spanAttributes, startSpan, tracingEnabled, withSpan, jsonLogger, lastResolvedFeatures, OptionError, parseDuration, resolveOption, resolveOptions, runAfterHooks, runBeforeHooks, type FeatureHook, type Logger, type OptionFunction, type ServiceRequest } from "../public.ts";
+import { coreInstruments, currentTenant, DEFAULT_MASKED_KEYS, formatTraceparent, metricsEnabled, tenantAttributes, spanAttributes, startSpan, tracingEnabled, withSpan, jsonLogger, lastResolvedFeatures, OptionError, parseDuration, resolveOption, resolveOptions, runAfterHooks, runBeforeHooks, type FeatureHook, type Logger, type OptionFunction, type ServiceInstance, type ServiceRequest } from "../public.ts";
 import { HttpClientError } from "./errors.ts";
 import { httpOptions, serviceProblems, type HttpOptions, type ServiceOptions } from "./options.ts";
 import { sharedState } from "./state.ts";
@@ -9,7 +9,7 @@ import { mockHttp, type HttpMock } from "./mock.ts";
 import { stateOf, withBulkhead, withCircuitBreaker, type BulkheadOptions, type CircuitBreakerOptions, type HttpState } from "./resilience.ts";
 import { maskedUrl, StreamedResponse, streamTransport, transport } from "./transport.ts";
 import type { ServiceTls } from "./service-tls.ts";
-import { matchingInstances, noMatchingVersion } from "./versions.ts";
+import { invalidRange, isVersionRange, matchingInstances, noMatchingVersion } from "./versions.ts";
 import { isFailure, OUTLIER_DEFAULTS, recordOutcome, instanceStates, type OutlierSettings } from "./outlier.ts";
 import { candidates, inFlightOf, knownInstances, DISCOVERED_HOST, discoveredInstances, discoverSettings, METADATA_HOSTS, noInstances, ownZone, pickInstance, rebased, trackInFlight, type DiscoverSettings } from "./discovery.ts";
 
@@ -262,7 +262,7 @@ export async function execute(spec: CallSpec, binding: ClientBinding): Promise<H
   // A call through a service trusts the service's own host; any other host is checked as usual.
   const trustedHost = service?.host;
   const chain = [...(service ? serviceModifiers(service, settings) : []), ...spec.modifiers];
-  const discovered = service ? discoverSettings(service.discover) : undefined;
+  const discovered = service ? discoverOf(service, binding) : undefined;
   const sendOne = discovered ? discoveredSend(service!, discovered, settings, (changed, host) => transport(changed, settings, host)) : (changed: HttpRequest) => transport(changed, settings, trustedHost);
   // With a tracer, each attempt runs in a client span whose context the call carries as `traceparent`.
   // With a meter, each attempt's duration is recorded.
@@ -276,20 +276,28 @@ export async function execute(spec: CallSpec, binding: ClientBinding): Promise<H
  * the attempts before, when there is one), sends to its address with its host trusted by SSRF protection (never a
  * cloud metadata address) and counts the call in flight; no instance rejects with `NO_INSTANCES`.
  */
-function discoveredSend(service: ServiceSettings, discover: DiscoverSettings, settings: HttpSettings, send: (request: HttpRequest, trustedHost: string | undefined) => Promise<HttpResponse>): (request: HttpRequest) => Promise<HttpResponse> {
+function discoveredSend(service: ServiceSettings, discoverOf: () => Promise<DiscoverSettings>, settings: HttpSettings, send: (request: HttpRequest, trustedHost: string | undefined) => Promise<HttpResponse>): (request: HttpRequest) => Promise<HttpResponse> {
   const tried = new Set<string>();
+  let chosen: Promise<DiscoverSettings> | undefined;
   return async (request) => {
-    const resolved = await discoveredInstances(service.name, discover);
+    // A per-request discover function is evaluated once per call; its attempts share its answer.
+    const discover = await (chosen ??= discoverOf());
+    // Instances are resolved and balanced per registry name, so per-request choices share them.
+    const key = discover.name;
+    const resolved = await discoveredInstances(key, discover);
     // A version range keeps only the instances whose version satisfies it.
     const instances = matchingInstances(resolved, discover.version, discover);
     if (resolved.length > 0 && instances.length === 0) throw Object.assign(noInstances(discover.name, service.name, request.method, maskedUrl(request.url, settings)), { message: noMatchingVersion(discover.name, discover.version!, resolved) });
-    const instance = pickInstance(service.name, discover, candidates(instances, discover, ownZone(), { service: service.name, logger: settings.logger }), tried);
+    const available = candidates(instances, discover, ownZone(), { service: service.name, logger: settings.logger });
+    const balancer = service.balancer as LoadBalancer | undefined;
+    const fresh = available.filter((entry) => !tried.has(entry.id));
+    const instance = balancer ? (available.length > 0 ? await balancer.pick(fresh.length > 0 ? fresh : available, request) : undefined) : pickInstance(key, discover, available, tried);
     if (!instance) throw noInstances(discover.name, service.name, request.method, maskedUrl(request.url, settings));
     tried.add(instance.id);
     const url = rebased(request.url, instance.address, service.name);
     const host = new URL(instance.address).host.toLowerCase();
     const trusted = METADATA_HOSTS.includes(new URL(instance.address).hostname.replace(/^\[|\]$/g, "").toLowerCase()) ? undefined : host;
-    const done = trackInFlight(service.name, instance);
+    const done = trackInFlight(key, instance);
     const outlier = (service.outlier ?? OUTLIER_DEFAULTS) as OutlierSettings;
     try {
       const response = await send({ ...request, url, instance: instance.id }, trusted);
@@ -301,6 +309,31 @@ function discoveredSend(service: ServiceSettings, discover: DiscoverSettings, se
     } finally {
       done();
     }
+  };
+}
+
+/** Picks the instance of an attempt for a discovered service, replacing the built-in strategies. */
+export interface LoadBalancer {
+  pick(instances: readonly ServiceInstance[], request: HttpRequest): ServiceInstance | Promise<ServiceInstance>;
+}
+
+/**
+ * How a call of a discovered service finds its settings: the option's, or the answer of its per-request function
+ * (`({ req, user, tenant }) => string | object`), with the range checked; undefined for a service without `discover`.
+ */
+export function discoverOf(service: ServiceSettings, binding: ClientBinding): (() => Promise<DiscoverSettings>) | undefined {
+  const discover = service.discover as unknown;
+  if (discover === undefined) return undefined;
+  if (typeof discover !== "function") {
+    const settings = discoverSettings(discover)!;
+    return () => Promise.resolve(settings);
+  }
+  return async () => {
+    const value = await resolveOption(discover as OptionFunction<unknown>, { req: binding.req, user: binding.req?.user, tenant: binding.req?.tenant, service: service.name } as never);
+    const settings = discoverSettings(value);
+    if (!settings) throw new OptionError(`http.services.${service.name}.discover returned no service`);
+    if (settings.version !== undefined && !isVersionRange(settings.version)) throw new OptionError(invalidRange(service.name, settings.version));
+    return settings;
   };
 }
 
@@ -402,7 +435,7 @@ export async function streamCall(spec: StreamCallSpec): Promise<Response> {
   const headers = new Headers(spec.headers);
   await applyService(headers, service, spec.req ? { req: spec.req } : {}, false);
   const request: HttpRequest = { method: spec.method, url: spec.url, headers, body: spec.body, timeout: spec.timeout, signal: spec.signal, attempt: 1, service: service.name };
-  const discovered = discoverSettings(service.discover);
+  const discovered = discoverOf(service, spec.req ? { req: spec.req } : {});
   const sendOne = discovered
     ? discoveredSend(service, discovered, settings, (changed, host) => streamTransport(changed, settings, host, spec.idleTimeout))
     : (changed: HttpRequest) => streamTransport(changed, settings, spec.trustedHost ?? service.host, spec.idleTimeout);
@@ -739,8 +772,10 @@ export interface Http extends HttpMethods {
 /** `http.state(name)`: the circuit and bulkhead state, with the instances of a discovered service this worker knows. */
 function discoveredStateOf(name: string): HttpState {
   const state = stateOf(name);
-  const known = knownInstances(name);
-  return known ? { ...state, instances: instanceStates(name, known, (id) => inFlightOf(name, id)) } : state;
+  const service = currentSettings().services.get(name);
+  const discover = service && typeof service.discover !== "function" ? discoverSettings(service.discover) : undefined;
+  const known = discover ? knownInstances(discover.name) : undefined;
+  return known ? { ...state, instances: instanceStates(name, known, (id) => inFlightOf(discover!.name, id)) } : state;
 }
 
 /** A client bound to `binding`. */

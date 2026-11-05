@@ -32,7 +32,8 @@ export function startProbes(services: Iterable<ServiceSettings>, logger: Logger)
   const timers = new Set<unknown>();
   let stopped = false;
   for (const service of services) {
-    const discover = discoverSettings(service.discover);
+    // A per-request discover function has no fixed instances to probe.
+    const discover = typeof service.discover === "function" ? undefined : discoverSettings(service.discover);
     const probe = service.probe as ProbeSettings | undefined;
     if (!discover || !probe?.enabled) continue;
     const outlier = (service.outlier ?? OUTLIER_DEFAULTS) as OutlierSettings;
@@ -40,7 +41,7 @@ export function startProbes(services: Iterable<ServiceSettings>, logger: Logger)
     const round = async () => {
       if (stopped) return;
       try {
-        const instances = await discoveredInstances(service.name, discover);
+        const instances = await discoveredInstances(discover.name, discover);
         await Promise.all(instances.map(async (instance) => recordOutcome(service.name, instance, !(await probeOnce(instance.address, probe)), instances, outlier, logger)));
       } catch {
         // A failed resolution is the calls' problem; the next round tries again.

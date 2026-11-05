@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { hostname, networkInterfaces } from "node:os";
 import { join } from "node:path";
-import { boolean, defineFeature, duration, integer, list, object, oneOf, onServiceStarted, onShutdownSignal, parseDuration, record, runHealthChecks, safeLog, string, systemClock, url, type JobClock, type Logger } from "../public.ts";
+import { anyOf, hook, onInstanceEjected, provider, runAfterHooks, runBeforeHooks, type FeatureHook, type InstanceEjection, boolean, defineFeature, duration, integer, list, object, oneOf, onServiceStarted, onShutdownSignal, parseDuration, record, runHealthChecks, safeLog, string, systemClock, url, type JobClock, type Logger } from "../public.ts";
 import { sharedState, type InstanceStatus, type RegistryProvider, type ServiceInstance } from "./provider.ts";
 import { dnsProvider, staticProvider, type DnsOptions, type StaticInstanceOptions } from "./providers.ts";
 
@@ -13,6 +13,10 @@ export interface RegistryApi {
   provider(): RegistryProvider;
   /** This process's instance, as it registers. */
   instance(): ServiceInstance;
+  /** Adds a hook after the ones written in the config. */
+  addHook(name: "beforeRegister", fn: FeatureHook<ServiceInstance, undefined>): void;
+  addHook(name: "onInstanceUp" | "onInstanceDown", fn: FeatureHook<InstanceChange, undefined>): void;
+  addHook(name: "onEjected", fn: FeatureHook<InstanceEjection, undefined>): void;
 }
 
 /** The provider a feature set, with who set it. */
@@ -45,7 +49,9 @@ const options = object({
   address: url().optional().describe("The base URL other services call the instance at (default: http with the machine's first non-loopback address and the server port)."),
   metadata: record(string().describe("A metadata value.")).describe("Metadata the instance registers with, like a region or a build number."),
   zone: string().optional().describe("The zone the instance runs in, preferred by callers in the same zone."),
-  provider: oneOf(["static", "dns"] as const).default("static").describe("The built-in provider: static (instances listed in services; registering does nothing) or dns (instances from DNS records)."),
+  provider: anyOf(oneOf(["static", "dns"] as const), provider<RegistryProvider>("RegistryProvider", ["register", "heartbeat", "deregister", "resolve"]))
+    .default("static")
+    .describe("The provider: static (instances listed in services; registering does nothing), dns (instances from DNS records), or a RegistryProvider object of the project."),
   services: record(
     object({
       instances: list(
@@ -71,7 +77,31 @@ const options = object({
   register: boolean().default(true).describe("Registers the instance once it started, keeps it alive with heartbeats and deregisters it on shutdown."),
   heartbeat: duration().default("10s").describe("How often the instance's entry is renewed with its status."),
   ttl: duration().default("30s").describe("How long a registry keeps the entry without a heartbeat."),
+  beforeRegister: hook<ServiceInstance, undefined>().describe("Runs before the instance registers, with the instance; returns a changed instance or `{ metadata }` to register other metadata."),
+  onInstanceUp: hook<InstanceChange, undefined>().describe("Runs when a resolution of a discovered service adds an instance, with the service and the instance."),
+  onInstanceDown: hook<InstanceChange, undefined>().describe("Runs when a resolution of a discovered service no longer has an instance, with the service and the instance."),
+  onEjected: hook<InstanceEjection, undefined>().describe("Runs when an instance of a discovered service is ejected, with the service, the instance and until."),
 });
+
+/** What `onInstanceUp` and `onInstanceDown` receive. */
+export interface InstanceChange {
+  /** The registry name of the service. */
+  service: string;
+  instance: ServiceInstance;
+}
+
+/** The instance hooks of the running native, called by the HTTP client's discovery. */
+const changeHooks = sharedState("changes", () => ({ up: [] as FeatureHook<InstanceChange, undefined>[], down: [] as FeatureHook<InstanceChange, undefined>[] }));
+
+/** Runs the `onInstanceUp` and `onInstanceDown` hooks for the instances a resolution added and removed. */
+export async function notifyInstanceChanges(service: string, before: readonly ServiceInstance[] | undefined, after: readonly ServiceInstance[]): Promise<void> {
+  const { up, down } = changeHooks;
+  if (up.length === 0 && down.length === 0) return;
+  const previous = new Set((before ?? []).map((instance) => instance.id));
+  const current = new Set(after.map((instance) => instance.id));
+  for (const instance of after) if (!previous.has(instance.id)) await runAfterHooks(up, { service, instance }, undefined);
+  for (const instance of before ?? []) if (!current.has(instance.id)) await runAfterHooks(down, { service, instance }, undefined);
+}
 
 /** The resolved options of the `registry` native. */
 export interface RegistryOptions {
@@ -163,6 +193,31 @@ export const registryFeature = defineFeature({
         ].join("\n"),
       },
       {
+        title: "Discovered services",
+        text: [
+          "`http.services.<name>.discover` takes a service name (`\"billing\"`), a name with a version range (`\"billing@^2\"`), the object `{ name, balance, preferZone, version, prefer, allowUnversioned }`, or a function of the call context `({ req, user, tenant }) => string | object` evaluated for each call through `req.http` (outside requests `req`, `user` and `tenant` are undefined), like a canary sending chosen tenants to `billing@^3`. `QS_HTTP_SERVICES_<NAME>_DISCOVER` sets it. `balancer` (a `LoadBalancer`, `{ pick(instances, request) }`) replaces the balance strategy; `outlier` and `probe` tune ejection.",
+        ].join("\n"),
+      },
+      {
+        title: "Hooks",
+        text: [
+          "`beforeRegister` receives the instance before it registers and may return a changed instance or `{ metadata }`; a throw fails the attempt, which is retried. `onInstanceUp` and `onInstanceDown` receive `{ service, instance }` when a resolution of a discovered service adds or removes an instance, and `onEjected` receives `{ service, instance, until }` when the HTTP client ejects one. The last three are after-hooks: a failing one is logged as `feature.hook.failed`. A feature adds hooks with `ctx.feature(\"registry\").addHook(name, fn)`.",
+          "",
+          "```ts",
+          "registry: {",
+          "  beforeRegister: (instance) => ({ metadata: { ...instance.metadata, build: process.env.BUILD_ID ?? \"dev\" } }),",
+          "  onEjected: ({ service, instance, until }) => console.warn(`${service}: ${instance.id} ejected until ${until.toISOString()}`),",
+          "},",
+          "```",
+        ].join("\n"),
+      },
+      {
+        title: "Contracts",
+        text: [
+          "`provider` also takes a `RegistryProvider` object. `runRegistryProviderContract(create, { fixtures })` of `@quickservicets/core/testing` registers one `bun:test` test per check: registration, heartbeats with each status and deregistration, resolution with versions and statuses, watches when offered, failures without secret values in their messages, and no timers left after `close()`; the static and DNS providers pass it. A `LoadBalancer` has `pick(instances, request)` returning one of the candidates of an attempt (neither critical nor ejected, the own zone first). `quickservicets eject registry` copies the native into `features/registry/`.",
+        ].join("\n"),
+      },
+      {
         title: "Providers",
         text: [
           "`static` resolves a name from `services` (`{ instances: [{ url, version?, weight, zone?, metadata? }] }`), each instance `passing` with the id `<name>-<index>`; `dns` looks the name up with `dns.template` (`{name}` replaced, like `{name}.default.svc.cluster.local`): A and AAAA records give one instance per address with `dns.port` and `dns.scheme`, SRV records (`_http._tcp.<host>` unless the template starts with `_`) one per target and port with its weight. DNS instances have no version; results are kept for the larger of the records' TTL and `dns.refresh`, refreshed in the background, and a failed refresh keeps the previous instances and logs `registry.dns.failed` at most once a minute per name. Both register nothing. `QS_REGISTRY_SERVICES` sets the whole `services` record as JSON; `useTestResolver` of `@quickservicets/core/testing` answers A, AAAA and SRV lookups in tests.",
@@ -182,7 +237,17 @@ export const registryFeature = defineFeature({
     const deployName = (ctx.config.features.find((feature) => feature.key === "deploy")?.options as { name?: string } | undefined)?.name;
     const instance = ownInstance(resolved, { name: deployName ?? (pkg.name ?? "service").replace(/^@[^/]+\//, ""), ...(pkg.version ? { version: pkg.version } : {}), port: ctx.config.server.port });
     self.instance = instance;
-    const builtIn = (): RegistryProvider => (resolved.provider === "dns" ? dnsProvider(resolved.dns, { logger: ctx.logger, clock }) : staticProvider(resolved.services));
+    const builtIn = (): RegistryProvider => (typeof resolved.provider === "object" ? resolved.provider : resolved.provider === "dns" ? dnsProvider(resolved.dns, { logger: ctx.logger, clock }) : staticProvider(resolved.services));
+    const hooks = ctx.options as unknown as { beforeRegister: FeatureHook<ServiceInstance, undefined>[]; onInstanceUp: FeatureHook<InstanceChange, undefined>[]; onInstanceDown: FeatureHook<InstanceChange, undefined>[]; onEjected: FeatureHook<InstanceEjection, undefined>[] };
+    changeHooks.up = hooks.onInstanceUp;
+    changeHooks.down = hooks.onInstanceDown;
+    // Ejections the HTTP client decides reach the onEjected hooks.
+    const offEjected = onInstanceEjected((ejection) => void (hooks.onEjected.length > 0 && runAfterHooks(hooks.onEjected, ejection, undefined)));
+    ctx.app.onStop(() => {
+      offEjected();
+      if (changeHooks.up === hooks.onInstanceUp) changeHooks.up = [];
+      if (changeHooks.down === hooks.onInstanceDown) changeHooks.down = [];
+    });
     const providerOf = (): RegistryProvider => (chosen.current ??= chosen.choice?.provider ?? builtIn());
     const providerName = () => chosen.choice?.owner ?? (typeof resolved.provider === "string" ? resolved.provider : "custom");
     const state = { registered: false, heartbeatOk: true, stopped: false, timer: undefined as unknown };
@@ -226,8 +291,16 @@ export const registryFeature = defineFeature({
       schedule(heartbeatMs, () => void beat());
     };
     let retry = 1000;
+    let prepared = false;
     const register = async () => {
       if (state.stopped) return;
+      if (!prepared) {
+        // beforeRegister may change the instance or only its metadata, once, before the first attempt.
+        const changed = await runBeforeHooks(hooks.beforeRegister as FeatureHook<ServiceInstance | { metadata: Record<string, string> }, undefined>[], { ...instance }, undefined);
+        if ("id" in changed) Object.assign(instance, changed);
+        else if (changed.metadata) instance.metadata = { ...changed.metadata };
+        prepared = true;
+      }
       if (await attempt(ctx.logger, "register", providerName(), () => providerOf().register(instance))) {
         state.registered = true;
         safeLog(ctx.logger, "info", { timestamp: new Date().toISOString(), message: "registry.registered", provider: providerName(), instance: instance.id, address: instance.address });
@@ -265,6 +338,7 @@ export const registryFeature = defineFeature({
     });
   },
   api: (ctx): RegistryApi => ({
+    addHook: ctx.addHook as RegistryApi["addHook"],
     setProvider(provider) {
       const caller = ctx.currentFeature();
       if (!caller || caller === "registry") throw new Error("setProvider is only available during the setup of another feature");

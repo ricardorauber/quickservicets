@@ -1,5 +1,5 @@
 import { anyOf, boolean, CORE_VERSION, duration, hook, integer, list, object, oneOf, provider, record, secret, size, string, toggle, url, type Options, type OptionsInput } from "../public.ts";
-import type { HttpRequest, HttpResponse } from "./client.ts";
+import type { HttpRequest, HttpResponse, LoadBalancer } from "./client.ts";
 import type { HttpClientError } from "./errors.ts";
 import type { HttpTransport } from "./transport.ts";
 
@@ -23,7 +23,9 @@ export const serviceOptions = object({
   url: url().optional().describe("The service's base URL; call paths are joined to its path, like https://billing.internal/v1. Set this or discover."),
   discover: anyOf(string(), discoverOptions)
     .optional()
-    .describe("Finds the service's instances through the registry native instead of url: a service name (with a version range after @, like billing@^2), or `{ name, balance, preferZone, version, prefer, allowUnversioned }`; each attempt goes to one instance."),
+    .perRequest()
+    .describe("Finds the service's instances through the registry native instead of url: a service name (with a version range after @, like billing@^2), or `{ name, balance, preferZone, version, prefer, allowUnversioned }`, or a function of the call context (req, user and tenant) returning either per call; each attempt goes to one instance."),
+  balancer: provider<LoadBalancer>("LoadBalancer", ["pick"]).optional().describe("Picks each attempt's instance of a discovered service, replacing the balance strategy: pick(instances, request) returns one of the instances."),
   headers: record(string().describe("The value of the header."))
     .optional()
     .perRequest()

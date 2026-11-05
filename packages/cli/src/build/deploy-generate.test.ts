@@ -1,0 +1,125 @@
+import { afterEach, describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describeDeployment, lastBuildInputs, loadConfig, registerProjectFeatures, renderTemplate, runDeployGenerator, secretsInFiles, registeredNatives, resolveConfig, memoryAdapter, setUpDependents, deployGenerators, clearDeployGenerators, type DeploymentModel } from "@quickservicets/core";
+import { run } from "../run.ts";
+import { createLinkedProject } from "../testing/project.ts";
+import { build } from "./build.ts";
+
+afterEach(() => registerProjectFeatures([]));
+
+const cli = async (args: string[], root: string) => {
+  const out: string[] = [];
+  const err: string[] = [];
+  const code = await run(args, { log: (line) => out.push(line), error: (line) => err.push(line) }, root);
+  return { code, out, err };
+};
+
+const GENERATOR_FEATURE = (body: string) => `import { defineFeature, renderTemplate } from "@quickservicets/core";
+export default defineFeature({
+  key: "testgen",
+  enabledByDefault: true,
+  requires: ["deploy"],
+  setup(ctx) {
+    ctx.feature("deploy").generator("test", {
+      generate(model, { templates, write }) {
+        ${body}
+      },
+    });
+  },
+});
+`;
+
+describe("the deployment model", () => {
+  test("lists the artifact, the database URL and STRIPE_KEY as secrets, the probes, the migrate command, the schedule, the trigger with its hints and the queue", async () => {
+    const root = createLinkedProject({
+      "package.json": JSON.stringify({ name: "@acme/shop", version: "1.2.3" }),
+      "quickservicets.config.ts": `import { defineConfig, postgresAdapter, secret } from "@quickservicets/core";
+export default defineConfig({
+  database: postgresAdapter({ url: secret("env://DATABASE_URL") }),
+  env: { STRIPE_KEY: secret().optional(), REGION: string().default("eu") },
+  secrets: {},
+  queues: {},
+  health: {},
+  triggers: {},
+});
+import { string } from "@quickservicets/core";
+`,
+      "entities/Order.ts": "export type Order = { total: number };\n",
+      "queues/send-receipt.ts": 'import { queue } from "@quickservicets/core";\nexport default queue<{ order: string }>(async () => {});\n',
+      "jobs/reports/daily.ts": 'import { job } from "@quickservicets/core";\nexport default job("0 6 * * *", async () => {});\n',
+      "triggers/stored.ts": 'import { cloudEvents, trigger } from "@quickservicets/core";\nexport default trigger({ source: cloudEvents({ type: "storage.*" }), handle() {} });\n',
+    });
+    const env = { DATABASE_URL: "postgres://u:p@db:5432/shop", STRIPE_KEY: "sk_live_123456", QS_QUEUES_CONCURRENCY: "4" };
+    await build(root, {});
+    const config = await loadConfig(root, env);
+    const model = await describeDeployment(config, { root, env, ...(await lastBuildInputs(root)) });
+    expect(model).toMatchObject({ name: "shop", version: "1.2.3", target: "server", artifact: { target: "server", dir: "dist/server/", file: "server.js", kind: "bundle" }, port: 3000, migrate: "bun dist/server/server.js migrate" });
+    expect(model.secrets).toEqual(expect.arrayContaining([{ name: "STRIPE_KEY", reference: null, source: "variable" }, { name: "DATABASE_URL", reference: "env://DATABASE_URL", source: "infra" }]));
+    expect(model.env).toEqual(expect.arrayContaining([{ name: "REGION", source: "declared" }, { name: "QS_QUEUES_CONCURRENCY", value: "4", source: "override" }]));
+    expect(model.health).toEqual({ live: "/health/live", ready: "/health/ready", drainDelay: expect.any(String), stopTimeout: expect.any(String) });
+    expect(model.schedules).toEqual([{ job: "reports/daily", cron: "0 6 * * *" }]);
+    expect(model.triggers).toEqual([{ name: "stored", kind: "cloudevents", hints: { push: { method: "POST", type: "storage.*", auth: "none" } } }]);
+    expect(model.queues).toEqual([{ name: "send-receipt", broker: "database" }]);
+    expect(model.services.map((service) => service.kind)).toContain("postgres");
+    expect(JSON.stringify(model)).not.toContain("sk_live_123456");
+    expect(JSON.stringify(model)).not.toContain("u:p@db");
+  }, 60_000);
+});
+
+describe("deploy generate", () => {
+  test("a generator of a project feature writes deploy/test/a.txt with the header, a second run writes nothing, and --check after a change exits 1 naming the file", async () => {
+    const root = createLinkedProject({
+      "package.json": JSON.stringify({ name: "shop" }),
+      "quickservicets.config.ts": 'import { defineConfig } from "@quickservicets/core";\nexport default defineConfig({});\n',
+      "features/testgen/index.ts": GENERATOR_FEATURE('write("a.txt", renderTemplate(templates["a.txt"]!, model));'),
+      "features/testgen/templates/a.txt": "service {{ name }} on port {{ port }}\n",
+    });
+    expect(await cli(["deploy", "generate"], root)).toEqual({ code: 0, out: ["Wrote deploy/test/a.txt"], err: [] });
+    expect(readFileSync(join(root, "deploy/test/a.txt"), "utf8")).toBe("# Generated by quickservicets deploy generate from quickservicets.config.ts\nservice shop on port 3000\n");
+    expect((await cli(["deploy", "generate", "test"], root)).out).toEqual(["Generated deployment files are up to date"]);
+    // The port comes from the environment as much as from the file; changing it changes the generated file.
+    process.env.PORT = "4000";
+    try {
+      expect(await cli(["deploy", "generate", "--check"], root)).toEqual({ code: 1, out: ["deploy/test/a.txt would change"], err: [] });
+    } finally {
+      delete process.env.PORT;
+    }
+    expect(readFileSync(join(root, "deploy/test/a.txt"), "utf8")).toContain("port 3000");
+    expect((await cli(["deploy", "generate", "nope"], root)).err).toEqual(["Unknown deploy generator nope; registered: test"]);
+  });
+
+  test("writing outside the generator's folder fails, and without generators the command exits 1 with the message", async () => {
+    const escaping = createLinkedProject({ "quickservicets.config.ts": 'import { defineConfig } from "@quickservicets/core";\nexport default defineConfig({});\n', "features/testgen/index.ts": GENERATOR_FEATURE('write("../x", "no");') });
+    expect(await cli(["deploy", "generate"], escaping)).toEqual({ code: 1, out: [], err: ["Generated file ../x leaves deploy/test/"] });
+    const none = createLinkedProject({ "quickservicets.config.ts": 'import { defineConfig } from "@quickservicets/core";\nexport default defineConfig({});\n' });
+    expect(await cli(["deploy", "generate"], none)).toEqual({ code: 1, out: [], err: ["No deploy generators are registered; enable a feature that registers one"] });
+  });
+});
+
+describe("secrets and templates", () => {
+  const model = { name: "shop", port: 3000, health: { live: "/health/live" } } as unknown as DeploymentModel;
+
+  test("no generator shipped in the repository writes a known secret value, and a generator that writes one is caught", async () => {
+    const secrets = ["sk_live_known_value", "db-password-known"];
+    const config = resolveConfig({ database: memoryAdapter(), ...Object.fromEntries(registeredNatives().map((native) => [native.key, {}])), env: {} } as never, { STRIPE_KEY: secrets[0], DATABASE_URL: `postgres://u:${secrets[1]}@db/app` });
+    clearDeployGenerators();
+    const stop = await setUpDependents(config, "deploy");
+    try {
+      for (const [key, { generator }] of deployGenerators()) {
+        const { files } = await runDeployGenerator(key, generator, await describeDeployment(config, { env: { STRIPE_KEY: secrets[0] } }), { options: {}, templates: {} });
+        expect(secretsInFiles(files, secrets)).toEqual([]);
+      }
+    } finally {
+      await stop();
+      clearDeployGenerators();
+    }
+    const leaking = await runDeployGenerator("leak", { generate: (_model, { write }) => write("values.env", `STRIPE_KEY=${secrets[0]}\n`) }, model, { options: {}, templates: {} });
+    expect(secretsInFiles(leaking.files, secrets)).toEqual([{ file: "values.env", secret: "sk_live_known_value" }]);
+  });
+
+  test("the renderer fills {{ name }} and dotted paths, and an unknown value throws", () => {
+    expect(renderTemplate("{{ name }}:{{port}} {{ health.live }}", model)).toBe("shop:3000 /health/live");
+    expect(() => renderTemplate("{{ nope }}", model)).toThrow("Unknown template value nope");
+  });
+});

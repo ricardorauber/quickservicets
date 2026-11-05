@@ -191,6 +191,17 @@ gcloud run services replace service.yaml
 
 The same runtime stage comes from `dockerfile({ artifact, base, user, port, entrypoint, buildStage, healthcheck })` of `@quickservicets/core`, which every generator that packages the service as an image uses: `base` is `distroless` for a binary or `bun-slim` for a bundle, `buildStage` adds a stage that builds the artifact from the sources first, and `healthcheck` adds a `HEALTHCHECK`.
 
+## Deployment generators
+
+Platforms need more than the artifact: variables, secrets, probes, a migration step, schedules and event sources. `describeDeployment(config)` gathers those facts once, as one model built from the config and the last build, so every deployment generator (infrastructure as code, manifests, pipelines) writes its files from the same facts:
+
+```ts
+const model = await describeDeployment(config, { root });
+// model.artifact, model.port, model.env, model.secrets, model.health, model.migrate, model.schedules, model.triggers, model.buckets, model.queues
+```
+
+Secrets appear as references (`env://STRIPE_KEY`, `vault://kv/db#url`) or `null`, never as values. A feature registers a generator with `ctx.feature("deploy").generator(key, generator)` and renders its `templates/` with `renderTemplate`; `quickservicets deploy generate` writes `deploy/<key>/`, and `quickservicets deploy generate --check` exits 1 when a committed file is out of date, so CI can require the generated infrastructure to be committed.
+
 ## Customization levels
 
 The [example project](https://github.com/ricardorauber/quickservicets/blob/main/examples/minimal/deploy/README.md) shows each level:

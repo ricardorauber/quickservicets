@@ -9,6 +9,8 @@ export interface CommandArg {
   required?: boolean;
   /** One sentence for the help and the reference. */
   description?: string;
+  /** The last argument takes every remaining positional argument, joined by spaces (default false). */
+  variadic?: boolean;
 }
 
 /** Where a command prints. */

@@ -400,6 +400,8 @@ export type { DockerfileOptions } from "./features/deploy/dockerfile.ts";
 export { buildMachinePlatform, defaultPlatform, LAZY_ROUTE_TARGETS, lazyRoutesFor, DEPLOY_DISABLED, DEPLOY_PLATFORMS, DEPLOY_TARGETS, deployFeature, FUNCTION_TARGETS, isFunctionTarget, unknownTarget } from "./features/deploy/index.ts";
 export type { DeployOptions, DeployPlatform, DeployTargetName } from "./features/deploy/index.ts";
 export { addDeployTarget, clearFeatureTargets, featureTargets } from "./features/deploy/index.ts";
+export { addDeployGenerator, clearDeployGenerators, deployGenerators, describeDeployment, featureTemplates, GENERATED_HEADER, generateDeployment, generatorFilePath, lastBuildInputs, NO_GENERATORS, renderTemplate, runDeployGenerator, secretsInFiles, withHeader } from "./features/deploy/index.ts";
+export type { DeployGenerator, DeploymentArtifact, DeploymentInputs, DeploymentModel, DeploymentSecret, DeploymentVariable, GenerationResult, GeneratorContext } from "./features/deploy/index.ts";
 export type { BundleInput, BundleOutput, DeployApi, DeployTarget, DeployTargetContext, PlatformEvent } from "./features/deploy/index.ts";
 export {
   COMPOSE_HEADER,

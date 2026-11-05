@@ -219,4 +219,6 @@ export const cloudEventsSource: TriggerSource<CloudEventsRef> = {
   decode: (raw) => (Array.isArray(raw) ? raw : [raw]).map(structuredEvent),
   matches: (ref, event) => matchesPattern(ref.type, event.type) && matchesPattern(ref.source, event.attributes.source),
   push: { path: pushPath },
+  // Generators read what senders must push: the event filter and the authentication.
+  describe: (ref) => ({ push: { method: "POST", ...(ref.path ? { path: ref.path } : {}), ...(ref.type ? { type: ref.type } : {}), ...(ref.source ? { source: ref.source } : {}), auth: ref.auth ? ("bearer" in ref.auth ? "bearer" : "oidc") : "none", ...(ref.auth && "oidc" in ref.auth ? { audience: ref.auth.oidc.audience } : {}) } }),
 };

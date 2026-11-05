@@ -154,7 +154,7 @@ export function parseInvocation(command: CommandDefinition, rest: readonly strin
   }
   const args: Record<string, string | undefined> = {};
   command.args.forEach((arg, index) => {
-    args[arg.name] = positional[index];
+    args[arg.name] = arg.variadic && positional.length > index ? positional.slice(index).join(" ") : positional[index];
     if (arg.required && positional[index] === undefined) throw new UsageError(`Missing argument <${arg.name}>`);
   });
   const flags: Record<string, unknown> = {};

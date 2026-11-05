@@ -740,6 +740,35 @@ quickservicets services env [--show]
 
 - `--show` (`boolean`, default `false`): Prints the passwords.
 
+### `deploy`
+
+#### `deploy generate`
+
+Writes the files of the deploy generators (all registered ones, or the named keys), each into its folder under deploy/, from the deployment model of quickservicets.config.ts, only those that changed; --check writes nothing and exits 1 listing the files that would change.
+
+```bash
+quickservicets deploy generate [keys…] [--check]
+```
+
+**Arguments:**
+
+- `<keys>`: The generators to run (default: every registered one).
+
+**Flags:**
+
+- `--check` (`boolean`, default `false`): Writes nothing and exits 1 when a generated file would change.
+
+**JSON (`--json`):**
+
+```json
+{
+  "ok": true,
+  "changed": [
+    "string"
+  ]
+}
+```
+
 ### `connections`
 
 #### `db check`

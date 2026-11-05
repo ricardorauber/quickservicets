@@ -71,7 +71,7 @@ async function expectFailure(provider: SecretProvider, fixtures: SecretProviderF
 }
 
 /** Records the timers created while `work` runs and resolves those still active after it. */
-async function activeTimers(work: () => Promise<void>): Promise<number> {
+export async function activeTimers(work: () => Promise<void>): Promise<number> {
   const saved = { setTimeout: globalThis.setTimeout, setInterval: globalThis.setInterval, clearTimeout: globalThis.clearTimeout, clearInterval: globalThis.clearInterval };
   const active = new Set<unknown>();
   globalThis.setTimeout = ((handler: (...args: unknown[]) => void, ms?: number, ...args: unknown[]) => {

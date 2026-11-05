@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { readdirSync, readFileSync } from "node:fs";
+import { join, relative } from "node:path";
+import { eject } from "../eject/eject.ts";
 import { registerProjectFeatures } from "@quickservicets/core";
 import { emitTrigger } from "@quickservicets/core/testing";
 import { createLinkedProject } from "../testing/project.ts";
@@ -87,6 +88,46 @@ describe("push routes", () => {
       expect(((await (await service.fetch("/images")).json()) as { total: number }).total).toBe(1);
       const paths = Object.keys(((await (await service.fetch("/openapi.json")).json()) as { paths: Record<string, unknown> }).paths);
       expect(paths.some((path) => path.startsWith("/_triggers"))).toBe(false);
+    } finally {
+      await service.stop();
+    }
+  });
+});
+
+describe("override files", () => {
+  test("a project file triggers/<key>/<path>.ts replaces the trigger a project feature ships, with an override line", async () => {
+    const shipped = 'import { testSource, trigger } from "@quickservicets/core";\nexport default trigger({ source: testSource(), handle: () => { throw new Error("shipped"); } });\n';
+    const root = createLinkedProject({
+      "quickservicets.config.ts": CONFIG,
+      "features/sync/index.ts": 'import { defineFeature } from "@quickservicets/core";\nexport default defineFeature({ key: "sync", enabledByDefault: true });\n',
+      "features/sync/triggers/sync.ts": shipped,
+      "triggers/sync/sync.ts": 'import { testSource, trigger } from "@quickservicets/core";\nexport default trigger({ source: testSource(), handle() {} });\n',
+    });
+    const summary = await build(root);
+    expect(summary.overrides).toContain("Override: triggers/sync/sync.ts replaces features/sync/triggers/sync.ts from sync");
+    expect(readFileSync(join(root, ".generated/types.ts"), "utf8")).toContain('"sync/sync": TriggerDataOf<typeof import("../triggers/sync/sync.ts").default>;');
+  });
+});
+
+describe("eject", () => {
+  test("the ejected native replaces triggers and the example's triggers keep working", async () => {
+    const example = join(import.meta.dir, "../../../../examples/minimal/triggers");
+    const files: Record<string, string> = {};
+    for (const entry of readdirSync(example, { recursive: true, withFileTypes: true })) {
+      const path = relative(example, join(entry.parentPath, entry.name));
+      if (entry.isFile() && path.endsWith(".ts") && !/^(node_modules|\.generated|tests)\//.test(path)) files[path] = readFileSync(join(entry.parentPath, entry.name), "utf8");
+    }
+    const root = createLinkedProject(files);
+    const lines = await eject(root, "triggers");
+    expect(lines).toContain("features/triggers/ now replaces the triggers native.");
+    for (const entry of readdirSync(join(root, "features/triggers"), { recursive: true, withFileTypes: true })) {
+      if (entry.isFile()) files[relative(root, join(entry.parentPath, entry.name))] = readFileSync(join(entry.parentPath, entry.name), "utf8");
+    }
+    const service = await startTestService({ files });
+    try {
+      const outcome = await emitTrigger("new-upload" as never, { key: "ejected.png" } as never);
+      expect(outcome.status).toBe("completed");
+      expect(((await (await service.fetch("/uploads")).json()) as { total: number }).total).toBe(1);
     } finally {
       await service.stop();
     }

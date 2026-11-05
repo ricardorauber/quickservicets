@@ -1105,6 +1105,15 @@ Every option, tag, command and hook of `triggers` is on [its reference page](/re
 
 | Key | Type | Default | Environment variable | Description |
 | --- | --- | --- | --- | --- |
+| `triggers.overrides.<name>.concurrency` | `record of integer` | — | `QS_TRIGGERS_OVERRIDES_<NAME>_CONCURRENCY` | How many events of the trigger run at once in one process. |
+| `triggers.overrides.<name>.timeout` | `record of duration` | — | `QS_TRIGGERS_OVERRIDES_<NAME>_TIMEOUT` | The longest one event (or batch) of the trigger may run. |
+| `triggers.overrides.<name>.retries` | `record of integer` | — | `QS_TRIGGERS_OVERRIDES_<NAME>_RETRIES` | How many times a failed event of the trigger is retried in polling mode. |
+| `triggers.overrides.<name>.retryDelay` | `record of duration` | — | `QS_TRIGGERS_OVERRIDES_<NAME>_RETRY_DELAY` | The delay before the first retry of the trigger, doubled for each next one. |
+| `triggers.overrides.<name>.enabled` | `record of boolean` | — | `QS_TRIGGERS_OVERRIDES_<NAME>_ENABLED` | false turns the trigger off: no route, poll or dispatch reaches it. |
+| `triggers.beforeHandle` | `hook` | — | not overridable | Runs before each event's handler with the trigger and the event; returns a changed event, or null to discard it, and a throw fails the event. |
+| `triggers.afterHandle` | `hook` | — | not overridable | Runs after each event with the trigger, the event, its status and durationMs. |
+| `triggers.onFailed` | `hook` | — | not overridable | Runs after each failed event with the trigger, the event, the error and final, true on its last attempt. |
+| `triggers.sources` | `TriggerSource[]` | `[]` | `QS_TRIGGERS_SOURCES` | Sources of the project, each registered under its kind like those features register. |
 | `triggers.poll` | `boolean` | `true` | `QS_TRIGGERS_POLL` | Runs the polls of sources that pull events (like stream shards and cloud queues) in server targets; false leaves pulling to other processes. |
 | `triggers.pollBackoff.min` | `duration` | `"1s"` | `QS_TRIGGERS_POLL_BACKOFF_MIN` | The delay before a failed poll starts again, doubled after each further failure. |
 | `triggers.pollBackoff.max` | `duration` | `"30s"` | `QS_TRIGGERS_POLL_BACKOFF_MAX` | The longest delay before a failed poll starts again. |

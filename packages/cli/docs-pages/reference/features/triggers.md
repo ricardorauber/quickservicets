@@ -20,11 +20,30 @@ It is not enabled by default: turn it on with `triggers: {}` or `QS_TRIGGERS_ENA
 
 | Key | Type | Default | Environment variable | Per request | Description |
 | --- | --- | --- | --- | --- | --- |
+| `triggers.overrides.<name>.concurrency` | `record of integer` | — | `QS_TRIGGERS_OVERRIDES_<NAME>_CONCURRENCY` | no | How many events of the trigger run at once in one process. |
+| `triggers.overrides.<name>.timeout` | `record of duration` | — | `QS_TRIGGERS_OVERRIDES_<NAME>_TIMEOUT` | no | The longest one event (or batch) of the trigger may run. |
+| `triggers.overrides.<name>.retries` | `record of integer` | — | `QS_TRIGGERS_OVERRIDES_<NAME>_RETRIES` | no | How many times a failed event of the trigger is retried in polling mode. |
+| `triggers.overrides.<name>.retryDelay` | `record of duration` | — | `QS_TRIGGERS_OVERRIDES_<NAME>_RETRY_DELAY` | no | The delay before the first retry of the trigger, doubled for each next one. |
+| `triggers.overrides.<name>.enabled` | `record of boolean` | — | `QS_TRIGGERS_OVERRIDES_<NAME>_ENABLED` | no | false turns the trigger off: no route, poll or dispatch reaches it. |
+| `triggers.beforeHandle` | `hook` | — | not overridable | no | Runs before each event's handler with the trigger and the event; returns a changed event, or null to discard it, and a throw fails the event. |
+| `triggers.afterHandle` | `hook` | — | not overridable | no | Runs after each event with the trigger, the event, its status and durationMs. |
+| `triggers.onFailed` | `hook` | — | not overridable | no | Runs after each failed event with the trigger, the event, the error and final, true on its last attempt. |
+| `triggers.sources` | `TriggerSource[]` | `[]` | `QS_TRIGGERS_SOURCES` | no | Sources of the project, each registered under its kind like those features register. |
 | `triggers.poll` | `boolean` | `true` | `QS_TRIGGERS_POLL` | no | Runs the polls of sources that pull events (like stream shards and cloud queues) in server targets; false leaves pulling to other processes. |
 | `triggers.pollBackoff.min` | `duration` | `"1s"` | `QS_TRIGGERS_POLL_BACKOFF_MIN` | no | The delay before a failed poll starts again, doubled after each further failure. |
 | `triggers.pollBackoff.max` | `duration` | `"30s"` | `QS_TRIGGERS_POLL_BACKOFF_MAX` | no | The longest delay before a failed poll starts again. |
 | `triggers.enabled` | `boolean` | `true` | `QS_TRIGGERS_ENABLED` | no | Turns the feature off when false. |
 | `triggers.database` | `string` | — | `QS_TRIGGERS_DATABASE` | no | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
+
+## Hooks
+
+Hooks are functions (or lists of functions) written in the config; `before` hooks may change the value or cancel the step by throwing, `after` and `on` hooks observe.
+
+| Hook | Kind | Description |
+| --- | --- | --- |
+| `triggers.beforeHandle` | before | Runs before each event's handler with the trigger and the event; returns a changed event, or null to discard it, and a throw fails the event. |
+| `triggers.afterHandle` | after | Runs after each event with the trigger, the event, its status and durationMs. |
+| `triggers.onFailed` | on | Runs after each failed event with the trigger, the event, the error and final, true on its last attempt. |
 
 ## Feature API
 
@@ -48,6 +67,26 @@ dispatch(platform: string, raw: unknown, options?: DispatchOptions): Promise<Tri
 Hands a raw platform event (`platform` is `lambda`, `azure-functions` or another target) to the triggers it
 belongs to: the first registered source whose `recognize` accepts it decodes it, and every trigger whose reference
 `matches` an event handles it. Resolves undefined when no source recognizes the event.
+
+### `addHook`
+
+```ts
+addHook(name: "beforeHandle", fn: FeatureHook<BeforeHandle, undefined>): void;
+```
+
+Adds a hook after the ones written in the config.
+
+### `addHook`
+
+```ts
+addHook(name: "afterHandle", fn: FeatureHook<AfterHandle, undefined>): void;
+```
+
+### `addHook`
+
+```ts
+addHook(name: "onFailed", fn: FeatureHook<TriggerFailed, undefined>): void;
+```
 
 ## Trigger files
 
@@ -99,6 +138,31 @@ In function targets a failed event goes back to the platform through the source'
 A source with `ordered: true` (stream partitions, FIFO queues) hands batches in order: the events of one partition (`attributes.partition`) run one after the other, and the first failure fails it and every later event of the partition without running them; in unordered batches only the failed events are reported.
 
 While `errors` is enabled, a dead event, and a failed event on the platform's last attempt (when the source's `lastAttempt(event)` says so), calls `reportError` with the tags `trigger`, `kind`, `eventId` and `attempt`, never the event's data. While `events` is enabled, the native emits `trigger.event.failed` for every failed attempt and `trigger.event.dead` for a dead event, with `{ trigger, kind, eventId, attempt, error }`.
+
+## Per-trigger options
+
+A trigger's options come, from highest to lowest, from `QS_TRIGGERS_OVERRIDES_<NAME>_CONCURRENCY`, `_TIMEOUT`, `_RETRIES`, `_RETRY_DELAY` and `_ENABLED` (the name in upper snake case, `/` and `-` as `_`: `uploads/new-image` is `UPLOADS_NEW_IMAGE`), `triggers.overrides.<name>`, the trigger file's `options`, and the defaults (`concurrency` 1, `timeout` `30s`, `retries` 3, `retryDelay` `10s`). `enabled: false` turns one trigger off. An override naming no trigger adds `triggers.overrides.<name> matches no trigger` to the config warnings.
+
+A trigger's `options.when(event)` decides per event, before `handle`, whether it is handled; `false` discards it with the reason `when`.
+
+## Hooks
+
+`beforeHandle` receives `{ trigger, event }` before each event's handler and may return a changed event, or `null` to discard it (reason `beforeHandle`); a throw fails the event. `afterHandle` receives `{ trigger, event, status, durationMs }` after each event, and `onFailed` `{ trigger, event, error, final }` after each failed one, `final` true on its last attempt. Both are after-hooks: a failing one is logged as `feature.hook.failed`. A feature adds hooks with `ctx.feature("triggers").addHook(name, fn)`.
+
+```ts
+triggers: {
+  onFailed: ({ trigger, event, final }) => final && console.error(`${trigger} gave up on ${event.id}`),
+},
+```
+
+## Built-in kinds and project sources
+
+| Kind | Factory | What it does |
+| --- | --- | --- |
+| `test` | `testSource({ type? })` | Test deliveries `{ quickservicets: { source: "test", events } }` and `emitTrigger`, answered with `{ batchItemFailures }` |
+| `cloudevents` | `cloudEvents({ type?, source?, path?, auth? })` | CloudEvents pushed to `POST /_triggers/<name>` |
+
+`sources` registers project sources (objects with `kind`, `recognize`, `decode` and `matches`) like features do. `runTriggerSourceContract(create, { fixtures })` of `@quickservicets/core/testing` registers one `bun:test` test per check of the contract: recognition, decoding into the `TriggerEvent` shape, matching, stable ids across redeliveries, results naming only the failed events of a partial failure, polling with fake acknowledgments when the source polls, and no timer left after stop; the built-in `test` and `cloudevents` sources pass it. `quickservicets eject triggers` copies the native into `features/triggers/`.
 
 ## Sources
 

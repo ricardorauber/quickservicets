@@ -24,10 +24,14 @@ export default trigger<{ key: string }>({
 
 ## Level 1: options and environment
 
-Each trigger takes `concurrency`, `timeout`, `retries` and `retryDelay` in its `options`; `QS_TRIGGERS_POLL=false` stops polling sources in this process, and `QS_TRIGGERS_ENABLED=false` turns the native off:
+Each trigger takes `concurrency`, `timeout`, `retries` and `retryDelay` in its `options`, over which `triggers.overrides.<name>` and `QS_TRIGGERS_OVERRIDES_<NAME>_<OPTION>` win:
 
 ```ts
-export default trigger({ source: testSource(), handle, options: { concurrency: 4, timeout: "1m" } });
+triggers: { overrides: { "new-upload": { concurrency: 4 } } },
+```
+
+```bash
+QS_TRIGGERS_OVERRIDES_NEW_UPLOAD_CONCURRENCY=8 bun run dev
 ```
 
 ## Level 2: tags
@@ -36,11 +40,19 @@ Not applicable: trigger files are not entities, fields or endpoints.
 
 ## Level 3: per request
 
-Not applicable: triggers run for events, not for requests.
+Triggers run per event: `options.when(event)` decides before `handle`, and `false` discards the event with the reason `when`:
+
+```ts
+export default trigger<{ key: string }>({ source: testSource(), options: { when: (event) => (event.data as { key: string }).key.endsWith(".png") }, handle });
+```
 
 ## Level 4: hooks and events
 
-Not applicable: the native has no hooks yet; a handler logs through `ctx.log`, which adds `trigger` and `eventId`.
+`beforeHandle`, `afterHandle` and `onFailed` run around every event:
+
+```ts
+triggers: { onFailed: ({ trigger, event, final }) => final && console.error(`${trigger} gave up on ${event.id}`) },
+```
 
 ## Level 5: override files
 
@@ -48,12 +60,10 @@ Not applicable: this project ships no feature whose triggers a project file woul
 
 ## Level 6: replace the implementation
 
-A feature registers the source of a kind, so triggers on that kind run on its events:
+`sources` registers a source of the project, so triggers on its kind run on its events:
 
 ```ts
-setup(ctx) {
-  ctx.feature("triggers").source("fake", { kind: "fake", recognize: () => false, decode: () => [], matches: () => true });
-},
+triggers: { sources: [{ kind: "fake", recognize: () => false, decode: () => [], matches: () => true }] },
 ```
 
 ## Level 7: eject

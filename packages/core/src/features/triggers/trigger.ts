@@ -20,6 +20,8 @@ export interface TriggerOptions {
   retries?: number;
   /** The delay before the first retry, doubled for each next one (default `10s`). */
   retryDelay?: string;
+  /** Decides per event, before `handle`, whether it is handled; `false` discards it with the reason `when`. */
+  when?: (event: TriggerEvent) => boolean | Promise<boolean>;
 }
 
 /** The options of a trigger with their defaults applied. */
@@ -28,6 +30,7 @@ export interface ResolvedTriggerOptions {
   timeout: string;
   retries: number;
   retryDelay: string;
+  when?: (event: TriggerEvent) => boolean | Promise<boolean>;
 }
 
 /** The option defaults of every trigger. */

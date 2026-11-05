@@ -1,4 +1,4 @@
-import { contextHttp, DEADLINE_MARGIN_MS, fileRecords, parseDuration, queues, resolveRunRepositories, safeLog, withJobOperation, type JobLogFields, type JobLogger, type Logger, type Repositories, type RunTenant } from "../public.ts";
+import { runAfterHooks, contextHttp, DEADLINE_MARGIN_MS, fileRecords, parseDuration, queues, resolveRunRepositories, safeLog, withJobOperation, type JobLogFields, type JobLogger, type Logger, type Repositories, type RunTenant } from "../public.ts";
 import type { TriggerEvent, TriggerOutcome } from "./source.ts";
 import type { TriggerContext, TriggerDefinition } from "./trigger.ts";
 import { isTriggerDiscard } from "./discard.ts";
@@ -27,6 +27,40 @@ export interface TriggerRunInput {
   ordered?: boolean;
   /** The tenant the events run for, like the one a pushed request resolved. */
   tenant?: RunTenant;
+  /** The hooks around each event: before the handler, after its outcome, and after a failure. */
+  hooks?: TriggerRunHooks;
+  /** Whether a failed event was its last attempt (default: its attempt is past the trigger's retries). */
+  isFinal?: (event: TriggerEvent) => boolean;
+}
+
+/** What `beforeHandle` receives. */
+export interface BeforeHandle {
+  trigger: string;
+  event: TriggerEvent;
+}
+
+/** What `afterHandle` receives. */
+export interface AfterHandle {
+  trigger: string;
+  event: TriggerEvent;
+  status: TriggerOutcome["status"];
+  durationMs: number;
+}
+
+/** What `onFailed` receives: `final` is true on the event's last attempt. */
+export interface TriggerFailed {
+  trigger: string;
+  event: TriggerEvent;
+  error: unknown;
+  final: boolean;
+}
+
+/** The hooks a run calls, each a list of functions. */
+export interface TriggerRunHooks {
+  /** Each may return a changed event, or `null` to discard it; a throw fails the event. */
+  beforeHandle?: readonly ((step: BeforeHandle, ctx: undefined) => TriggerEvent | null | undefined | void | Promise<TriggerEvent | null | undefined | void>)[];
+  afterHandle?: readonly ((done: AfterHandle, ctx: undefined) => unknown)[];
+  onFailed?: readonly ((failure: TriggerFailed, ctx: undefined) => unknown)[];
 }
 
 /** The partition of an event in an ordered batch: its `partition` attribute, or one partition for all. */
@@ -135,16 +169,47 @@ export async function runTriggerEvents(input: TriggerRunInput): Promise<TriggerO
     const details = outcome.status === "failed" ? { error: { message: (outcome.error as Error)?.message ?? String(outcome.error) } } : outcome.status === "discarded" ? { reason: outcome.reason } : {};
     safeLog(input.logger, outcome.status === "failed" ? "warn" : "info", { ...entry(event), message: `trigger.event.${outcome.status}`, ...(durationMs !== undefined ? { durationMs } : {}), ...details });
   };
+  /**
+   * The event to hand the handler after the `when` filter and the `beforeHandle` hooks, or the outcome that ends it
+   * first: discarded with the reason `when` or `beforeHandle`, or failed when a hook throws.
+   */
+  const prepared = async (event: TriggerEvent): Promise<{ event: TriggerEvent } | { outcome: TriggerOutcome }> => {
+    try {
+      if (definition.options.when && (await definition.options.when(event)) === false) return { outcome: { eventId: event.id, trigger: name, status: "discarded", reason: "when" } };
+      let current = event;
+      for (const hook of input.hooks?.beforeHandle ?? []) {
+        const result = await hook({ trigger: name, event: current }, undefined);
+        if (result === null) return { outcome: { eventId: event.id, trigger: name, status: "discarded", reason: "beforeHandle" } };
+        if (result !== undefined) current = result as TriggerEvent;
+      }
+      return { event: current };
+    } catch (error) {
+      return { outcome: outcomeOf(event, error) };
+    }
+  };
+  const isFinal = input.isFinal ?? ((event: TriggerEvent) => event.attempt > definition.options.retries);
+  const finished = async (event: TriggerEvent, outcome: TriggerOutcome, durationMs: number) => {
+    logOutcome(event, outcome, durationMs);
+    if (input.hooks?.afterHandle?.length) await runAfterHooks(input.hooks.afterHandle as never, { trigger: name, event, status: outcome.status, durationMs }, undefined);
+    if (outcome.status === "failed" && input.hooks?.onFailed?.length) await runAfterHooks(input.hooks.onFailed as never, { trigger: name, event, error: outcome.error, final: isFinal(event) }, undefined);
+    return outcome;
+  };
   const handled = async (batch: readonly TriggerEvent[]): Promise<TriggerOutcome[]> => {
     for (const event of batch) safeLog(input.logger, "info", { ...entry(event), message: "trigger.event.started" });
     const started = performance.now();
-    const error = await runHandler(input, batch);
+    const ready: TriggerEvent[] = [];
+    const ended = new Map<string, TriggerOutcome>();
+    for (const event of batch) {
+      const step = await prepared(event);
+      if ("event" in step) ready.push(step.event);
+      else ended.set(event.id, step.outcome);
+    }
+    const error = ready.length > 0 ? await runHandler(input, ready) : undefined;
     const durationMs = Math.round((performance.now() - started) * 1000) / 1000;
-    return batch.map((event) => {
-      const outcome = outcomeOf(event, error);
-      logOutcome(event, outcome, durationMs);
-      return outcome;
-    });
+    const handledEvents = new Map(ready.map((event) => [event.id, event]));
+    const outcomes: TriggerOutcome[] = [];
+    for (const event of batch) outcomes.push(await finished(handledEvents.get(event.id) ?? event, ended.get(event.id) ?? outcomeOf(event, error), durationMs));
+    return outcomes;
   };
   if (definition.batch) return handled(events);
   if (!input.ordered) return (await pooled(events, definition.options.concurrency, (event) => handled([event]))).flat();
@@ -156,9 +221,7 @@ export async function runTriggerEvents(input: TriggerRunInput): Promise<TriggerO
     let failed: string | undefined;
     for (const event of list) {
       if (failed !== undefined) {
-        const outcome: TriggerOutcome = { eventId: event.id, trigger: name, status: "failed", error: skippedAfterFailure(failed) };
-        logOutcome(event, outcome);
-        outcomes.push(outcome);
+        outcomes.push(await finished(event, { eventId: event.id, trigger: name, status: "failed", error: skippedAfterFailure(failed) }, 0));
         continue;
       }
       const [outcome] = await handled([event]);

@@ -563,7 +563,8 @@ function validate(schema: AnyOptionSchema, value: unknown, path: string, problem
           problems.push(`Invalid ${join(path, key)}: ${settings.keys.message}`);
           continue;
         }
-        if (!RECORD_KEY.test(key)) {
+        // A pattern of the record's own replaces the default entry names.
+        if (!settings.keys && !RECORD_KEY.test(key)) {
           problems.push(`Invalid ${path}: the entry name ${JSON.stringify(key)} must match ${RECORD_KEY.source}`);
           continue;
         }

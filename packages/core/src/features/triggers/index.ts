@@ -1,14 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
-import { http, reportError, boolean, defineFeature, type FeatureSetupContext, type ServiceRequest, type RunTenant, duration, isFunctionTarget, object, parseDuration, safeLog, setUpDependents, systemClock, type JobClock, type Repositories, type ResolvedConfig } from "../public.ts";
+import { type FeatureHook, hook, integer, list, provider, record, secretEnvironment, http, reportError, boolean, defineFeature, type FeatureSetupContext, type ServiceRequest, type RunTenant, duration, isFunctionTarget, object, parseDuration, safeLog, setUpDependents, systemClock, type JobClock, type Repositories, type ResolvedConfig } from "../public.ts";
 import { checkPushAuth, CLOUDEVENTS_KIND, cloudEventsSource, GOOGLE_ISSUER, pushPath, requestEvents, type CloudEventsRef, type KeyLoader, type SigningKey } from "./cloudevents.ts";
 import { checkpointStore, MISSING_CHECKPOINTS, type TriggerCheckpoints } from "./checkpoints.ts";
 import { startPoller, type Poller } from "./poll.ts";
-import { runTriggerEvents } from "./run.ts";
+import { runTriggerEvents, type AfterHandle, type BeforeHandle, type TriggerFailed, type TriggerRunHooks } from "./run.ts";
 import type { TriggerEvent, TriggerOutcome, TriggerSource } from "./source.ts";
 import { dispatchPlatformEvent, NOT_ENABLED, overallStatus, running, sharedState, type DispatchOptions, type EmitTriggerOptions, type RunningTriggers, type TriggerDispatch, type TriggerEmission } from "./state.ts";
 import { TEST_SOURCE_KIND, testTriggerSource } from "./test-source.ts";
-import { isTriggerDefinition, type TriggerDefinition } from "./trigger.ts";
+import { isTriggerDefinition, type ResolvedTriggerOptions, type TriggerDefinition } from "./trigger.ts";
 
 /** The public API of the `triggers` native, `ctx.feature("triggers")` in a feature that lists it in `requires`, `after` or `enables`. */
 export interface TriggersApi {
@@ -23,6 +23,10 @@ export interface TriggersApi {
    * `matches` an event handles it. Resolves undefined when no source recognizes the event.
    */
   dispatch(platform: string, raw: unknown, options?: DispatchOptions): Promise<TriggerDispatch | undefined>;
+  /** Adds a hook after the ones written in the config. */
+  addHook(name: "beforeHandle", fn: FeatureHook<BeforeHandle, undefined>): void;
+  addHook(name: "afterHandle", fn: FeatureHook<AfterHandle, undefined>): void;
+  addHook(name: "onFailed", fn: FeatureHook<TriggerFailed, undefined>): void;
 }
 
 /** The sources registered in this process, by kind, with the feature that registered each. */
@@ -46,7 +50,25 @@ export interface TriggerFailureEvent {
   error: { message: string };
 }
 
+/** The options one trigger's override may set. */
+const overrideShape = {
+  concurrency: integer().min(1).optional().describe("How many events of the trigger run at once in one process."),
+  timeout: duration().optional().describe("The longest one event (or batch) of the trigger may run."),
+  retries: integer().min(0).optional().describe("How many times a failed event of the trigger is retried in polling mode."),
+  retryDelay: duration().optional().describe("The delay before the first retry of the trigger, doubled for each next one."),
+  enabled: boolean().optional().describe("false turns the trigger off: no route, poll or dispatch reaches it."),
+};
+
 const options = object({
+  overrides: record(object(overrideShape))
+    .keys(/^[a-z0-9][a-z0-9_/-]*$/i, "a trigger name is a path of triggers/ without extension, like uploads/new-image")
+    .describe("Options of single triggers by name, over the trigger file's options; QS_TRIGGERS_OVERRIDES_<NAME>_<OPTION> wins over them."),
+  beforeHandle: hook<BeforeHandle, undefined>().describe("Runs before each event's handler with the trigger and the event; returns a changed event, or null to discard it, and a throw fails the event."),
+  afterHandle: hook<AfterHandle, undefined>().describe("Runs after each event with the trigger, the event, its status and durationMs."),
+  onFailed: hook<TriggerFailed, undefined>().describe("Runs after each failed event with the trigger, the event, the error and final, true on its last attempt."),
+  sources: list(provider<TriggerSource>("TriggerSource", ["recognize", "decode", "matches"]))
+    .default([])
+    .describe("Sources of the project, each registered under its kind like those features register."),
   poll: boolean().default(true).describe("Runs the polls of sources that pull events (like stream shards and cloud queues) in server targets; false leaves pulling to other processes."),
   pollBackoff: object({
     min: duration().default("1s").describe("The delay before a failed poll starts again, doubled after each further failure."),
@@ -65,6 +87,40 @@ export function targetPolls(config: Pick<ResolvedConfig, "features">): boolean {
   const target = deploy?.target ?? "server";
   if (isFunctionTarget(target)) return false;
   return target !== "cloud-run" || deploy?.cloudRun?.cpuAlwaysAllocated === true;
+}
+
+/** The per-trigger options a variable sets, with the parser of its text. */
+const OVERRIDE_VARIABLES = [
+  ["CONCURRENCY", "concurrency", (text: string) => (/^[1-9]\d*$/.test(text) ? Number(text) : undefined), "an integer of at least 1"],
+  ["TIMEOUT", "timeout", (text: string) => (parseDuration(text) !== undefined ? text : undefined), "a duration like 30s"],
+  ["RETRIES", "retries", (text: string) => (/^\d+$/.test(text) ? Number(text) : undefined), "an integer of at least 0"],
+  ["RETRY_DELAY", "retryDelay", (text: string) => (parseDuration(text) !== undefined ? text : undefined), "a duration like 10s"],
+  ["ENABLED", "enabled", (text: string) => (text === "true" ? true : text === "false" ? false : undefined), "true or false"],
+] as const;
+
+/** A trigger name as its variables write it: upper snake case, with `/` and `-` as `_`. */
+export const triggerVariableName = (name: string) => name.replace(/[/-]/g, "_").toUpperCase();
+
+/** The variables that override one trigger's options, like `QS_TRIGGERS_OVERRIDES_UPLOADS_NEW_IMAGE_CONCURRENCY`. */
+export const TRIGGER_OVERRIDE_VARIABLE = /^QS_TRIGGERS_OVERRIDES_[A-Z0-9_]+_(CONCURRENCY|TIMEOUT|RETRIES|RETRY_DELAY|ENABLED)$/;
+
+/**
+ * A trigger's options in effect: its variables (`QS_TRIGGERS_OVERRIDES_<NAME>_<OPTION>`) over `overrides.<name>` over
+ * the file's options over the defaults; throws for a variable whose text is not valid.
+ */
+export function effectiveOptions(name: string, file: ResolvedTriggerOptions, override: Partial<ResolvedTriggerOptions> & { enabled?: boolean } = {}, env: Record<string, string | undefined> = {}): ResolvedTriggerOptions & { enabled: boolean } {
+  const fromEnv: Record<string, unknown> = {};
+  for (const [suffix, key, parse, expected] of OVERRIDE_VARIABLES) {
+    const variable = `QS_TRIGGERS_OVERRIDES_${triggerVariableName(name)}_${suffix}`;
+    const text = env[variable];
+    if (text === undefined || text === "") continue;
+    const value = parse(text);
+    if (value === undefined) throw new Error(`Invalid ${variable}: expected ${expected}`);
+    fromEnv[key] = value;
+  }
+  const defined = Object.fromEntries(Object.entries(override).filter(([, value]) => value !== undefined));
+  const merged = { ...file, ...defined, ...fromEnv } as ResolvedTriggerOptions & { enabled?: boolean };
+  return { ...merged, enabled: merged.enabled !== false };
 }
 
 /** The startup failure of a trigger whose source kind no feature registers. */
@@ -155,6 +211,37 @@ export const triggersFeature = defineFeature({
         ].join("\n"),
       },
       {
+        title: "Per-trigger options",
+        text: [
+          "A trigger's options come, from highest to lowest, from `QS_TRIGGERS_OVERRIDES_<NAME>_CONCURRENCY`, `_TIMEOUT`, `_RETRIES`, `_RETRY_DELAY` and `_ENABLED` (the name in upper snake case, `/` and `-` as `_`: `uploads/new-image` is `UPLOADS_NEW_IMAGE`), `triggers.overrides.<name>`, the trigger file's `options`, and the defaults (`concurrency` 1, `timeout` `30s`, `retries` 3, `retryDelay` `10s`). `enabled: false` turns one trigger off. An override naming no trigger adds `triggers.overrides.<name> matches no trigger` to the config warnings.",
+          "",
+          "A trigger's `options.when(event)` decides per event, before `handle`, whether it is handled; `false` discards it with the reason `when`.",
+        ].join("\n"),
+      },
+      {
+        title: "Hooks",
+        text: [
+          "`beforeHandle` receives `{ trigger, event }` before each event's handler and may return a changed event, or `null` to discard it (reason `beforeHandle`); a throw fails the event. `afterHandle` receives `{ trigger, event, status, durationMs }` after each event, and `onFailed` `{ trigger, event, error, final }` after each failed one, `final` true on its last attempt. Both are after-hooks: a failing one is logged as `feature.hook.failed`. A feature adds hooks with `ctx.feature(\"triggers\").addHook(name, fn)`.",
+          "",
+          "```ts",
+          "triggers: {",
+          "  onFailed: ({ trigger, event, final }) => final && console.error(`${trigger} gave up on ${event.id}`),",
+          "},",
+          "```",
+        ].join("\n"),
+      },
+      {
+        title: "Built-in kinds and project sources",
+        text: [
+          "| Kind | Factory | What it does |",
+          "| --- | --- | --- |",
+          "| `test` | `testSource({ type? })` | Test deliveries `{ quickservicets: { source: \"test\", events } }` and `emitTrigger`, answered with `{ batchItemFailures }` |",
+          "| `cloudevents` | `cloudEvents({ type?, source?, path?, auth? })` | CloudEvents pushed to `POST /_triggers/<name>` |",
+          "",
+          "`sources` registers project sources (objects with `kind`, `recognize`, `decode` and `matches`) like features do. `runTriggerSourceContract(create, { fixtures })` of `@quickservicets/core/testing` registers one `bun:test` test per check of the contract: recognition, decoding into the `TriggerEvent` shape, matching, stable ids across redeliveries, results naming only the failed events of a partial failure, polling with fake acknowledgments when the source polls, and no timer left after stop; the built-in `test` and `cloudevents` sources pass it. `quickservicets eject triggers` copies the native into `features/triggers/`.",
+        ].join("\n"),
+      },
+      {
         title: "Sources",
         text: [
           "A source is a `TriggerSource`: `kind`, `recognize(platform, raw)`, `decode(raw)` returning events and `matches(ref, event)`, plus the optional `poll(ref, ctx)`, `result(outcomes, raw)`, `push` and `describe(ref)`. A feature listing `triggers` in `requires`, `after` or `enables` registers one during its setup with `ctx.feature(\"triggers\").source(kind, source)`. A trigger on a kind no feature registers fails startup with `triggers/<name> uses source <kind>, which no feature registers; enable the feature that provides it`.",
@@ -165,6 +252,7 @@ export const triggersFeature = defineFeature({
     ],
   },
   options,
+  variablePatterns: [TRIGGER_OVERRIDE_VARIABLE],
   // Push routes are exempted from CSRF, tenancy and OpenAPI, and OIDC keys are fetched through an HTTP service.
   after: ["http", "security", "tenancy"],
   folders: {
@@ -177,10 +265,33 @@ export const triggersFeature = defineFeature({
   },
   setup(ctx) {
     registered.sources = builtInSources();
+    for (const source of ctx.options.sources as TriggerSource[]) {
+      const taken = registered.sources.get(source.kind);
+      if (taken) throw new Error(duplicateSource(source.kind, taken.owner, "triggers.sources"));
+      registered.sources.set(source.kind, { source, owner: "triggers.sources" });
+    }
+    // Each trigger runs with its options in effect; one turned off by its override is left out entirely.
+    const env = secretEnvironment();
+    const overrides = ctx.options.overrides as Record<string, Partial<ResolvedTriggerOptions> & { enabled?: boolean }>;
     const declared = new Map<string, TriggerDefinition>();
-    for (const [name, file] of ctx.folders.triggers ?? []) if (isTriggerDefinition(file)) declared.set(name, file);
+    for (const [name, file] of ctx.folders.triggers ?? []) {
+      if (!isTriggerDefinition(file)) continue;
+      const { enabled, ...effective } = effectiveOptions(name, file.options, overrides[name], env);
+      if (enabled) declared.set(name, { ...file, options: effective });
+    }
+    const names = new Set([...(ctx.folders.triggers ?? new Map()).keys()]);
+    for (const name of Object.keys(overrides)) {
+      if (names.has(name)) continue;
+      const warning = `triggers.overrides.${name} matches no trigger`;
+      if (ctx.config.warnings.includes(warning)) continue;
+      ctx.config.warnings.push(warning);
+      safeLog(ctx.logger, "warn", { timestamp: new Date().toISOString(), message: "config.warning", warning });
+    }
+    const hooks: TriggerRunHooks = { beforeHandle: ctx.options.beforeHandle as never, afterHandle: ctx.options.afterHandle as never, onFailed: ctx.options.onFailed as never };
     registerPushRoutes(ctx, declared, (input) => runPushed(input));
     const queuesOn = ctx.config.features.some((feature) => feature.key === "queues");
+    /** Whether a failed pushed event was its last attempt: the source's word when it knows, else its attempt past the retries. */
+    const finalOf = (source: TriggerSource | undefined) => (source?.lastAttempt ? (event: TriggerEvent) => source.lastAttempt!(event) : undefined);
     const eventsOn = ctx.config.features.some((feature) => feature.key === "events");
     const failureOf = (outcome: TriggerOutcome, event: TriggerEvent): TriggerFailureEvent => ({ trigger: outcome.trigger, kind: event.kind, eventId: event.id, attempt: event.attempt, error: { message: (outcome.error as Error)?.message ?? String(outcome.error) } });
     const emitEvent = async (type: "trigger.event.failed" | "trigger.event.dead", payload: TriggerFailureEvent) => {
@@ -208,7 +319,7 @@ export const triggersFeature = defineFeature({
     async function runPushed({ name, definition, events, tenant }: { name: string; definition: TriggerDefinition; events: TriggerEvent[]; tenant?: RunTenant }): Promise<TriggerOutcome[]> {
       const source = registered.sources.get(definition.source.kind)!.source;
       const mine = events.filter((event) => source.matches(definition.source as never, event));
-      const outcomes = mine.length > 0 ? await runTriggerEvents({ name, definition, events: mine, repos: () => repos!, logger: ctx.logger, queues: queuesOn, ordered: source.ordered === true, ...(tenant ? { tenant } : {}) }) : [];
+      const outcomes = mine.length > 0 ? await runTriggerEvents({ name, definition, events: mine, repos: () => repos!, logger: ctx.logger, queues: queuesOn, ordered: source.ordered === true, hooks, isFinal: finalOf(source), ...(tenant ? { tenant } : {}) }) : [];
       for (const event of events) {
         if (mine.includes(event)) continue;
         safeLog(ctx.logger, "warn", { timestamp: new Date().toISOString(), message: "trigger.event.unmatched", kind: source.kind, eventId: event.id });
@@ -233,7 +344,7 @@ export const triggersFeature = defineFeature({
         const items = definition.batch && Array.isArray(data) ? data : [data];
         const events: TriggerEvent[] = items.map((item) => ({ id: randomUUID(), kind: definition.source.kind, type: "test", time: new Date(), data: item, attributes: { ...(options.attributes ?? {}) }, attempt: 1 }));
         const source = registered.sources.get(definition.source.kind)?.source;
-        const outcomes = await runTriggerEvents({ name, definition, events, repos: () => repos!, logger: ctx.logger, queues: queuesOn, ordered: source?.ordered === true });
+        const outcomes = await runTriggerEvents({ name, definition, events, repos: () => repos!, logger: ctx.logger, queues: queuesOn, ordered: source?.ordered === true, hooks, isFinal: finalOf(source) });
         await afterPushed(outcomes, events, source);
         const failed = outcomes.find((outcome) => outcome.status === "failed");
         const first = failed ?? outcomes[0]!;
@@ -256,7 +367,7 @@ export const triggersFeature = defineFeature({
           const mine = events.filter((event) => source.matches(definition.source as never, event));
           for (const event of mine) matched.add(event.id);
           if (mine.length === 0) continue;
-          outcomes.push(...(await runTriggerEvents({ name, definition, events: mine, repos: () => repos!, logger: ctx.logger, queues: queuesOn, ordered: source.ordered === true, ...(options.deadline !== undefined ? { deadline: options.deadline } : {}) })));
+          outcomes.push(...(await runTriggerEvents({ name, definition, events: mine, repos: () => repos!, logger: ctx.logger, queues: queuesOn, ordered: source.ordered === true, hooks, isFinal: finalOf(source), ...(options.deadline !== undefined ? { deadline: options.deadline } : {}) })));
         }
         // An event no trigger takes is completed, so a misrouted event is not redelivered forever.
         for (const event of events) {
@@ -306,7 +417,7 @@ export const triggersFeature = defineFeature({
             definition,
             source,
             run: async (events) => {
-              const outcomes = await runTriggerEvents({ name, definition, events, repos: () => repos!, logger: ctx.logger, queues: queuesOn, ordered: source.ordered === true });
+              const outcomes = await runTriggerEvents({ name, definition, events, repos: () => repos!, logger: ctx.logger, queues: queuesOn, ordered: source.ordered === true, hooks });
               // Failed events are announced on every attempt; the last attempt goes to onDead.
               const byId = new Map(events.map((event) => [event.id, event]));
               for (const outcome of outcomes) if (outcome.status === "failed" && byId.has(outcome.eventId)) await emitEvent("trigger.event.failed", failureOf(outcome, byId.get(outcome.eventId)!));
@@ -354,6 +465,7 @@ export const triggersFeature = defineFeature({
       registered.sources.set(kind, { source: source as TriggerSource, owner: caller });
     },
     dispatch: (platform, raw, options) => dispatchPlatformEvent(platform, raw, options),
+    addHook: ctx.addHook as TriggersApi["addHook"],
   }),
 });
 
@@ -473,6 +585,7 @@ export { isTriggerDiscard, TriggerDiscard } from "./discard.ts";
 export { CLOUDEVENTS_KIND, cloudEvents, cloudEventsSource, GOOGLE_ISSUER, invalidCloudEvent, invalidEventCredentials, matchesPattern, pushPath, requestEvents, structuredEvent, verifyOidcToken } from "./cloudevents.ts";
 export type { CloudEventsAuth, CloudEventsOptions, CloudEventsRef, KeyLoader, SigningKey } from "./cloudevents.ts";
 export { partitionOf, skippedAfterFailure } from "./run.ts";
+export type { AfterHandle, BeforeHandle, TriggerFailed, TriggerRunHooks } from "./run.ts";
 export { checkpointStore, MISSING_CHECKPOINTS, triggerCheckpointEntity } from "./checkpoints.ts";
 export type { CheckpointStoreOptions, ClaimedPartition, TriggerCheckpoints } from "./checkpoints.ts";
 export { MAX_RETRY_DELAY_MS, retryDelayMs, startPoller } from "./poll.ts";

@@ -19,8 +19,8 @@ function segmentName(segment: string): string {
     .toUpperCase();
 }
 
-/** The segment of a record entry's name: matched case-insensitively, with hyphens written as underscores. */
-const entryName = (entry: string) => entry.replaceAll("-", "_").toUpperCase();
+/** The segment of a record entry's name: matched case-insensitively, with hyphens and slashes written as underscores. */
+const entryName = (entry: string) => entry.replace(/[-/]/g, "_").toUpperCase();
 
 /** A variable kept from before the `QS_*` names, which a `QS_*` variable overrides. */
 export interface EnvAlias {
@@ -276,6 +276,7 @@ export function unknownVariableWarnings(
   const names = [...known];
   for (const name of Object.keys(env).sort()) {
     if (!name.startsWith("QS_") || known.has(name) || !set(env[name])) continue;
+    if (definitions.some((definition) => definition.variablePatterns?.some((pattern) => pattern.test(name)))) continue;
     let best: { name: string; distance: number } | undefined;
     for (const candidate of names) {
       if (!candidate.startsWith("QS_")) continue;

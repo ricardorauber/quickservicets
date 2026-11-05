@@ -85,6 +85,11 @@ export interface FeatureInput<S extends AnyOptionSchema> {
   /** Environment variables the feature needs, read and checked at startup with the project's (see `env`). */
   env?: Readonly<Record<string, AnyOptionSchema>>;
   /**
+   * `QS_*` variables the feature reads itself, by pattern, like per-trigger overrides named after files; they are not
+   * reported as unknown.
+   */
+  variablePatterns?: readonly RegExp[];
+  /**
    * The external services the feature needs (a database, Redis, a broker), as a list of requirements or a function of
    * the resolved options and config returning one; local services, test containers and deploy generators read them
    * through `describeInfrastructure`, and the running service never does.
@@ -282,6 +287,8 @@ export interface FeatureDefinition<S extends AnyOptionSchema = AnyOptionSchema> 
   readonly enables: readonly string[];
   /** The environment variables the feature declares. */
   readonly env?: Readonly<Record<string, AnyOptionSchema>>;
+  /** The `QS_*` variables the feature reads itself, by pattern. */
+  readonly variablePatterns?: readonly RegExp[];
   /** The external services the feature needs. */
   readonly infra?: FeatureInfra<FeatureOptions<S>>;
   /** Whether the feature keeps a database session of its own, for its resolved options. */
@@ -414,6 +421,7 @@ export function defineFeature<S extends AnyOptionSchema = ObjectOptionSchema<{}>
     after: keyList("after", input.after),
     enables: keyList("enables", input.enables),
     ...(input.env ? { env: Object.freeze({ ...input.env }) } : {}),
+    ...(input.variablePatterns ? { variablePatterns: Object.freeze([...input.variablePatterns]) } : {}),
     ...(input.needsSession !== undefined ? { needsSession: input.needsSession } : {}),
     ...(input.sqlCapabilities !== undefined ? { sqlCapabilities: typeof input.sqlCapabilities === "function" ? input.sqlCapabilities : Object.freeze([...input.sqlCapabilities]) } : {}),
     ...(input.infra !== undefined ? { infra: typeof input.infra === "function" ? input.infra : Object.freeze([...assertInfraRequirements(key, input.infra)]) } : {}),

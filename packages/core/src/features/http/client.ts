@@ -9,6 +9,7 @@ import { mockHttp, type HttpMock } from "./mock.ts";
 import { stateOf, withBulkhead, withCircuitBreaker, type BulkheadOptions, type CircuitBreakerOptions, type HttpState } from "./resilience.ts";
 import { maskedUrl, StreamedResponse, streamTransport, transport } from "./transport.ts";
 import type { ServiceTls } from "./service-tls.ts";
+import { candidates, DISCOVERED_HOST, discoveredInstances, discoverSettings, METADATA_HOSTS, noInstances, ownZone, pickInstance, rebased, trackInFlight, type DiscoverSettings } from "./discovery.ts";
 
 /** A raw request body. */
 export type HttpBody = string | Uint8Array | ArrayBuffer | Blob | ReadableStream<Uint8Array> | URLSearchParams | FormData;
@@ -45,6 +46,8 @@ export interface HttpRequest {
   service?: string;
   /** False answers a redirect as it is instead of following it (default true). */
   followRedirects?: boolean;
+  /** The id of the discovered instance the attempt goes to. */
+  instance?: string;
 }
 
 /** A step around a call; `next` runs the rest of the chain and resolves its response. */
@@ -80,6 +83,8 @@ export interface ClientBinding {
 
 /** A named service, from the config or added by a feature. */
 export interface ServiceSettings extends ServiceOptions {
+  /** The base URL: `url`, or the placeholder of a discovered service. */
+  url: string;
   name: string;
   /** Who declared it: `http.services` or the key of the feature that added it. */
   owner: string;
@@ -127,8 +132,10 @@ export function configServices(options: HttpOptions): Map<string, ServiceSetting
 
 /** A service's settings from its resolved options. */
 export function serviceSettings(name: string, owner: string, service: ServiceOptions): ServiceSettings {
+  // A discovered service's calls join a placeholder base, replaced by an instance's address on each attempt.
+  const url = service.url ?? `http://${DISCOVERED_HOST(name)}`;
   // The options object keeps its masking of secrets: the settings read through it.
-  return Object.assign(Object.create(service) as ServiceOptions, { name, owner, host: new URL(service.url).host.toLowerCase() }) as ServiceSettings;
+  return Object.assign(Object.create(service) as ServiceOptions, { name, owner, url, host: new URL(url).host.toLowerCase() }) as ServiceSettings;
 }
 
 const derivedServices = new WeakMap<object, Map<string, ServiceSettings>>();
@@ -253,12 +260,37 @@ export async function execute(spec: CallSpec, binding: ClientBinding): Promise<H
   // A call through a service trusts the service's own host; any other host is checked as usual.
   const trustedHost = service?.host;
   const chain = [...(service ? serviceModifiers(service, settings) : []), ...spec.modifiers];
-  const sendOne = (changed: HttpRequest) => transport(changed, settings, trustedHost);
+  const discovered = service ? discoverSettings(service.discover) : undefined;
+  const sendOne = discovered ? discoveredSend(service!, discovered, settings, (changed, host) => transport(changed, settings, host)) : (changed: HttpRequest) => transport(changed, settings, trustedHost);
   // With a tracer, each attempt runs in a client span whose context the call carries as `traceparent`.
   // With a meter, each attempt's duration is recorded.
   const attemptOf = (changed: HttpRequest) => (tracingEnabled() ? tracedAttempt(changed, settings, sendOne) : sendOne(changed));
   const send = (attempt: HttpRequest) => withHooks(attempt, settings, (changed) => (metricsEnabled() ? measuredAttempt(changed, () => attemptOf(changed)) : attemptOf(changed)));
   return chain.length === 0 ? send(request) : runChain(chain, request, send, () => maskedUrl(request.url, settings));
+}
+
+/**
+ * The send of a discovered service's call: each attempt resolves the service's instances, picks one (another one than
+ * the attempts before, when there is one), sends to its address with its host trusted by SSRF protection (never a
+ * cloud metadata address) and counts the call in flight; no instance rejects with `NO_INSTANCES`.
+ */
+function discoveredSend(service: ServiceSettings, discover: DiscoverSettings, settings: HttpSettings, send: (request: HttpRequest, trustedHost: string | undefined) => Promise<HttpResponse>): (request: HttpRequest) => Promise<HttpResponse> {
+  const tried = new Set<string>();
+  return async (request) => {
+    const instances = await discoveredInstances(service.name, discover);
+    const instance = pickInstance(service.name, discover, candidates(instances, discover, ownZone()), tried);
+    if (!instance) throw noInstances(discover.name, service.name, request.method, maskedUrl(request.url, settings));
+    tried.add(instance.id);
+    const url = rebased(request.url, instance.address, service.name);
+    const host = new URL(instance.address).host.toLowerCase();
+    const trusted = METADATA_HOSTS.includes(new URL(instance.address).hostname.replace(/^\[|\]$/g, "").toLowerCase()) ? undefined : host;
+    const done = trackInFlight(service.name, instance);
+    try {
+      return await send({ ...request, url, instance: instance.id }, trusted);
+    } finally {
+      done();
+    }
+  };
 }
 
 /** Sends one attempt and records its duration as `http.client.request.duration`, with the status or the error code. */
@@ -359,7 +391,10 @@ export async function streamCall(spec: StreamCallSpec): Promise<Response> {
   const headers = new Headers(spec.headers);
   await applyService(headers, service, spec.req ? { req: spec.req } : {}, false);
   const request: HttpRequest = { method: spec.method, url: spec.url, headers, body: spec.body, timeout: spec.timeout, signal: spec.signal, attempt: 1, service: service.name };
-  const sendOne = (changed: HttpRequest) => streamTransport(changed, settings, spec.trustedHost ?? service.host, spec.idleTimeout);
+  const discovered = discoverSettings(service.discover);
+  const sendOne = discovered
+    ? discoveredSend(service, discovered, settings, (changed, host) => streamTransport(changed, settings, host, spec.idleTimeout))
+    : (changed: HttpRequest) => streamTransport(changed, settings, spec.trustedHost ?? service.host, spec.idleTimeout);
   const attemptOf = (changed: HttpRequest) => (tracingEnabled() ? tracedAttempt(changed, settings, sendOne) : sendOne(changed));
   const send = (attempt: HttpRequest) => withHooks(attempt, settings, (changed) => (metricsEnabled() ? measuredAttempt(changed, () => attemptOf(changed)) : attemptOf(changed)));
   const chain = serviceModifiers(service, settings);

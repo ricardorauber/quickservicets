@@ -315,6 +315,7 @@ export function logCall(settings: HttpSettings, request: HttpRequest, outcome: C
     method: request.method,
     url: outcome.url,
     ...(request.service !== undefined ? { service: request.service } : {}),
+    ...(request.instance !== undefined ? { instance: request.instance } : {}),
     status: outcome.status,
     durationMs: Math.round(outcome.durationMs * 1000) / 1000,
     attempt: outcome.attempt ?? request.attempt,

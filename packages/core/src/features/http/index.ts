@@ -4,11 +4,23 @@ import type { HttpApi } from "./api.ts";
 import { builtInModifiers, clientOf, configServices, modifierNamed, requestClient, running, serviceSettings, type RegisteredModifier, type RunningHttp, type ServiceSettings } from "./client.ts";
 import { isModifier } from "./modifiers.ts";
 import { HttpClientError } from "./errors.ts";
-import { httpOptions, serviceOptions, serviceProblems, type HttpOptions, type ServiceOptions } from "./options.ts";
+import { httpOptions, serviceOptions, serviceProblems, serviceTargetProblems, type HttpOptions, type ServiceOptions } from "./options.ts";
 import { allowProblems } from "./ssrf.ts";
+import { resetDiscovery } from "./discovery.ts";
+
+/** Whether a config (with its environment applied) turns the registry native on. */
+function registryEnabled(config: Readonly<Record<string, unknown>>): boolean {
+  const value = config.registry;
+  if (value === undefined || value === false) return false;
+  return typeof value !== "object" || value === null || (value as { enabled?: unknown }).enabled !== false;
+}
 
 /** The answer an endpoint gives an `HttpClientError` it lets escape. */
 export function upstreamAnswer(error: HttpClientError, production: boolean): Response {
+  if (error.code === "NO_INSTANCES") {
+    const details = production ? undefined : { code: error.code, ...(error.service !== undefined ? { service: error.service } : {}) };
+    return Response.json({ error: { code: "SERVICE_UNAVAILABLE", message: "Upstream unavailable", ...(details ? { details } : {}) } }, { status: 503, headers: { "retry-after": "5" } });
+  }
   if (error.code === "CIRCUIT_OPEN" || error.code === "BULKHEAD_FULL") {
     const retryAfter = (error.details as { retryAfter?: number } | undefined)?.retryAfter;
     const details = production ? undefined : { code: error.code, url: error.url, ...(error.service !== undefined ? { service: error.service } : {}) };
@@ -59,9 +71,14 @@ const httpFeature = defineFeature({
   after: ["security"],
   // `req.http` is created on first read only, so a request that makes no call pays nothing.
   request: { http: requestClient },
-  validate: (options) => [
+  validate: (options, config) => [
     ...allowProblems(options.allow),
-    ...Object.entries(options.services as Record<string, ServiceOptions>).flatMap(([name, service]) => serviceProblems(name, service)),
+    ...Object.entries(options.services as Record<string, ServiceOptions>).flatMap(([name, service]) => [
+      ...serviceTargetProblems(name, service),
+      ...serviceProblems(name, service),
+      // Discovered services find their instances through the registry native.
+      ...(service.discover !== undefined && !registryEnabled(config) ? [`http.services.${name}.discover needs registry: {} in quickservicets.config.ts`] : []),
+    ]),
   ],
   setup(ctx) {
     if (!ctx.options.ssrf && ctx.config.production) {
@@ -107,9 +124,12 @@ const httpFeature = defineFeature({
     // Jobs and queue consumers get a client sending their run or message id.
     const contextClient = (requestId: string) => clientOf({ requestId });
     setContextHttp(contextClient);
+    // Discovered services resolve their instances afresh in each running service.
+    resetDiscovery();
     ctx.app.onStop(() => {
       if (running.current === settings) running.current = undefined;
       setContextHttp(undefined);
+      resetDiscovery();
     });
     // An outgoing call that fails and escapes a handler answers 502, or 504 for a timeout, instead of 500.
     const middleware: ErrorMiddleware = {
@@ -129,7 +149,7 @@ const httpFeature = defineFeature({
       const taken = registered.get(full);
       if (taken) throw new Error(`Service ${full} is declared by ${taken.owner} and ${owner}`);
       const resolved = resolveOptions(serviceOptions, input, `http.services.${full}`) as ServiceOptions;
-      const problems = serviceProblems(full, resolved);
+      const problems = [...serviceTargetProblems(full, resolved), ...serviceProblems(full, resolved)];
       if (problems.length > 0) throw new Error(problems.join("\n"));
       const auth = resolved.auth as Record<string, unknown> | undefined;
       if (auth) maskSecrets(resolved as Record<string, unknown>, ["auth.bearer", "auth.basic.password", "auth.apiKey.value"].filter((path) => path.split(".").slice(1).reduce<unknown>((value, key) => (value as Record<string, unknown> | undefined)?.[key], auth) !== undefined));
@@ -197,3 +217,5 @@ export type { BulkheadOptions, CircuitBreakerOptions, HttpState } from "./resili
 export type { RetryOptions } from "./retry.ts";
 export type { TestResolverMap } from "./ssrf.ts";
 export type { HttpClientErrorCode, HttpClientErrorInit } from "./errors.ts";
+export { candidates, DISCOVERED_HOST, DISCOVERY_CACHE_MS, discoveredInstances, discoverSettings, inFlightOf, METADATA_HOSTS, noInstances, pickInstance, rebased, resetDiscovery, setDiscoveryRandom } from "./discovery.ts";
+export type { BalanceStrategy, DiscoverSettings } from "./discovery.ts";

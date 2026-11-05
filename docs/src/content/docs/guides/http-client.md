@@ -99,6 +99,16 @@ export default async (_repos: Repositories, req: ServiceRequest) => {
 
 The path joins the base URL's path (`https://api.x/v1` and `/invoices` give `https://api.x/v1/invoices`), and calls carry the service's `headers` and its `auth`: one of `bearer`, `basic` or `apiKey`, all secrets masked everywhere. A call's own headers and `.timeout()` win over the service's. Calls through a service trust its host for SSRF protection, so internal services need no `allow` entry. The build generates the service names, so `http.service("nope")` is a type error. Features register their own services during setup with `ctx.feature("http").addService(name, options)`, named `<feature>/<name>`.
 
+## Discovered services
+
+A service whose instances come and go sets `discover` instead of `url`, and finds them through the [registry native](/guides/service-discovery/) (`registry: {}`):
+
+```ts
+http: { services: { billing: { discover: "billing", retry: true } } },
+```
+
+Each attempt resolves the service's instances (cached for 5 seconds per worker, or kept current by the provider's `watch`), skips the `critical` ones, prefers the own zone, and picks one: `round-robin` by default, or `{ name, balance: "least-connections" }` (the fewest calls in flight in this worker) or `"random"` (weighted by `weight`). A retry goes to another instance when there is one, each `http.call` entry names its `instance`, and the instance's address is trusted by SSRF protection like a service's own host, except the cloud metadata addresses. Without an instance the call fails with `NO_INSTANCES` (`No instances of billing`), which an endpoint answers 503 `SERVICE_UNAVAILABLE` with `Retry-After: 5`. Proxy routes with `service` use the same discovery.
+
 ## Propagation
 
 `req.http` is the client bound to the request: every call sends the request's id as `x-request-id`, so a request can be followed across services. A service's `propagate` adds `x-user-id` (`user`), `x-tenant-id` (`tenant`) and the incoming `authorization` (`authorization`) to calls through `req.http.service(name)`; the example propagates the user. Calls to other URLs never propagate them, and the global `http` propagates nothing.

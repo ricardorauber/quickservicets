@@ -539,6 +539,8 @@ export { realtimeFeature } from "./features/realtime/index.ts";
 export type { ChangeDelivery, ChangeSend, ChangeSource, ForeignConnection, ForeignSocket, ForeignSockets, RealtimeApi } from "./features/realtime/index.ts";
 export { consoleReporter, errorsFeature, setSamplingRandom } from "./features/errors/index.ts";
 export type { ErrorsApi } from "./features/errors/index.ts";
+export { candidates as discoveryCandidates, DISCOVERED_HOST, DISCOVERY_CACHE_MS, discoveredInstances, discoverSettings, METADATA_HOSTS, pickInstance, rebased, setDiscoveryRandom } from "./features/http/index.ts";
+export type { BalanceStrategy, DiscoverSettings } from "./features/http/index.ts";
 export { defineModifier, http, HttpClientError, httpFeature, HttpRequestBuilder, joinPath, serviceUrl, ssrfProblem, streamCall, withBulkhead, withCache, withCircuitBreaker, withRetry } from "./features/http/index.ts";
 export type { StreamCallSpec, HttpTransport, HttpMock, MockCall, MockHandler, MockReply, MockRequest, MockService, BulkheadOptions, CacheOptions, CircuitBreakerOptions, HttpState, ModifierFunction, RetryOptions, Http, HttpApi, HttpBody, HttpClientErrorCode, HttpClientErrorInit, HttpMethods, HttpServiceMethods, HttpServiceNames, ServiceName, ServiceOptions, ServiceOptionsInput, HttpModifier, HttpQueryValue, HttpRequest, HttpResponse } from "./features/http/index.ts";
 export { bucketOf, evaluateRule, flags, flagsFeature } from "./features/flags/index.ts";

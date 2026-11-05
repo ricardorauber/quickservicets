@@ -672,7 +672,8 @@ Every option, tag, command and hook of `http` is on [its reference page](/refere
 | `http.afterResponse` | `hook` | — | not overridable | Runs after every attempt that got a response, with the request, the response and the duration. |
 | `http.onError` | `hook` | — | not overridable | Runs after every attempt that failed, with the request and the HttpClientError. |
 | `http.transport` | `HttpTransport` | — | not overridable | Replaces how a request is sent: its fetch(request, context) gets a standard Request with the abort signal and the address SSRF protection validated, and resolves a Response. |
-| `http.services.<name>.url` | `record of url` | — | `QS_HTTP_SERVICES_<NAME>_URL` | The service's base URL; call paths are joined to its path, like https://billing.internal/v1. |
+| `http.services.<name>.url` | `record of url` | — | `QS_HTTP_SERVICES_<NAME>_URL` | The service's base URL; call paths are joined to its path, like https://billing.internal/v1. Set this or discover. |
+| `http.services.<name>.discover` | `record of string \| object` | — | `QS_HTTP_SERVICES_<NAME>_DISCOVER` | Finds the service's instances through the registry native instead of url: a service name, or `{ name, balance, preferZone }`; each attempt goes to one instance. |
 | `http.services.<name>.headers.<name>` | `record of record of string` | — | `QS_HTTP_SERVICES_<NAME>_HEADERS_<NAME>` | The value of the header. |
 | `http.services.<name>.auth.bearer` | `record of string` | — | `QS_HTTP_SERVICES_<NAME>_AUTH_BEARER` | Sends the token as authorization: Bearer. |
 | `http.services.<name>.auth.basic.username` | `record of string` | — | `QS_HTTP_SERVICES_<NAME>_AUTH_BASIC_USERNAME` | The user name. |

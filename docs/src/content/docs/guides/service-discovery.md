@@ -73,6 +73,29 @@ Results are kept per name for the larger of the records' TTL and `dns.refresh` a
 useTestResolver({ "_http._tcp.billing": { srv: [{ name: "billing-0.billing", port: 8080, weight: 1, priority: 0 }] } });
 ```
 
+## Discovered services and balancing
+
+A caller finds a service's instances with `discover` in `http.services`:
+
+```ts
+registry: { services: { billing: { instances: [{ url: "http://10.0.0.5:8080" }, { url: "http://10.0.0.6:8080" }] } } },
+http: { services: { billing: { discover: { name: "billing", balance: "round-robin", preferZone: true }, retry: true } } },
+```
+
+```ts
+const invoices = await req.http.service("billing").get("/invoices").send();
+```
+
+Calls resolve the instances through the provider, cached for 5 seconds per worker and updated at once by `watch` when the provider offers it, skip `critical` instances and pick one per attempt:
+
+| `balance` | Picks |
+| --- | --- |
+| `round-robin` | The instances in turn |
+| `least-connections` | The instance with the fewest calls in flight in this worker |
+| `random` | An instance at random, weighted by its `weight` |
+
+With `preferZone` (the default) and a `registry.zone`, instances of the same zone are picked first while one of them is available. A retry of the service's `retry` modifier goes to a different instance when there is one, and the `http.call` entries carry the `instance` id. The picked instance's address is the base URL of the call and is trusted by SSRF protection like a service's own host, except the cloud metadata addresses `169.254.169.254` and `fd00:ec2::254`, which stay blocked. Without an available instance the call rejects with `NO_INSTANCES` and `No instances of <name>`, answered 503 `SERVICE_UNAVAILABLE` `Upstream unavailable` with `Retry-After: 5`. Proxy routes with `service` balance across the instances of a discovered service with no further option.
+
 ## Providers
 
 A registry server plugs in as a `RegistryProvider`:

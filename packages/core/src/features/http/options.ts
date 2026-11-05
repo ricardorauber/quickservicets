@@ -7,8 +7,20 @@ import type { HttpTransport } from "./transport.ts";
 export const SERVICE_NAME = /^[a-z][a-z0-9-]*$/;
 
 /** The options of one named service. */
+/** The object form of a service's `discover` option. */
+export const discoverOptions = object({
+  name: string().describe("The registry name of the service."),
+  balance: oneOf(["round-robin", "least-connections", "random"] as const)
+    .default("round-robin")
+    .describe("How calls spread over the instances: round-robin in order, least-connections by the calls in flight in this worker, or random weighted by the instances' weight."),
+  preferZone: boolean().default(true).describe("Picks the instances of the own zone first while one of them is available."),
+});
+
 export const serviceOptions = object({
-  url: url().describe("The service's base URL; call paths are joined to its path, like https://billing.internal/v1."),
+  url: url().optional().describe("The service's base URL; call paths are joined to its path, like https://billing.internal/v1. Set this or discover."),
+  discover: anyOf(string(), discoverOptions)
+    .optional()
+    .describe("Finds the service's instances through the registry native instead of url: a service name, or `{ name, balance, preferZone }`; each attempt goes to one instance."),
   headers: record(string().describe("The value of the header."))
     .optional()
     .perRequest()
@@ -91,6 +103,11 @@ export type ServiceOptions = Options<typeof serviceOptions>;
 
 /** The options a named service is declared with. */
 export type ServiceOptionsInput = OptionsInput<typeof serviceOptions>;
+
+/** The problem of a service that sets both `url` and `discover`, or neither. */
+export function serviceTargetProblems(name: string, service: { url?: string; discover?: unknown }): string[] {
+  return (service.url === undefined) === (service.discover === undefined) ? [`Invalid http.services.${name}: set url or discover`] : [];
+}
 
 /** The problems of a service's options beyond their schema: more than one authentication method, a lone cert or key. */
 export function serviceProblems(name: string, service: Pick<ServiceOptions, "auth"> & { tls?: ServiceOptions["tls"] }): string[] {

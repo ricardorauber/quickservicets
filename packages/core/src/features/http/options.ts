@@ -14,13 +14,16 @@ export const discoverOptions = object({
     .default("round-robin")
     .describe("How calls spread over the instances: round-robin in order, least-connections by the calls in flight in this worker, or random weighted by the instances' weight."),
   preferZone: boolean().default(true).describe("Picks the instances of the own zone first while one of them is available."),
+  version: string().optional().describe("A semantic version range the instances' versions must satisfy, like ^2 or >=2.1 <3."),
+  prefer: oneOf(["any", "highest"] as const).default("any").describe("Spreads calls over every matching instance (any) or only over those of the highest matching version (highest)."),
+  allowUnversioned: boolean().default(false).describe("Keeps instances without a version among the candidates of a version range."),
 });
 
 export const serviceOptions = object({
   url: url().optional().describe("The service's base URL; call paths are joined to its path, like https://billing.internal/v1. Set this or discover."),
   discover: anyOf(string(), discoverOptions)
     .optional()
-    .describe("Finds the service's instances through the registry native instead of url: a service name, or `{ name, balance, preferZone }`; each attempt goes to one instance."),
+    .describe("Finds the service's instances through the registry native instead of url: a service name (with a version range after @, like billing@^2), or `{ name, balance, preferZone, version, prefer, allowUnversioned }`; each attempt goes to one instance."),
   headers: record(string().describe("The value of the header."))
     .optional()
     .perRequest()

@@ -12,6 +12,10 @@ export interface DiscoverSettings {
   name: string;
   balance: BalanceStrategy;
   preferZone: boolean;
+  /** The version range the instances must satisfy. */
+  version?: string;
+  prefer: "any" | "highest";
+  allowUnversioned: boolean;
 }
 
 /** The host of the placeholder base URL of a discovered service, replaced by an instance's address on each attempt. */
@@ -20,9 +24,15 @@ export const DISCOVERED_HOST = (service: string) => `${service}.discovered.inval
 /** The `discover` option of a service as settings, or undefined without one. */
 export function discoverSettings(discover: unknown): DiscoverSettings | undefined {
   if (discover === undefined || discover === null) return undefined;
-  if (typeof discover === "string") return { name: discover, balance: "round-robin", preferZone: true };
+  if (typeof discover === "string") {
+    // `billing@^2` names the service and a version range.
+    const at = discover.indexOf("@");
+    const name = at === -1 ? discover : discover.slice(0, at);
+    const version = at === -1 ? undefined : discover.slice(at + 1).trim();
+    return { name, balance: "round-robin", preferZone: true, ...(version !== undefined ? { version } : {}), prefer: "any", allowUnversioned: false };
+  }
   const value = discover as Partial<DiscoverSettings>;
-  return { name: String(value.name), balance: value.balance ?? "round-robin", preferZone: value.preferZone ?? true };
+  return { name: String(value.name), balance: value.balance ?? "round-robin", preferZone: value.preferZone ?? true, ...(value.version !== undefined ? { version: value.version } : {}), prefer: value.prefer ?? "any", allowUnversioned: value.allowUnversioned ?? false };
 }
 
 /** How long resolved instances are reused by one worker. */

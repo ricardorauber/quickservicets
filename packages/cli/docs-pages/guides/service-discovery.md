@@ -93,6 +93,18 @@ Calls resolve the instances through the provider, cached for 5 seconds per worke
 
 With `preferZone` (the default) and a `registry.zone`, instances of the same zone are picked first while one of them is available. A retry of the service's `retry` modifier goes to a different instance when there is one, and the `http.call` entries carry the `instance` id. The picked instance's address is the base URL of the call and is trusted by SSRF protection like a service's own host, except the cloud metadata addresses `169.254.169.254` and `fd00:ec2::254`, which stay blocked. Without an available instance the call rejects with `NO_INSTANCES` and `No instances of <name>`, answered 503 `SERVICE_UNAVAILABLE` `Upstream unavailable` with `Retry-After: 5`. Proxy routes with `service` balance across the instances of a discovered service with no further option.
 
+## Versions and canaries
+
+A caller can call only the instances whose version satisfies a semantic version range, so old and new versions run side by side during an upgrade:
+
+```ts
+http: { services: { billing: { discover: "billing@^2" } } },
+```
+
+`discover` takes `name@range` (`billing@^2`, `billing@~2.3`, `billing@>=2.1 <3`), or the object form with `version`, checked at startup: `billing@banana` fails with `Invalid http.services.billing.discover: banana is not a version range`. Only instances whose version satisfies the range (Bun's `semver` rules) are candidates; instances without a version, like DNS ones, are left out unless `allowUnversioned: true`. `prefer: "any"` (the default) spreads calls over every matching instance, and `prefer: "highest"` over only those of the highest matching version. When instances exist but none matches, the call rejects with `NO_INSTANCES` and `No instances of billing match ^4 (found 1.4.0, 2.1.0, 2.3.0)`, listing at most ten versions, answered 503 like any call without an instance.
+
+An instance announces `registry.version`, by default the package version; `QS_REGISTRY_VERSION` sets it at deployment, like a build number, without changing `package.json`.
+
 ## Ejection and panic
 
 Each discovered service takes failing instances out of rotation in the worker that sees the failures, with `outlier` (on by default):

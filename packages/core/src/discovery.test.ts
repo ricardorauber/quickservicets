@@ -44,8 +44,8 @@ describe("options", () => {
     expect(resolve({ registry: {}, http: { services: { billing: { url: "http://b", discover: "billing" } } } })).toThrow("Invalid http.services.billing: set url or discover");
     expect(resolve({ registry: {}, http: { services: { billing: {} } } })).toThrow("Invalid http.services.billing: set url or discover");
     expect(resolve({ http: { services: { billing: { discover: "billing" } } } })).toThrow("http.services.billing.discover needs registry: {} in quickservicets.config.ts");
-    expect(discoverSettings("billing")).toEqual({ name: "billing", balance: "round-robin", preferZone: true });
-    expect(discoverSettings({ name: "billing", balance: "random" })).toEqual({ name: "billing", balance: "random", preferZone: true });
+    expect(discoverSettings("billing")).toEqual({ name: "billing", balance: "round-robin", preferZone: true, prefer: "any", allowUnversioned: false });
+    expect(discoverSettings({ name: "billing", balance: "random" })).toEqual({ name: "billing", balance: "random", preferZone: true, prefer: "any", allowUnversioned: false });
   });
 });
 
@@ -125,7 +125,7 @@ describe("strategies and zones", () => {
 
   test("random follows the weights over 1000 picks within 5%", () => {
     const pool = [instance("a", "http://a", { weight: 1 }), instance("b", "http://b", { weight: 3 })];
-    const settings = { name: "billing", balance: "random" as const, preferZone: true };
+    const settings = { name: "billing", balance: "random" as const, preferZone: true, prefer: "any" as const, allowUnversioned: false };
     let count = 0;
     for (let i = 0; i < 1000; i++) if (pickInstance("weights", settings, pool, new Set())!.id === "b") count++;
     expect(Math.abs(count / 1000 - 0.75)).toBeLessThan(0.05);
@@ -143,7 +143,7 @@ describe("strategies and zones", () => {
     state.instances = [instance("a", a.url, { zone: "a", status: "critical" }), instance("b", b.url, { zone: "b" })];
     now += 5000;
     expect([await from(), await from()]).toEqual(["b", "b"]);
-    expect(candidates(state.instances, { name: "billing", balance: "round-robin", preferZone: false }, "a").map((entry) => entry.id)).toEqual(["b"]);
+    expect(candidates(state.instances, { name: "billing", balance: "round-robin", preferZone: false, prefer: "any", allowUnversioned: false }, "a").map((entry) => entry.id)).toEqual(["b"]);
   });
 });
 

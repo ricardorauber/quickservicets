@@ -9,6 +9,7 @@ import { mockHttp, type HttpMock } from "./mock.ts";
 import { stateOf, withBulkhead, withCircuitBreaker, type BulkheadOptions, type CircuitBreakerOptions, type HttpState } from "./resilience.ts";
 import { maskedUrl, StreamedResponse, streamTransport, transport } from "./transport.ts";
 import type { ServiceTls } from "./service-tls.ts";
+import { matchingInstances, noMatchingVersion } from "./versions.ts";
 import { isFailure, OUTLIER_DEFAULTS, recordOutcome, instanceStates, type OutlierSettings } from "./outlier.ts";
 import { candidates, inFlightOf, knownInstances, DISCOVERED_HOST, discoveredInstances, discoverSettings, METADATA_HOSTS, noInstances, ownZone, pickInstance, rebased, trackInFlight, type DiscoverSettings } from "./discovery.ts";
 
@@ -278,7 +279,10 @@ export async function execute(spec: CallSpec, binding: ClientBinding): Promise<H
 function discoveredSend(service: ServiceSettings, discover: DiscoverSettings, settings: HttpSettings, send: (request: HttpRequest, trustedHost: string | undefined) => Promise<HttpResponse>): (request: HttpRequest) => Promise<HttpResponse> {
   const tried = new Set<string>();
   return async (request) => {
-    const instances = await discoveredInstances(service.name, discover);
+    const resolved = await discoveredInstances(service.name, discover);
+    // A version range keeps only the instances whose version satisfies it.
+    const instances = matchingInstances(resolved, discover.version, discover);
+    if (resolved.length > 0 && instances.length === 0) throw Object.assign(noInstances(discover.name, service.name, request.method, maskedUrl(request.url, settings)), { message: noMatchingVersion(discover.name, discover.version!, resolved) });
     const instance = pickInstance(service.name, discover, candidates(instances, discover, ownZone(), { service: service.name, logger: settings.logger }), tried);
     if (!instance) throw noInstances(discover.name, service.name, request.method, maskedUrl(request.url, settings));
     tried.add(instance.id);

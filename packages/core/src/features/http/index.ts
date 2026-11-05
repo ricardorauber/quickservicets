@@ -6,9 +6,17 @@ import { isModifier } from "./modifiers.ts";
 import { HttpClientError } from "./errors.ts";
 import { httpOptions, serviceOptions, serviceProblems, serviceTargetProblems, type HttpOptions, type ServiceOptions } from "./options.ts";
 import { allowProblems } from "./ssrf.ts";
-import { resetDiscovery } from "./discovery.ts";
+import { discoverSettings, resetDiscovery } from "./discovery.ts";
+import { invalidRange, isVersionRange } from "./versions.ts";
 import { resetOutliers } from "./outlier.ts";
 import { startProbes } from "./probe.ts";
+
+/** The problem of a `discover` option whose version range is not one. */
+function rangeProblems(name: string, discover: unknown): string[] {
+  const settings = discoverSettings(discover);
+  if (settings?.version === undefined) return [];
+  return isVersionRange(settings.version) ? [] : [invalidRange(name, settings.version)];
+}
 
 /** Whether a config (with its environment applied) turns the registry native on. */
 function registryEnabled(config: Readonly<Record<string, unknown>>): boolean {
@@ -80,6 +88,7 @@ const httpFeature = defineFeature({
       ...serviceProblems(name, service),
       // Discovered services find their instances through the registry native.
       ...(service.discover !== undefined && !registryEnabled(config) ? [`http.services.${name}.discover needs registry: {} in quickservicets.config.ts`] : []),
+      ...rangeProblems(name, service.discover),
     ]),
   ],
   setup(ctx) {
@@ -231,3 +240,4 @@ export { instanceStates, isFailure, onInstanceEjected, OUTLIER_DEFAULTS, recordO
 export type { InstanceEjection, InstanceState, OutlierSettings } from "./outlier.ts";
 export { startProbes } from "./probe.ts";
 export type { ProbeSettings } from "./probe.ts";
+export { invalidRange, isVersionRange, matchingInstances, noMatchingVersion } from "./versions.ts";

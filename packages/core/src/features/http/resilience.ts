@@ -36,6 +36,8 @@ export interface HttpState {
   failures: number;
   inFlight: number;
   waiting: number;
+  /** The instances of a discovered service this worker knows, with their ejection state. */
+  instances?: { id: string; address: string; state: "ok" | "ejected" | "critical"; inFlight: number; failures: number; ejectedUntil?: Date }[];
 }
 
 interface Circuit {

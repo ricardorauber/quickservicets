@@ -7,6 +7,8 @@ import { HttpClientError } from "./errors.ts";
 import { httpOptions, serviceOptions, serviceProblems, serviceTargetProblems, type HttpOptions, type ServiceOptions } from "./options.ts";
 import { allowProblems } from "./ssrf.ts";
 import { resetDiscovery } from "./discovery.ts";
+import { resetOutliers } from "./outlier.ts";
+import { startProbes } from "./probe.ts";
 
 /** Whether a config (with its environment applied) turns the registry native on. */
 function registryEnabled(config: Readonly<Record<string, unknown>>): boolean {
@@ -126,10 +128,16 @@ const httpFeature = defineFeature({
     setContextHttp(contextClient);
     // Discovered services resolve their instances afresh in each running service.
     resetDiscovery();
+    resetOutliers();
+    let stopProbes: (() => void) | undefined;
+    // The worker that runs scheduled work probes the instances of services with probe enabled.
+    if (ctx.worker.runsScheduledWork) ctx.app.onStart(() => void (stopProbes = startProbes(settings.services.values(), ctx.logger)));
     ctx.app.onStop(() => {
+      stopProbes?.();
       if (running.current === settings) running.current = undefined;
       setContextHttp(undefined);
       resetDiscovery();
+      resetOutliers();
     });
     // An outgoing call that fails and escapes a handler answers 502, or 504 for a timeout, instead of 500.
     const middleware: ErrorMiddleware = {
@@ -219,3 +227,7 @@ export type { TestResolverMap } from "./ssrf.ts";
 export type { HttpClientErrorCode, HttpClientErrorInit } from "./errors.ts";
 export { candidates, DISCOVERED_HOST, DISCOVERY_CACHE_MS, discoveredInstances, discoverSettings, inFlightOf, METADATA_HOSTS, noInstances, pickInstance, rebased, resetDiscovery, setDiscoveryRandom } from "./discovery.ts";
 export type { BalanceStrategy, DiscoverSettings } from "./discovery.ts";
+export { instanceStates, isFailure, onInstanceEjected, OUTLIER_DEFAULTS, recordOutcome, resetOutliers, setOutlierClock } from "./outlier.ts";
+export type { InstanceEjection, InstanceState, OutlierSettings } from "./outlier.ts";
+export { startProbes } from "./probe.ts";
+export type { ProbeSettings } from "./probe.ts";

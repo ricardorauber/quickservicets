@@ -9,7 +9,8 @@ import { mockHttp, type HttpMock } from "./mock.ts";
 import { stateOf, withBulkhead, withCircuitBreaker, type BulkheadOptions, type CircuitBreakerOptions, type HttpState } from "./resilience.ts";
 import { maskedUrl, StreamedResponse, streamTransport, transport } from "./transport.ts";
 import type { ServiceTls } from "./service-tls.ts";
-import { candidates, DISCOVERED_HOST, discoveredInstances, discoverSettings, METADATA_HOSTS, noInstances, ownZone, pickInstance, rebased, trackInFlight, type DiscoverSettings } from "./discovery.ts";
+import { isFailure, OUTLIER_DEFAULTS, recordOutcome, instanceStates, type OutlierSettings } from "./outlier.ts";
+import { candidates, inFlightOf, knownInstances, DISCOVERED_HOST, discoveredInstances, discoverSettings, METADATA_HOSTS, noInstances, ownZone, pickInstance, rebased, trackInFlight, type DiscoverSettings } from "./discovery.ts";
 
 /** A raw request body. */
 export type HttpBody = string | Uint8Array | ArrayBuffer | Blob | ReadableStream<Uint8Array> | URLSearchParams | FormData;
@@ -278,15 +279,21 @@ function discoveredSend(service: ServiceSettings, discover: DiscoverSettings, se
   const tried = new Set<string>();
   return async (request) => {
     const instances = await discoveredInstances(service.name, discover);
-    const instance = pickInstance(service.name, discover, candidates(instances, discover, ownZone()), tried);
+    const instance = pickInstance(service.name, discover, candidates(instances, discover, ownZone(), { service: service.name, logger: settings.logger }), tried);
     if (!instance) throw noInstances(discover.name, service.name, request.method, maskedUrl(request.url, settings));
     tried.add(instance.id);
     const url = rebased(request.url, instance.address, service.name);
     const host = new URL(instance.address).host.toLowerCase();
     const trusted = METADATA_HOSTS.includes(new URL(instance.address).hostname.replace(/^\[|\]$/g, "").toLowerCase()) ? undefined : host;
     const done = trackInFlight(service.name, instance);
+    const outlier = (service.outlier ?? OUTLIER_DEFAULTS) as OutlierSettings;
     try {
-      return await send({ ...request, url, instance: instance.id }, trusted);
+      const response = await send({ ...request, url, instance: instance.id }, trusted);
+      recordOutcome(service.name, instance, isFailure({ status: response.status }), instances, outlier, settings.logger);
+      return response;
+    } catch (error) {
+      recordOutcome(service.name, instance, isFailure({ code: (error as { code?: string })?.code }), instances, outlier, settings.logger);
+      throw error;
     } finally {
       done();
     }
@@ -725,9 +732,16 @@ export interface Http extends HttpMethods {
   mock(): HttpMock;
 }
 
+/** `http.state(name)`: the circuit and bulkhead state, with the instances of a discovered service this worker knows. */
+function discoveredStateOf(name: string): HttpState {
+  const state = stateOf(name);
+  const known = knownInstances(name);
+  return known ? { ...state, instances: instanceStates(name, known, (id) => inFlightOf(name, id)) } : state;
+}
+
 /** A client bound to `binding`. */
 export function clientOf(binding: ClientBinding): Http {
-  return { ...methodsOf(binding), service: (name) => serviceMethodsOf(name, binding), state: stateOf, mock: mockHttp };
+  return { ...methodsOf(binding), service: (name) => serviceMethodsOf(name, binding), state: discoveredStateOf, mock: mockHttp };
 }
 
 const created = sharedState("request-clients", () => ({ count: 0 }));

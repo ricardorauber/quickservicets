@@ -539,6 +539,8 @@ export { realtimeFeature } from "./features/realtime/index.ts";
 export type { ChangeDelivery, ChangeSend, ChangeSource, ForeignConnection, ForeignSocket, ForeignSockets, RealtimeApi } from "./features/realtime/index.ts";
 export { consoleReporter, errorsFeature, setSamplingRandom } from "./features/errors/index.ts";
 export type { ErrorsApi } from "./features/errors/index.ts";
+export { onInstanceEjected, setOutlierClock } from "./features/http/index.ts";
+export type { InstanceEjection, InstanceState, OutlierSettings, ProbeSettings } from "./features/http/index.ts";
 export { candidates as discoveryCandidates, DISCOVERED_HOST, DISCOVERY_CACHE_MS, discoveredInstances, discoverSettings, METADATA_HOSTS, pickInstance, rebased, setDiscoveryRandom } from "./features/http/index.ts";
 export type { BalanceStrategy, DiscoverSettings } from "./features/http/index.ts";
 export { defineModifier, http, HttpClientError, httpFeature, HttpRequestBuilder, joinPath, serviceUrl, ssrfProblem, streamCall, withBulkhead, withCache, withCircuitBreaker, withRetry } from "./features/http/index.ts";

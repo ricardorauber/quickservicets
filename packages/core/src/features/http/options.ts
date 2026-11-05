@@ -43,6 +43,21 @@ export const serviceOptions = object({
     .optional()
     .perRequest()
     .describe("How calls to the service authenticate: one of bearer, basic or apiKey; a function of the call context (req, user, tenant and service) computes it on each call."),
+  outlier: toggle({
+    failures: integer().min(1).default(5).describe("Failed attempts in a row (5xx, NETWORK, TIMEOUT; never 4xx) that eject an instance."),
+    ejection: duration().default("30s").describe("How long an instance is ejected the first time, doubled for each further ejection."),
+    maxEjection: duration().default("5m").describe("The longest ejection."),
+    maxEjectedPercent: integer().min(0).max(100).default(50).describe("The most instances ejected at once, as a percentage rounded down, at least one instance kept."),
+  })
+    .default(true)
+    .describe("Takes a discovered service's failing instances out of rotation in this worker."),
+  probe: toggle({
+    path: string().default("/health/ready").describe("The path requested on each instance."),
+    interval: duration().default("10s").describe("How often each instance is probed."),
+    timeout: duration().default("2s").describe("How long a probe may take before it counts as a failure."),
+  })
+    .default(false)
+    .describe("Requests a discovered service's instances' probe path from the worker that runs scheduled work, counting non-2xx answers and errors as failures."),
   timeout: duration().optional().describe("The timeout of calls to the service, instead of http.timeout."),
   propagate: list(oneOf(["user", "tenant", "authorization"]))
     .default([])

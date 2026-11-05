@@ -44,6 +44,15 @@ It is enabled by default; turn it off with `http: false` or `QS_HTTP_ENABLED=fal
 | `http.services.<name>.auth.basic.password` | `record of string` | — | `QS_HTTP_SERVICES_<NAME>_AUTH_BASIC_PASSWORD` | no | The password. |
 | `http.services.<name>.auth.apiKey.header` | `record of string` | `"x-api-key"` | `QS_HTTP_SERVICES_<NAME>_AUTH_API_KEY_HEADER` | no | The header that carries the key. |
 | `http.services.<name>.auth.apiKey.value` | `record of string` | — | `QS_HTTP_SERVICES_<NAME>_AUTH_API_KEY_VALUE` | no | The key. |
+| `http.services.<name>.outlier.enabled` | `record of boolean` | `true` | `QS_HTTP_SERVICES_<NAME>_OUTLIER_ENABLED` | no | Takes a discovered service's failing instances out of rotation in this worker. Turns it off when false. |
+| `http.services.<name>.outlier.failures` | `record of integer` | `5` | `QS_HTTP_SERVICES_<NAME>_OUTLIER_FAILURES` | no | Failed attempts in a row (5xx, NETWORK, TIMEOUT; never 4xx) that eject an instance. |
+| `http.services.<name>.outlier.ejection` | `record of duration` | `"30s"` | `QS_HTTP_SERVICES_<NAME>_OUTLIER_EJECTION` | no | How long an instance is ejected the first time, doubled for each further ejection. |
+| `http.services.<name>.outlier.maxEjection` | `record of duration` | `"5m"` | `QS_HTTP_SERVICES_<NAME>_OUTLIER_MAX_EJECTION` | no | The longest ejection. |
+| `http.services.<name>.outlier.maxEjectedPercent` | `record of integer` | `50` | `QS_HTTP_SERVICES_<NAME>_OUTLIER_MAX_EJECTED_PERCENT` | no | The most instances ejected at once, as a percentage rounded down, at least one instance kept. |
+| `http.services.<name>.probe.enabled` | `record of boolean` | `true` | `QS_HTTP_SERVICES_<NAME>_PROBE_ENABLED` | no | Requests a discovered service's instances' probe path from the worker that runs scheduled work, counting non-2xx answers and errors as failures. Turns it off when false. |
+| `http.services.<name>.probe.path` | `record of string` | `"/health/ready"` | `QS_HTTP_SERVICES_<NAME>_PROBE_PATH` | no | The path requested on each instance. |
+| `http.services.<name>.probe.interval` | `record of duration` | `"10s"` | `QS_HTTP_SERVICES_<NAME>_PROBE_INTERVAL` | no | How often each instance is probed. |
+| `http.services.<name>.probe.timeout` | `record of duration` | `"2s"` | `QS_HTTP_SERVICES_<NAME>_PROBE_TIMEOUT` | no | How long a probe may take before it counts as a failure. |
 | `http.services.<name>.timeout` | `record of duration` | — | `QS_HTTP_SERVICES_<NAME>_TIMEOUT` | no | The timeout of calls to the service, instead of http.timeout. |
 | `http.services.<name>.propagate` | `record of ("user" \| "tenant" \| "authorization")[]` | `[]` | `QS_HTTP_SERVICES_<NAME>_PROPAGATE` | no | What calls through req.http carry from the request: user sends x-user-id, tenant sends x-tenant-id, authorization forwards the incoming authorization header. |
 | `http.services.<name>.log` | `record of "all" \| "errors" \| "off"` | — | `QS_HTTP_SERVICES_<NAME>_LOG` | no | Which calls to the service write http.call entries, instead of http.log. |

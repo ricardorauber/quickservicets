@@ -93,6 +93,28 @@ Calls resolve the instances through the provider, cached for 5 seconds per worke
 
 With `preferZone` (the default) and a `registry.zone`, instances of the same zone are picked first while one of them is available. A retry of the service's `retry` modifier goes to a different instance when there is one, and the `http.call` entries carry the `instance` id. The picked instance's address is the base URL of the call and is trusted by SSRF protection like a service's own host, except the cloud metadata addresses `169.254.169.254` and `fd00:ec2::254`, which stay blocked. Without an available instance the call rejects with `NO_INSTANCES` and `No instances of <name>`, answered 503 `SERVICE_UNAVAILABLE` `Upstream unavailable` with `Retry-After: 5`. Proxy routes with `service` balance across the instances of a discovered service with no further option.
 
+## Ejection and panic
+
+Each discovered service takes failing instances out of rotation in the worker that sees the failures, with `outlier` (on by default):
+
+```ts
+http: { services: { billing: { discover: "billing", outlier: { failures: 5, ejection: "30s", maxEjection: "5m", maxEjectedPercent: 50 } } } },
+```
+
+After `failures` failed attempts in a row (5xx answers, `NETWORK` and `TIMEOUT`, never 4xx), an instance is ejected for `ejection`, doubled for each further ejection up to `maxEjection`. It returns after its ejection time; its next failure ejects it again and its next success resets the count. No more than `maxEjectedPercent` of a service's instances are ejected at once (rounded down, at least one kept). When every remaining instance is ejected or `critical`, calls use all known instances and log `registry.panic` at most once a minute, because sending to possibly failing instances beats failing every call. Ejections log `registry.instance.ejected` with `service`, `instance`, `failures` and `until`, and returns log `registry.instance.restored`.
+
+`http.state("billing").instances` lists the instances this worker knows: `{ id, address, state: "ok" | "ejected" | "critical", inFlight, failures, ejectedUntil? }`.
+
+## Active probes
+
+With `probe`, the worker that runs scheduled work requests each instance's probe path every `interval`:
+
+```ts
+http: { services: { billing: { discover: "billing", probe: { path: "/health/ready", interval: "10s", timeout: "2s" } } } },
+```
+
+A non-2xx answer or an error counts as a failure and a success as recovery, so an instance whose ready route answers 503 is ejected before any call fails. The results are kept by the probing process, which every call of that process reads; with several workers, the other workers learn of failing instances from their own calls.
+
 ## Providers
 
 A registry server plugs in as a `RegistryProvider`:

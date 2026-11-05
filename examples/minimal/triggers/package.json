@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "quickservicets build",
+    "build:lambda": "quickservicets build --target lambda",
     "test": "bun test tests"
   },
   "dependencies": {

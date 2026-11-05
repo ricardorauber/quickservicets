@@ -1115,3 +1115,23 @@ Every option, tag, command and hook of `triggers` is on [its reference page](/re
 | `triggers.pollBackoff.max` | `duration` | `"30s"` | `QS_TRIGGERS_POLL_BACKOFF_MAX` | The longest delay before a failed poll starts again. |
 | `triggers.enabled` | `boolean` | `true` | `QS_TRIGGERS_ENABLED` | Turns the feature off when false. |
 | `triggers.database` | `string` | — | `QS_TRIGGERS_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
+
+### `registry`
+
+Service registration and discovery: instances register when ready, keep their entry alive with heartbeats and leave before they stop serving.
+
+Every option, tag, command and hook of `registry` is on [its reference page](/reference/features/registry/).
+
+| Key | Type | Default | Environment variable | Description |
+| --- | --- | --- | --- | --- |
+| `registry.name` | `string` | — | `QS_REGISTRY_NAME` | The service name the instance registers under (default: deploy.name, then the package name without its scope). |
+| `registry.version` | `string` | — | `QS_REGISTRY_VERSION` | The version the instance announces (default: the package version). |
+| `registry.address` | `url` | — | `QS_REGISTRY_ADDRESS` | The base URL other services call the instance at (default: http with the machine's first non-loopback address and the server port). |
+| `registry.metadata.<name>` | `record of string` | — | `QS_REGISTRY_METADATA_<NAME>` | A metadata value. |
+| `registry.zone` | `string` | — | `QS_REGISTRY_ZONE` | The zone the instance runs in, preferred by callers in the same zone. |
+| `registry.provider` | `"static" \| "dns"` | `"static"` | `QS_REGISTRY_PROVIDER` | The built-in provider: static (instances listed in the config; registering does nothing) or dns (instances from DNS records). |
+| `registry.register` | `boolean` | `true` | `QS_REGISTRY_REGISTER` | Registers the instance once it started, keeps it alive with heartbeats and deregisters it on shutdown. |
+| `registry.heartbeat` | `duration` | `"10s"` | `QS_REGISTRY_HEARTBEAT` | How often the instance's entry is renewed with its status. |
+| `registry.ttl` | `duration` | `"30s"` | `QS_REGISTRY_TTL` | How long a registry keeps the entry without a heartbeat. |
+| `registry.enabled` | `boolean` | `true` | `QS_REGISTRY_ENABLED` | Turns the feature off when false. |
+| `registry.database` | `string` | — | `QS_REGISTRY_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |

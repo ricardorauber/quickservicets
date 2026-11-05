@@ -55,7 +55,8 @@ Other features reach it with `ctx.feature("health")` in their setup, listing `he
 check(name: string, fn: (input: HealthCheckInput) => unknown | Promise<unknown>, options?: HealthCheckOptions): void;
 ```
 
-Adds a readiness check named `<key>.<name>` after the calling feature's key, from its setup only; startup fails
+Adds a readiness check named `<key>.<name>` after the calling feature's key (`<key>` alone when the name is the
+key), from its setup only; startup fails
 with `Health check <name> is defined by <owner> and <owner>` when the name is taken.
 
 ### `run`

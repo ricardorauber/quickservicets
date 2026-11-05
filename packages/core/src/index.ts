@@ -362,6 +362,7 @@ import secretsNative, { type SecretRotation, type SecretsApi } from "./features/
 import devNative, { type DevApi } from "./features/dev/index.ts";
 import deployNative, { type DeployApi } from "./features/deploy/index.ts";
 import connectionsNative, { type ConnectionsApi } from "./features/connections/index.ts";
+import registryNative, { type RegistryApi } from "./features/registry/index.ts";
 import triggersNative, { type TriggerFailureEvent as TriggerFailure, type TriggersApi } from "./features/triggers/index.ts";
 import webhooksNative, { type WebhookDeliveryEvent, type WebhookSubscriptionDisabledEvent, type WebhooksSetupApi } from "./features/webhooks/index.ts";
 import type { SecretReference as RequestSecretReference } from "./secret-references.ts";
@@ -388,6 +389,9 @@ registerShippedNative(devNative);
 registerShippedNative(deployNative);
 registerShippedNative(connectionsNative);
 registerShippedNative(triggersNative);
+registerShippedNative(registryNative);
+export { currentRegistryProvider, firstAddress, MAX_REGISTER_RETRY_MS, ownInstance, registryFeature, setRegistryClock, staticProvider, statusOfReadiness } from "./features/registry/index.ts";
+export type { InstanceStatus, RegistryApi, RegistryOptions, RegistryProvider, ServiceInstance } from "./features/registry/index.ts";
 export { effectiveOptions as effectiveTriggerOptions, TRIGGER_OVERRIDE_VARIABLE, triggerVariableName, CLOUDEVENTS_KIND, cloudEvents, cloudEventsSource, GOOGLE_ISSUER, invalidCloudEvent, invalidEventCredentials, matchesPattern, OIDC_KEYS_TTL_MS, pushPath, requestEvents, structuredEvent, verifyOidcToken, checkpointStore, isTriggerDiscard, partitionOf, retryDelayMs, skippedAfterFailure, TriggerDiscard, dispatchPlatformEvent, duplicateSource, MISSING_CHECKPOINTS, setTriggersClock, startPoller, targetPolls, triggerCheckpointEntity, isTriggerDefinition, missingSource, overallStatus, runTriggerEvents, TEST_SOURCE_KIND, testDelivery, testSource, testTriggerSource, trigger, TRIGGER_DEFAULTS, triggersFeature, triggerSources, triggerTimedOut } from "./features/triggers/index.ts";
 export type { AfterHandle as TriggerAfterHandle, BeforeHandle as TriggerBeforeHandle, TriggerFailed, CloudEventsAuth, CloudEventsOptions, CloudEventsRef, KeyLoader, TriggerFailureEvent, CheckpointStoreOptions, ClaimedPartition, PollAcknowledgments, Poller, PollerInput, TriggerCheckpoints, TriggerPollContext, DispatchOptions, EmitTriggerOptions, ResolvedTriggerOptions, TestDelivery, TestEventInput, TestSourceRef, TriggerContext, TriggerDataOf, TriggerDefinition, TriggerDispatch, TriggerEmission, TriggerEvent, TriggerHandler, TriggerInput, TriggerName, TriggerNames, TriggerOptions, TriggerOutcome, TriggersApi, TriggerSource, TriggerSourceHints, TriggerSourceRef, TriggerStatus } from "./features/triggers/index.ts";
 export { budgetWarning, connectionsFeature, directConnectionNeeded, poolSettingsFor, proxyProblems, proxySettings, RDS_PROXY_TLS, resolveConnectionMode, SERVERLESS_DEFAULTS, SERVERLESS_TARGETS, sessionFeatures } from "./features/connections/index.ts";
@@ -659,6 +663,8 @@ declare module "./features.ts" {
     connections?: NativeConfig<typeof connectionsNative>;
     /** Trigger files that react to cloud events through registered sources; see the `triggers` reference page. */
     triggers?: NativeConfig<typeof triggersNative>;
+    /** Service registration and discovery; see the `registry` reference page. */
+    registry?: NativeConfig<typeof registryNative>;
   }
   interface FeatureApis {
     events: EventsApi;
@@ -680,6 +686,7 @@ declare module "./features.ts" {
     deploy: DeployApi;
     connections: ConnectionsApi;
     triggers: TriggersApi;
+    registry: RegistryApi;
   }
 }
 

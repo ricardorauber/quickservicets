@@ -24,6 +24,7 @@ Local environment and deployment:
 - [Deploy targets](/guides/deploy-targets/)
 - [Serverless connections](/guides/serverless-connections/)
 - [Cloud triggers](/guides/cloud-triggers/)
+- [Service discovery](/guides/service-discovery/)
 
 Integrations:
 

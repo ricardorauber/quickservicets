@@ -67,6 +67,7 @@ const PAGES = [
   "guides/deploy-targets.md",
   "guides/serverless-connections.md",
   "guides/cloud-triggers.md",
+  "guides/service-discovery.md",
   "reference/index.md",
   "reference/tags.mdx",
   "reference/config.mdx",

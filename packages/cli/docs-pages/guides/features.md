@@ -40,6 +40,7 @@ export default defineConfig({
 | `deploy` | Deploy targets: `quickservicets build --target` writes the deployable output for a server, a binary, AWS Lambda, Azure Functions or Google Cloud Run; acts only at build time | by default | — | [Deploy targets](/guides/deploy-targets/) | [deploy](/reference/features/deploy/) |
 | `connections` | Connection pool sizes for servers and functions: small, lazy pools on function targets, the adapters' pools on servers, with a budget warning | by default | — | [Serverless connections](/guides/serverless-connections/) | [connections](/reference/features/connections/) |
 | `triggers` | Trigger files in `triggers/` that react to cloud events (bucket objects, cloud queue messages, change feeds) through registered sources, with the repositories like jobs | by its key | — | [Cloud triggers](/guides/cloud-triggers/) | [triggers](/reference/features/triggers/) |
+| `registry` | Service registration and discovery: instances register when ready, keep their entry alive with heartbeats and leave before they stop serving | by its key | — | [Service discovery](/guides/service-discovery/) | [registry](/reference/features/registry/) |
 
 The infrastructure natives (`tenancy`, `auth`, `metrics`, `proxy`, `secrets` and the WebSocket part of `realtime`) shape how the service runs rather than what an entity does; mTLS is an item of `security` with its own [mTLS guide](/guides/mtls/).
 

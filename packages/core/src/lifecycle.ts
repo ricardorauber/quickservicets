@@ -133,20 +133,23 @@ export interface FeatureSetupContext<O = Record<string, unknown>> {
 }
 
 const shutdownSignalListeners = new Set<() => void>();
+const firstShutdownSignalListeners = new Set<() => void>();
 const startedListeners = new Set<() => void>();
 
 /**
  * Calls `fn` as soon as a shutdown signal arrives, before any `onShutdown` callback runs, so a feature can stop
  * advertising readiness first; returns a function that removes it.
  */
-export function onShutdownSignal(fn: () => void): () => void {
-  shutdownSignalListeners.add(fn);
-  return () => void shutdownSignalListeners.delete(fn);
+export function onShutdownSignal(fn: () => void, options: { first?: boolean } = {}): () => void {
+  // `first` listeners run before every other one, like a deregistration that must precede draining.
+  const listeners = options.first ? firstShutdownSignalListeners : shutdownSignalListeners;
+  listeners.add(fn);
+  return () => void listeners.delete(fn);
 }
 
 /** Tells the `onShutdownSignal` listeners that a shutdown started; the service calls it first when it stops. */
 export function notifyShutdownSignal(): void {
-  for (const fn of [...shutdownSignalListeners]) {
+  for (const fn of [...firstShutdownSignalListeners, ...shutdownSignalListeners]) {
     try {
       fn();
     } catch {

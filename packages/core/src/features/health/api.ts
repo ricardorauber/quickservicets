@@ -51,7 +51,8 @@ export interface HealthStatusChangedEvent {
 /** The feature API of `health`, reached with `ctx.feature("health")` from a feature that lists `health` in `requires` or `after`. */
 export interface HealthApi {
   /**
-   * Adds a readiness check named `<key>.<name>` after the calling feature's key, from its setup only; startup fails
+   * Adds a readiness check named `<key>.<name>` after the calling feature's key (`<key>` alone when the name is the
+   * key), from its setup only; startup fails
    * with `Health check <name> is defined by <owner> and <owner>` when the name is taken.
    */
   check(name: string, fn: (input: HealthCheckInput) => unknown | Promise<unknown>, options?: HealthCheckOptions): void;

@@ -207,7 +207,8 @@ const healthFeature = defineFeature({
       const caller = ctx.currentFeature();
       if (!registry.open || !caller) throw new Error("health check() is only available during the setup of a feature");
       if (typeof fn !== "function") throw new Error(`Health check ${name} of ${caller} needs a function`);
-      register(name, caller, { critical: options.critical ?? true, timeout: options.timeout ?? ctx.options.timeout, run: fn }, `${caller}.${name}`);
+      // A check named after the feature itself is shown by the feature's key alone.
+      register(name, caller, { critical: options.critical ?? true, timeout: options.timeout ?? ctx.options.timeout, run: fn }, name === caller ? caller : `${caller}.${name}`);
     },
     run: () => runHealthChecks(),
     addHook: ctx.addHook as HealthApi["addHook"],

@@ -25,3 +25,4 @@
 | [`deploy`](/reference/features/deploy/) | Deploy targets: `quickservicets build --target <target>` writes the deployable output for a server, a binary, AWS Lambda, Azure Functions or Google Cloud Run. | yes |
 | [`connections`](/reference/features/connections/) | Connection pool sizes for servers and functions: small, lazy pools on function targets, the adapters' pools on servers, with a budget warning. | yes |
 | [`triggers`](/reference/features/triggers/) | Trigger files in triggers/ that react to cloud events through registered sources, with the repositories like jobs. | no |
+| [`registry`](/reference/features/registry/) | Service registration and discovery: instances register when ready, keep their entry alive with heartbeats and leave before they stop serving. | no |

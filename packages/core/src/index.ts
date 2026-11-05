@@ -362,7 +362,7 @@ import secretsNative, { type SecretRotation, type SecretsApi } from "./features/
 import devNative, { type DevApi } from "./features/dev/index.ts";
 import deployNative, { type DeployApi } from "./features/deploy/index.ts";
 import connectionsNative, { type ConnectionsApi } from "./features/connections/index.ts";
-import triggersNative, { type TriggersApi } from "./features/triggers/index.ts";
+import triggersNative, { type TriggerFailureEvent as TriggerFailure, type TriggersApi } from "./features/triggers/index.ts";
 import webhooksNative, { type WebhookDeliveryEvent, type WebhookSubscriptionDisabledEvent, type WebhooksSetupApi } from "./features/webhooks/index.ts";
 import type { SecretReference as RequestSecretReference } from "./secret-references.ts";
 import type { RequestPlatform } from "./service-handler.ts";
@@ -388,8 +388,8 @@ registerShippedNative(devNative);
 registerShippedNative(deployNative);
 registerShippedNative(connectionsNative);
 registerShippedNative(triggersNative);
-export { checkpointStore, dispatchPlatformEvent, duplicateSource, MISSING_CHECKPOINTS, setTriggersClock, startPoller, targetPolls, triggerCheckpointEntity, isTriggerDefinition, missingSource, overallStatus, runTriggerEvents, TEST_SOURCE_KIND, testDelivery, testSource, testTriggerSource, trigger, TRIGGER_DEFAULTS, triggersFeature, triggerSources, triggerTimedOut } from "./features/triggers/index.ts";
-export type { CheckpointStoreOptions, ClaimedPartition, PollAcknowledgments, Poller, PollerInput, TriggerCheckpoints, TriggerPollContext, DispatchOptions, EmitTriggerOptions, ResolvedTriggerOptions, TestDelivery, TestEventInput, TestSourceRef, TriggerContext, TriggerDataOf, TriggerDefinition, TriggerDispatch, TriggerEmission, TriggerEvent, TriggerHandler, TriggerInput, TriggerName, TriggerNames, TriggerOptions, TriggerOutcome, TriggersApi, TriggerSource, TriggerSourceHints, TriggerSourceRef, TriggerStatus } from "./features/triggers/index.ts";
+export { checkpointStore, isTriggerDiscard, partitionOf, retryDelayMs, skippedAfterFailure, TriggerDiscard, dispatchPlatformEvent, duplicateSource, MISSING_CHECKPOINTS, setTriggersClock, startPoller, targetPolls, triggerCheckpointEntity, isTriggerDefinition, missingSource, overallStatus, runTriggerEvents, TEST_SOURCE_KIND, testDelivery, testSource, testTriggerSource, trigger, TRIGGER_DEFAULTS, triggersFeature, triggerSources, triggerTimedOut } from "./features/triggers/index.ts";
+export type { TriggerFailureEvent, CheckpointStoreOptions, ClaimedPartition, PollAcknowledgments, Poller, PollerInput, TriggerCheckpoints, TriggerPollContext, DispatchOptions, EmitTriggerOptions, ResolvedTriggerOptions, TestDelivery, TestEventInput, TestSourceRef, TriggerContext, TriggerDataOf, TriggerDefinition, TriggerDispatch, TriggerEmission, TriggerEvent, TriggerHandler, TriggerInput, TriggerName, TriggerNames, TriggerOptions, TriggerOutcome, TriggersApi, TriggerSource, TriggerSourceHints, TriggerSourceRef, TriggerStatus } from "./features/triggers/index.ts";
 export { budgetWarning, connectionsFeature, directConnectionNeeded, poolSettingsFor, proxyProblems, proxySettings, RDS_PROXY_TLS, resolveConnectionMode, SERVERLESS_DEFAULTS, SERVERLESS_TARGETS, sessionFeatures } from "./features/connections/index.ts";
 export { checkDatabases, redactCredentials, type DatabaseCheckResult } from "./features/connections/check.ts";
 export { bunSqlExecutor, executorClient, missingCapability, withSignal } from "./sql-executor.ts";
@@ -576,6 +576,10 @@ declare module "./event-types.ts" {
     "webhook.delivery.failed": WebhookDeliveryEvent;
     /** A webhook subscription was disabled, after a 410 or after failing for longer than delivery.disableAfter. */
     "webhook.subscription.disabled": WebhookSubscriptionDisabledEvent;
+    /** An attempt of a trigger event failed; emitted by the `triggers` native while `events` is enabled, never with the event's data. */
+    "trigger.event.failed": TriggerFailure;
+    /** A polled trigger event failed its last attempt and was dead-lettered or acknowledged. */
+    "trigger.event.dead": TriggerFailure;
   }
 }
 

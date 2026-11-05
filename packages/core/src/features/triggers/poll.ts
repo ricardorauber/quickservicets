@@ -1,4 +1,4 @@
-import { safeLog, type JobClock, type JobLogFields, type JobLogger, type Logger } from "../public.ts";
+import { parseDuration, safeLog, type JobClock, type JobLogFields, type JobLogger, type Logger } from "../public.ts";
 import type { TriggerCheckpoints } from "./checkpoints.ts";
 import type { TriggerEvent, TriggerOutcome, TriggerSource } from "./source.ts";
 import type { TriggerDefinition } from "./trigger.ts";
@@ -7,8 +7,13 @@ import type { TriggerDefinition } from "./trigger.ts";
 export interface PollAcknowledgments {
   /** Called for an event that completed or was discarded, so the source deletes or commits it. */
   ack?(outcome: TriggerOutcome): unknown | Promise<unknown>;
-  /** Called for an event that failed, so the source makes it visible again or retries it. */
-  nack?(outcome: TriggerOutcome): unknown | Promise<unknown>;
+  /**
+   * Called for an event that failed with attempts left, so the source delivers it again after `retryInMs` (like a
+   * visibility timeout); the next delivery carries the next `attempt`.
+   */
+  nack?(outcome: TriggerOutcome, retry: { retryInMs: number }): unknown | Promise<unknown>;
+  /** Moves an event that failed its last attempt to the source's dead letters; without it the event is acknowledged. */
+  deadLetter?(outcome: TriggerOutcome): unknown | Promise<unknown>;
 }
 
 /** What a source's `poll(ref, ctx)` receives. */
@@ -33,6 +38,10 @@ export interface PollerInput {
   source: TriggerSource;
   /** Runs the trigger on events. */
   run(events: readonly TriggerEvent[]): Promise<TriggerOutcome[]>;
+  /** Called for an event that failed its last attempt, after it was dead-lettered or acknowledged. */
+  onDead?(outcome: TriggerOutcome, event: TriggerEvent): void | Promise<void>;
+  /** The random numbers of the retry jitter (default `Math.random`). */
+  random?: () => number;
   checkpoints(): TriggerCheckpoints;
   logger: Logger;
   clock: JobClock;
@@ -46,6 +55,18 @@ export interface Poller {
   stop(): void;
   /** Resolves once the handlers running now finished, or after `graceMs`. */
   drain(graceMs: number): Promise<void>;
+}
+
+/** The longest delay before a retry of a polled event. */
+export const MAX_RETRY_DELAY_MS = 3_600_000;
+
+/**
+ * The delay before retrying a polled event after its failed `attempt`: `retryDelay × 2^(attempt − 1)`, at most 1 hour,
+ * with ±10% jitter.
+ */
+export function retryDelayMs(retryDelay: string, attempt: number, random: () => number = Math.random): number {
+  const base = Math.min((parseDuration(retryDelay) ?? 10_000) * 2 ** Math.max(0, attempt - 1), MAX_RETRY_DELAY_MS);
+  return Math.max(0, Math.round(base * (1 + (random() * 2 - 1) * 0.1)));
 }
 
 /**
@@ -64,9 +85,22 @@ export function startPoller(input: PollerInput): Poller {
     async emit(events, acknowledgments = {}) {
       const work = (async () => {
         const outcomes = await input.run(events);
+        const byId = new Map(events.map((event) => [event.id, event]));
         for (const outcome of outcomes) {
-          const acknowledge = outcome.status === "failed" ? acknowledgments.nack : acknowledgments.ack;
-          if (acknowledge) await acknowledge(outcome);
+          if (outcome.status !== "failed") {
+            await acknowledgments.ack?.(outcome);
+            continue;
+          }
+          const event = byId.get(outcome.eventId);
+          const attempt = event?.attempt ?? 1;
+          // A failed event is retried up to the trigger's retries, then dead-lettered (or acknowledged) and reported.
+          if (attempt <= input.definition.options.retries) {
+            await acknowledgments.nack?.(outcome, { retryInMs: retryDelayMs(input.definition.options.retryDelay, attempt, input.random) });
+            continue;
+          }
+          if (acknowledgments.deadLetter) await acknowledgments.deadLetter(outcome);
+          else await acknowledgments.ack?.(outcome);
+          if (event) await input.onDead?.(outcome, event);
         }
         // A successful emission resets the restart delay.
         delay = input.backoff.min;

@@ -112,6 +112,34 @@ Each partition is read by one worker at a time and resumed from its saved positi
 
 On a shutdown signal the polls' signals abort. While the service stops, running handlers finish within `jobs.shutdownGrace`, then the held leases are released, so another instance continues without waiting for them to expire.
 
+## Failures, retries and batches
+
+Delivery is at least once: an event may arrive again, with the same `id`. A failed event retries and fails the same way on every platform.
+
+- **Discards.** A handler throws `new TriggerDiscard(reason)` for an event that will never succeed, like a file that is not an image. The event ends `discarded`: acknowledged, never retried, and logged with the reason. Any other error ends it `failed`.
+- **Function targets.** Failed events go back to the platform through the source's `result`, so the platform's own retry policy applies, like an SQS redelivery after the visibility timeout. `event.attempt` is the platform's delivery count when the source provides it.
+- **Polling servers.** A failed event is `nack`ed with `retryInMs`, `retryDelay × 2^(attempt − 1)` capped at 1 hour with ±10% jitter, up to the trigger's `retries`. After the last attempt the source dead-letters it through its `deadLetter` when it has one, and acknowledges it otherwise; the native logs `trigger.event.dead` at error level.
+
+```ts
+import { testSource, trigger, TriggerDiscard } from "@quickservicets/core";
+
+export default trigger<{ key: string }>({
+  source: testSource(),
+  handle({ event }) {
+    if (!event.data.key.endsWith(".png")) throw new TriggerDiscard("not an image");
+  },
+  options: { retries: 5, retryDelay: "30s" },
+});
+```
+
+A source declares whether its batches are `ordered`, like stream partitions and FIFO queues. In an ordered batch the events of each partition (`attributes.partition`) run one after the other, and the first failed event fails itself and every later event of its partition without running them, so the platform redelivers them in order. In an unordered batch only the failed events are reported, so only they come back.
+
+While `errors` is enabled, a dead event, and a failed event on the platform's last attempt when the source knows it (`lastAttempt(event)`), calls `reportError` with the tags `trigger`, `kind`, `eventId` and `attempt`, never the event's data. While `events` is enabled, the native emits `trigger.event.failed` for every failed attempt and `trigger.event.dead` for each dead event, both with `{ trigger, kind, eventId, attempt, error }`:
+
+```ts
+events.on("trigger.event.dead", ({ payload }) => console.error("dead event", payload.trigger, payload.eventId));
+```
+
 ## Testing triggers
 
 The built-in `test` source (`testSource({ type? })`) runs triggers in tests. `emitTrigger(name, data, { attributes? })` of `@quickservicets/core/testing` runs a trigger of the running service as a delivery would and resolves its outcome:

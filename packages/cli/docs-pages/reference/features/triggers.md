@@ -80,6 +80,16 @@ In server targets (`server`, `binary`, and `cloud-run` with `deploy.cloudRun.cpu
 
 A source that reads partitions (stream shards) keeps its positions with `ctx.checkpoints`: `claim(partitions, { ttl })` resolves the partitions this worker leases with their saved positions, `renew()` extends the leases, `save(partition, position)` writes only while this worker holds the lease, and `release(partition)` frees one at once. They live in the shared system entity `TriggerCheckpoint` (`trigger`, `partition`, `position`, `owner`, `leaseUntil`, unique on trigger and partition), which the feature registering such a source adds to its `entities` as `triggerCheckpointEntity`; several features adding it keep one table.
 
+## Failures, retries and batches
+
+A handler that throws `new TriggerDiscard(reason)` ends the event `discarded`: acknowledged without a retry and logged with the reason. Any other error ends it `failed`.
+
+In function targets a failed event goes back to the platform through the source's `result`, so the platform's own retry policy applies, and `event.attempt` is the platform's delivery count when the source knows it. In polling mode a failed event is `nack`ed with `retryInMs` = `retryDelay × 2^(attempt − 1)`, at most 1 hour with ±10% jitter, up to the trigger's `retries`; after the last attempt the source dead-letters it through `deadLetter` when it has one (otherwise it is acknowledged) and the native logs `trigger.event.dead` at error level.
+
+A source with `ordered: true` (stream partitions, FIFO queues) hands batches in order: the events of one partition (`attributes.partition`) run one after the other, and the first failure fails it and every later event of the partition without running them; in unordered batches only the failed events are reported.
+
+While `errors` is enabled, a dead event, and a failed event on the platform's last attempt (when the source's `lastAttempt(event)` says so), calls `reportError` with the tags `trigger`, `kind`, `eventId` and `attempt`, never the event's data. While `events` is enabled, the native emits `trigger.event.failed` for every failed attempt and `trigger.event.dead` for a dead event, with `{ trigger, kind, eventId, attempt, error }`.
+
 ## Sources
 
 A source is a `TriggerSource`: `kind`, `recognize(platform, raw)`, `decode(raw)` returning events and `matches(ref, event)`, plus the optional `poll(ref, ctx)`, `result(outcomes, raw)`, `push` and `describe(ref)`. A feature listing `triggers` in `requires`, `after` or `enables` registers one during its setup with `ctx.feature("triggers").source(kind, source)`. A trigger on a kind no feature registers fails startup with `triggers/<name> uses source <kind>, which no feature registers; enable the feature that provides it`.

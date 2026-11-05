@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
-import { boolean, defineFeature, duration, isFunctionTarget, object, parseDuration, safeLog, setUpDependents, systemClock, type JobClock, type Repositories, type ResolvedConfig } from "../public.ts";
+import { reportError, boolean, defineFeature, duration, isFunctionTarget, object, parseDuration, safeLog, setUpDependents, systemClock, type JobClock, type Repositories, type ResolvedConfig } from "../public.ts";
 import { checkpointStore, MISSING_CHECKPOINTS, type TriggerCheckpoints } from "./checkpoints.ts";
 import { startPoller, type Poller } from "./poll.ts";
 import { runTriggerEvents } from "./run.ts";
@@ -28,11 +28,21 @@ export interface TriggersApi {
 const registered = sharedState("sources", () => ({ sources: new Map<string, { source: TriggerSource; owner: string }>() }));
 
 /** The clock pollers schedule their restarts with; tests set a fake one. */
-const clocks = sharedState("clock", () => ({ current: systemClock as JobClock }));
+const clocks = sharedState("clock", () => ({ current: systemClock as JobClock, random: Math.random as () => number }));
 
-/** Sets the clock of the pollers' restart delays (default: the system clock), for tests. */
-export function setTriggersClock(clock: JobClock = systemClock): void {
+/** Sets the clock of the pollers' restart delays (default: the system clock) and the random numbers of the retry jitter, for tests. */
+export function setTriggersClock(clock: JobClock = systemClock, random: () => number = Math.random): void {
   clocks.current = clock;
+  clocks.random = random;
+}
+
+/** What the `trigger.event.failed` and `trigger.event.dead` events carry: never the event's data. */
+export interface TriggerFailureEvent {
+  trigger: string;
+  kind: string;
+  eventId: string;
+  attempt: number;
+  error: { message: string };
 }
 
 const options = object({
@@ -122,6 +132,18 @@ export const triggersFeature = defineFeature({
         ].join("\n"),
       },
       {
+        title: "Failures, retries and batches",
+        text: [
+          "A handler that throws `new TriggerDiscard(reason)` ends the event `discarded`: acknowledged without a retry and logged with the reason. Any other error ends it `failed`.",
+          "",
+          "In function targets a failed event goes back to the platform through the source's `result`, so the platform's own retry policy applies, and `event.attempt` is the platform's delivery count when the source knows it. In polling mode a failed event is `nack`ed with `retryInMs` = `retryDelay × 2^(attempt − 1)`, at most 1 hour with ±10% jitter, up to the trigger's `retries`; after the last attempt the source dead-letters it through `deadLetter` when it has one (otherwise it is acknowledged) and the native logs `trigger.event.dead` at error level.",
+          "",
+          "A source with `ordered: true` (stream partitions, FIFO queues) hands batches in order: the events of one partition (`attributes.partition`) run one after the other, and the first failure fails it and every later event of the partition without running them; in unordered batches only the failed events are reported.",
+          "",
+          "While `errors` is enabled, a dead event, and a failed event on the platform's last attempt (when the source's `lastAttempt(event)` says so), calls `reportError` with the tags `trigger`, `kind`, `eventId` and `attempt`, never the event's data. While `events` is enabled, the native emits `trigger.event.failed` for every failed attempt and `trigger.event.dead` for a dead event, with `{ trigger, kind, eventId, attempt, error }`.",
+        ].join("\n"),
+      },
+      {
         title: "Sources",
         text: [
           "A source is a `TriggerSource`: `kind`, `recognize(platform, raw)`, `decode(raw)` returning events and `matches(ref, event)`, plus the optional `poll(ref, ctx)`, `result(outcomes, raw)`, `push` and `describe(ref)`. A feature listing `triggers` in `requires`, `after` or `enables` registers one during its setup with `ctx.feature(\"triggers\").source(kind, source)`. A trigger on a kind no feature registers fails startup with `triggers/<name> uses source <kind>, which no feature registers; enable the feature that provides it`.",
@@ -145,6 +167,36 @@ export const triggersFeature = defineFeature({
     const declared = new Map<string, TriggerDefinition>();
     for (const [name, file] of ctx.folders.triggers ?? []) if (isTriggerDefinition(file)) declared.set(name, file);
     const queuesOn = ctx.config.features.some((feature) => feature.key === "queues");
+    const eventsOn = ctx.config.features.some((feature) => feature.key === "events");
+    const failureOf = (outcome: TriggerOutcome, event: TriggerEvent): TriggerFailureEvent => ({ trigger: outcome.trigger, kind: event.kind, eventId: event.id, attempt: event.attempt, error: { message: (outcome.error as Error)?.message ?? String(outcome.error) } });
+    const emitEvent = async (type: "trigger.event.failed" | "trigger.event.dead", payload: TriggerFailureEvent) => {
+      if (!eventsOn) return;
+      try {
+        await ctx.events.emit(type as never, payload as never);
+      } catch (error) {
+        safeLog(ctx.logger, "error", { timestamp: new Date().toISOString(), message: "trigger.event.emit.failed", type, error: { message: (error as Error)?.message ?? String(error) } });
+      }
+    };
+    // Reports carry the trigger, the kind, the event id and the attempt, never the event's data.
+    const report = (outcome: TriggerOutcome, event: TriggerEvent) =>
+      reportError(outcome.error, { tags: { trigger: outcome.trigger, kind: event.kind, eventId: event.id, attempt: String(event.attempt) } });
+    /** What follows the outcomes of a delivery the platform pushed: events for failures, a report on the last attempt. */
+    const afterPushed = async (outcomes: readonly TriggerOutcome[], events: readonly TriggerEvent[], source: TriggerSource | undefined) => {
+      const byId = new Map(events.map((event) => [event.id, event]));
+      for (const outcome of outcomes) {
+        const event = byId.get(outcome.eventId);
+        if (outcome.status !== "failed" || !event) continue;
+        if (source?.lastAttempt?.(event) === true) report(outcome, event);
+        await emitEvent("trigger.event.failed", failureOf(outcome, event));
+      }
+    };
+    /** What follows an event that failed its last polled attempt. */
+    const onDead = async (outcome: TriggerOutcome, event: TriggerEvent) => {
+      const failure = failureOf(outcome, event);
+      safeLog(ctx.logger, "error", { timestamp: new Date().toISOString(), message: "trigger.event.dead", trigger: outcome.trigger, kind: event.kind, eventId: event.id, attempt: event.attempt, error: failure.error });
+      report(outcome, event);
+      await emitEvent("trigger.event.dead", failure);
+    };
     let repos: Repositories | undefined;
     const native: RunningTriggers = {
       triggers: declared,
@@ -153,7 +205,9 @@ export const triggersFeature = defineFeature({
         if (!definition) throw new Error(`Unknown trigger ${name}`);
         const items = definition.batch && Array.isArray(data) ? data : [data];
         const events: TriggerEvent[] = items.map((item) => ({ id: randomUUID(), kind: definition.source.kind, type: "test", time: new Date(), data: item, attributes: { ...(options.attributes ?? {}) }, attempt: 1 }));
-        const outcomes = await runTriggerEvents({ name, definition, events, repos: () => repos!, logger: ctx.logger, queues: queuesOn });
+        const source = registered.sources.get(definition.source.kind)?.source;
+        const outcomes = await runTriggerEvents({ name, definition, events, repos: () => repos!, logger: ctx.logger, queues: queuesOn, ordered: source?.ordered === true });
+        await afterPushed(outcomes, events, source);
         const failed = outcomes.find((outcome) => outcome.status === "failed");
         const first = failed ?? outcomes[0]!;
         const emission: TriggerEmission = { status: overallStatus(outcomes), trigger: name, eventId: first.eventId, outcomes };
@@ -175,7 +229,7 @@ export const triggersFeature = defineFeature({
           const mine = events.filter((event) => source.matches(definition.source as never, event));
           for (const event of mine) matched.add(event.id);
           if (mine.length === 0) continue;
-          outcomes.push(...(await runTriggerEvents({ name, definition, events: mine, repos: () => repos!, logger: ctx.logger, queues: queuesOn, ...(options.deadline !== undefined ? { deadline: options.deadline } : {}) })));
+          outcomes.push(...(await runTriggerEvents({ name, definition, events: mine, repos: () => repos!, logger: ctx.logger, queues: queuesOn, ordered: source.ordered === true, ...(options.deadline !== undefined ? { deadline: options.deadline } : {}) })));
         }
         // An event no trigger takes is completed, so a misrouted event is not redelivered forever.
         for (const event of events) {
@@ -183,6 +237,7 @@ export const triggersFeature = defineFeature({
           safeLog(ctx.logger, "warn", { timestamp: new Date().toISOString(), message: "trigger.event.unmatched", kind: source.kind, eventId: event.id });
           outcomes.push({ eventId: event.id, trigger: "", status: "completed", reason: "unmatched" });
         }
+        await afterPushed(outcomes, events, source);
         const dispatched: TriggerDispatch = { kind: source.kind, outcomes };
         if (source.result) dispatched.response = await source.result(outcomes, raw);
         else {
@@ -223,7 +278,15 @@ export const triggersFeature = defineFeature({
             name,
             definition,
             source,
-            run: (events) => runTriggerEvents({ name, definition, events, repos: () => repos!, logger: ctx.logger, queues: queuesOn }),
+            run: async (events) => {
+              const outcomes = await runTriggerEvents({ name, definition, events, repos: () => repos!, logger: ctx.logger, queues: queuesOn, ordered: source.ordered === true });
+              // Failed events are announced on every attempt; the last attempt goes to onDead.
+              const byId = new Map(events.map((event) => [event.id, event]));
+              for (const outcome of outcomes) if (outcome.status === "failed" && byId.has(outcome.eventId)) await emitEvent("trigger.event.failed", failureOf(outcome, byId.get(outcome.eventId)!));
+              return outcomes;
+            },
+            onDead,
+            random: () => clocks.random(),
             checkpoints: checkpointsOf(name),
             logger: ctx.logger,
             clock: clocks.current,
@@ -296,9 +359,11 @@ export async function triggerSources(config: ResolvedConfig): Promise<Map<string
 export default triggersFeature;
 export { runTriggerEvents, triggerTimedOut } from "./run.ts";
 export { dispatchPlatformEvent, overallStatus } from "./state.ts";
+export { isTriggerDiscard, TriggerDiscard } from "./discard.ts";
+export { partitionOf, skippedAfterFailure } from "./run.ts";
 export { checkpointStore, MISSING_CHECKPOINTS, triggerCheckpointEntity } from "./checkpoints.ts";
 export type { CheckpointStoreOptions, ClaimedPartition, TriggerCheckpoints } from "./checkpoints.ts";
-export { startPoller } from "./poll.ts";
+export { MAX_RETRY_DELAY_MS, retryDelayMs, startPoller } from "./poll.ts";
 export type { Poller, PollAcknowledgments, PollerInput, TriggerPollContext } from "./poll.ts";
 export type { DispatchOptions, EmitTriggerOptions, TriggerDispatch, TriggerEmission } from "./state.ts";
 export { TEST_SOURCE_KIND, testDelivery, testSource, testTriggerSource } from "./test-source.ts";

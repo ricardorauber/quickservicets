@@ -64,6 +64,13 @@ export interface TriggerSource<Ref extends TriggerSourceRef = TriggerSourceRef> 
    * gives back-pressure) and acknowledges each through its `ack` and `nack`; a throw restarts it after a backoff.
    */
   poll?(ref: Ref, ctx: TriggerPollContext): void | Promise<void>;
+  /**
+   * Whether the source's batches come in order, like stream partitions and FIFO queues: the first failed event of a
+   * partition (`attributes.partition`) then fails every later event of it without running them (default false).
+   */
+  ordered?: boolean;
+  /** Whether a failed event was the platform's last delivery attempt, for sources that know the platform's limit. */
+  lastAttempt?(event: TriggerEvent): boolean;
   /** The platform answer for the outcomes of one raw event, like a partial batch response. */
   result?(outcomes: readonly TriggerOutcome[], raw: unknown): unknown;
   /** An HTTP route receiving pushed events. */

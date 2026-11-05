@@ -1,6 +1,7 @@
 import { contextHttp, DEADLINE_MARGIN_MS, fileRecords, parseDuration, queues, resolveRunRepositories, safeLog, withJobOperation, type JobLogFields, type JobLogger, type Logger, type Repositories } from "../public.ts";
 import type { TriggerEvent, TriggerOutcome } from "./source.ts";
 import type { TriggerContext, TriggerDefinition } from "./trigger.ts";
+import { isTriggerDiscard } from "./discard.ts";
 
 /** What running a trigger's events needs. */
 export interface TriggerRunInput {
@@ -18,7 +19,19 @@ export interface TriggerRunInput {
   signal?: AbortSignal;
   /** The platform's deadline (epoch milliseconds): each handler stops 500 ms before it, when that comes first. */
   deadline?: number;
+  /**
+   * Whether the events come in order (stream partitions, FIFO queues): the events of each partition
+   * (`attributes.partition`) are handled one after the other, and the first failure fails every later event of its
+   * partition without running it.
+   */
+  ordered?: boolean;
 }
+
+/** The partition of an event in an ordered batch: its `partition` attribute, or one partition for all. */
+export const partitionOf = (event: TriggerEvent): string => event.attributes.partition ?? "";
+
+/** The error of an event left unhandled because an earlier event of its ordered partition failed. */
+export const skippedAfterFailure = (eventId: string) => new Error(`Not handled: the earlier event ${eventId} of its partition failed`);
 
 /** The error of a handler that ran out of time. */
 export const triggerTimedOut = (name: string, ms: number) => new Error(`Trigger ${name} timed out after ${ms} ms`);
@@ -109,18 +122,49 @@ export async function runTriggerEvents(input: TriggerRunInput): Promise<TriggerO
   const { name, definition, events } = input;
   if (events.length === 0) return [];
   const entry = (event: TriggerEvent) => ({ timestamp: new Date().toISOString(), trigger: name, kind: event.kind, eventId: event.id, attempt: event.attempt });
+  const outcomeOf = (event: TriggerEvent, error: unknown): TriggerOutcome => {
+    if (error === undefined) return { eventId: event.id, trigger: name, status: "completed" };
+    // A TriggerDiscard drops the event without a retry; any other error fails it.
+    if (isTriggerDiscard(error)) return { eventId: event.id, trigger: name, status: "discarded", reason: error.reason };
+    return { eventId: event.id, trigger: name, status: "failed", error };
+  };
+  const logOutcome = (event: TriggerEvent, outcome: TriggerOutcome, durationMs?: number) => {
+    const details = outcome.status === "failed" ? { error: { message: (outcome.error as Error)?.message ?? String(outcome.error) } } : outcome.status === "discarded" ? { reason: outcome.reason } : {};
+    safeLog(input.logger, outcome.status === "failed" ? "warn" : "info", { ...entry(event), message: `trigger.event.${outcome.status}`, ...(durationMs !== undefined ? { durationMs } : {}), ...details });
+  };
   const handled = async (batch: readonly TriggerEvent[]): Promise<TriggerOutcome[]> => {
     for (const event of batch) safeLog(input.logger, "info", { ...entry(event), message: "trigger.event.started" });
     const started = performance.now();
     const error = await runHandler(input, batch);
     const durationMs = Math.round((performance.now() - started) * 1000) / 1000;
     return batch.map((event) => {
-      const outcome: TriggerOutcome = error === undefined ? { eventId: event.id, trigger: name, status: "completed" } : { eventId: event.id, trigger: name, status: "failed", error };
-      const failure = outcome.status === "failed" ? { error: { message: (error as Error)?.message ?? String(error) } } : {};
-      safeLog(input.logger, outcome.status === "failed" ? "warn" : "info", { ...entry(event), message: `trigger.event.${outcome.status}`, durationMs, ...failure });
+      const outcome = outcomeOf(event, error);
+      logOutcome(event, outcome, durationMs);
       return outcome;
     });
   };
   if (definition.batch) return handled(events);
-  return (await pooled(events, definition.options.concurrency, (event) => handled([event]))).flat();
+  if (!input.ordered) return (await pooled(events, definition.options.concurrency, (event) => handled([event]))).flat();
+  // Ordered: partitions run side by side with the trigger's concurrency, the events of one partition in order.
+  const partitions = new Map<string, TriggerEvent[]>();
+  for (const event of events) partitions.set(partitionOf(event), [...(partitions.get(partitionOf(event)) ?? []), event]);
+  const byPartition = await pooled([...partitions.values()], definition.options.concurrency, async (list) => {
+    const outcomes: TriggerOutcome[] = [];
+    let failed: string | undefined;
+    for (const event of list) {
+      if (failed !== undefined) {
+        const outcome: TriggerOutcome = { eventId: event.id, trigger: name, status: "failed", error: skippedAfterFailure(failed) };
+        logOutcome(event, outcome);
+        outcomes.push(outcome);
+        continue;
+      }
+      const [outcome] = await handled([event]);
+      if (outcome!.status === "failed") failed = event.id;
+      outcomes.push(outcome!);
+    }
+    return outcomes;
+  });
+  // Back in the order of the events.
+  const found = new Map(byPartition.flat().map((outcome) => [outcome.eventId, outcome]));
+  return events.map((event) => found.get(event.id)!);
 }

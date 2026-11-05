@@ -1,8 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import { hostname, networkInterfaces } from "node:os";
 import { join } from "node:path";
-import { boolean, defineFeature, duration, object, oneOf, onServiceStarted, onShutdownSignal, parseDuration, record, runHealthChecks, safeLog, string, systemClock, url, type JobClock, type Logger } from "../public.ts";
+import { boolean, defineFeature, duration, integer, list, object, oneOf, onServiceStarted, onShutdownSignal, parseDuration, record, runHealthChecks, safeLog, string, systemClock, url, type JobClock, type Logger } from "../public.ts";
 import { sharedState, type InstanceStatus, type RegistryProvider, type ServiceInstance } from "./provider.ts";
+import { dnsProvider, staticProvider, type DnsOptions, type StaticInstanceOptions } from "./providers.ts";
 
 /** The public API of the `registry` native, `ctx.feature("registry")` in a feature that lists it in `requires`, `after` or `enables`. */
 export interface RegistryApi {
@@ -33,9 +34,9 @@ export function currentRegistryProvider(): RegistryProvider | undefined {
   return chosen.current;
 }
 
-/** The built-in `static` provider: instances come from the config, and registering does nothing. */
-export function staticProvider(): RegistryProvider {
-  return { register() {}, heartbeat() {}, deregister() {}, resolve: () => [] };
+/** This process's instance while the native runs, for callers preferring their own zone. */
+export function currentInstance(): ServiceInstance | undefined {
+  return self.instance;
 }
 
 const options = object({
@@ -44,7 +45,29 @@ const options = object({
   address: url().optional().describe("The base URL other services call the instance at (default: http with the machine's first non-loopback address and the server port)."),
   metadata: record(string().describe("A metadata value.")).describe("Metadata the instance registers with, like a region or a build number."),
   zone: string().optional().describe("The zone the instance runs in, preferred by callers in the same zone."),
-  provider: oneOf(["static", "dns"] as const).default("static").describe("The built-in provider: static (instances listed in the config; registering does nothing) or dns (instances from DNS records)."),
+  provider: oneOf(["static", "dns"] as const).default("static").describe("The built-in provider: static (instances listed in services; registering does nothing) or dns (instances from DNS records)."),
+  services: record(
+    object({
+      instances: list(
+        object({
+          url: url().describe("The instance's base URL."),
+          version: string().optional().describe("The version the instance runs."),
+          weight: integer().min(1).default(1).describe("The instance's share of random balancing."),
+          zone: string().optional().describe("The zone the instance runs in."),
+          metadata: record(string().describe("A metadata value.")).optional().describe("The instance's metadata."),
+        }).describe("One instance."),
+      ).describe("The service's instances."),
+    }),
+  ).describe("The instances of each service the static provider resolves, by service name; QS_REGISTRY_SERVICES sets the whole record as JSON."),
+  dns: object({
+    template: string().default("{name}").describe("The host name to query, with `{name}` replaced by the service name, like `{name}.default.svc.cluster.local`."),
+    records: oneOf(["a", "srv"] as const).default("a").describe("The records to look up: a (A and AAAA, one instance per address with port) or srv (one instance per target and port)."),
+    port: integer().min(1).max(65535).optional().describe("The port of instances found by A and AAAA records, unless the template's host carries one."),
+    scheme: oneOf(["http", "https"] as const).default("http").describe("The scheme of the instances' addresses."),
+    refresh: duration().default("30s").describe("How long resolved instances are kept at least; a longer record TTL wins, and they are refreshed in the background."),
+  })
+    .default({})
+    .describe("The dns provider's lookups."),
   register: boolean().default(true).describe("Registers the instance once it started, keeps it alive with heartbeats and deregisters it on shutdown."),
   heartbeat: duration().default("10s").describe("How often the instance's entry is renewed with its status."),
   ttl: duration().default("30s").describe("How long a registry keeps the entry without a heartbeat."),
@@ -58,6 +81,8 @@ export interface RegistryOptions {
   metadata: Record<string, string>;
   zone?: string;
   provider: "static" | "dns" | RegistryProvider;
+  services: Record<string, { instances: StaticInstanceOptions[] }>;
+  dns: DnsOptions;
   register: boolean;
   heartbeat: string;
   ttl: string;
@@ -140,6 +165,8 @@ export const registryFeature = defineFeature({
       {
         title: "Providers",
         text: [
+          "`static` resolves a name from `services` (`{ instances: [{ url, version?, weight, zone?, metadata? }] }`), each instance `passing` with the id `<name>-<index>`; `dns` looks the name up with `dns.template` (`{name}` replaced, like `{name}.default.svc.cluster.local`): A and AAAA records give one instance per address with `dns.port` and `dns.scheme`, SRV records (`_http._tcp.<host>` unless the template starts with `_`) one per target and port with its weight. DNS instances have no version; results are kept for the larger of the records' TTL and `dns.refresh`, refreshed in the background, and a failed refresh keeps the previous instances and logs `registry.dns.failed` at most once a minute per name. Both register nothing. `QS_REGISTRY_SERVICES` sets the whole `services` record as JSON; `useTestResolver` of `@quickservicets/core/testing` answers A, AAAA and SRV lookups in tests.",
+          "",
           "A `RegistryProvider` has `register(instance)`, `heartbeat(instance, status)`, `deregister(instance)` and `resolve(name)` resolving `ServiceInstance[]`, plus the optional `watch(name, onChange)`, `health()` and `close()`. A feature listing `registry` in `requires`, `after` or `enables` sets one during its setup with `ctx.feature(\"registry\").setProvider(provider)`, replacing `provider`; two features setting one fail startup naming both.",
         ].join("\n"),
       },
@@ -155,7 +182,7 @@ export const registryFeature = defineFeature({
     const deployName = (ctx.config.features.find((feature) => feature.key === "deploy")?.options as { name?: string } | undefined)?.name;
     const instance = ownInstance(resolved, { name: deployName ?? (pkg.name ?? "service").replace(/^@[^/]+\//, ""), ...(pkg.version ? { version: pkg.version } : {}), port: ctx.config.server.port });
     self.instance = instance;
-    const builtIn = (): RegistryProvider => staticProvider();
+    const builtIn = (): RegistryProvider => (resolved.provider === "dns" ? dnsProvider(resolved.dns, { logger: ctx.logger, clock }) : staticProvider(resolved.services));
     const providerOf = (): RegistryProvider => (chosen.current ??= chosen.choice?.provider ?? builtIn());
     const providerName = () => chosen.choice?.owner ?? (typeof resolved.provider === "string" ? resolved.provider : "custom");
     const state = { registered: false, heartbeatOk: true, stopped: false, timer: undefined as unknown };
@@ -246,7 +273,10 @@ export const registryFeature = defineFeature({
       if (chosen.choice) throw new Error(`Registry provider set by ${chosen.choice.owner} and ${caller}; keep one`);
       chosen.choice = { provider, owner: caller };
     },
-    provider: () => chosen.current ?? chosen.choice?.provider ?? staticProvider(),
+    provider: () => {
+      if (!chosen.current) throw new Error("registry provider() is available once the service started");
+      return chosen.current;
+    },
     instance: () => {
       if (!self.instance) throw new Error("registry instance() is available once the native's setup ran");
       return self.instance;
@@ -256,4 +286,6 @@ export const registryFeature = defineFeature({
 
 export default registryFeature;
 export { sharedState } from "./provider.ts";
+export { dnsProvider, DNS_FAILURE_LOG_MS, staticProvider } from "./providers.ts";
+export type { DnsOptions, StaticInstanceOptions } from "./providers.ts";
 export type { InstanceStatus, RegistryProvider, ServiceInstance } from "./provider.ts";

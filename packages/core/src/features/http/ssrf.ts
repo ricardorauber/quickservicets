@@ -1,4 +1,4 @@
-import { lookup } from "node:dns/promises";
+import { lookup, resolve4, resolve6, resolveSrv } from "node:dns/promises";
 import { isIP } from "node:net";
 import { cidrMatcher, matchesCidr } from "../public.ts";
 import { sharedState } from "./state.ts";
@@ -122,8 +122,18 @@ export type Resolver = (host: string) => Promise<string[]>;
 
 const dnsResolver: Resolver = async (host) => (await lookup(host, { all: true, verbatim: true })).map((entry) => entry.address);
 
-/** The names a test maps to addresses: an address, a list, or a function called on each resolution. */
-export type TestResolverMap = Readonly<Record<string, string | readonly string[] | (() => string | readonly string[])>>;
+/** A test answer with records: the addresses of A and AAAA lookups, the answers of SRV lookups, and their TTL in seconds. */
+export interface TestRecordAnswer {
+  addresses?: readonly string[];
+  srv?: readonly { name: string; port: number; weight: number; priority: number }[];
+  ttl?: number;
+}
+
+/**
+ * The names a test maps to addresses: an address, a list, records with a TTL (and SRV answers), or a function called
+ * on each resolution, which may throw to fail it.
+ */
+export type TestResolverMap = Readonly<Record<string, string | readonly string[] | TestRecordAnswer | (() => string | readonly string[] | TestRecordAnswer)>>;
 
 const resolverState = sharedState("resolver", () => ({ test: undefined as TestResolverMap | undefined }));
 
@@ -132,10 +142,43 @@ export async function resolveHost(host: string): Promise<string[]> {
   const mapped = resolverState.test?.[host.toLowerCase()];
   if (mapped !== undefined) {
     const value = typeof mapped === "function" ? mapped() : mapped;
-    return typeof value === "string" ? [value] : [...value];
+    if (typeof value === "string") return [value];
+    return Array.isArray(value) ? [...value] : [...((value as TestRecordAnswer).addresses ?? [])];
   }
   return dnsResolver(host);
 }
+/** An SRV answer: the target host, its port and its weight and priority. */
+export interface SrvAnswer {
+  name: string;
+  port: number;
+  weight: number;
+  priority: number;
+}
+
+/** What a record lookup resolves: the addresses (A and AAAA) or the SRV answers, with the smallest TTL in seconds when known. */
+export interface RecordAnswer {
+  addresses?: string[];
+  srv?: SrvAnswer[];
+  ttl?: number;
+}
+
+/** Looks up a host's A and AAAA records, or its SRV records, with the test map when it names the host, else with DNS. */
+export async function resolveRecords(host: string, kind: "a" | "srv"): Promise<RecordAnswer> {
+  const mapped = resolverState.test?.[host.toLowerCase()];
+  if (mapped !== undefined) {
+    const value = typeof mapped === "function" ? mapped() : mapped;
+    if (typeof value === "string") return { addresses: [value] };
+    if (Array.isArray(value)) return kind === "srv" ? { srv: [] } : { addresses: [...value] };
+    const answer = value as TestRecordAnswer;
+    return kind === "srv" ? { srv: [...(answer.srv ?? [])], ...(answer.ttl !== undefined ? { ttl: answer.ttl } : {}) } : { addresses: [...(answer.addresses ?? [])], ...(answer.ttl !== undefined ? { ttl: answer.ttl } : {}) };
+  }
+  if (kind === "srv") return { srv: (await resolveSrv(host)).map((entry) => ({ name: entry.name, port: entry.port, weight: entry.weight, priority: entry.priority })) };
+  const [v4, v6] = await Promise.all([resolve4(host, { ttl: true }).catch(() => []), resolve6(host, { ttl: true }).catch(() => [])]);
+  const all = [...v4, ...v6];
+  if (all.length === 0) throw new Error(`${host} has no A or AAAA records`);
+  return { addresses: all.map((entry) => entry.address), ttl: Math.min(...all.map((entry) => entry.ttl)) };
+}
+
 
 /**
  * Maps host names to addresses for every outgoing call until the returned function is called; names it does not list

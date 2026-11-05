@@ -1133,7 +1133,13 @@ Every option, tag, command and hook of `registry` is on [its reference page](/re
 | `registry.address` | `url` | — | `QS_REGISTRY_ADDRESS` | The base URL other services call the instance at (default: http with the machine's first non-loopback address and the server port). |
 | `registry.metadata.<name>` | `record of string` | — | `QS_REGISTRY_METADATA_<NAME>` | A metadata value. |
 | `registry.zone` | `string` | — | `QS_REGISTRY_ZONE` | The zone the instance runs in, preferred by callers in the same zone. |
-| `registry.provider` | `"static" \| "dns"` | `"static"` | `QS_REGISTRY_PROVIDER` | The built-in provider: static (instances listed in the config; registering does nothing) or dns (instances from DNS records). |
+| `registry.provider` | `"static" \| "dns"` | `"static"` | `QS_REGISTRY_PROVIDER` | The built-in provider: static (instances listed in services; registering does nothing) or dns (instances from DNS records). |
+| `registry.services.<name>.instances` | `record of object[]` | — | `QS_REGISTRY_SERVICES_<NAME>_INSTANCES` | The service's instances. |
+| `registry.dns.template` | `string` | `"{name}"` | `QS_REGISTRY_DNS_TEMPLATE` | The host name to query, with `{name}` replaced by the service name, like `{name}.default.svc.cluster.local`. |
+| `registry.dns.records` | `"a" \| "srv"` | `"a"` | `QS_REGISTRY_DNS_RECORDS` | The records to look up: a (A and AAAA, one instance per address with port) or srv (one instance per target and port). |
+| `registry.dns.port` | `integer` | — | `QS_REGISTRY_DNS_PORT` | The port of instances found by A and AAAA records, unless the template's host carries one. |
+| `registry.dns.scheme` | `"http" \| "https"` | `"http"` | `QS_REGISTRY_DNS_SCHEME` | The scheme of the instances' addresses. |
+| `registry.dns.refresh` | `duration` | `"30s"` | `QS_REGISTRY_DNS_REFRESH` | How long resolved instances are kept at least; a longer record TTL wins, and they are refreshed in the background. |
 | `registry.register` | `boolean` | `true` | `QS_REGISTRY_REGISTER` | Registers the instance once it started, keeps it alive with heartbeats and deregisters it on shutdown. |
 | `registry.heartbeat` | `duration` | `"10s"` | `QS_REGISTRY_HEARTBEAT` | How often the instance's entry is renewed with its status. |
 | `registry.ttl` | `duration` | `"30s"` | `QS_REGISTRY_TTL` | How long a registry keeps the entry without a heartbeat. |

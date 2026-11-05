@@ -27,6 +27,7 @@ registry: { name: "invoices", zone: "eu-1", heartbeat: "5s", metadata: { team: "
 
 ```bash
 QS_REGISTRY_ADDRESS=http://10.0.0.5:3000 bun run dev
+QS_REGISTRY_PROVIDER=dns QS_REGISTRY_DNS_TEMPLATE='{name}.default.svc.cluster.local' QS_REGISTRY_DNS_PORT=8080 bun run dev
 ```
 
 ## Level 2: tags

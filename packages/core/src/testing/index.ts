@@ -8,7 +8,7 @@ export type { AttackSuiteOptions } from "./attack-suite.ts";
 export { contractClock, QUEUE_BROKER_CHECKS, runQueueBrokerContract } from "./queue-broker-contract.ts";
 export type { QueueBrokerCheck, QueueBrokerContractOptions } from "./queue-broker-contract.ts";
 export { useTestResolver } from "../features/http/ssrf.ts";
-export type { TestResolverMap } from "../features/http/ssrf.ts";
+export type { TestRecordAnswer, TestResolverMap } from "../features/http/ssrf.ts";
 export { mockHttp } from "../features/http/mock.ts";
 export type { HttpMock, MockCall, MockHandler } from "../features/http/mock.ts";
 export { runTenantIsolationSuite } from "./tenant-isolation.ts";

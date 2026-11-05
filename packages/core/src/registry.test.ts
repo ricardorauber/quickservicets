@@ -51,7 +51,7 @@ const start = async (config: Record<string, unknown> = {}, env: Record<string, s
 describe("options and the instance", () => {
   test("the options default to the static provider with 10s heartbeats and a 30s ttl, and the instance id is <name>-<hostname>-<pid>", () => {
     const options = resolveConfig({ database: memoryAdapter(), registry: {} } as never, {}).features.find((feature) => feature.key === "registry")!.options;
-    expect(options).toEqual({ enabled: true, metadata: {}, provider: "static", register: true, heartbeat: "10s", ttl: "30s" });
+    expect(options).toEqual({ enabled: true, metadata: {}, provider: "static", services: {}, dns: { template: "{name}", records: "a", scheme: "http", refresh: "30s" }, register: true, heartbeat: "10s", ttl: "30s" });
     expect(registryFeature.enabledByDefault).toBe(false);
     const instance = ownInstance({ metadata: { region: "eu" } }, { name: "billing", version: "2.1.0", port: 8080 });
     expect(instance).toEqual({ id: `billing-${hostname()}-${process.pid}`, name: "billing", version: "2.1.0", address: `http://${firstAddress()}:8080`, status: "passing", metadata: { region: "eu" } });

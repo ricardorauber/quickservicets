@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "quickservicets build",
+    "upstreams": "PORT=4101 VERSION=1.4.0 bun scripts/upstream.ts & PORT=4102 VERSION=2.1.0 bun scripts/upstream.ts",
     "test": "bun test tests"
   },
   "dependencies": {

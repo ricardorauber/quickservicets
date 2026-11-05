@@ -1,0 +1,10 @@
+# The optional Consul agent of the example: docker compose --profile consul up -d
+services:
+  consul:
+    profiles: ["consul"]
+    image: hashicorp/consul:1.20
+    command: agent -dev -client=0.0.0.0
+    ports:
+      - "8500:8500"
+    labels:
+      quickservicets.example: registry

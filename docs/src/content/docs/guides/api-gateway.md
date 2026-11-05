@@ -131,6 +131,15 @@ export default async (_repos: Repositories, req: ServiceRequest) => {
 
 A route with `service` uses that service's modifiers: retries (only for requests whose body can be replayed, so never for streamed uploads), the circuit breaker, the bulkhead and response caching, configured once in `http.services` for every call to that upstream.
 
+## Discovered upstreams
+
+A route whose `service` sets `discover` instead of `url` balances across the instances the [registry native](/guides/service-discovery/) finds, ejecting failing ones and honoring version ranges like `billing@^2`:
+
+```ts
+registry: { services: { billing: { instances: [{ url: "http://10.0.0.5:8080" }, { url: "http://10.0.0.6:8080" }] } } },
+http: { services: { billing: { discover: "billing" } } },
+```
+
 ## Observability
 
 Each forwarded call writes an `http.call` log entry with the route's service (`proxy/catalog`), the inline service of a `forward()` call, or `proxy/forward` for an inline target, and the request log entry adds `proxy: <route>` (or `proxy: "forward"` for an inline call) once the response body ended. With a tracer, the server span covers the request and a client span each upstream attempt, carrying `traceparent` upstream; with a meter, the request and client durations are recorded; usage metrics count proxied routes like any other.

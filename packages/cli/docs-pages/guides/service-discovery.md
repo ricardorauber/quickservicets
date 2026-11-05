@@ -34,6 +34,19 @@ On a shutdown signal the instance deregisters first, before the ready route star
 
 A failed registration, heartbeat or deregistration logs `registry.register.failed`, `registry.heartbeat.failed` or `registry.deregister.failed` with the provider and the reason. Registration is retried after 1 second, doubling up to 30 seconds; nothing fails startup or shutdown. While `health` is enabled, the non-critical check `registry` fails while the instance is not registered or its last heartbeat failed, with the provider's own `health()` when it has one.
 
+## Choosing a provider
+
+| Provider | Use it for |
+| --- | --- |
+| `static` | Small setups whose instances rarely change: the instances are listed in the config, and nothing registers |
+| `dns` | Kubernetes, where a headless Service publishes every pod's address, and any platform with SRV records |
+| Consul | Fleets with a Consul agent per host: registration with TTL checks, health-filtered resolution and watches |
+| etcd | Platforms that already keep their configuration in etcd: leases as TTLs, watches on prefixes |
+| Eureka | Spring Cloud estates, where other services already register with Eureka |
+| Cloud Map | AWS, where ECS and Lambda services register in AWS Cloud Map |
+
+`static` and `dns` are built in. Consul, etcd, Eureka and Cloud Map come as provider packages that set their `RegistryProvider` with `setProvider`; until one is installed, a project passes its own provider object, like the small `registryConsul()` of [examples/minimal/registry](https://github.com/ricardorauber/quickservicets/blob/main/examples/minimal/registry/README.md).
+
 ## Static services
 
 The built-in provider `static` registers nothing and resolves each service from the config, which suits small setups whose addresses rarely change:
@@ -104,6 +117,19 @@ http: { services: { billing: { discover: "billing@^2" } } },
 `discover` takes `name@range` (`billing@^2`, `billing@~2.3`, `billing@>=2.1 <3`), or the object form with `version`, checked at startup: `billing@banana` fails with `Invalid http.services.billing.discover: banana is not a version range`. Only instances whose version satisfies the range (Bun's `semver` rules) are candidates; instances without a version, like DNS ones, are left out unless `allowUnversioned: true`. `prefer: "any"` (the default) spreads calls over every matching instance, and `prefer: "highest"` over only those of the highest matching version. When instances exist but none matches, the call rejects with `NO_INSTANCES` and `No instances of billing match ^4 (found 1.4.0, 2.1.0, 2.3.0)`, listing at most ten versions, answered 503 like any call without an instance.
 
 An instance announces `registry.version`, by default the package version; `QS_REGISTRY_VERSION` sets it at deployment, like a build number, without changing `package.json`.
+
+## The API gateway
+
+Proxy routes with `service` use the service's discovery with no further option, so a gateway balances across the instances, ejects failing ones and honors version ranges:
+
+```ts
+http: { services: { billing: { discover: "billing@^2" } } },
+proxy: { routes: { billing: { path: "/billing/*", service: "billing" } } },
+```
+
+## SSRF trust
+
+The picked instance's address is the base URL of each attempt, and SSRF protection trusts it like a service's own host, so discovered instances on private networks are reachable. The cloud metadata addresses `169.254.169.254` and `fd00:ec2::254` stay blocked even when a registry lists them.
 
 ## Ejection and panic
 

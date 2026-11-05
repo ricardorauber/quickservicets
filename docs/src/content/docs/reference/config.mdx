@@ -1105,5 +1105,8 @@ Every option, tag, command and hook of `triggers` is on [its reference page](/re
 
 | Key | Type | Default | Environment variable | Description |
 | --- | --- | --- | --- | --- |
+| `triggers.poll` | `boolean` | `true` | `QS_TRIGGERS_POLL` | Runs the polls of sources that pull events (like stream shards and cloud queues) in server targets; false leaves pulling to other processes. |
+| `triggers.pollBackoff.min` | `duration` | `"1s"` | `QS_TRIGGERS_POLL_BACKOFF_MIN` | The delay before a failed poll starts again, doubled after each further failure. |
+| `triggers.pollBackoff.max` | `duration` | `"30s"` | `QS_TRIGGERS_POLL_BACKOFF_MAX` | The longest delay before a failed poll starts again. |
 | `triggers.enabled` | `boolean` | `true` | `QS_TRIGGERS_ENABLED` | Turns the feature off when false. |
 | `triggers.database` | `string` | — | `QS_TRIGGERS_DATABASE` | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |

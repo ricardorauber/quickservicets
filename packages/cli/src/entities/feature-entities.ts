@@ -94,6 +94,8 @@ export function withContributedEntities(parsed: EntityModel[], features: readonl
     const added: EntityModel[] = [];
     for (const value of contributed) {
       assertShape(feature.key, value);
+      // A shared system entity (like TriggerCheckpoint) that several features contribute is kept once.
+      if (value.system && models.some((model) => model.system && model.feature !== undefined && model.key === value.key && model.tableName === value.tableName)) continue;
       const replacement = models.find((model) => model.key === value.key && !model.feature && !model.link);
       if (replacement) {
         overrides.push(entityOverrideLine(`entities/${replacement.key}.ts`, value.key, feature.key));

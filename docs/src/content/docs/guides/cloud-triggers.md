@@ -89,6 +89,29 @@ The source's `result(outcomes, raw)` builds the answer the platform receives, li
 
 On `--target azure-functions`, the build writes one function per trigger, `trigger-<name>/function.json` with `/` as `-` (`trigger-uploads-new-image`), from the binding the source's `describe(ref).azure` gives, and the custom handler dispatches that function's invocations to its trigger. A source without an Azure binding fails the build with `triggers/<name>: source <kind> cannot run on azure-functions`.
 
+## Polling in servers
+
+The same trigger files run on long-running servers, where the service pulls the events instead of the platform pushing them. In server targets (`server`, `binary`, and `cloud-run` with `deploy.cloudRun.cpuAlwaysAllocated: true`), every worker starts the `poll(ref, ctx)` of each trigger whose source has one. On function targets, or with `poll: false` (`QS_TRIGGERS_POLL=false`), no poll starts.
+
+```ts
+triggers: { poll: true, pollBackoff: { min: "1s", max: "30s" } },
+```
+
+A poll receives `{ emit, signal, log, checkpoints }`. `emit(events, { ack, nack })` runs the trigger with its `concurrency` and resolves once every event was handled, so a poll that awaits it never pulls faster than the trigger handles; it calls `ack` for each completed or discarded event and `nack` for each failed one. A poll that throws logs `trigger.poll.failed` and starts again after a delay that doubles from `pollBackoff.min` to `pollBackoff.max`, and goes back to the minimum after a successful emission. Polls wait with timers and awaits only, never a busy loop.
+
+Sources that read partitions, like stream shards, share their positions safely across workers and replicas with `ctx.checkpoints`:
+
+| Call | What it does |
+| --- | --- |
+| `claim(partitions, { ttl })` | Leases the free or expired partitions for `ttl`, resolving the ones this worker holds with their saved positions |
+| `renew()` | Extends the leases this worker holds |
+| `save(partition, position)` | Saves a position, only while this worker still holds the lease |
+| `release(partition)` | Frees a partition at once |
+
+Each partition is read by one worker at a time and resumed from its saved position by another once the lease of a worker that crashed expires. The leases live in the shared system entity `TriggerCheckpoint` (`trigger`, `partition`, `position`, `owner`, `leaseUntil`, unique on trigger and partition); the feature that registers such a source adds `triggerCheckpointEntity` to its `entities`, so the table exists only while it is enabled.
+
+On a shutdown signal the polls' signals abort. While the service stops, running handlers finish within `jobs.shutdownGrace`, then the held leases are released, so another instance continues without waiting for them to expire.
+
 ## Testing triggers
 
 The built-in `test` source (`testSource({ type? })`) runs triggers in tests. `emitTrigger(name, data, { attributes? })` of `@quickservicets/core/testing` runs a trigger of the running service as a delivery would and resolves its outcome:

@@ -24,7 +24,7 @@ export default trigger<{ key: string }>({
 
 ## Level 1: options and environment
 
-Each trigger takes `concurrency`, `timeout`, `retries` and `retryDelay` in its `options`, and `QS_TRIGGERS_ENABLED=false` turns the native off:
+Each trigger takes `concurrency`, `timeout`, `retries` and `retryDelay` in its `options`; `QS_TRIGGERS_POLL=false` stops polling sources in this process, and `QS_TRIGGERS_ENABLED=false` turns the native off:
 
 ```ts
 export default trigger({ source: testSource(), handle, options: { concurrency: 4, timeout: "1m" } });

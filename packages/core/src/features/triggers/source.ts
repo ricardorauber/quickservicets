@@ -1,3 +1,5 @@
+import type { TriggerPollContext } from "./poll.ts";
+
 /** One event a trigger handles, decoded by its source. */
 export interface TriggerEvent<Data = unknown> {
   /** Stable across redeliveries of the same event, so handlers can skip an event they already handled. */
@@ -57,8 +59,11 @@ export interface TriggerSource<Ref extends TriggerSourceRef = TriggerSourceRef> 
   decode(raw: unknown): TriggerEvent[] | Promise<TriggerEvent[]>;
   /** Whether an event belongs to a trigger's reference, like the bucket and prefix of an `s3` reference. */
   matches(ref: Ref, event: TriggerEvent): boolean;
-  /** Pulls events in server targets. */
-  poll?(ref: Ref, ctx: unknown): void | Promise<void>;
+  /**
+   * Pulls events in server targets, in each worker, until `ctx.signal` aborts: hands them to `ctx.emit` (awaiting it
+   * gives back-pressure) and acknowledges each through its `ack` and `nack`; a throw restarts it after a backoff.
+   */
+  poll?(ref: Ref, ctx: TriggerPollContext): void | Promise<void>;
   /** The platform answer for the outcomes of one raw event, like a partial batch response. */
   result?(outcomes: readonly TriggerOutcome[], raw: unknown): unknown;
   /** An HTTP route receiving pushed events. */

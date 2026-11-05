@@ -22,6 +22,9 @@ It is not enabled by default: turn it on with `triggers: {}` or `QS_TRIGGERS_ENA
 
 | Key | Type | Default | Environment variable | Per request | Description |
 | --- | --- | --- | --- | --- | --- |
+| `triggers.poll` | `boolean` | `true` | `QS_TRIGGERS_POLL` | no | Runs the polls of sources that pull events (like stream shards and cloud queues) in server targets; false leaves pulling to other processes. |
+| `triggers.pollBackoff.min` | `duration` | `"1s"` | `QS_TRIGGERS_POLL_BACKOFF_MIN` | no | The delay before a failed poll starts again, doubled after each further failure. |
+| `triggers.pollBackoff.max` | `duration` | `"30s"` | `QS_TRIGGERS_POLL_BACKOFF_MAX` | no | The longest delay before a failed poll starts again. |
 | `triggers.enabled` | `boolean` | `true` | `QS_TRIGGERS_ENABLED` | no | Turns the feature off when false. |
 | `triggers.database` | `string` | — | `QS_TRIGGERS_DATABASE` | no | The database of the feature's own tables, `default` or a name of `databases`; tables of one entity follow it, and per-database tables exist in every database (default: the default database). |
 
@@ -74,6 +77,12 @@ On `lambda`, every event that is neither HTTP nor a job invocation goes to `ctx.
 Each handler is limited by the smaller of its `timeout` and the time left before the platform's deadline less 500 ms, its `signal` aborted at that limit. The source's `result(outcomes, raw)` builds the invocation's answer, like a partial batch response; without it, a failed event fails the invocation. Each event logs `trigger.event.started` and `trigger.event.completed`, `trigger.event.failed` or `trigger.event.discarded` with `trigger`, `kind`, `eventId`, `attempt` and `durationMs`.
 
 On `azure-functions` the build writes `trigger-<name>/function.json` (with `/` as `-`) from the binding of the source's `describe(ref).azure`, and the custom handler dispatches that function's invocations to its trigger; a source without an Azure binding fails the build with `triggers/<name>: source <kind> cannot run on azure-functions`.
+
+## Polling in servers
+
+In server targets (`server`, `binary`, and `cloud-run` with `deploy.cloudRun.cpuAlwaysAllocated`) and while `poll` is true, every worker starts the `poll(ref, ctx)` of each trigger whose source has one, in `onStart`. The poll receives `{ emit(events, { ack, nack }), signal, log, checkpoints }`: `emit` runs the trigger with its `concurrency` and resolves once every event was handled (back-pressure), calling `ack` or `nack` per outcome. A poll that throws logs `trigger.poll.failed` and starts again after a delay doubling from `pollBackoff.min` to `pollBackoff.max`, back to the minimum after a successful emission. On a shutdown signal the polls' signals abort; at stop the running handlers finish within `jobs.shutdownGrace` and the held leases are released.
+
+A source that reads partitions (stream shards) keeps its positions with `ctx.checkpoints`: `claim(partitions, { ttl })` resolves the partitions this worker leases with their saved positions, `renew()` extends the leases, `save(partition, position)` writes only while this worker holds the lease, and `release(partition)` frees one at once. They live in the shared system entity `TriggerCheckpoint` (`trigger`, `partition`, `position`, `owner`, `leaseUntil`, unique on trigger and partition), which the feature registering such a source adds to its `entities` as `triggerCheckpointEntity`; several features adding it keep one table.
 
 ## Sources
 

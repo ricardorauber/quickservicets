@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { defineFeature, safeLog, setUpDependents, type Repositories, type ResolvedConfig } from "../public.ts";
+import { hostname } from "node:os";
+import { boolean, defineFeature, duration, isFunctionTarget, object, parseDuration, safeLog, setUpDependents, systemClock, type JobClock, type Repositories, type ResolvedConfig } from "../public.ts";
+import { checkpointStore, MISSING_CHECKPOINTS, type TriggerCheckpoints } from "./checkpoints.ts";
+import { startPoller, type Poller } from "./poll.ts";
 import { runTriggerEvents } from "./run.ts";
 import type { TriggerEvent, TriggerOutcome, TriggerSource } from "./source.ts";
 import { dispatchPlatformEvent, NOT_ENABLED, overallStatus, running, sharedState, type DispatchOptions, type EmitTriggerOptions, type RunningTriggers, type TriggerDispatch, type TriggerEmission } from "./state.ts";
@@ -23,6 +26,35 @@ export interface TriggersApi {
 
 /** The sources registered in this process, by kind, with the feature that registered each. */
 const registered = sharedState("sources", () => ({ sources: new Map<string, { source: TriggerSource; owner: string }>() }));
+
+/** The clock pollers schedule their restarts with; tests set a fake one. */
+const clocks = sharedState("clock", () => ({ current: systemClock as JobClock }));
+
+/** Sets the clock of the pollers' restart delays (default: the system clock), for tests. */
+export function setTriggersClock(clock: JobClock = systemClock): void {
+  clocks.current = clock;
+}
+
+const options = object({
+  poll: boolean().default(true).describe("Runs the polls of sources that pull events (like stream shards and cloud queues) in server targets; false leaves pulling to other processes."),
+  pollBackoff: object({
+    min: duration().default("1s").describe("The delay before a failed poll starts again, doubled after each further failure."),
+    max: duration().default("30s").describe("The longest delay before a failed poll starts again."),
+  })
+    .default({})
+    .describe("How long a failed poll waits before it starts again; the delay goes back to min after a successful emission."),
+});
+
+/**
+ * Whether the deploy target pulls events: servers and binaries do, and cloud-run with `cpuAlwaysAllocated`; function
+ * targets, where the platform pushes events, do not.
+ */
+export function targetPolls(config: Pick<ResolvedConfig, "features">): boolean {
+  const deploy = config.features.find((feature) => feature.key === "deploy")?.options as { target?: string; cloudRun?: { cpuAlwaysAllocated?: boolean } } | undefined;
+  const target = deploy?.target ?? "server";
+  if (isFunctionTarget(target)) return false;
+  return target !== "cloud-run" || deploy?.cloudRun?.cpuAlwaysAllocated === true;
+}
 
 /** The startup failure of a trigger whose source kind no feature registers. */
 export const missingSource = (name: string, kind: string) => `triggers/${name} uses source ${kind}, which no feature registers; enable the feature that provides it`;
@@ -82,6 +114,14 @@ export const triggersFeature = defineFeature({
         ].join("\n"),
       },
       {
+        title: "Polling in servers",
+        text: [
+          "In server targets (`server`, `binary`, and `cloud-run` with `deploy.cloudRun.cpuAlwaysAllocated`) and while `poll` is true, every worker starts the `poll(ref, ctx)` of each trigger whose source has one, in `onStart`. The poll receives `{ emit(events, { ack, nack }), signal, log, checkpoints }`: `emit` runs the trigger with its `concurrency` and resolves once every event was handled (back-pressure), calling `ack` or `nack` per outcome. A poll that throws logs `trigger.poll.failed` and starts again after a delay doubling from `pollBackoff.min` to `pollBackoff.max`, back to the minimum after a successful emission. On a shutdown signal the polls' signals abort; at stop the running handlers finish within `jobs.shutdownGrace` and the held leases are released.",
+          "",
+          "A source that reads partitions (stream shards) keeps its positions with `ctx.checkpoints`: `claim(partitions, { ttl })` resolves the partitions this worker leases with their saved positions, `renew()` extends the leases, `save(partition, position)` writes only while this worker holds the lease, and `release(partition)` frees one at once. They live in the shared system entity `TriggerCheckpoint` (`trigger`, `partition`, `position`, `owner`, `leaseUntil`, unique on trigger and partition), which the feature registering such a source adds to its `entities` as `triggerCheckpointEntity`; several features adding it keep one table.",
+        ].join("\n"),
+      },
+      {
         title: "Sources",
         text: [
           "A source is a `TriggerSource`: `kind`, `recognize(platform, raw)`, `decode(raw)` returning events and `matches(ref, event)`, plus the optional `poll(ref, ctx)`, `result(outcomes, raw)`, `push` and `describe(ref)`. A feature listing `triggers` in `requires`, `after` or `enables` registers one during its setup with `ctx.feature(\"triggers\").source(kind, source)`. A trigger on a kind no feature registers fails startup with `triggers/<name> uses source <kind>, which no feature registers; enable the feature that provides it`.",
@@ -91,6 +131,7 @@ export const triggersFeature = defineFeature({
       },
     ],
   },
+  options,
   folders: {
     triggers: {
       dir: "triggers",
@@ -151,6 +192,20 @@ export const triggersFeature = defineFeature({
         return dispatched;
       },
     };
+    // Sources pull events in each worker of a server target, unless poll is false.
+    const polls = ctx.options.poll && targetPolls(ctx.config);
+    const pollers: Poller[] = [];
+    const stores: TriggerCheckpoints[] = [];
+    const checkpointModel = ctx.models.find((model) => model.key === "TriggerCheckpoint" && model.system);
+    const owner = `${hostname()}-${process.pid}-${ctx.worker.index}-${randomUUID().slice(0, 8)}`;
+    const checkpointsOf = (name: string): (() => TriggerCheckpoints) => {
+      let store: TriggerCheckpoints | undefined;
+      return () => {
+        if (!checkpointModel) throw new Error(MISSING_CHECKPOINTS);
+        if (!store) stores.push((store = checkpointStore({ adapter: ctx.config.database, model: checkpointModel, trigger: name, owner, now: () => clocks.current.now(), parse: parseDuration })));
+        return store;
+      };
+    };
     // Sources are registered during the setups of later features, so the kinds are checked once every setup ran.
     ctx.app.onStart((start) => {
       for (const [name, definition] of declared) {
@@ -158,8 +213,42 @@ export const triggersFeature = defineFeature({
       }
       repos = start.repos;
       running.current = native;
+      if (!polls) return;
+      const backoff = { min: parseDuration(ctx.options.pollBackoff.min) ?? 1000, max: parseDuration(ctx.options.pollBackoff.max) ?? 30_000 };
+      for (const [name, definition] of [...declared].sort(([a], [b]) => a.localeCompare(b))) {
+        const source = registered.sources.get(definition.source.kind)!.source;
+        if (typeof source.poll !== "function") continue;
+        pollers.push(
+          startPoller({
+            name,
+            definition,
+            source,
+            run: (events) => runTriggerEvents({ name, definition, events, repos: () => repos!, logger: ctx.logger, queues: queuesOn }),
+            checkpoints: checkpointsOf(name),
+            logger: ctx.logger,
+            clock: clocks.current,
+            backoff,
+          }),
+        );
+      }
     });
-    ctx.app.onStop(() => {
+    // The polls stop pulling as soon as the shutdown starts.
+    ctx.app.onShutdown(() => {
+      for (const poller of pollers) poller.stop();
+    });
+    ctx.app.onStop(async () => {
+      for (const poller of pollers) poller.stop();
+      // Running handlers finish within the jobs' grace, then the leases go back so another instance continues at once.
+      const grace = Math.min(parseDuration(ctx.config.jobs.shutdownGrace) ?? 10_000, Math.floor((parseDuration(ctx.config.lifecycle.stopTimeout) ?? 10_000) * 0.9));
+      await Promise.all(pollers.map((poller) => poller.drain(grace)));
+      for (const store of stores.splice(0)) {
+        try {
+          await store.releaseAll();
+        } catch (error) {
+          safeLog(ctx.logger, "warn", { timestamp: new Date().toISOString(), message: "trigger.checkpoints.release.failed", error: { message: (error as Error)?.message ?? String(error) } });
+        }
+      }
+      pollers.splice(0);
       if (running.current === native) running.current = undefined;
       registered.sources = new Map();
     });
@@ -207,6 +296,10 @@ export async function triggerSources(config: ResolvedConfig): Promise<Map<string
 export default triggersFeature;
 export { runTriggerEvents, triggerTimedOut } from "./run.ts";
 export { dispatchPlatformEvent, overallStatus } from "./state.ts";
+export { checkpointStore, MISSING_CHECKPOINTS, triggerCheckpointEntity } from "./checkpoints.ts";
+export type { CheckpointStoreOptions, ClaimedPartition, TriggerCheckpoints } from "./checkpoints.ts";
+export { startPoller } from "./poll.ts";
+export type { Poller, PollAcknowledgments, PollerInput, TriggerPollContext } from "./poll.ts";
 export type { DispatchOptions, EmitTriggerOptions, TriggerDispatch, TriggerEmission } from "./state.ts";
 export { TEST_SOURCE_KIND, testDelivery, testSource, testTriggerSource } from "./test-source.ts";
 export type { TestDelivery, TestEventInput, TestSourceRef } from "./test-source.ts";
